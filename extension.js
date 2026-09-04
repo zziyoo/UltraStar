@@ -104,10 +104,28 @@ export default function () {
 				game.saveExtensionConfig(extensionName, "version", currentVersion);
 				setTimeout(() => {
 					const updateContent = ["【奥特之星】v" + currentVersion, "本次更新内容：", "修复bug，增加彩蛋出现概率，压缩素材", "加强：赛文（冰斧）,雷欧（奋战）", "调整：爱迪（重置）", "削弱：", "新增：阿斯特拉"];
+					const mask = document.createElement("div");
+					Object.assign(mask.style, {
+						position: "fixed",
+						left: "0",
+						top: "0",
+						width: "100%",
+						height: "100%",
+						zIndex: 9998,
+						background: "rgba(0,0,0,0.5)"
+					});
+					ui.window.appendChild(mask);
 					const dialog = ui.create.dialog("hidden");
 					dialog.classList.add("fixed");
+					dialog.style.zIndex = 9999;
 					dialog.add('<div style="text-align:left">' + updateContent.join("<br>") + "</div>");
 					dialog.open();
+					const closeNotice = () => {
+						dialog.close();
+						mask.remove();
+					};
+					mask.addEventListener("click", closeNotice);
+					dialog.addEventListener("click", closeNotice);
 				}, 100);
 			}
 
@@ -128,10 +146,28 @@ export default function () {
 									"缺失文件：",
 									shown + more,
 								];
+								const mask = document.createElement("div");
+								Object.assign(mask.style, {
+									position: "fixed",
+									left: "0",
+									top: "0",
+									width: "100%",
+									height: "100%",
+									zIndex: 9998,
+									background: "rgba(0,0,0,0.5)"
+								});
+								ui.window.appendChild(mask);
 								const dialog = ui.create.dialog("hidden");
 								dialog.classList.add("fixed");
+								dialog.style.zIndex = 9999;
 								dialog.add('<div style="text-align:left">' + content.join("<br>") + "</div>");
 								dialog.open();
+								const closeNotice = () => {
+									dialog.close();
+									mask.remove();
+								};
+								mask.addEventListener("click", closeNotice);
+								dialog.addEventListener("click", closeNotice);
 							} else if (missing.length === 0 && savedMissing !== 0) {
 								game.saveExtensionConfig(extensionName, "assetMissing", 0);
 							}
@@ -12668,8 +12704,8 @@ export default function () {
 			intro: "奥特五大誓言：饿着肚子不能上学；好天气要晒被子；过马路时要注意来往车辆；不要依赖别人的力量；要光着脚在地上玩",
 			author: "子右",
 			diskURL: "",
-			forumURL: "",
-			version: "1.3.2",
+			forumURL: "https://github.com/zziyoo/UltraStar",
+			version: "2.1.1",
 		},
 	};
 }
