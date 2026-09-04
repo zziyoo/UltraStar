@@ -46,7 +46,6 @@ const triggerTypeName = {
 	damage: "伤害",
 	die: "死亡",
 	recover: "回复",
-	special: "特殊",
 };
 
 // ===== 简洁彩蛋 =====
@@ -202,6 +201,16 @@ eggs.catalog = {
 		},
 	],
 	"崩坏：星穹铁道": [
+		{
+			id: "starrail_huangquan_lost",
+			category: "崩坏：星穹铁道",
+			title: "迷路了...",
+			characters: ["黄泉"],
+			triggerType: "gameStart",
+			triggerDescription: "开局存在黄泉时，有概率触发。",
+			hint: "一位角色迷路了。",
+			content: ["迷路了..."],
+		},
 		{
 			id: "starrail_huangquan_peach",
 			category: "崩坏：星穹铁道",
