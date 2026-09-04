@@ -12703,8 +12703,8 @@ export default function () {
 			},
 			intro: "奥特五大誓言：饿着肚子不能上学；好天气要晒被子；过马路时要注意来往车辆；不要依赖别人的力量；要光着脚在地上玩",
 			author: "子右",
-			diskURL: "",
-			forumURL: "https://github.com/zziyoo/UltraStar",
+			diskURL: "https://github.com/zziyoo/UltraStar",
+			forumURL: "",
 			version: "2.1.1",
 		},
 	};
