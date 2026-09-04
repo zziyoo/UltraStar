@@ -239,7 +239,7 @@ eggs.catalog = {
 // ===== 发现记录 API =====
 const DISCOVERED_CHARACTERS_KEY = "wm_easterEgg_characters";
 eggs.getDiscovered = function () {
-	const list = game.getExtensionConfig("无名扩展", DISCOVERED_KEY);
+	const list = game.getExtensionConfig("奥特之星", DISCOVERED_KEY);
 	return Array.isArray(list) ? list : [];
 };
 
@@ -248,30 +248,30 @@ eggs.markDiscovered = function (id) {
 	const discovered = eggs.getDiscovered();
 	if (discovered.includes(id)) return;
 	discovered.push(id);
-	game.saveExtensionConfig("无名扩展", DISCOVERED_KEY, discovered);
+	game.saveExtensionConfig("奥特之星", DISCOVERED_KEY, discovered);
 };
 
 eggs.getEggCharacters = function (id) {
-	const map = game.getExtensionConfig("无名扩展", DISCOVERED_CHARACTERS_KEY);
+	const map = game.getExtensionConfig("奥特之星", DISCOVERED_CHARACTERS_KEY);
 	const list = map?.[id];
 	return Array.isArray(list) ? list : [];
 };
 
 eggs.markEggCharacter = function (id, character) {
 	if (!id || !character) return;
-	const map = game.getExtensionConfig("无名扩展", DISCOVERED_CHARACTERS_KEY) || {};
+	const map = game.getExtensionConfig("奥特之星", DISCOVERED_CHARACTERS_KEY) || {};
 	const list = Array.isArray(map[id]) ? map[id] : [];
 	if (list.includes(character)) return;
 	list.push(character);
 	map[id] = list;
-	game.saveExtensionConfig("无名扩展", DISCOVERED_CHARACTERS_KEY, map);
+	game.saveExtensionConfig("奥特之星", DISCOVERED_CHARACTERS_KEY, map);
 };
 
 eggs.init = function () {
 	if (_status.wmEasterEggHooked) return;
 	_status.wmEasterEggHooked = true;
 	lib._wmEasterEggs = eggs;
-	const eggPlayAudio = audio => game.playAudio(`ext:无名扩展/audio/easterEggs/${audio}`);
+	const eggPlayAudio = audio => game.playAudio(`ext:奥特之星/audio/easterEggs/${audio}`);
 	const eggMatchPlayer = (player, name) => {
 		if (!name) return true;
 		const names = lib.characterReplace?.[name] || [name];
@@ -280,7 +280,7 @@ eggs.init = function () {
 	const origUseCard = lib.element.Player.prototype.useCard;
 	lib.element.Player.prototype.useCard = function (...args) {
 		const event = origUseCard.apply(this, args);
-		if (!lib.config.extension_无名扩展_easterEgg_enabled) return event;
+		if (!lib.config.extension_奥特之星_easterEgg_enabled) return event;
 		if (event?.card) {
 			const cardName = get.name(event.card);
 			for (const egg of eggs.useCard) {
@@ -306,7 +306,7 @@ eggs.init = function () {
 	const origDamage = lib.element.Player.prototype.damage;
 	lib.element.Player.prototype.damage = function (...args) {
 		const event = origDamage.apply(this, args);
-		if (!lib.config.extension_无名扩展_easterEgg_enabled) return event;
+		if (!lib.config.extension_奥特之星_easterEgg_enabled) return event;
 		const source = event?.source;
 		if (source?.hasSkill) {
 			for (const egg of eggs.damage) {
@@ -325,7 +325,7 @@ eggs.init = function () {
 	const origDie = lib.element.Player.prototype.$die;
 	lib.element.Player.prototype.$die = function (...args) {
 		const result = origDie.apply(this, args);
-		if (!lib.config.extension_无名扩展_easterEgg_enabled) return result;
+		if (!lib.config.extension_奥特之星_easterEgg_enabled) return result;
 		for (const egg of eggs.die) {
 			if (egg.deceased && !eggMatchPlayer(this, egg.deceased)) continue;
 			const speaker = egg.speaker ? game.players?.find(p => eggMatchPlayer(p, egg.speaker)) : this;
@@ -341,7 +341,7 @@ eggs.init = function () {
 	const origRecover = lib.element.Player.prototype.recover;
 	lib.element.Player.prototype.recover = function (...args) {
 		const next = origRecover.apply(this, args);
-		if (!lib.config.extension_无名扩展_easterEgg_enabled) return next;
+		if (!lib.config.extension_奥特之星_easterEgg_enabled) return next;
 		if (eggMatchPlayer(this, "黄泉")) {
 			let cur = _status.event;
 			while (cur) {
@@ -368,7 +368,7 @@ eggs.init = function () {
 			},
 			async content() {
 				_status.wmEasterEggGameStartChecked = true;
-				if (!lib.config.extension_无名扩展_easterEgg_enabled) return;
+				if (!lib.config.extension_奥特之星_easterEgg_enabled) return;
 				const gameStartEggs = lib._wmEasterEggs?.gameStart;
 				if (!gameStartEggs?.length) return;
 				const matchPlayer = (player, name) => {
@@ -439,7 +439,7 @@ eggs.openCatalog = function () {
 	const allEggs = Object.values(eggs.catalog).flat();
 	const categories = Object.keys(eggs.catalog).filter(cat => eggs.catalog[cat].length > 0);
 	const discovered = eggs.getDiscovered();
-	const enabled = !!lib.config.extension_无名扩展_easterEgg_enabled;
+	const enabled = !!lib.config.extension_奥特之星_easterEgg_enabled;
 	let currentCategory = "全部";
 
 	const overlay = document.createElement("div");
