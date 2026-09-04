@@ -68,7 +68,7 @@ const openChangelog = async () => {
 	} catch (e) {
 		html = "更新日志加载失败 (´；ω ；`)";
 	}
-	const { box, title, hint } = createChangelogOverlay("【无名扩展】历史更新");
+	const { box, title, hint } = createChangelogOverlay("【奥特之星】历史更新");
 	const text = document.createElement("div");
 	text.className = "wm-changelog-text";
 	text.innerHTML = html;
@@ -80,7 +80,7 @@ const openTierlist = () => {
 	if (document.querySelector(".wm-changelog-overlay")) return;
 	ensureChangelogStyles();
 	const extUrl = import.meta.url;
-	const { box, title, hint } = createChangelogOverlay("【无名扩展】角色强度排行");
+	const { box, title, hint } = createChangelogOverlay("【奥特之星】角色强度排行");
 	const text = document.createElement("div");
 	text.className = "wm-changelog-text";
 	const img = document.createElement("img");
@@ -93,17 +93,17 @@ const openTierlist = () => {
 };
 export default function () {
 	return {
-		name: "无名扩展",
+		name: "奥特之星",
 		content: function (config, pack) {},
 		arenaReady: function () {
-			const currentVersion = "1.3.2";
-			const extensionName = "无名扩展";
+			const currentVersion = "2.1.1";
+			const extensionName = "奥特之星";
 			const savedVersion = lib.config[`extension_${extensionName}_version`] || "1.0.0";
 
 			if (savedVersion !== currentVersion) {
 				game.saveExtensionConfig(extensionName, "version", currentVersion);
 				setTimeout(() => {
-					const updateContent = ["【无名扩展】v" + currentVersion, "本次更新内容：", "修复bug，增加彩蛋出现概率，压缩素材", "加强：赛文（冰斧）,雷欧（奋战）", "调整：爱迪（重置）", "削弱：", "新增：阿斯特拉"];
+					const updateContent = ["【奥特之星】v" + currentVersion, "本次更新内容：", "修复bug，增加彩蛋出现概率，压缩素材", "加强：赛文（冰斧）,雷欧（奋战）", "调整：爱迪（重置）", "削弱：", "新增：阿斯特拉"];
 					const dialog = ui.create.dialog("hidden");
 					dialog.classList.add("fixed");
 					dialog.add('<div style="text-align:left">' + updateContent.join("<br>") + "</div>");
@@ -122,7 +122,7 @@ export default function () {
 								const shown = missing.slice(0, 8).map(f => "· " + f).join("<br>");
 								const more = missing.length > 8 ? "<br>...等，共缺失 " + missing.length + " 个文件" : "";
 								const content = [
-									"【无名扩展】检测到素材缺失",
+									"【奥特之星】检测到素材缺失",
 									"检测到 " + missing.length + " 个语音/图片素材文件缺失，通常是因为跳过了中间版本更新。",
 									"请使用最新完整包覆盖安装，否则部分角色语音、立绘或卡牌图片将无法正常显示。",
 									"缺失文件：",
@@ -196,7 +196,7 @@ export default function () {
 				return game.customBgmList.some(audio => audio !== currentAudio && !audio.paused);
 			};
 			game.addBgmToList = function (audio) {
-				if (!lib.config.extension_无名扩展_bgm_enabled) {
+				if (!lib.config.extension_奥特之星_bgm_enabled) {
 					audio.play = () => Promise.resolve();
 					return;
 				}
@@ -213,7 +213,7 @@ export default function () {
 				if (!game[audioKey] || game[audioKey].ended) {
 					if (!game.hasOtherBgmPlaying(game[audioKey])) {
 						const file = files[Math.floor(Math.random() * files.length)];
-						game[audioKey] = new Audio(`extension/无名扩展/audio/skill/${file}`);
+						game[audioKey] = new Audio(`extension/奥特之星/audio/skill/${file}`);
 						game.addBgmToList(game[audioKey]);
 						game[audioKey].play();
 					}
@@ -224,56 +224,56 @@ export default function () {
 		precontent: function () {
 			game.addGroup("yv", "宇", "宇", {
 				color: [129, 60, 133, 1],
-				image: "ext:无名扩展/image/kingdom/yv.png",
+				image: "ext:奥特之星/image/kingdom/yv.png",
 			});
 			game.addGroup("shou", "兽", "兽", {
 				color: [246, 246, 246, 1],
-				image: "ext:无名扩展/image/kingdom/shou.png",
+				image: "ext:奥特之星/image/kingdom/shou.png",
 			});
 			game.addGroup("ao", "奥", "奥", {
 				color: [255, 225, 76, 1],
-				image: "ext:无名扩展/image/kingdom/ao.png",
+				image: "ext:奥特之星/image/kingdom/ao.png",
 			});
 			game.addGroup("ao_red", "奥", "奥", {
 				color: [255, 0, 0, 1],
-				image: "ext:无名扩展/image/kingdom/ao_red.png",
+				image: "ext:奥特之星/image/kingdom/ao_red.png",
 			});
 			game.addGroup("ao_black", "奥", "奥", {
 				color: [255, 255, 255, 1],
-				image: "ext:无名扩展/image/kingdom/ao_black.png",
+				image: "ext:奥特之星/image/kingdom/ao_black.png",
 			});
 			game.addGroup("ji", "机", "机", {
 				color: [176, 208, 226, 1],
-				image: "ext:无名扩展/image/kingdom/ji.png",
+				image: "ext:奥特之星/image/kingdom/ji.png",
 			});
 
 			lib.characterSubstitute = lib.characterSubstitute || {};
 			lib.characterSubstitute["奈克瑟斯"] = [
-				["奈克瑟斯-青年型", ["ext:无名扩展/image/奈克瑟斯-青年型.jpg"]],
-				["奈克瑟斯-蓝色青年型", ["ext:无名扩展/image/奈克瑟斯-蓝色青年型.jpg"]],
+				["奈克瑟斯-青年型", ["ext:奥特之星/image/奈克瑟斯-青年型.jpg"]],
+				["奈克瑟斯-蓝色青年型", ["ext:奥特之星/image/奈克瑟斯-蓝色青年型.jpg"]],
 			];
 			lib.characterSubstitute["芙宁娜芙卡洛斯"] = [
-				["芙宁娜-成功", ["ext:无名扩展/image/芙宁娜-成功.jpg"]],
-				["芙宁娜-失败", ["ext:无名扩展/image/芙宁娜-失败.jpg"]],
+				["芙宁娜-成功", ["ext:奥特之星/image/芙宁娜-成功.jpg"]],
+				["芙宁娜-失败", ["ext:奥特之星/image/芙宁娜-失败.jpg"]],
 			];
 			lib.characterSubstitute["迪迦"] = [
-				["迪迦-复合", ["ext:无名扩展/image/迪迦-复合.jpg"]],
-				["迪迦-强力", ["ext:无名扩展/image/迪迦-强力.jpg"]],
-				["迪迦-空中", ["ext:无名扩展/image/迪迦-空中.jpg"]],
+				["迪迦-复合", ["ext:奥特之星/image/迪迦-复合.jpg"]],
+				["迪迦-强力", ["ext:奥特之星/image/迪迦-强力.jpg"]],
+				["迪迦-空中", ["ext:奥特之星/image/迪迦-空中.jpg"]],
 			];
 			lib.characterSubstitute["戴拿"] = [
-				["戴拿-闪亮", ["ext:无名扩展/image/戴拿-闪亮.jpg"]],
-				["戴拿-奇迹", ["ext:无名扩展/image/戴拿-奇迹.jpg"]],
-				["戴拿-强壮", ["ext:无名扩展/image/戴拿-强壮.jpg"]],
+				["戴拿-闪亮", ["ext:奥特之星/image/戴拿-闪亮.jpg"]],
+				["戴拿-奇迹", ["ext:奥特之星/image/戴拿-奇迹.jpg"]],
+				["戴拿-强壮", ["ext:奥特之星/image/戴拿-强壮.jpg"]],
 			];
-			lib.characterSubstitute["杰斯提斯"] = [["杰斯提斯-粉碎", ["ext:无名扩展/image/杰斯提斯-粉碎.jpg"]]];
-			lib.characterSubstitute["黄泉"] = [["黄泉-啼泽", ["ext:无名扩展/image/黄泉-啼泽.jpg"]]];
+			lib.characterSubstitute["杰斯提斯"] = [["杰斯提斯-粉碎", ["ext:奥特之星/image/杰斯提斯-粉碎.jpg"]]];
+			lib.characterSubstitute["黄泉"] = [["黄泉-啼泽", ["ext:奥特之星/image/黄泉-啼泽.jpg"]]];
 
 			lib.characterReplace = lib.characterReplace || {};
 			lib.characterReplace["迪迦"] = ["迪迦", "闪耀迪迦", "黑暗迪迦"];
 			lib.characterReplace["芙宁娜"] = ["芙宁娜", "芙宁娜芙卡洛斯"];
 
-			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:无名扩展/image/死龙.jpg"]];
+			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:奥特之星/image/死龙.jpg"]];
 			lib.character["死龙"].isHiddenBoss = true;
 			lib.character["死龙"].isAiForbidden = true;
 			lib.translate["死龙"] = "死龙";
@@ -370,8 +370,8 @@ export default function () {
 						hp: 4,
 						skills: ["plcmhuanjing", "plcmlengjing", "plcmjinghua"],
 						names: "null|普利茨墨",
-						img: "extension/无名扩展/image/普利茨墨.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/普利茨墨.mp3"],
+						img: "extension/奥特之星/image/普利茨墨.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/普利茨墨.mp3"],
 					},
 					曼波: {
 						sex: "female",
@@ -379,8 +379,8 @@ export default function () {
 						hp: 4,
 						skills: ["mbmanbo"],
 						names: "null|子右",
-						img: "extension/无名扩展/image/曼波.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/曼波.mp3"],
+						img: "extension/奥特之星/image/曼波.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/曼波.mp3"],
 					},
 					哈基米: {
 						sex: "female",
@@ -388,8 +388,8 @@ export default function () {
 						hp: 3,
 						skills: ["hjmhaqi"],
 						names: "null|哈基米",
-						img: "extension/无名扩展/image/哈基米.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/哈基米.mp3"],
+						img: "extension/奥特之星/image/哈基米.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/哈基米.mp3"],
 					},
 					米浴: {
 						sex: "female",
@@ -397,8 +397,8 @@ export default function () {
 						hp: 4,
 						skills: ["myjuesheng"],
 						names: "null|米浴",
-						img: "extension/无名扩展/image/米浴.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/米浴.mp3"],
+						img: "extension/奥特之星/image/米浴.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/米浴.mp3"],
 					},
 					安培拉星人: {
 						sex: "male",
@@ -406,8 +406,8 @@ export default function () {
 						hp: 5,
 						skills: ["aplxiongye", "aplaojie"],
 						names: "null|安培拉星人",
-						img: "extension/无名扩展/image/安培拉星人.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/安培拉星人.mp3"],
+						img: "extension/奥特之星/image/安培拉星人.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/安培拉星人.mp3"],
 					},
 					特别周: {
 						sex: "female",
@@ -415,8 +415,8 @@ export default function () {
 						hp: 5,
 						skills: ["tbznengchi"],
 						names: "null|特别周",
-						img: "extension/无名扩展/image/特别周.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/特别周.mp3"],
+						img: "extension/奥特之星/image/特别周.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/特别周.mp3"],
 					},
 					黄金船: {
 						sex: "female",
@@ -424,8 +424,8 @@ export default function () {
 						hp: 4,
 						skills: ["hjcsuixin"],
 						names: "null|黄金船",
-						img: "extension/无名扩展/image/黄金船.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/黄金船.mp3"],
+						img: "extension/奥特之星/image/黄金船.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/黄金船.mp3"],
 					},
 					奈克瑟斯: {
 						sex: "male",
@@ -433,8 +433,8 @@ export default function () {
 						hp: 4,
 						skills: ["nkssjicheng"],
 						names: "null|奈克瑟斯",
-						img: "extension/无名扩展/image/奈克瑟斯.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/奈克瑟斯.mp3"],
+						img: "extension/奥特之星/image/奈克瑟斯.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/奈克瑟斯.mp3"],
 					},
 					芙宁娜芙卡洛斯: {
 						sex: "female",
@@ -442,7 +442,7 @@ export default function () {
 						hp: 3,
 						skills: ["ffshenqu", "ffduwu", "ffshenpan"],
 						names: "null|芙宁娜-null|芙卡洛斯",
-						img: "extension/无名扩展/image/芙宁娜芙卡洛斯.jpg",
+						img: "extension/奥特之星/image/芙宁娜芙卡洛斯.jpg",
 					},
 					流萤: {
 						sex: "female",
@@ -450,8 +450,8 @@ export default function () {
 						hp: 5,
 						skills: ["lyshishang", "lyranjin", "lyyuhuo"],
 						names: "null|流萤",
-						img: "extension/无名扩展/image/流萤.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/流萤.mp3"],
+						img: "extension/奥特之星/image/流萤.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/流萤.mp3"],
 					},
 					大丽花: {
 						sex: "female",
@@ -459,8 +459,8 @@ export default function () {
 						hp: 4,
 						skills: ["dlhchizhuo"],
 						names: "null|大丽花",
-						img: "extension/无名扩展/image/大丽花.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/大丽花.mp3"],
+						img: "extension/奥特之星/image/大丽花.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/大丽花.mp3"],
 					},
 					忘归人: {
 						sex: "female",
@@ -468,8 +468,8 @@ export default function () {
 						hp: 4,
 						skills: ["wgryanzhao"],
 						names: "null|忘归人",
-						img: "extension/无名扩展/image/忘归人.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/忘归人.mp3"],
+						img: "extension/奥特之星/image/忘归人.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/忘归人.mp3"],
 					},
 					灵砂: {
 						sex: "female",
@@ -477,16 +477,16 @@ export default function () {
 						hp: 4,
 						skills: ["lszhuoyan", "lsfenyun"],
 						names: "null|灵砂",
-						img: "extension/无名扩展/image/灵砂.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/灵砂.mp3"],
+						img: "extension/奥特之星/image/灵砂.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/灵砂.mp3"],
 					},
 					谋曹丕: {
 						sex: "male",
 						group: "wei",
 						hp: 3,
 						skills: ["mcpxingshang", "mcpfangzhu", "mcpsongwei"],
-						img: "extension/无名扩展/image/谋曹丕.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/谋曹丕.mp3"],
+						img: "extension/奥特之星/image/谋曹丕.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/谋曹丕.mp3"],
 					},
 					那维莱特: {
 						sex: "male",
@@ -494,8 +494,8 @@ export default function () {
 						hp: 5,
 						skills: ["nwlthailang", "nwltgongzheng", "nwltjuecai"],
 						names: "那维莱特|null",
-						img: "extension/无名扩展/image/那维莱特.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那维莱特.mp3"],
+						img: "extension/奥特之星/image/那维莱特.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那维莱特.mp3"],
 					},
 					奥特之父: {
 						sex: "male",
@@ -503,8 +503,8 @@ export default function () {
 						hp: 4,
 						skills: ["atzfzhenli", "atzfchiyuan"],
 						names: "null|健",
-						img: "extension/无名扩展/image/奥特之父.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/奥特之父.mp3"],
+						img: "extension/奥特之星/image/奥特之父.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/奥特之父.mp3"],
 					},
 					阿蕾奇诺: {
 						sex: "female",
@@ -512,8 +512,8 @@ export default function () {
 						hp: 4,
 						skills: ["alqnhuahui", "alqnzhanshou", "alqneyue"],
 						names: "null|佩露薇利",
-						img: "extension/无名扩展/image/阿蕾奇诺.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/阿蕾奇诺.mp3"],
+						img: "extension/奥特之星/image/阿蕾奇诺.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/阿蕾奇诺.mp3"],
 					},
 					知更鸟: {
 						sex: "female",
@@ -521,24 +521,24 @@ export default function () {
 						hp: 3,
 						skills: ["zgnxiezou"],
 						names: "null|知更鸟",
-						img: "extension/无名扩展/image/知更鸟.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/知更鸟.mp3"],
+						img: "extension/奥特之星/image/知更鸟.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/知更鸟.mp3"],
 					},
 					丝柯克: {
 						sex: "female",
 						group: "shen",
 						hp: 4,
 						skills: ["skkjimie", "skkduduan"],
-						img: "extension/无名扩展/image/丝柯克.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/丝柯克.mp3"],
+						img: "extension/奥特之星/image/丝柯克.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/丝柯克.mp3"],
 					},
 					云璃: {
 						sex: "female",
 						group: "shen",
 						hp: 4,
 						skills: ["ylshanshuo", "ylxiahe", "ylkanpo"],
-						img: "extension/无名扩展/image/云璃.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/云璃.mp3"],
+						img: "extension/奥特之星/image/云璃.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/云璃.mp3"],
 					},
 					奥特之王: {
 						sex: "male",
@@ -546,8 +546,8 @@ export default function () {
 						hp: 4,
 						skills: ["atzwxingmian", "atzwbuxi"],
 						names: "null|皮特",
-						img: "extension/无名扩展/image/奥特之王.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/奥特之王.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					遐蝶: {
 						sex: "female",
@@ -555,8 +555,8 @@ export default function () {
 						hp: 10,
 						skills: ["xdanchao", "xdyuejian", "xdyoudie"],
 						names: "null|遐蝶",
-						img: "extension/无名扩展/image/遐蝶.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/遐蝶.mp3"],
+						img: "extension/奥特之星/image/遐蝶.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/遐蝶.mp3"],
 					},
 					目白麦昆: {
 						sex: "female",
@@ -564,8 +564,8 @@ export default function () {
 						hp: 4,
 						skills: ["mbmkmingmen"],
 						names: "目白|麦昆",
-						img: "extension/无名扩展/image/目白麦昆.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/目白麦昆.mp3"],
+						img: "extension/奥特之星/image/目白麦昆.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/目白麦昆.mp3"],
 					},
 					闪耀迪迦: {
 						sex: "male",
@@ -573,8 +573,8 @@ export default function () {
 						hp: 4,
 						skills: ["sydjqiji", "sydjhuihuang"],
 						names: "null|迪迦",
-						img: "extension/无名扩展/image/闪耀迪迦.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/闪耀迪迦.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					迪迦: {
 						sex: "male",
@@ -582,8 +582,8 @@ export default function () {
 						hp: 4,
 						skills: ["djsj"],
 						names: "null|迪迦",
-						img: "extension/无名扩展/image/迪迦-复合.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/迪迦.mp3"],
+						img: "extension/奥特之星/image/迪迦-复合.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/迪迦.mp3"],
 					},
 					黑暗迪迦: {
 						sex: "male",
@@ -591,8 +591,8 @@ export default function () {
 						hp: 4,
 						skills: ["hadjheian", "hadjanrong", "hadjyihui"],
 						names: "null|迪迦",
-						img: "extension/无名扩展/image/黑暗迪迦.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/黑暗迪迦.mp3"],
+						img: "extension/奥特之星/image/黑暗迪迦.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/黑暗迪迦.mp3"],
 					},
 					赛迦: {
 						sex: "male",
@@ -600,8 +600,8 @@ export default function () {
 						hp: 4,
 						skills: ["sjyuzhi", "sjzhanren"],
 						names: "null|赛迦",
-						img: "extension/无名扩展/image/赛迦.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/赛迦.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					希卡利: {
 						sex: "male",
@@ -609,8 +609,8 @@ export default function () {
 						hp: 3,
 						skills: ["xklkeyan", "xkllizhu"],
 						names: "null|希卡利",
-						img: "extension/无名扩展/image/希卡利.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/希卡利.mp3"],
+						img: "extension/奥特之星/image/希卡利.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/希卡利.mp3"],
 					},
 					芙宁娜: {
 						sex: "female",
@@ -618,8 +618,8 @@ export default function () {
 						hp: 5,
 						skills: ["ffshalong", "ffyuanwu", "ffkuanghuan"],
 						names: "null|芙宁娜",
-						img: "extension/无名扩展/image/芙宁娜.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/芙宁娜.mp3"],
+						img: "extension/奥特之星/image/芙宁娜.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/芙宁娜.mp3"],
 					},
 					奥特曼: {
 						sex: "male",
@@ -627,8 +627,8 @@ export default function () {
 						hp: 4,
 						skills: ["atmguanglun", "atmzhuangshuo", "atmnianli"],
 						names: "null|奥特曼",
-						img: "extension/无名扩展/image/奥特曼.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/奥特曼.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					杰克: {
 						sex: "male",
@@ -636,8 +636,8 @@ export default function () {
 						hp: 4,
 						skills: ["jkshouzhuo", "jkjuedi", "atmnianli"],
 						names: "null|杰克",
-						img: "extension/无名扩展/image/杰克.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/杰克.mp3"],
+						img: "extension/奥特之星/image/杰克.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/杰克.mp3"],
 					},
 					恰斯卡: {
 						sex: "female",
@@ -645,8 +645,8 @@ export default function () {
 						hp: 3,
 						skills: ["qsklingjiang", "qsksuohun"],
 						names: "null|恰斯卡",
-						img: "extension/无名扩展/image/恰斯卡.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/恰斯卡.mp3"],
+						img: "extension/奥特之星/image/恰斯卡.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/恰斯卡.mp3"],
 					},
 					玛薇卡: {
 						sex: "female",
@@ -654,8 +654,8 @@ export default function () {
 						hp: 4,
 						skills: ["mwkzhihuo", "mwkfenyao", "mwkfantian"],
 						names: "null|玛薇卡",
-						img: "extension/无名扩展/image/玛薇卡.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/玛薇卡.mp3"],
+						img: "extension/奥特之星/image/玛薇卡.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/玛薇卡.mp3"],
 					},
 					希诺宁: {
 						sex: "female",
@@ -663,8 +663,8 @@ export default function () {
 						hp: 4,
 						skills: ["xnnjuelie", "xnnduancui"],
 						names: "null|希诺宁",
-						img: "extension/无名扩展/image/希诺宁.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/希诺宁.mp3"],
+						img: "extension/奥特之星/image/希诺宁.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/希诺宁.mp3"],
 					},
 					加坦杰厄: {
 						sex: "null",
@@ -672,8 +672,8 @@ export default function () {
 						hp: 4,
 						skills: ["jtjeheiwu", "jtjeluoke", "jtjeguanchuan"],
 						names: "null|加坦杰厄",
-						img: "extension/无名扩展/image/加坦杰厄.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/加坦杰厄.mp3"],
+						img: "extension/奥特之星/image/加坦杰厄.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/加坦杰厄.mp3"],
 					},
 					伊格尼兹: {
 						sex: "male",
@@ -681,8 +681,8 @@ export default function () {
 						hp: 4,
 						skills: ["ignzshenji"],
 						names: "null|伊格尼兹",
-						img: "extension/无名扩展/image/伊格尼兹.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/伊格尼兹.mp3"],
+						img: "extension/奥特之星/image/伊格尼兹.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/伊格尼兹.mp3"],
 					},
 					戴拿: {
 						sex: "male",
@@ -690,8 +690,8 @@ export default function () {
 						hp: 4,
 						skills: ["dnshuijing"],
 						names: "null|戴拿",
-						img: "extension/无名扩展/image/戴拿-闪亮.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/戴拿.mp3"],
+						img: "extension/奥特之星/image/戴拿-闪亮.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/戴拿.mp3"],
 					},
 					佐菲: {
 						sex: "male",
@@ -699,8 +699,8 @@ export default function () {
 						hp: 4,
 						skills: ["zfbaqi", "zfyakong", "atmnianli"],
 						names: "null|佐菲",
-						img: "extension/无名扩展/image/佐菲.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/佐菲.mp3"],
+						img: "extension/奥特之星/image/佐菲.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/佐菲.mp3"],
 					},
 					泰罗: {
 						sex: "male",
@@ -708,16 +708,16 @@ export default function () {
 						hp: 4,
 						skills: ["tlpoquan", "tlzhadan", "atmnianli"],
 						names: "null|泰罗",
-						img: "extension/无名扩展/image/泰罗.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/泰罗.mp3"],
+						img: "extension/奥特之星/image/泰罗.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/泰罗.mp3"],
 					},
 					爻袁术: {
 						sex: "male",
 						group: "qun",
 						hp: 4,
 						skills: ["yaoyaoyi", "yaochenwei"],
-						img: "extension/无名扩展/image/爻袁术.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/爻袁术.mp3"],
+						img: "extension/奥特之星/image/爻袁术.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/爻袁术.mp3"],
 					},
 					艾斯: {
 						sex: "male",
@@ -725,8 +725,8 @@ export default function () {
 						hp: 4,
 						skills: ["asguangxian", "asduantou", "atmnianli"],
 						names: "null|艾斯",
-						img: "extension/无名扩展/image/艾斯.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/艾斯.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					赛文: {
 						sex: "male",
@@ -734,8 +734,8 @@ export default function () {
 						hp: 4,
 						skills: ["swbingfu", "swxiongjia", "atmnianli"],
 						names: "null|赛文",
-						img: "extension/无名扩展/image/赛文.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/赛文.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					至高盖亚: {
 						sex: "male",
@@ -743,8 +743,8 @@ export default function () {
 						hp: 4,
 						skills: ["zggylianshuai", "zggyjili"],
 						names: "null|盖亚",
-						img: "extension/无名扩展/image/至高盖亚.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/至高盖亚.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					雷欧: {
 						sex: "male",
@@ -753,8 +753,8 @@ export default function () {
 						maxHp: 5,
 						skills: ["leofenzhan", "leofeiti"],
 						names: "null|雷欧",
-						img: "extension/无名扩展/image/雷欧.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/雷欧.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					杰斯提斯: {
 						sex: "none",
@@ -762,8 +762,8 @@ export default function () {
 						hp: 4,
 						skills: ["jstsfensui"],
 						names: "null|杰斯提斯",
-						img: "extension/无名扩展/image/杰斯提斯.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/杰斯提斯.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					黄泉: {
 						sex: "female",
@@ -771,8 +771,8 @@ export default function () {
 						hp: 4,
 						skills: ["hqchigui", "hqtize"],
 						names: "雷电忘川守|芽衣",
-						img: "extension/无名扩展/image/黄泉.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/黄泉.mp3"],
+						img: "extension/奥特之星/image/黄泉.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/黄泉.mp3"],
 					},
 					未遂: {
 						sex: "female",
@@ -780,8 +780,8 @@ export default function () {
 						hp: 3,
 						skills: ["wsgucheng", "wsgeshi"],
 						names: "符|图纳",
-						img: "extension/无名扩展/image/未遂.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/未遂.mp3"],
+						img: "extension/奥特之星/image/未遂.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/未遂.mp3"],
 					},
 					爱迪: {
 						sex: "male",
@@ -789,8 +789,8 @@ export default function () {
 						hp: 4,
 						skills: ["adkoudai", "adquanneng", "adjinghua"],
 						names: "null|爱迪",
-						img: "extension/无名扩展/image/爱迪.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/爱迪.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					},
 					阿斯特拉: {
 						sex: "male",
@@ -798,12 +798,12 @@ export default function () {
 						hp: 4,
 						skills: ["astlqiuyv", "leofenzhan", "leofeiti"],
 						names: "null|阿斯特拉",
-						img: "extension/无名扩展/image/阿斯特拉.jpg",
-						dieAudios: ["ext:无名扩展/audio/die/那位大人.mp3"],
+						img: "extension/奥特之星/image/阿斯特拉.jpg",
+						dieAudios: ["ext:奥特之星/audio/die/那位大人.mp3"],
 					}
 				},
 				translate: {
-					无名扩展: "无名扩展",
+					奥特之星: "奥特之星",
 					普利茨墨: "普利茨墨",
 					曼波: "曼波",
 					哈基米: "哈基米",
@@ -921,7 +921,7 @@ export default function () {
 			skill: {
 				skill: {
 					plcmhuanjing: {
-						audio: ["ext:无名扩展/audio/skill/huanjing"],
+						audio: ["ext:奥特之星/audio/skill/huanjing"],
 						trigger: {
 							global: "judgeBegin",
 						},
@@ -1011,7 +1011,7 @@ export default function () {
 						},
 					},
 					plcmlengjing: {
-						audio: ["ext:无名扩展/audio/skill/lengjing"],
+						audio: ["ext:奥特之星/audio/skill/lengjing"],
 						group: ["plcmlengjing_target"],
 						trigger: {
 							target: "useCardToTarget",
@@ -1049,7 +1049,7 @@ export default function () {
 						},
 						subSkill: {
 							target: {
-								audio: ["ext:无名扩展/audio/skill/lengjing"],
+								audio: ["ext:奥特之星/audio/skill/lengjing"],
 								trigger: {
 									player: "useCardToPlayered",
 								},
@@ -1075,7 +1075,7 @@ export default function () {
 						},
 					},
 					plcmjinghua: {
-						audio: ["ext:无名扩展/audio/skill/jinghua"],
+						audio: ["ext:奥特之星/audio/skill/jinghua"],
 						forced: true,
 						locked: false,
 						trigger: { player: "useCardAfter" },
@@ -1192,7 +1192,7 @@ export default function () {
 						},
 					},
 					mbmanbo: {
-						audio: ["ext:无名扩展/audio/skill/manbo1", "ext:无名扩展/audio/skill/manbo2", "ext:无名扩展/audio/skill/manbo3"],
+						audio: ["ext:奥特之星/audio/skill/manbo1", "ext:奥特之星/audio/skill/manbo2", "ext:奥特之星/audio/skill/manbo3"],
 						group: ["mbmanbo_round"],
 						trigger: { player: "damageEnd" },
 						forced: true,
@@ -1244,7 +1244,7 @@ export default function () {
 						},
 						subSkill: {
 							round: {
-								audio: ["ext:无名扩展/audio/skill/manbo1", "ext:无名扩展/audio/skill/manbo2", "ext:无名扩展/audio/skill/manbo3"],
+								audio: ["ext:奥特之星/audio/skill/manbo1", "ext:奥特之星/audio/skill/manbo2", "ext:奥特之星/audio/skill/manbo3"],
 								trigger: { global: ["roundStart", "roundEnd"] },
 								forced: true,
 								async content(event, trigger, player) {
@@ -1294,7 +1294,7 @@ export default function () {
 						},
 					},
 					hjmhaqi: {
-						audio: ["ext:无名扩展/audio/skill/haqi1", "ext:无名扩展/audio/skill/haqi2", "ext:无名扩展/audio/skill/haqi3"],
+						audio: ["ext:奥特之星/audio/skill/haqi1", "ext:奥特之星/audio/skill/haqi2", "ext:奥特之星/audio/skill/haqi3"],
 						group: ["hjmhaqi_phaseDraw"],
 						mark: true,
 						marktext: "哈",
@@ -1362,7 +1362,7 @@ export default function () {
 						},
 					},
 					myjuesheng: {
-						audio: ["ext:无名扩展/audio/skill/juesheng"],
+						audio: ["ext:奥特之星/audio/skill/juesheng"],
 						trigger: { player: ["useCardAfter", "respondAfter"] },
 						forced: true,
 						locked: false,
@@ -1488,7 +1488,7 @@ export default function () {
 									},
 									backup(links, player) {
 										return {
-											audio: ["ext:无名扩展/audio/skill/juesheng"],
+											audio: ["ext:奥特之星/audio/skill/juesheng"],
 											filterCard() {
 												return false;
 											},
@@ -1527,7 +1527,7 @@ export default function () {
 					},
 					aplxiongye: {
 						forced: true,
-						audio: ["ext:无名扩展/audio/skill/xiongye1", "ext:无名扩展/audio/skill/xiongye2"],
+						audio: ["ext:奥特之星/audio/skill/xiongye1", "ext:奥特之星/audio/skill/xiongye2"],
 						trigger: { global: ["damageBegin2", "damageBegin4"] },
 						filter(event, player, triggerName) {
 							if (triggerName === "damageBegin2" && event.source === player && event.player !== player) return true;
@@ -1843,7 +1843,7 @@ export default function () {
 						group: ["tbznengchi_draw"],
 						subSkill: {
 							draw: {
-								audio: ["ext:无名扩展/audio/skill/nengchi"],
+								audio: ["ext:奥特之星/audio/skill/nengchi"],
 								trigger: { player: "phaseUseBegin" },
 								forced: true,
 								async content(event, trigger, player) {
@@ -1896,7 +1896,7 @@ export default function () {
 						},
 					},
 					hjcsuixin: {
-						audio: ["ext:无名扩展/audio/skill/suixin1", "ext:无名扩展/audio/skill/suixin2"],
+						audio: ["ext:奥特之星/audio/skill/suixin1", "ext:奥特之星/audio/skill/suixin2"],
 						trigger: { global: ["phaseBegin", "phaseEnd"] },
 						frequent: true,
 						async content(event, trigger, player) {
@@ -2216,7 +2216,7 @@ export default function () {
 						},
 					},
 					ffshenqu: {
-						audio: ["ext:无名扩展/audio/skill/shenqu1", "ext:无名扩展/audio/skill/shenqu2"],
+						audio: ["ext:奥特之星/audio/skill/shenqu1", "ext:奥特之星/audio/skill/shenqu2"],
 						trigger: { player: "dying" },
 						forced: true,
 						async content(event, trigger, player) {
@@ -2337,7 +2337,7 @@ export default function () {
 							round: {
 								trigger: { global: "roundEnd" },
 								forced: true,
-								audio: ["ext:无名扩展/audio/skill/shenpan"],
+								audio: ["ext:奥特之星/audio/skill/shenpan"],
 								async content(event, trigger, player) {
 									const aliveCount = game.countPlayer();
 									const topCards = get.cards(aliveCount);
@@ -2387,7 +2387,7 @@ export default function () {
 								skillAnimation: true,
 								animationColor: "water",
 								prompt2: "赦免",
-								audio: ["ext:无名扩展/audio/skill/shenpan-success"],
+								audio: ["ext:奥特之星/audio/skill/shenpan-success"],
 								filter(event, player) {
 									if (player.countMark("ffshenpan_wu") >= 500) return true;
 									const allPlayers = game.filterPlayer(p => p.isAlive());
@@ -2409,7 +2409,7 @@ export default function () {
 								skillAnimation: true,
 								animationColor: "fire",
 								prompt2: "死刑",
-								audio: ["ext:无名扩展/audio/skill/shenpan-fail"],
+								audio: ["ext:奥特之星/audio/skill/shenpan-fail"],
 								filter(event, player) {
 									const otherPlayers = game.filterPlayer(p => p !== player && p.isAlive());
 									if (otherPlayers.length === 0) return false;
@@ -2430,11 +2430,11 @@ export default function () {
 								silent: true,
 								async content(event, trigger, player) {
 									if (player.hasSkill("ffsongshi")) {
-										game.playAudio("ext:无名扩展/audio/die/芙宁娜芙卡洛斯-赦免.mp3");
+										game.playAudio("ext:奥特之星/audio/die/芙宁娜芙卡洛斯-赦免.mp3");
 									} else if (player.hasSkill("ffguqi")) {
-										game.playAudio("ext:无名扩展/audio/die/芙宁娜芙卡洛斯-死刑.mp3");
+										game.playAudio("ext:奥特之星/audio/die/芙宁娜芙卡洛斯-死刑.mp3");
 									} else {
-										game.playAudio("ext:无名扩展/audio/die/芙宁娜芙卡洛斯.mp3");
+										game.playAudio("ext:奥特之星/audio/die/芙宁娜芙卡洛斯.mp3");
 									}
 								},
 							},
@@ -2472,7 +2472,7 @@ export default function () {
 						},
 					},
 					ffduwu: {
-						audio: ["ext:无名扩展/audio/skill/duwu"],
+						audio: ["ext:奥特之星/audio/skill/duwu"],
 						trigger: { global: "phaseEnd" },
 						forced: true,
 						mark: true,
@@ -2630,7 +2630,7 @@ export default function () {
 						async content(event, trigger, player) {
 							if (!player.getStorage("ffguqi_played", false)) {
 								player.setStorage("ffguqi_played", true);
-								const audio = new Audio("extension/无名扩展/audio/skill/guqi.mp3");
+								const audio = new Audio("extension/奥特之星/audio/skill/guqi.mp3");
 								audio.play();
 							}
 							game.log(player, "发动了【孤泣】");
@@ -2662,7 +2662,7 @@ export default function () {
 						},
 					},
 					lyshishang: {
-						audio: ["ext:无名扩展/audio/skill/shishang"],
+						audio: ["ext:奥特之星/audio/skill/shishang"],
 						trigger: { player: "phaseEnd" },
 						forced: true,
 						async content(event, trigger, player) {
@@ -2674,7 +2674,7 @@ export default function () {
 						},
 					},
 					lyranjin: {
-						audio: ["ext:无名扩展/audio/skill/ranjin1", "ext:无名扩展/audio/skill/ranjin2", "ext:无名扩展/audio/skill/ranjin3"],
+						audio: ["ext:奥特之星/audio/skill/ranjin1", "ext:奥特之星/audio/skill/ranjin2", "ext:奥特之星/audio/skill/ranjin3"],
 						zhuanhuanji: true,
 						direct: true,
 						locked: false,
@@ -2850,7 +2850,7 @@ export default function () {
 						},
 					},
 					lyyuhuo: {
-						audio: ["ext:无名扩展/audio/skill/yvhuo"],
+						audio: ["ext:奥特之星/audio/skill/yvhuo"],
 						trigger: { player: "useCard1" },
 						filter(event, player) {
 							return event.card.name === "sha" && event.targets?.length > 0;
@@ -2986,7 +2986,7 @@ export default function () {
 						},
 					},
 					dlhchizhuo: {
-						audio: ["ext:无名扩展/audio/skill/chizhuo1", "ext:无名扩展/audio/skill/chizhuo2"],
+						audio: ["ext:奥特之星/audio/skill/chizhuo1", "ext:奥特之星/audio/skill/chizhuo2"],
 						trigger: { global: "useCardToTargeted" },
 						filter(event, player) {
 							if (get.tag(event.card, "delay")) return false;
@@ -3191,7 +3191,7 @@ export default function () {
 						},
 					},
 					wgryanzhao: {
-						audio: ["ext:无名扩展/audio/skill/yanzhao1", "ext:无名扩展/audio/skill/yanzhao2"],
+						audio: ["ext:奥特之星/audio/skill/yanzhao1", "ext:奥特之星/audio/skill/yanzhao2"],
 						trigger: {
 							global: ["phaseZhunbeiBegin", "phaseJieshuBegin"],
 						},
@@ -3286,7 +3286,7 @@ export default function () {
 						},
 					},
 					lszhuoyan: {
-						audio: ["ext:无名扩展/audio/skill/zhuoyan1", "ext:无名扩展/audio/skill/zhuoyan2", "ext:无名扩展/audio/skill/zhuoyan3"],
+						audio: ["ext:奥特之星/audio/skill/zhuoyan1", "ext:奥特之星/audio/skill/zhuoyan2", "ext:奥特之星/audio/skill/zhuoyan3"],
 						chargeSkill: 5,
 						usable: 1,
 						mod: {
@@ -3478,7 +3478,7 @@ export default function () {
 						},
 					},
 					lsfenyun: {
-						audio: ["ext:无名扩展/audio/skill/fenyun"],
+						audio: ["ext:奥特之星/audio/skill/fenyun"],
 						chargeSkill: 5,
 						forced: true,
 						locked: false,
@@ -3511,7 +3511,7 @@ export default function () {
 						group: ["lsfenyun_active"],
 						subSkill: {
 							active: {
-								audio: ["ext:无名扩展/audio/skill/fenyun"],
+								audio: ["ext:奥特之星/audio/skill/fenyun"],
 								enable: "phaseUse",
 								direct: true,
 								locked: false,
@@ -3712,7 +3712,7 @@ export default function () {
 								const effect = links[0];
 								return {
 									effect: effect,
-									audio: ["ext:无名扩展/audio/skill/xingshang1", "ext:无名扩展/audio/skill/xingshang2"],
+									audio: ["ext:奥特之星/audio/skill/xingshang1", "ext:奥特之星/audio/skill/xingshang2"],
 									filterCard: () => false,
 									selectCard: -1,
 									filterTarget: effect.filterTarget,
@@ -3768,7 +3768,7 @@ export default function () {
 							aiSkill: {},
 							backup: {},
 							gain: {
-								audio: ["ext:无名扩展/audio/skill/xingshang1", "ext:无名扩展/audio/skill/xingshang2"],
+								audio: ["ext:奥特之星/audio/skill/xingshang1", "ext:奥特之星/audio/skill/xingshang2"],
 								trigger: { global: ["die", "damageEnd"] },
 								filter(event, player) {
 									if (player.countMark("mcpxingshang") >= get.info("mcpxingshang").getLimit) {
@@ -3892,7 +3892,7 @@ export default function () {
 								},
 							},
 						],
-						audio: ["ext:无名扩展/audio/skill/fangzhu1", "ext:无名扩展/audio/skill/fangzhu2"],
+						audio: ["ext:奥特之星/audio/skill/fangzhu1", "ext:奥特之星/audio/skill/fangzhu2"],
 						enable: "phaseUse",
 						filter(event, player) {
 							return get.info("mcpfangzhu").getList.some(effect => {
@@ -3941,7 +3941,7 @@ export default function () {
 								const effect = links[0];
 								return {
 									effect: effect,
-									audio: ["ext:无名扩展/audio/skill/fangzhu1", "ext:无名扩展/audio/skill/fangzhu2"],
+									audio: ["ext:奥特之星/audio/skill/fangzhu1", "ext:奥特之星/audio/skill/fangzhu2"],
 									audioname: ["mb_caomao"],
 									filterCard: () => false,
 									selectCard: -1,
@@ -4071,7 +4071,7 @@ export default function () {
 						},
 					},
 					mcpsongwei: {
-						audio: ["ext:无名扩展/audio/skill/songwei1", "ext:无名扩展/audio/skill/songwei2"],
+						audio: ["ext:奥特之星/audio/skill/songwei1", "ext:奥特之星/audio/skill/songwei2"],
 						trigger: { player: "phaseUseBegin" },
 						filter(event, player) {
 							if (player.countMark("mcpxingshang") >= get.info("mcpxingshang").getLimit) {
@@ -4088,7 +4088,7 @@ export default function () {
 						group: "mcpsongwei_delete",
 						subSkill: {
 							delete: {
-								audio: ["ext:无名扩展/audio/skill/songwei1", "ext:无名扩展/audio/skill/songwei2"],
+								audio: ["ext:奥特之星/audio/skill/songwei1", "ext:奥特之星/audio/skill/songwei2"],
 								enable: "phaseUse",
 								filter(event, player) {
 									if (player.getStorage("mcpsongwei_delete", false)) {
@@ -4118,7 +4118,7 @@ export default function () {
 						},
 					},
 					nwlthailang: {
-						audio: ["ext:无名扩展/audio/skill/hailang1", "ext:无名扩展/audio/skill/hailang2", "ext:无名扩展/audio/skill/hailang3"],
+						audio: ["ext:奥特之星/audio/skill/hailang1", "ext:奥特之星/audio/skill/hailang2", "ext:奥特之星/audio/skill/hailang3"],
 						trigger: { player: "useCard2" },
 						filter(event, player) {
 							const card = event.card;
@@ -4191,7 +4191,7 @@ export default function () {
 						},
 					},
 					nwltgongzheng: {
-						audio: "ext:无名扩展/audio/skill/gongzheng",
+						audio: "ext:奥特之星/audio/skill/gongzheng",
 						forced: true,
 						trigger: {
 							global: "useCardAfter",
@@ -4288,7 +4288,7 @@ export default function () {
 						},
 					},
 					nwltjuecai: {
-						audio: ["ext:无名扩展/audio/skill/juecai1", "ext:无名扩展/audio/skill/juecai2", "ext:无名扩展/audio/skill/juecai3"],
+						audio: ["ext:奥特之星/audio/skill/juecai1", "ext:奥特之星/audio/skill/juecai2", "ext:奥特之星/audio/skill/juecai3"],
 						enable: "phaseUse",
 						usable: 1,
 						direct: true,
@@ -4419,7 +4419,7 @@ export default function () {
 						},
 					},
 					atzfchiyuan: {
-						audio: ["ext:无名扩展/audio/skill/chiyuan"],
+						audio: ["ext:奥特之星/audio/skill/chiyuan"],
 						enable: "phaseUse",
 						usable: 1,
 						filter(event, player) {
@@ -4463,7 +4463,7 @@ export default function () {
 						},
 					},
 					alqnhuahui: {
-						audio: ["ext:无名扩展/audio/skill/huahui1", "ext:无名扩展/audio/skill/huahui2", "ext:无名扩展/audio/skill/huahui3"],
+						audio: ["ext:奥特之星/audio/skill/huahui1", "ext:奥特之星/audio/skill/huahui2", "ext:奥特之星/audio/skill/huahui3"],
 						trigger: { global: "roundStart" },
 						frequent: true,
 						locked: false,
@@ -4656,7 +4656,7 @@ export default function () {
 						subSkill: {
 							damage: {
 								charlotte: true,
-								audio: ["ext:无名扩展/audio/skill/zhanshou1", "ext:无名扩展/audio/skill/zhanshou2"],
+								audio: ["ext:奥特之星/audio/skill/zhanshou1", "ext:奥特之星/audio/skill/zhanshou2"],
 								trigger: { source: "damageBegin1" },
 								filter(event, player) {
 									if (event.source !== player) return false;
@@ -4691,7 +4691,7 @@ export default function () {
 						},
 					},
 					alqneyue: {
-						audio: ["ext:无名扩展/audio/skill/eyue1", "ext:无名扩展/audio/skill/eyue2", "ext:无名扩展/audio/skill/eyue3"],
+						audio: ["ext:奥特之星/audio/skill/eyue1", "ext:奥特之星/audio/skill/eyue2", "ext:奥特之星/audio/skill/eyue3"],
 						enable: "chooseToUse",
 						skillAnimation: true,
 						group: ["alqneyue_roundreset", "alqneyue_norecover"],
@@ -4780,7 +4780,7 @@ export default function () {
 						},
 					},
 					zgnxiezou: {
-						audio: ["ext:无名扩展/audio/skill/xiezou1", "ext:无名扩展/audio/skill/xiezou2"],
+						audio: ["ext:奥特之星/audio/skill/xiezou1", "ext:奥特之星/audio/skill/xiezou2"],
 						enable: "phaseUse",
 						direct: true,
 						round: 1,
@@ -4921,7 +4921,7 @@ export default function () {
 							}
 							const choice = player.getStorage("skkjimie_choice");
 							if (choice === "mie") {
-								game.playAudio("..", "extension", "无名扩展", "audio/skill/jiejimie" + (Math.floor(Math.random() * 3) + 1));
+								game.playAudio("..", "extension", "奥特之星", "audio/skill/jiejimie" + (Math.floor(Math.random() * 3) + 1));
 								const mieCount = player.countMark("skkjimie_liexi");
 								if (mieCount > 0) {
 									player.removeMark("skkjimie_liexi", mieCount);
@@ -4959,7 +4959,7 @@ export default function () {
 						},
 						subSkill: {
 							jieshan: {
-								audio: ["ext:无名扩展/audio/skill/jiejishan1", "ext:无名扩展/audio/skill/jiejishan2", "ext:无名扩展/audio/skill/jiejishan3", "ext:无名扩展/audio/skill/jiejishan4", "ext:无名扩展/audio/skill/jiejishan5"],
+								audio: ["ext:奥特之星/audio/skill/jiejishan1", "ext:奥特之星/audio/skill/jiejishan2", "ext:奥特之星/audio/skill/jiejishan3", "ext:奥特之星/audio/skill/jiejishan4", "ext:奥特之星/audio/skill/jiejishan5"],
 								charlotte: true,
 								trigger: { player: "useCardAfter" },
 								firstDo: true,
@@ -5026,7 +5026,7 @@ export default function () {
 						},
 					},
 					skkduduan: {
-						audio: ["ext:无名扩展/audio/skill/duduan1", "ext:无名扩展/audio/skill/duduan2"],
+						audio: ["ext:奥特之星/audio/skill/duduan1", "ext:奥特之星/audio/skill/duduan2"],
 						forced: true,
 						locked: false,
 						trigger: { global: "useCardAfter" },
@@ -5094,7 +5094,7 @@ export default function () {
 						},
 					},
 					ylshanshuo: {
-						audio: ["ext:无名扩展/audio/skill/shanshuo1", "ext:无名扩展/audio/skill/shanshuo2"],
+						audio: ["ext:奥特之星/audio/skill/shanshuo1", "ext:奥特之星/audio/skill/shanshuo2"],
 						trigger: { player: "damageEnd" },
 						forced: true,
 						locked: false,
@@ -5102,7 +5102,7 @@ export default function () {
 							await player.draw();
 							const fromKanpo = player.getStorage("ylshanshuo_fromKanpo", false);
 							if (fromKanpo) {
-								game.playAudio("..", "extension", "无名扩展", "audio/skill/kanpo" + (Math.floor(Math.random() * 2) + 2));
+								game.playAudio("..", "extension", "奥特之星", "audio/skill/kanpo" + (Math.floor(Math.random() * 2) + 2));
 							}
 							player.setStorage("ylshanshuo_using", true);
 							const result = await player
@@ -5178,7 +5178,7 @@ export default function () {
 						},
 					},
 					ylxiahe: {
-						audio: ["ext:无名扩展/audio/skill/xiahe1", "ext:无名扩展/audio/skill/xiahe2"],
+						audio: ["ext:奥特之星/audio/skill/xiahe1", "ext:奥特之星/audio/skill/xiahe2"],
 						trigger: { source: "damageEnd" },
 						forced: true,
 						locked: false,
@@ -5195,7 +5195,7 @@ export default function () {
 						},
 					},
 					ylkanpo: {
-						audio: ["ext:无名扩展/audio/skill/kanpo1"],
+						audio: ["ext:奥特之星/audio/skill/kanpo1"],
 						trigger: { global: "phaseBegin" },
 						forced: false,
 						filter(event, player) {
@@ -5275,7 +5275,7 @@ export default function () {
 							if (!event.damageReceived) {
 								await player.draw();
 								game.log(player, "发动了", "#g【闪烁】");
-								game.playAudio("..", "extension", "无名扩展", "audio/skill/kanpo" + (Math.floor(Math.random() * 2) + 4));
+								game.playAudio("..", "extension", "奥特之星", "audio/skill/kanpo" + (Math.floor(Math.random() * 2) + 4));
 								if (player.countCards("he") > 0) {
 									player.setStorage("ylshanshuo_using", true);
 									const useResult = await player
@@ -5334,7 +5334,7 @@ export default function () {
 						},
 					},
 					atzwxingmian: {
-						audio: ["ext:无名扩展/audio/skill/xingmian"],
+						audio: ["ext:奥特之星/audio/skill/xingmian"],
 						trigger: { global: "phaseBegin" },
 						filter(event, player) {
 							if (player.countCards("he") === 0) return false;
@@ -5405,7 +5405,7 @@ export default function () {
 						},
 					},
 					atzwbuxi: {
-						audio: ["ext:无名扩展/audio/skill/buxi1", "ext:无名扩展/audio/skill/buxi2"],
+						audio: ["ext:奥特之星/audio/skill/buxi1", "ext:奥特之星/audio/skill/buxi2"],
 						trigger: { global: ["changeHp"] },
 						filter(event, player) {
 							if (!event.player || !event.player.isAlive()) return false;
@@ -5568,7 +5568,7 @@ export default function () {
 						},
 					},
 					xdanchao: {
-						audio: ["ext:无名扩展/audio/skill/anchao1"],
+						audio: ["ext:奥特之星/audio/skill/anchao1"],
 						trigger: { global: ["changeHp", "loseAfter", "cardsDiscardAfter", "loseAsyncAfter", "equipAfter"] },
 						forced: true,
 						locked: false,
@@ -5676,7 +5676,7 @@ export default function () {
 								},
 							},
 							phaseEnd: {
-								audio: ["ext:无名扩展/audio/skill/anchao"],
+								audio: ["ext:奥特之星/audio/skill/anchao"],
 								trigger: { global: "phaseEnd" },
 								filter(event, player) {
 									return player.countMark("xdanchao_xinrui") >= 34;
@@ -5731,7 +5731,7 @@ export default function () {
 						},
 					},
 					xdyuejian: {
-						audio: ["ext:无名扩展/audio/skill/yuejian"],
+						audio: ["ext:奥特之星/audio/skill/yuejian"],
 						usable: 1,
 						trigger: { global: "dying" },
 						filter(event, player) {
@@ -5775,7 +5775,7 @@ export default function () {
 						},
 					},
 					xdyoudie: {
-						audio: ["ext:无名扩展/audio/skill/youdie1", "ext:无名扩展/audio/skill/youdie2", "ext:无名扩展/audio/skill/youdie3", "ext:无名扩展/audio/skill/youdie4"],
+						audio: ["ext:奥特之星/audio/skill/youdie1", "ext:奥特之星/audio/skill/youdie2", "ext:奥特之星/audio/skill/youdie3", "ext:奥特之星/audio/skill/youdie4"],
 						enable: "phaseUse",
 						usable: 1,
 						group: ["xdyoudie_damage"],
@@ -6101,7 +6101,7 @@ export default function () {
 						},
 					},
 					mbmkmingmen: {
-						audio: ["ext:无名扩展/audio/skill/mingmen"],
+						audio: ["ext:奥特之星/audio/skill/mingmen"],
 						trigger: { global: "phaseBegin" },
 						direct: true,
 						async content(event, trigger, player) {
@@ -6383,7 +6383,7 @@ export default function () {
 								},
 							},
 							switch: {
-								audio: ["ext:无名扩展/audio/skill/djsj0.mp3"],
+								audio: ["ext:奥特之星/audio/skill/djsj0.mp3"],
 								enable: "phaseUse",
 								usable: 3,
 								filter(event, player) {
@@ -7453,7 +7453,7 @@ export default function () {
 						},
 					},
 					xklkeyan: {
-						audio: ["ext:无名扩展/audio/skill/keyan.mp3"],
+						audio: ["ext:奥特之星/audio/skill/keyan.mp3"],
 						enable: "phaseUse",
 						usable: 1,
 						locked: false,
@@ -7704,7 +7704,7 @@ export default function () {
 						async content(event, trigger, player) {
 							const isHuang = !player.storage.ffshalong;
 							if (isHuang) {
-								game.playAudio("..", "extension", "无名扩展", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 1));
+								game.playAudio("..", "extension", "奥特之星", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 1));
 								const members = game.filterPlayer(p => p.countMark("ffkuanghuan_member") > 0);
 								const targets = members.filter(m => m.hp > Math.ceil(m.maxHp / 2));
 								event.targets = targets;
@@ -7725,7 +7725,7 @@ export default function () {
 									await next;
 								}
 							} else {
-								game.playAudio("..", "extension", "无名扩展", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 4));
+								game.playAudio("..", "extension", "奥特之星", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 4));
 								const members = game.filterPlayer(p => p.countMark("ffkuanghuan_member") > 0);
 								for (const member of members) {
 									await member.recover(1);
@@ -7771,7 +7771,7 @@ export default function () {
 						},
 					},
 					ffyuanwu: {
-						audio: ["ext:无名扩展/audio/skill/yuanwu1", "ext:无名扩展/audio/skill/yuanwu2"],
+						audio: ["ext:奥特之星/audio/skill/yuanwu1", "ext:奥特之星/audio/skill/yuanwu2"],
 						group: ["ffyuanwu_huang", "ffyuanwu_mang", "ffyuanwu_mang_damage"],
 						subSkill: {
 							huang: {
@@ -7829,7 +7829,7 @@ export default function () {
 						},
 					},
 					ffkuanghuan: {
-						audio: ["ext:无名扩展/audio/skill/kuanghuan1", "ext:无名扩展/audio/skill/kuanghuan2", "ext:无名扩展/audio/skill/kuanghuan3"],
+						audio: ["ext:奥特之星/audio/skill/kuanghuan1", "ext:奥特之星/audio/skill/kuanghuan2", "ext:奥特之星/audio/skill/kuanghuan3"],
 						trigger: {
 							global: ["gameStart", "roundStart"],
 						},
@@ -7956,7 +7956,7 @@ export default function () {
 						},
 					},
 					jkshouzhuo: {
-						audio: ["ext:无名扩展/audio/skill/shouzhuo"],
+						audio: ["ext:奥特之星/audio/skill/shouzhuo"],
 						enable: ["chooseToUse", "chooseToRespond"],
 						hiddenCard(player, name) {
 							if (name === "wuxie") {
@@ -8181,7 +8181,7 @@ export default function () {
 						},
 					},
 					atmguanglun: {
-						audio: ["ext:无名扩展/audio/skill/guanglun"],
+						audio: ["ext:奥特之星/audio/skill/guanglun"],
 						group: ["atmguanglun_viewas", "atmguanglun_reset"],
 						trigger: { player: "useCardEffectEnd" },
 						direct: true,
@@ -8267,7 +8267,7 @@ export default function () {
 									backup(links, player) {
 										const name = links[0][2];
 										return {
-											audio: "ext:无名扩展/audio/skill/guanglun",
+											audio: "ext:奥特之星/audio/skill/guanglun",
 											filterCard: () => false,
 											selectCard: -1,
 											viewAs: { name: name },
@@ -8359,7 +8359,7 @@ export default function () {
 						},
 					},
 					qsklingjiang: {
-						audio: ["ext:无名扩展/audio/skill/lingjiang1", "ext:无名扩展/audio/skill/lingjiang2"],
+						audio: ["ext:奥特之星/audio/skill/lingjiang1", "ext:奥特之星/audio/skill/lingjiang2"],
 						trigger: { global: "phaseBegin" },
 						forced: true,
 						locked: false,
@@ -8481,7 +8481,7 @@ export default function () {
 										const isSave = evt.name !== "phaseUse" && cardName === "tao";
 										const isRespondOnly = evt.name === "chooseToRespond";
 										return {
-											audio: ["ext:无名扩展/audio/skill/lingjiang1", "ext:无名扩展/audio/skill/lingjiang2"],
+											audio: ["ext:奥特之星/audio/skill/lingjiang1", "ext:奥特之星/audio/skill/lingjiang2"],
 											filterCard: () => false,
 											selectCard: -1,
 											selectTarget: isSave || isRespondOnly ? -1 : undefined,
@@ -8621,7 +8621,7 @@ export default function () {
 								player.addTempSkill("qsksuohun_no_distance");
 								player.setStorage("_qsksuohun_no_distance", true);
 								return {
-									audio: ["ext:无名扩展/audio/skill/suohun1", "ext:无名扩展/audio/skill/suohun2"],
+									audio: ["ext:奥特之星/audio/skill/suohun1", "ext:奥特之星/audio/skill/suohun2"],
 									filterCard: () => false,
 									selectCard: -1,
 									viewAs: nature ? { name: "sha", nature } : { name: "sha" },
@@ -8670,7 +8670,7 @@ export default function () {
 						},
 					},
 					mwkzhihuo: {
-						audio: ["ext:无名扩展/audio/skill/zhihuo1", "ext:无名扩展/audio/skill/zhihuo2", "ext:无名扩展/audio/skill/zhihuo3"],
+						audio: ["ext:奥特之星/audio/skill/zhihuo1", "ext:奥特之星/audio/skill/zhihuo2", "ext:奥特之星/audio/skill/zhihuo3"],
 						direct: true,
 						mod: {
 							cardnature(card, player) {
@@ -8846,7 +8846,7 @@ export default function () {
 						},
 					},
 					mwkfenyao: {
-						audio: ["ext:无名扩展/audio/skill/fenyao1", "ext:无名扩展/audio/skill/fenyao2", "ext:无名扩展/audio/skill/fenyao3"],
+						audio: ["ext:奥特之星/audio/skill/fenyao1", "ext:奥特之星/audio/skill/fenyao2", "ext:奥特之星/audio/skill/fenyao3"],
 						trigger: { global: "phaseBegin" },
 						direct: true,
 						filter(event, player) {
@@ -8908,7 +8908,7 @@ export default function () {
 						group: ["mwkfantian_use"],
 						subSkill: {
 							use: {
-								audio: ["ext:无名扩展/audio/skill/fantian1", "ext:无名扩展/audio/skill/fantian2", "ext:无名扩展/audio/skill/fantian3"],
+								audio: ["ext:奥特之星/audio/skill/fantian1", "ext:奥特之星/audio/skill/fantian2", "ext:奥特之星/audio/skill/fantian3"],
 								enable: "phaseUse",
 								skillAnimation: true,
 								filter(event, player) {
@@ -8954,7 +8954,7 @@ export default function () {
 						},
 					},
 					xnnjuelie: {
-						audio: ["ext:无名扩展/audio/skill/juelie1", "ext:无名扩展/audio/skill/juelie2", "ext:无名扩展/audio/skill/juelie3"],
+						audio: ["ext:奥特之星/audio/skill/juelie1", "ext:奥特之星/audio/skill/juelie2", "ext:奥特之星/audio/skill/juelie3"],
 						enable: "phaseUse",
 						usable: 3,
 						async content(event, trigger, player) {
@@ -9061,7 +9061,7 @@ export default function () {
 						},
 					},
 					xnnduancui: {
-						audio: ["ext:无名扩展/audio/skill/duancui1", "ext:无名扩展/audio/skill/duancui2"],
+						audio: ["ext:奥特之星/audio/skill/duancui1", "ext:奥特之星/audio/skill/duancui2"],
 						enable: "phaseUse",
 						usable: 3,
 						async content(event, trigger, player) {
@@ -9108,7 +9108,7 @@ export default function () {
 								}
 								weights[clickedName] = (weights[clickedName] ?? 1) + 1.21 * equipmentNames.length;
 								clickCount++;
-								game.playAudio("..", "extension", "无名扩展", "audio/skill/duancui" + (Math.floor(Math.random() * 2) + 1));
+								game.playAudio("..", "extension", "奥特之星", "audio/skill/duancui" + (Math.floor(Math.random() * 2) + 1));
 							}
 							const selectedEquips = [];
 							const tempEquipList = equipmentNames.slice(0);
@@ -9201,7 +9201,7 @@ export default function () {
 						},
 					},
 					jtjeheiwu: {
-						audio: ["ext:无名扩展/audio/skill/jtje"],
+						audio: ["ext:奥特之星/audio/skill/jtje"],
 						trigger: { global: "phaseEnd" },
 						forced: true,
 						filter(event, player) {
@@ -9255,7 +9255,7 @@ export default function () {
 						},
 					},
 					jtjeluoke: {
-						audio: ["ext:无名扩展/audio/skill/jtje"],
+						audio: ["ext:奥特之星/audio/skill/jtje"],
 						trigger: { player: "damageBegin3" },
 						forced: true,
 						filter(event, player) {
@@ -9278,7 +9278,7 @@ export default function () {
 					},
 					jtjeguanchuan: {
 						mark: true,
-						audio: ["ext:无名扩展/audio/skill/jtje"],
+						audio: ["ext:奥特之星/audio/skill/jtje"],
 						enable: "phaseUse",
 						usable: 1,
 						skillAnimation: true,
@@ -9334,7 +9334,7 @@ export default function () {
 						},
 					},
 					ignzshenji: {
-						audio: ["ext:无名扩展/audio/skill/ignz1", "ext:无名扩展/audio/skill/ignz2", "ext:无名扩展/audio/skill/ignz3", "ext:无名扩展/audio/skill/ignz4", "ext:无名扩展/audio/skill/ignz5", "ext:无名扩展/audio/skill/ignz6", "ext:无名扩展/audio/skill/ignz7", "ext:无名扩展/audio/skill/ignz8"],
+						audio: ["ext:奥特之星/audio/skill/ignz1", "ext:奥特之星/audio/skill/ignz2", "ext:奥特之星/audio/skill/ignz3", "ext:奥特之星/audio/skill/ignz4", "ext:奥特之星/audio/skill/ignz5", "ext:奥特之星/audio/skill/ignz6", "ext:奥特之星/audio/skill/ignz7", "ext:奥特之星/audio/skill/ignz8"],
 						enable: ["chooseToUse", "chooseToRespond"],
 						usable: 1,
 						forced: true,
@@ -9572,7 +9572,7 @@ export default function () {
 								},
 							},
 							switch: {
-								audio: ["ext:无名扩展/audio/skill/dnsj"],
+								audio: ["ext:奥特之星/audio/skill/dnsj"],
 								enable: "phaseUse",
 								filter(event, player) {
 									const stat = player.getStat("skill");
@@ -10317,7 +10317,7 @@ export default function () {
 						},
 					},
 					zfyakong: {
-						audio: ["ext:无名扩展/audio/skill/yakong"],
+						audio: ["ext:奥特之星/audio/skill/yakong"],
 						trigger: {
 							global: "dieAfter",
 						},
@@ -10429,7 +10429,7 @@ export default function () {
 						},
 					},
 					tlzhadan: {
-						audio: ["ext:无名扩展/audio/skill/zhadan"],
+						audio: ["ext:奥特之星/audio/skill/zhadan"],
 						enable: "phaseUse",
 						limited: true,
 						filterTarget(card, player, target) {
@@ -10836,7 +10836,7 @@ export default function () {
 						},
 					},
 					asduantou: {
-						audio: ["ext:无名扩展/audio/skill/duantou"],
+						audio: ["ext:奥特之星/audio/skill/duantou"],
 						enable: "phaseUse",
 						usable: 1,
 						skillAnimation: true,
@@ -10881,7 +10881,7 @@ export default function () {
 						},
 					},
 					swbingfu: {
-						audio: ["ext:无名扩展/audio/skill/bingfu"],
+						audio: ["ext:奥特之星/audio/skill/bingfu"],
 						trigger: { player: "useCardToTarget" },
 						filter(event, player) {
 							if (!event.card) return false;
@@ -11464,7 +11464,7 @@ export default function () {
 						},
 					},
 					leofeiti: {
-						audio: ["ext:无名扩展/audio/skill/feiti"],
+						audio: ["ext:奥特之星/audio/skill/feiti"],
 						enable: "phaseUse",
 						usable: 1,
 						filterCard: true,
@@ -11704,7 +11704,7 @@ export default function () {
 						group: ["hqchigui_init", "hqchigui_phaseUse"],
 						subSkill: {
 							init: {
-								audio: ["ext:无名扩展/audio/skill/chigui1"],
+								audio: ["ext:奥特之星/audio/skill/chigui1"],
 								trigger: {
 									global: "phaseBefore",
 									player: "enterGame",
@@ -11719,7 +11719,7 @@ export default function () {
 								},
 							},
 							phaseUse: {
-								audio: ["ext:无名扩展/audio/skill/chigui2", "ext:无名扩展/audio/skill/chigui3"],
+								audio: ["ext:奥特之星/audio/skill/chigui2", "ext:奥特之星/audio/skill/chigui3"],
 								trigger: {
 									player: "phaseUseBegin",
 								},
@@ -11864,7 +11864,7 @@ export default function () {
 						},
 					},
 					hqtize: {
-						audio: ["ext:无名扩展/audio/skill/tize1"],
+						audio: ["ext:奥特之星/audio/skill/tize1"],
 						skillAnimation: true,
 						animationColor: "thunder",
 						trigger: {
@@ -11959,7 +11959,7 @@ export default function () {
 									},
 								})
 								.forResult();
-							game.playAudio("ext:无名扩展/audio/skill/tize2.mp3");
+							game.playAudio("ext:奥特之星/audio/skill/tize2.mp3");
 							if (result.bool && result.targets?.length) {
 								const card = {
 									name: "sha",
@@ -11984,7 +11984,7 @@ export default function () {
 						},
 					},
 					wsgucheng: {
-						audio: ["ext:无名扩展/audio/skill/gucheng.mp3"],
+						audio: ["ext:奥特之星/audio/skill/gucheng.mp3"],
 						trigger: {
 							player: ["recoverBefore", "gainBefore"],
 						},
@@ -12011,7 +12011,7 @@ export default function () {
 						},
 					},
 					wsgeshi: {
-						audio: ["ext:无名扩展/audio/skill/geshi.mp3"],
+						audio: ["ext:奥特之星/audio/skill/geshi.mp3"],
 						forced: true,
 						trigger: {
 							global: "phaseEnd",
