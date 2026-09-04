@@ -1,0 +1,17 @@
+{
+  "intro": "子右的个人扩展，包括奥特曼以及其他角色",
+  "name": "无名扩展",
+  "author": "子右",
+  "diskURL": "",
+  "forumURL": "",
+  "version": "1.3.2",
+  "changelog": "CHANGELOG.md",
+  "files": [
+    "bgmList.js",
+    "dynamicTranslate.js",
+    "easterEggs.js",
+    "intro.js",
+    "equipment/equipmentCards.js",
+    "equipment/equipmentSkills.js"
+  ]
+}
