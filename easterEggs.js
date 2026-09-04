@@ -203,16 +203,6 @@ eggs.catalog = {
 	],
 	"崩坏：星穹铁道": [
 		{
-			id: "starrail_huangquan_lost",
-			category: "崩坏：星穹铁道",
-			title: "迷路了...",
-			characters: ["黄泉"],
-			triggerType: "special",
-			triggerDescription: "开局存在黄泉时，有概率触发。",
-			hint: "一位角色迷路了。",
-			content: ["迷路了..."],
-		},
-		{
 			id: "starrail_huangquan_peach",
 			category: "崩坏：星穹铁道",
 			title: "🍑",
