@@ -17,6 +17,6 @@ export const characters = {
 		skills: ["hadjheian", "hadjanrong", "hadjyihui"],
 		names: "null|迪迦",
 		img: "extension/奥特之星/assets/黑暗迪迦.jpg",
-		dieAudios: ["ext:奥特之星/assets/黑暗迪迦.mp3"],
+		dieAudios: ["ext:奥特之星/assets/那位大人.mp3"],
 	},
 };

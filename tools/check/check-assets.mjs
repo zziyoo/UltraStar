@@ -9,7 +9,6 @@ let errors = 0;
 const KNOWN_MISSING = new Set([
 	"assets/爻袁术.jpg",
 	"assets/爻袁术.mp3",
-	"assets/黑暗迪迦.mp3",
 ]);
 
 function walk(dir, filter) {
