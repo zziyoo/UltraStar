@@ -16,7 +16,7 @@ export default {
 		init: true,
 	},
 	copyRepoUrl: {
-		name: "<ins>点击复制仓库地址</ins>",
+		name: `<ins style="color: #5CADFF;">点击复制仓库地址</ins>`,
 		clear: true,
 		onclick: () => {
 			navigator.clipboard.writeText("https://github.com/zziyoo/UltraStar").then(() => alert("已成功复制，粘贴到浏览器打开，部分进不去需要翻墙")).catch(() => alert("复制失败，请手动复制"));
@@ -24,7 +24,7 @@ export default {
 		},
 	},
 	viewChangelog: {
-		name: "<ins>查看历史更新记录</ins>",
+		name: `<ins style="color: #FFD700;">查看历史更新记录</ins>`,
 		clear: true,
 		onclick: () => {
 			openChangelog();
@@ -40,7 +40,7 @@ export default {
 		},
 	},
 	viewEggCatalog: {
-		name: "<ins>查看彩蛋图鉴</ins>",
+		name: `<ins style="color: #C77DFF;">查看彩蛋图鉴</ins>`,
 		clear: true,
 		onclick: () => {
 			easterEggs.openCatalog();

@@ -144,8 +144,8 @@ if (typeof packOld.arenaReady !== "function" || typeof packNew.arenaReady !== "f
 if (typeof packOld.precontent !== "function" || typeof packNew.precontent !== "function")
 	errors.push("precontent not function on both sides");
 deepEqual(packOld.help, packNew.help, "pack.help");
-// copyRepoUrl（点击复制仓库地址）为新增功能项，属预期差异
-deepEqual(packOld.config, packNew.config, "pack.config", { ignoreKey: /^copyRepoUrl$/ });
+// copyRepoUrl（复制仓库地址）为新增功能项；4 个功能按钮 name 的自定义颜色为 UI 调整，均属预期差异
+deepEqual(packOld.config, packNew.config, "pack.config", { ignoreKey: /^(copyRepoUrl|viewChangelog|viewTierlist|viewEggCatalog)$/ });
 
 // ---- 执行 content()，收集分包注册 ----
 const modOld = await import(pathToFileURL(path.join(tmp, "old-tree", "noname.js")).href);
