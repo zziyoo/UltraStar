@@ -26,7 +26,7 @@ export const skills = {
 		},
 	},
 	atzfchiyuan: {
-		audio: ["ext:奥特之星/assets/chiyuan"],
+		audio: ["ext:奥特之星/assets/audio/chiyuan"],
 		enable: "phaseUse",
 		usable: 1,
 		filter(event, player) {

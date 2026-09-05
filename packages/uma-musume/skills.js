@@ -2,7 +2,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 export const skills = {
 	myjuesheng: {
-		audio: ["ext:奥特之星/assets/juesheng"],
+		audio: ["ext:奥特之星/assets/audio/juesheng"],
 		trigger: { player: ["useCardAfter", "respondAfter"] },
 		forced: true,
 		locked: false,
@@ -128,7 +128,7 @@ export const skills = {
 					},
 					backup(links, player) {
 						return {
-							audio: ["ext:奥特之星/assets/juesheng"],
+							audio: ["ext:奥特之星/assets/audio/juesheng"],
 							filterCard() {
 								return false;
 							},
@@ -299,7 +299,7 @@ export const skills = {
 		group: ["tbznengchi_draw"],
 		subSkill: {
 			draw: {
-				audio: ["ext:奥特之星/assets/nengchi"],
+				audio: ["ext:奥特之星/assets/audio/nengchi"],
 				trigger: { player: "phaseUseBegin" },
 				forced: true,
 				async content(event, trigger, player) {
@@ -352,7 +352,7 @@ export const skills = {
 		},
 	},
 	hjcsuixin: {
-		audio: ["ext:奥特之星/assets/suixin1", "ext:奥特之星/assets/suixin2"],
+		audio: ["ext:奥特之星/assets/audio/suixin1", "ext:奥特之星/assets/audio/suixin2"],
 		trigger: { global: ["phaseBegin", "phaseEnd"] },
 		frequent: true,
 		async content(event, trigger, player) {
@@ -414,7 +414,7 @@ export const skills = {
 		},
 	},
 	mbmkmingmen: {
-		audio: ["ext:奥特之星/assets/mingmen"],
+		audio: ["ext:奥特之星/assets/audio/mingmen"],
 		trigger: { global: "phaseBegin" },
 		direct: true,
 		async content(event, trigger, player) {
@@ -502,7 +502,7 @@ export const skills = {
 		},
 	},
 	mbmanbo: {
-		audio: ["ext:奥特之星/assets/manbo1", "ext:奥特之星/assets/manbo2", "ext:奥特之星/assets/manbo3"],
+		audio: ["ext:奥特之星/assets/audio/manbo1", "ext:奥特之星/assets/audio/manbo2", "ext:奥特之星/assets/audio/manbo3"],
 		group: ["mbmanbo_round"],
 		trigger: { player: "damageEnd" },
 		forced: true,
@@ -554,7 +554,7 @@ export const skills = {
 		},
 		subSkill: {
 			round: {
-				audio: ["ext:奥特之星/assets/manbo1", "ext:奥特之星/assets/manbo2", "ext:奥特之星/assets/manbo3"],
+				audio: ["ext:奥特之星/assets/audio/manbo1", "ext:奥特之星/assets/audio/manbo2", "ext:奥特之星/assets/audio/manbo3"],
 				trigger: { global: ["roundStart", "roundEnd"] },
 				forced: true,
 				async content(event, trigger, player) {
@@ -604,7 +604,7 @@ export const skills = {
 		},
 	},
 	hjmhaqi: {
-		audio: ["ext:奥特之星/assets/haqi1", "ext:奥特之星/assets/haqi2", "ext:奥特之星/assets/haqi3"],
+		audio: ["ext:奥特之星/assets/audio/haqi1", "ext:奥特之星/assets/audio/haqi2", "ext:奥特之星/assets/audio/haqi3"],
 		group: ["hjmhaqi_phaseDraw"],
 		mark: true,
 		marktext: "哈",

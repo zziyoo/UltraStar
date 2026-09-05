@@ -7,8 +7,8 @@ export const characters = {
 		hp: 4,
 		skills: ["atzwxingmian", "atzwbuxi"],
 		names: "null|皮特",
-		img: "extension/奥特之星/assets/奥特之王.jpg",
-		dieAudios: ["ext:奥特之星/assets/那位大人.mp3"],
+		img: "extension/奥特之星/assets/image/奥特之王.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
 	},
 	赛迦: {
 		sex: "male",
@@ -16,7 +16,7 @@ export const characters = {
 		hp: 4,
 		skills: ["sjyuzhi", "sjzhanren"],
 		names: "null|赛迦",
-		img: "extension/奥特之星/assets/赛迦.jpg",
-		dieAudios: ["ext:奥特之星/assets/那位大人.mp3"],
+		img: "extension/奥特之星/assets/image/赛迦.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
 	},
 };

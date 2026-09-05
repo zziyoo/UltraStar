@@ -73,7 +73,7 @@ const FR = "(?:ultraman|genshin|honkai-star-rail|uma-musume|misc|common|kof)";
 function normalizeStr(s) {
 	return s
 		.replaceAll("extension_奥特之星_easterEgg_enabled", "extension_无名扩展_easterEgg_enabled")
-		.replace(new RegExp(`奥特之星/assets/(?:${FR}/)?(?:image|card|audio(?:/die|/skill)?|kingdom|easterEggs|easteregg|camp|tierlist)?/?`, "g"), "奥特之星/") // 素材迁移：新布局路径归一
+		.replace(new RegExp(`奥特之星/assets/(?:${FR}/)?(?:image(?:/camp|/tierlist)?|card|audio(?:/die|/skill|/easteregg)?|kingdom|easterEggs|easteregg|camp|tierlist)?/?`, "g"), "奥特之星/") // 素材迁移：新布局路径归一（audio/image 分类目录及历史布局）
 		.replace(new RegExp(`奥特之星/(?:image|card|audio(?:/die|/skill)?|kingdom|easterEggs)/`, "g"), "奥特之星/") // 旧直连路径归一
 		.replace("奥特之星/kingdom/", "奥特之星/")
 		.replace("奥特之星/easterEggs/", "奥特之星/")
@@ -83,6 +83,7 @@ function normalizeStr(s) {
 function normalizeFnText(t) {
 	return normalizeStr(t)
 		.replace(new RegExp(`(["'\`])assets/${FR}/`, "g"), "$1") // playAudio 多参形式
+		.replace(/(["'`])(?:assets|audio|image)\//g, "$1") // playAudio 多参形式：assets/（旧平铺）与 audio/、image/（新分类）段归一
 		.replace(new RegExp(`["'](?:${FR}/)?(?:audio(?:/die|/skill)?|image|card|kingdom)?/?([^"']+\\.(?:jpg|png|mp3))["']`, "g"), '"$1"') // 相对素材路径归一到文件名
 		.replaceAll("<EXT>/audio/skill/", "<EXT>/") // 旧 bgm 拼接形式归一
 		.replaceAll("<EXT>/assets/", "<EXT>/") // 新 bgm 拼接形式归一

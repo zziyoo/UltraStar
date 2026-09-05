@@ -7,7 +7,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -1 },
 		suit: "diamond",
 		number: 13,
-		image: "ext:奥特之星/assets/wslydd.png",
+		image: "ext:奥特之星/assets/image/wslydd.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "那维莱特") return 999;
@@ -32,7 +32,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -2 },
 		suit: "heart",
 		number: 13,
-		image: "ext:奥特之星/assets/jslyzh.png",
+		image: "ext:奥特之星/assets/image/jslyzh.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "芙宁娜") return 999;
@@ -53,7 +53,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -3 },
 		suit: "heart",
 		number: 10,
-		image: "ext:奥特之星/assets/fyqy.png",
+		image: "ext:奥特之星/assets/image/fyqy.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "玛薇卡") return 999;
@@ -74,7 +74,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -1 },
 		suit: "diamond",
 		number: 11,
-		image: "ext:奥特之星/assets/yfxg.png",
+		image: "ext:奥特之星/assets/image/yfxg.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "希诺宁") return 999;
@@ -95,7 +95,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -3 },
 		suit: "spade",
 		number: 4,
-		image: "ext:奥特之星/assets/cy.png",
+		image: "ext:奥特之星/assets/image/cy.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "丝柯克") return 999;
@@ -116,7 +116,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -2 },
 		suit: "heart",
 		number: 6,
-		image: "ext:奥特之星/assets/cyzx.png",
+		image: "ext:奥特之星/assets/image/cyzx.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "阿蕾奇诺") return 999;
@@ -138,7 +138,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -4 },
 		suit: "diamond",
 		number: 5,
-		image: "ext:奥特之星/assets/xjcy.png",
+		image: "ext:奥特之星/assets/image/xjcy.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "恰斯卡") return 999;

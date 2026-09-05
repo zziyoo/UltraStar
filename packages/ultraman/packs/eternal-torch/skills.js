@@ -283,7 +283,7 @@ export const skills = {
 				},
 			},
 			switch: {
-				audio: ["ext:奥特之星/assets/djsj0.mp3"],
+				audio: ["ext:奥特之星/assets/audio/djsj0.mp3"],
 				enable: "phaseUse",
 				usable: 3,
 				filter(event, player) {
@@ -626,7 +626,7 @@ export const skills = {
 		},
 	},
 	xklkeyan: {
-		audio: ["ext:奥特之星/assets/keyan.mp3"],
+		audio: ["ext:奥特之星/assets/audio/keyan.mp3"],
 		enable: "phaseUse",
 		usable: 1,
 		locked: false,
@@ -854,7 +854,7 @@ export const skills = {
 		},
 	},
 	jkshouzhuo: {
-		audio: ["ext:奥特之星/assets/shouzhuo"],
+		audio: ["ext:奥特之星/assets/audio/shouzhuo"],
 		enable: ["chooseToUse", "chooseToRespond"],
 		hiddenCard(player, name) {
 			if (name === "wuxie") {
@@ -1079,7 +1079,7 @@ export const skills = {
 		},
 	},
 	atmguanglun: {
-		audio: ["ext:奥特之星/assets/guanglun"],
+		audio: ["ext:奥特之星/assets/audio/guanglun"],
 		group: ["atmguanglun_viewas", "atmguanglun_reset"],
 		trigger: { player: "useCardEffectEnd" },
 		direct: true,
@@ -1165,7 +1165,7 @@ export const skills = {
 					backup(links, player) {
 						const name = links[0][2];
 						return {
-							audio: "ext:奥特之星/assets/guanglun",
+							audio: "ext:奥特之星/assets/audio/guanglun",
 							filterCard: () => false,
 							selectCard: -1,
 							viewAs: { name: name },
@@ -1279,7 +1279,7 @@ export const skills = {
 				},
 			},
 			switch: {
-				audio: ["ext:奥特之星/assets/dnsj"],
+				audio: ["ext:奥特之星/assets/audio/dnsj"],
 				enable: "phaseUse",
 				filter(event, player) {
 					const stat = player.getStat("skill");
@@ -2024,7 +2024,7 @@ export const skills = {
 		},
 	},
 	zfyakong: {
-		audio: ["ext:奥特之星/assets/yakong"],
+		audio: ["ext:奥特之星/assets/audio/yakong"],
 		trigger: {
 			global: "dieAfter",
 		},
@@ -2136,7 +2136,7 @@ export const skills = {
 		},
 	},
 	tlzhadan: {
-		audio: ["ext:奥特之星/assets/zhadan"],
+		audio: ["ext:奥特之星/assets/audio/zhadan"],
 		enable: "phaseUse",
 		limited: true,
 		filterTarget(card, player, target) {
@@ -2199,7 +2199,7 @@ export const skills = {
 		},
 	},
 	asduantou: {
-		audio: ["ext:奥特之星/assets/duantou"],
+		audio: ["ext:奥特之星/assets/audio/duantou"],
 		enable: "phaseUse",
 		usable: 1,
 		skillAnimation: true,
@@ -2244,7 +2244,7 @@ export const skills = {
 		},
 	},
 	swbingfu: {
-		audio: ["ext:奥特之星/assets/bingfu"],
+		audio: ["ext:奥特之星/assets/audio/bingfu"],
 		trigger: { player: "useCardToTarget" },
 		filter(event, player) {
 			if (!event.card) return false;
@@ -2399,7 +2399,7 @@ export const skills = {
 		},
 	},
 	leofeiti: {
-		audio: ["ext:奥特之星/assets/feiti"],
+		audio: ["ext:奥特之星/assets/audio/feiti"],
 		enable: "phaseUse",
 		usable: 1,
 		filterCard: true,

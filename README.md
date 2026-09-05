@@ -51,11 +51,12 @@ UltraStar/
 │   ├── uma-musume/               # 赛马娘
 │   ├── kof/                      # KOF
 │   └── misc/                     # 其他作品
-├── assets/                       # 素材（文件名全局唯一）
-│   ├── camp/                     # 势力（阵营）图标
-│   ├── easteregg/                # 彩蛋音频
-│   ├── tierlist/                 # 角色评级图
-│   └── *.jpg / *.png / *.mp3     # 角色立绘、卡牌图、BGM 与语音
+├── assets/                       # 素材（文件名全局唯一，按类型分目录）
+│   ├── audio/                    # 音频（BGM 与语音 .mp3）
+│   │   └── easteregg/            # 彩蛋音频
+│   └── image/                    # 图片（角色立绘 .jpg、卡牌图 .png）
+│       ├── camp/                 # 势力（阵营）图标
+│       └── tierlist/             # 角色评级图
 ├── data/                         # 纯数据层
 │   ├── assets.js                 # 素材清单
 │   ├── bgmList.js                # 技能 BGM 数据
@@ -202,26 +203,29 @@ packages/ultraman/
 
 ### assets/
 
-所有普通图片、音频等资源。当前采用资源文件名全局唯一的方式管理：普通素材平铺在 `assets/` 根目录（角色立绘 `.jpg`、装备卡牌图 `.png`、BGM 与语音 `.mp3`），另有三个特殊用途子目录：
+所有普通图片、音频等资源，资源文件名全局唯一，按类型分目录存放：音频在 `assets/audio/`，图片在 `assets/image/`；另有特殊用途子目录：
 
 ```text
 assets/
-├── camp/                 # 势力（阵营）图标
-├── easteregg/            # 彩蛋音频
-└── tierlist/             # 角色评级图
+├── audio/                # 音频（BGM 与语音 .mp3）
+│   └── easteregg/        # 彩蛋音频
+└── image/                # 图片（角色立绘 .jpg、装备卡牌图 .png）
+    ├── camp/             # 势力（阵营）图标
+    └── tierlist/         # 角色评级图
 ```
 
-- **`assets/camp/`**：扩展自定义势力的图标（由 `src/core/bootstrap.js` 在初始化时注册）。
-- **`assets/easteregg/`**：彩蛋音频（供 `src/systems/easterEgg.js` 使用）。
-- **`assets/tierlist/`**：角色评级相关图片（供 `src/systems/tierlist.js` 展示）。
+- **`assets/audio/easteregg/`**：彩蛋音频（供 `src/systems/easterEgg.js` 使用）。
+- **`assets/image/camp/`**：扩展自定义势力的图标（由 `src/core/bootstrap.js` 在初始化时注册）。
+- **`assets/image/tierlist/`**：角色评级相关图片（供 `src/systems/tierlist.js` 展示）。
 
 新增素材时需要注意：
 
 1. **资源命名必须全局唯一**，不能与其他作品、其他角色已使用的文件名冲突；
-2. 新增素材后，需要同步将其登记进 `data/assets.js` 素材清单，供启动时的完整性检测使用；
-3. 代码中引用素材时，使用 `src/core/assets.js` 提供的路径工具，保持引用方式统一。
+2. 音频放入 `assets/audio/`，图片放入 `assets/image/`（彩蛋音频、阵营图标、评级图分别放入对应子目录）；
+3. 新增素材后，需要同步将其登记进 `data/assets.js` 素材清单，供启动时的完整性检测使用；
+4. 代码中引用素材时，使用 `src/core/assets.js` 提供的路径工具，保持引用方式统一。
 
-未来如果素材越来越多，可以考虑进一步按用途或作品进行分组；在实施之前，请先沿用当前的组织方式，避免素材路径大面积变动。
+未来如果素材规模进一步扩大，可以考虑在 `audio/`、`image/` 之下按作品继续分组；在实施之前，请先沿用当前的组织方式，避免素材路径大面积变动。
 
 ## 数据
 
@@ -232,7 +236,7 @@ assets/
 | 文件 | 内容 |
 | --- | --- |
 | `assets.js` | 全扩展素材清单，用于启动时的素材完整性检测（缺失时向玩家提示） |
-| `bgmList.js` | 技能 → BGM 文件的映射数据（路径相对 `assets/` 目录） |
+| `bgmList.js` | 技能 → BGM 文件的映射数据（路径相对 `assets/audio/` 目录） |
 | `characterRank.js` | 角色评级与稀有度的静态数据（`rankMap` / `rarityMap`） |
 | `xnnequipment.js` | 装备元数据（名称、花色点数、数值范围、技能描述、AI 价值等） |
 | `装备价值列表.txt` | 原版牌堆装备的 AI 价值参考表 |
@@ -329,38 +333,6 @@ node tools/check/check-assets.mjs .
 
 如果只是某个角色的专属技能，不应该放到 `src/systems/`。
 
-## 后续可扩展方向
-
-以下是项目架构未来能够自然延伸的方向，均为规划而非已完成功能。
-
-### 1. 更多奥特曼内容
-
-继续按作品/系列扩充 `packages/ultraman/packs/` 下的分包，例如昭和系列、平成系列、新生代、奥特曼电影、特别篇以及其他官方衍生作品，并保持不同系列之间的模块化。
-
-### 2. 更多其他作品
-
-继续加入新作品（原神、崩坏：星穹铁道、赛马娘、KOF 等现有作品也可以继续扩充角色）。新增作品原则上独立为新的 package，接入 `src/core/loader.js` 即可。
-
-### 3. 角色图鉴
-
-现有 `packages + data + systems + ui` 结构已经具备建立完整角色图鉴的条件，未来可以增加覆盖作品、角色、技能、评级、台词、图片、相关彩蛋的图鉴系统。
-
-### 4. 更完善的角色评级
-
-`data/characterRank.js`（数据）与 `src/systems/tierlist.js`（实现）已经分离，可以进一步扩展：分作品评级、版本评级、多套评级标准、评级统计、评级图自动生成等。
-
-### 5. 彩蛋系统
-
-在现有触发框架上继续扩展：特定角色触发、特定作品联动、音频彩蛋、UI 彩蛋、隐藏内容等。
-
-### 6. BGM / 音频系统
-
-在 `data/bgmList.js` 与 `src/systems/bgm.js` 的基础上，未来可以增加：按作品分类、按角色分类、战斗 BGM、特殊事件 BGM、更完整的音频管理。
-
-### 7. 开发工具
-
-逐渐完善 `tools/`：资源检查、ID 检查、结构检查、自动索引、自动打包、版本发布等，减少维护大型扩展时的人工检查成本。
-
 ## 项目设计原则
 
 ### 内容与框架分离
@@ -378,10 +350,6 @@ node tools/check/check-assets.mjs .
 ### 公共功能优先复用
 
 多个作品都需要的功能应进入公共系统，而不是复制多份；`shared` 与 `systems` 都有明确的准入门槛。
-
-### 尽量避免修改无名杀本体
-
-扩展功能优先通过扩展自身的模块与无名杀提供的扩展点实现，保持与本体版本的兼容性。
 
 ### 新增内容优先"增加文件"，而不是"不断扩大巨型文件"
 

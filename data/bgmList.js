@@ -1,4 +1,4 @@
-// 技能 BGM 数据（路径相对扩展根 assets/ 目录）
+// 技能 BGM 数据（路径相对扩展根 assets/audio/ 目录）
 export default {
 	nksslingyu: ["lingyu1.mp3", "lingyu2.mp3"],
 	ffsongshi: ["songshi.mp3"],

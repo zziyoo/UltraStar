@@ -2,7 +2,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 export const skills = {
 	ignzshenji: {
-		audio: ["ext:奥特之星/assets/ignz1", "ext:奥特之星/assets/ignz2", "ext:奥特之星/assets/ignz3", "ext:奥特之星/assets/ignz4", "ext:奥特之星/assets/ignz5", "ext:奥特之星/assets/ignz6", "ext:奥特之星/assets/ignz7", "ext:奥特之星/assets/ignz8"],
+		audio: ["ext:奥特之星/assets/audio/ignz1", "ext:奥特之星/assets/audio/ignz2", "ext:奥特之星/assets/audio/ignz3", "ext:奥特之星/assets/audio/ignz4", "ext:奥特之星/assets/audio/ignz5", "ext:奥特之星/assets/audio/ignz6", "ext:奥特之星/assets/audio/ignz7", "ext:奥特之星/assets/audio/ignz8"],
 		enable: ["chooseToUse", "chooseToRespond"],
 		usable: 1,
 		forced: true,

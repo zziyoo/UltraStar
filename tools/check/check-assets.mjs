@@ -7,8 +7,8 @@ let errors = 0;
 
 // 重构前（git HEAD）即缺失的上游素材：代码有引用但仓库从未包含，保持引用不动
 const KNOWN_MISSING = new Set([
-	"assets/爻袁术.jpg",
-	"assets/爻袁术.mp3",
+	"assets/image/爻袁术.jpg",
+	"assets/audio/爻袁术.mp3",
 ]);
 
 function walk(dir, filter) {
@@ -59,7 +59,7 @@ if (eggFile) {
 	let m, count = 0;
 	while ((m = audRe.exec(src))) {
 		count++;
-		const p = path.join(repo, "assets", "easteregg", m[1]);
+		const p = path.join(repo, "assets", "audio", "easteregg", m[1]);
 		if (!fs.existsSync(p)) {
 			errors++;
 			console.log(`MISSING easterEgg audio: ${m[1]}`);
@@ -76,7 +76,7 @@ if (fs.existsSync(bgmFile)) {
 	let m, bgmCount = 0;
 	while ((m = valRe.exec(src))) {
 		bgmCount++;
-		const p = path.join(repo, "assets", m[1]);
+		const p = path.join(repo, "assets", "audio", m[1]);
 		if (!fs.existsSync(p) && !fs.existsSync(p + ".mp3")) {
 			errors++;
 			console.log(`MISSING bgm asset: ${m[1]}`);
@@ -112,6 +112,10 @@ for (const x of extra) console.log(`  NOTE extra (not in manifest, legacy): ${x}
 const allText = walk(repo, n => /\.(js|mjs|json|md|txt)$/.test(n));
 const oldPathRe = /奥特之星\/(image|audio|card)\//;
 const nestedAssetsRe = /assets\/(genshin|honkai-star-rail|kof|misc|ultraman|uma-musume|common)\//;
+// 旧平铺布局残留：assets/ 直连带扩展名的文件（现应位于 assets/audio/ 或 assets/image/ 下）
+const flatAssetsRe = /奥特之星\/assets\/(?!audio\/|image\/)[^"'\s`()\[\]]+\.(?:mp3|jpe?g|png|gif|webp)/;
+// 旧平铺布局残留：playAudio 多参形式的 "assets/<名>" 段（现应为 "audio/<名>" 或 "image/<名>"）
+const flatSegmentRe = /["']assets\/(?!audio\/|image\/)/;
 const wmRe = /无名扩展/;
 for (const f of allText) {
 	const rel = path.relative(repo, f).split(path.sep).join("/");
@@ -119,7 +123,7 @@ for (const f of allText) {
 	const src = read(f);
 	const lines = src.split("\n");
 	for (let i = 0; i < lines.length; i++) {
-		if (oldPathRe.test(lines[i])) {
+		if (oldPathRe.test(lines[i]) || flatAssetsRe.test(lines[i]) || flatSegmentRe.test(lines[i])) {
 			errors++;
 			console.log(`OLD PATH residue: ${rel}:${i + 1}`);
 		}

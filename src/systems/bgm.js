@@ -26,7 +26,7 @@ export function initBgmSystem() {
 		if (!game[audioKey] || game[audioKey].ended) {
 			if (!game.hasOtherBgmPlaying(game[audioKey])) {
 				const file = files[Math.floor(Math.random() * files.length)];
-				game[audioKey] = new Audio(`extension/奥特之星/assets/${file}`);
+				game[audioKey] = new Audio(`extension/奥特之星/assets/audio/${file}`);
 				game.addBgmToList(game[audioKey]);
 				game[audioKey].play();
 			}

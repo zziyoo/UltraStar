@@ -7,7 +7,7 @@ export const characters = {
 		hp: 4,
 		skills: ["ignzshenji"],
 		names: "null|伊格尼兹",
-		img: "extension/奥特之星/assets/伊格尼兹.jpg",
-		dieAudios: ["ext:奥特之星/assets/伊格尼兹.mp3"],
+		img: "extension/奥特之星/assets/image/伊格尼兹.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/伊格尼兹.mp3"],
 	},
 };

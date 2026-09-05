@@ -272,7 +272,7 @@ eggs.init = function () {
 	if (_status.wmEasterEggHooked) return;
 	_status.wmEasterEggHooked = true;
 	lib._wmEasterEggs = eggs;
-	const eggPlayAudio = audio => game.playAudio(`ext:奥特之星/assets/easteregg/${audio}`);
+	const eggPlayAudio = audio => game.playAudio(`ext:奥特之星/assets/audio/easteregg/${audio}`);
 	const eggMatchPlayer = (player, name) => {
 		if (!name) return true;
 		const names = lib.characterReplace?.[name] || [name];

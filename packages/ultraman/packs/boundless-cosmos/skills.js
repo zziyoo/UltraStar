@@ -2,7 +2,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
 export const skills = {
 	atzwxingmian: {
-		audio: ["ext:奥特之星/assets/xingmian"],
+		audio: ["ext:奥特之星/assets/audio/xingmian"],
 		trigger: { global: "phaseBegin" },
 		filter(event, player) {
 			if (player.countCards("he") === 0) return false;
@@ -73,7 +73,7 @@ export const skills = {
 		},
 	},
 	atzwbuxi: {
-		audio: ["ext:奥特之星/assets/buxi1", "ext:奥特之星/assets/buxi2"],
+		audio: ["ext:奥特之星/assets/audio/buxi1", "ext:奥特之星/assets/audio/buxi2"],
 		trigger: { global: ["changeHp"] },
 		filter(event, player) {
 			if (!event.player || !event.player.isAlive()) return false;

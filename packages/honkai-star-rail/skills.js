@@ -2,7 +2,7 @@
 
 export const skills = {
 	lyshishang: {
-		audio: ["ext:奥特之星/assets/shishang"],
+		audio: ["ext:奥特之星/assets/audio/shishang"],
 		trigger: { player: "phaseEnd" },
 		forced: true,
 		async content(event, trigger, player) {
@@ -14,7 +14,7 @@ export const skills = {
 		},
 	},
 	lyranjin: {
-		audio: ["ext:奥特之星/assets/ranjin1", "ext:奥特之星/assets/ranjin2", "ext:奥特之星/assets/ranjin3"],
+		audio: ["ext:奥特之星/assets/audio/ranjin1", "ext:奥特之星/assets/audio/ranjin2", "ext:奥特之星/assets/audio/ranjin3"],
 		zhuanhuanji: true,
 		direct: true,
 		locked: false,
@@ -190,7 +190,7 @@ export const skills = {
 		},
 	},
 	lyyuhuo: {
-		audio: ["ext:奥特之星/assets/yvhuo"],
+		audio: ["ext:奥特之星/assets/audio/yvhuo"],
 		trigger: { player: "useCard1" },
 		filter(event, player) {
 			return event.card.name === "sha" && event.targets?.length > 0;
@@ -326,7 +326,7 @@ export const skills = {
 		},
 	},
 	dlhchizhuo: {
-		audio: ["ext:奥特之星/assets/chizhuo1", "ext:奥特之星/assets/chizhuo2"],
+		audio: ["ext:奥特之星/assets/audio/chizhuo1", "ext:奥特之星/assets/audio/chizhuo2"],
 		trigger: { global: "useCardToTargeted" },
 		filter(event, player) {
 			if (get.tag(event.card, "delay")) return false;
@@ -531,7 +531,7 @@ export const skills = {
 		},
 	},
 	wgryanzhao: {
-		audio: ["ext:奥特之星/assets/yanzhao1", "ext:奥特之星/assets/yanzhao2"],
+		audio: ["ext:奥特之星/assets/audio/yanzhao1", "ext:奥特之星/assets/audio/yanzhao2"],
 		trigger: {
 			global: ["phaseZhunbeiBegin", "phaseJieshuBegin"],
 		},
@@ -626,7 +626,7 @@ export const skills = {
 		},
 	},
 	lszhuoyan: {
-		audio: ["ext:奥特之星/assets/zhuoyan1", "ext:奥特之星/assets/zhuoyan2", "ext:奥特之星/assets/zhuoyan3"],
+		audio: ["ext:奥特之星/assets/audio/zhuoyan1", "ext:奥特之星/assets/audio/zhuoyan2", "ext:奥特之星/assets/audio/zhuoyan3"],
 		chargeSkill: 5,
 		usable: 1,
 		mod: {
@@ -818,7 +818,7 @@ export const skills = {
 		},
 	},
 	lsfenyun: {
-		audio: ["ext:奥特之星/assets/fenyun"],
+		audio: ["ext:奥特之星/assets/audio/fenyun"],
 		chargeSkill: 5,
 		forced: true,
 		locked: false,
@@ -851,7 +851,7 @@ export const skills = {
 		group: ["lsfenyun_active"],
 		subSkill: {
 			active: {
-				audio: ["ext:奥特之星/assets/fenyun"],
+				audio: ["ext:奥特之星/assets/audio/fenyun"],
 				enable: "phaseUse",
 				direct: true,
 				locked: false,
@@ -888,7 +888,7 @@ export const skills = {
 		},
 	},
 	zgnxiezou: {
-		audio: ["ext:奥特之星/assets/xiezou1", "ext:奥特之星/assets/xiezou2"],
+		audio: ["ext:奥特之星/assets/audio/xiezou1", "ext:奥特之星/assets/audio/xiezou2"],
 		enable: "phaseUse",
 		direct: true,
 		round: 1,
@@ -990,9 +990,9 @@ export const skills = {
 	ylshanshuo: {
 		logAudio(trigger, player) {
 			if (player.getStorage("ylshanshuo_fromKanpo", false)) {
-				return ["ext:奥特之星/assets/kanpo" + (Math.floor(Math.random() * 2) + 2)];
+				return ["ext:奥特之星/assets/audio/kanpo" + (Math.floor(Math.random() * 2) + 2)];
 			}
-			return ["ext:奥特之星/assets/shanshuo1", "ext:奥特之星/assets/shanshuo2"];
+			return ["ext:奥特之星/assets/audio/shanshuo1", "ext:奥特之星/assets/audio/shanshuo2"];
 		},
 		trigger: { player: "damageEnd" },
 		forced: true,
@@ -1073,7 +1073,7 @@ export const skills = {
 		},
 	},
 	ylxiahe: {
-		audio: ["ext:奥特之星/assets/xiahe1", "ext:奥特之星/assets/xiahe2"],
+		audio: ["ext:奥特之星/assets/audio/xiahe1", "ext:奥特之星/assets/audio/xiahe2"],
 		trigger: { source: "damageEnd" },
 		forced: true,
 		locked: false,
@@ -1090,7 +1090,7 @@ export const skills = {
 		},
 	},
 	ylkanpo: {
-		audio: ["ext:奥特之星/assets/kanpo1"],
+		audio: ["ext:奥特之星/assets/audio/kanpo1"],
 		trigger: { global: "phaseBegin" },
 		forced: false,
 		filter(event, player) {
@@ -1169,7 +1169,7 @@ export const skills = {
 			if (!event.damageReceived) {
 				await player.draw();
 				game.log(player, "发动了", "#g【闪烁】");
-				game.playAudio("..", "extension", "奥特之星", "assets/kanpo" + (Math.floor(Math.random() * 2) + 4));
+				game.playAudio("..", "extension", "奥特之星", "assets/audio/kanpo" + (Math.floor(Math.random() * 2) + 4));
 				if (player.countCards("he") > 0) {
 					player.setStorage("ylshanshuo_using", true);
 					const useResult = await player
@@ -1227,7 +1227,7 @@ export const skills = {
 		},
 	},
 	xdanchao: {
-		audio: ["ext:奥特之星/assets/anchao1"],
+		audio: ["ext:奥特之星/assets/audio/anchao1"],
 		trigger: { global: ["changeHp", "loseAfter", "cardsDiscardAfter", "loseAsyncAfter", "equipAfter"] },
 		forced: true,
 		locked: false,
@@ -1309,7 +1309,7 @@ export const skills = {
 				},
 			},
 			phaseEnd: {
-				audio: ["ext:奥特之星/assets/anchao"],
+				audio: ["ext:奥特之星/assets/audio/anchao"],
 				trigger: { global: "phaseEnd" },
 				filter(event, player) {
 					return player.countMark("xdanchao_xinrui") >= 34;
@@ -1364,7 +1364,7 @@ export const skills = {
 		},
 	},
 	xdyuejian: {
-		audio: ["ext:奥特之星/assets/yuejian"],
+		audio: ["ext:奥特之星/assets/audio/yuejian"],
 		usable: 1,
 		trigger: { global: "dying" },
 		filter(event, player) {
@@ -1408,7 +1408,7 @@ export const skills = {
 		},
 	},
 	xdyoudie: {
-		audio: ["ext:奥特之星/assets/youdie1", "ext:奥特之星/assets/youdie2", "ext:奥特之星/assets/youdie3", "ext:奥特之星/assets/youdie4"],
+		audio: ["ext:奥特之星/assets/audio/youdie1", "ext:奥特之星/assets/audio/youdie2", "ext:奥特之星/assets/audio/youdie3", "ext:奥特之星/assets/audio/youdie4"],
 		enable: "phaseUse",
 		usable: 1,
 		group: ["xdyoudie_damage"],
@@ -1513,7 +1513,7 @@ export const skills = {
 		group: ["hqchigui_init", "hqchigui_phaseUse"],
 		subSkill: {
 			init: {
-				audio: ["ext:奥特之星/assets/chigui1"],
+				audio: ["ext:奥特之星/assets/audio/chigui1"],
 				trigger: {
 					global: "phaseBefore",
 					player: "enterGame",
@@ -1528,7 +1528,7 @@ export const skills = {
 				},
 			},
 			phaseUse: {
-				audio: ["ext:奥特之星/assets/chigui2", "ext:奥特之星/assets/chigui3"],
+				audio: ["ext:奥特之星/assets/audio/chigui2", "ext:奥特之星/assets/audio/chigui3"],
 				trigger: {
 					player: "phaseUseBegin",
 				},
@@ -1673,7 +1673,7 @@ export const skills = {
 		},
 	},
 	hqtize: {
-		audio: ["ext:奥特之星/assets/tize1"],
+		audio: ["ext:奥特之星/assets/audio/tize1"],
 		skillAnimation: true,
 		animationColor: "thunder",
 		trigger: {
@@ -1768,7 +1768,7 @@ export const skills = {
 					},
 				})
 				.forResult();
-			game.playAudio("ext:奥特之星/assets/tize2.mp3");
+			game.playAudio("ext:奥特之星/assets/audio/tize2.mp3");
 			if (result.bool && result.targets?.length) {
 				const card = {
 					name: "sha",

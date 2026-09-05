@@ -166,7 +166,7 @@ export const skills = {
 				const effect = links[0];
 				return {
 					effect: effect,
-					audio: ["ext:奥特之星/assets/xingshang1", "ext:奥特之星/assets/xingshang2"],
+					audio: ["ext:奥特之星/assets/audio/xingshang1", "ext:奥特之星/assets/audio/xingshang2"],
 					filterCard: () => false,
 					selectCard: -1,
 					filterTarget: effect.filterTarget,
@@ -222,7 +222,7 @@ export const skills = {
 			aiSkill: {},
 			backup: {},
 			gain: {
-				audio: ["ext:奥特之星/assets/xingshang1", "ext:奥特之星/assets/xingshang2"],
+				audio: ["ext:奥特之星/assets/audio/xingshang1", "ext:奥特之星/assets/audio/xingshang2"],
 				trigger: { global: ["die", "damageEnd"] },
 				filter(event, player) {
 					if (player.countMark("mcpxingshang") >= get.info("mcpxingshang").getLimit) {
@@ -346,7 +346,7 @@ export const skills = {
 				},
 			},
 		],
-		audio: ["ext:奥特之星/assets/fangzhu1", "ext:奥特之星/assets/fangzhu2"],
+		audio: ["ext:奥特之星/assets/audio/fangzhu1", "ext:奥特之星/assets/audio/fangzhu2"],
 		enable: "phaseUse",
 		filter(event, player) {
 			return get.info("mcpfangzhu").getList.some(effect => {
@@ -395,7 +395,7 @@ export const skills = {
 				const effect = links[0];
 				return {
 					effect: effect,
-					audio: ["ext:奥特之星/assets/fangzhu1", "ext:奥特之星/assets/fangzhu2"],
+					audio: ["ext:奥特之星/assets/audio/fangzhu1", "ext:奥特之星/assets/audio/fangzhu2"],
 					audioname: ["mb_caomao"],
 					filterCard: () => false,
 					selectCard: -1,
@@ -525,7 +525,7 @@ export const skills = {
 		},
 	},
 	mcpsongwei: {
-		audio: ["ext:奥特之星/assets/songwei1", "ext:奥特之星/assets/songwei2"],
+		audio: ["ext:奥特之星/assets/audio/songwei1", "ext:奥特之星/assets/audio/songwei2"],
 		trigger: { player: "phaseUseBegin" },
 		filter(event, player) {
 			if (player.countMark("mcpxingshang") >= get.info("mcpxingshang").getLimit) {
@@ -542,7 +542,7 @@ export const skills = {
 		group: "mcpsongwei_delete",
 		subSkill: {
 			delete: {
-				audio: ["ext:奥特之星/assets/songwei1", "ext:奥特之星/assets/songwei2"],
+				audio: ["ext:奥特之星/assets/audio/songwei1", "ext:奥特之星/assets/audio/songwei2"],
 				enable: "phaseUse",
 				filter(event, player) {
 					if (player.getStorage("mcpsongwei_delete", false)) {
@@ -916,7 +916,7 @@ export const skills = {
 		},
 	},
 	wsgucheng: {
-		audio: ["ext:奥特之星/assets/gucheng.mp3"],
+		audio: ["ext:奥特之星/assets/audio/gucheng.mp3"],
 		trigger: {
 			player: ["recoverBefore", "gainBefore"],
 		},
@@ -943,7 +943,7 @@ export const skills = {
 		},
 	},
 	wsgeshi: {
-		audio: ["ext:奥特之星/assets/geshi.mp3"],
+		audio: ["ext:奥特之星/assets/audio/geshi.mp3"],
 		forced: true,
 		trigger: {
 			global: "phaseEnd",
