@@ -35,8 +35,8 @@ for (const f of jsFiles) {
 	while ((m = refRe.exec(src))) {
 		const r = m[1].replace(/[)\]]+$/, "");
 		if (r.includes("${")) continue;
-		// 引用后紧跟 "+" 为动态拼接（如 kanpo + 随机数），无法静态定位具体文件，跳过
-		const after = src.slice(m.index + m[0].length).trimStart();
+		// 引用引号后紧跟 "+" 为动态拼接（如 kanpo + 随机数），无法静态定位具体文件，跳过
+		const after = src.slice(m.index + m[0].length).replace(/^["'`]/, "").trimStart();
 		if (after.startsWith("+")) continue;
 		refs.add(r);
 	}
