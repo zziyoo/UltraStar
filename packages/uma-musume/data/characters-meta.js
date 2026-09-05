@@ -13,6 +13,7 @@ export const characterTitle = {
 	哈基米: "蜂蜜特饮",
 	米浴: "向死而生",
 	特别周: "乡下马",
+	黄金船: "白色怪物",
 	目白麦昆: "名门大小姐",
 };
 export const characterIntro = {};

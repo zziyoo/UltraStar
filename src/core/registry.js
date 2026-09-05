@@ -80,6 +80,9 @@ export function buildPackage() {
 		Object.assign(skill, pkg.skills);
 		Object.assign(skillTranslate, pkg.skillTranslate);
 	}
+	// 扩展设置菜单展示：五大誓言 + 点击复制仓库地址（与十周年UI相同的原生 clipboard 方式）
+	const githubUrl = "https://github.com/zziyoo/UltraStar";
+	const copyHandler = `navigator.clipboard.writeText('${githubUrl}').then(() => alert('已成功复制，粘贴到浏览器打开，部分进不去需要翻墙')).catch(() => alert('复制失败，请手动复制'))`;
 	return {
 		character: {
 			character,
@@ -96,7 +99,7 @@ export function buildPackage() {
 			skill,
 			translate: skillTranslate,
 		},
-		intro: "奥特五大誓言：饿着肚子不能上学；好天气要晒被子；过马路时要注意来往车辆；不要依赖别人的力量；要光着脚在地上玩",
+		intro: `奥特五大誓言：饿着肚子不能上学；好天气要晒被子；过马路时要注意来往车辆；不要依赖别人的力量；要光着脚在地上玩<br><a href="javascript:void(0)" onclick="${copyHandler}" style="color: #FFFACD;">点击复制仓库地址</a>`,
 		author: "子右",
 		diskURL: "https://github.com/zziyoo/UltraStar",
 		forumURL: "",

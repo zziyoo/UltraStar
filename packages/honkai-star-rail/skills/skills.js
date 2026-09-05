@@ -988,16 +988,17 @@ export const skills = {
 		},
 	},
 	ylshanshuo: {
-		audio: ["ext:奥特之星/assets/honkai-star-rail/audio/skill/shanshuo1", "ext:奥特之星/assets/honkai-star-rail/audio/skill/shanshuo2"],
+		logAudio(trigger, player) {
+			if (player.getStorage("ylshanshuo_fromKanpo", false)) {
+				return ["ext:奥特之星/assets/honkai-star-rail/audio/skill/kanpo" + (Math.floor(Math.random() * 2) + 2)];
+			}
+			return ["ext:奥特之星/assets/honkai-star-rail/audio/skill/shanshuo1", "ext:奥特之星/assets/honkai-star-rail/audio/skill/shanshuo2"];
+		},
 		trigger: { player: "damageEnd" },
 		forced: true,
 		locked: false,
 		async content(event, trigger, player) {
 			await player.draw();
-			const fromKanpo = player.getStorage("ylshanshuo_fromKanpo", false);
-			if (fromKanpo) {
-				game.playAudio("..", "extension", "奥特之星", "assets/honkai-star-rail/audio/skill/kanpo" + (Math.floor(Math.random() * 2) + 2));
-			}
 			player.setStorage("ylshanshuo_using", true);
 			const result = await player
 				.chooseToUse()
@@ -1043,8 +1044,8 @@ export const skills = {
 		},
 		subSkill: {
 			backup: {
-				filterCard() {
-					return get.itemtype(card) === "card";;
+				filterCard(card) {
+					return get.itemtype(card) === "card";
 				},
 				selectCard: 1,
 				position: "he",
@@ -1148,7 +1149,6 @@ export const skills = {
 					}
 				}
 			}
-			player.setStorage("ylxiahe_fromKanpo", true);
 			const topCards = num > 0 ? get.cards(num * 2, true) : [];
 			const handCards = target.getCards("h");
 			if (topCards.length > 0) {
@@ -1187,14 +1187,13 @@ export const skills = {
 					}
 				}
 			}
-			player.setStorage("ylxiahe_fromKanpo", false);
 			player.setStorage("ylshanshuo_fromKanpo", false);
 		},
 		group: ["ylkanpo_damage"],
 		subSkill: {
 			backup: {
-				filterCard(card, player) {
-					return player.countCards("he", c => c === card) > 0;
+				filterCard(card) {
+					return get.itemtype(card) === "card";
 				},
 				selectCard: 1,
 				position: "he",
@@ -1307,32 +1306,6 @@ export const skills = {
 					);
 					game.log(player, "召唤了死龙进入休整状态");
 					game.addGlobalSkill("autoswap");
-					if (!_status.xdanchao_init) {
-						_status.xdanchao_init = true;
-						const origin_getFriends = lib.element.player.getFriends;
-						lib.element.player.getFriends = function (func, includeDie) {
-							const friends = origin_getFriends.apply(this, arguments);
-							const silong = game.players.find(p => p.name === "死龙");
-							if (silong && this._trueMe === silong._trueMe) {
-								if (!friends.includes(silong)) friends.push(silong);
-							}
-							if (silong && this.name === "死龙") {
-								const xiadie = game.players.find(p => p.hasSkill("xdanchao"));
-								if (xiadie && !friends.includes(xiadie)) friends.push(xiadie);
-							}
-							return friends.unique();
-						};
-						const origin_isFriendOf = lib.element.player.isFriendOf;
-						lib.element.player.isFriendOf = function (target) {
-							const silong = game.players.find(p => p.name === "死龙");
-							if (silong) {
-								if ((this.name === "死龙" && target._trueMe === this._trueMe) || (target.name === "死龙" && this._trueMe === target._trueMe)) {
-									return true;
-								}
-							}
-							return origin_isFriendOf.apply(this, arguments);
-						};
-					}
 				},
 			},
 			phaseEnd: {

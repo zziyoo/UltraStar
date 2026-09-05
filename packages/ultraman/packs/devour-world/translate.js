@@ -1,8 +1,8 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
 export const characterTranslate = {
-	安培拉星人: "安培拉星人",//雄吞天地
-	黑暗迪迦: "黑暗迪迦",//雄吞天地
+	安培拉星人: "安培拉星人",
+	黑暗迪迦: "黑暗迪迦",
 	黑暗迪迦_prefix: "黑暗",
 };
 export const skillTranslate = {

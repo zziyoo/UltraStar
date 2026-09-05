@@ -1,8 +1,8 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
 export const characterTranslate = {
-	普利茨墨: "普利茨墨",//万物终焉
-	加坦杰厄: "加坦杰厄",//万物终焉
+	普利茨墨: "普利茨墨",
+	加坦杰厄: "加坦杰厄",
 };
 export const skillTranslate = {
 	jtjeheiwu: "黑雾",

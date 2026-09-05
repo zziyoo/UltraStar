@@ -1,8 +1,8 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
 export const characterTranslate = {
-	奥特之王: "奥特之王",//寰宇无极
-	赛迦: "赛迦",//寰宇无极
+	奥特之王: "奥特之王",
+	赛迦: "赛迦",
 };
 export const skillTranslate = {
 	atzwxingmian: "星冕",
