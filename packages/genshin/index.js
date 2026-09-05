@@ -8,6 +8,8 @@ import { registerEquipmentCards } from "./equipment/cards.js";
 import { registerEquipmentSkills } from "./equipment/skills.js";
 
 export default {
+	id: "genshin",
+	name: "原神",
 	characters: Object.assign({}, _c0),
 	characterTranslate: Object.assign({}, _ctr),
 	characterTitle: Object.assign({}, _cti),

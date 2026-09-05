@@ -8,7 +8,7 @@ export function registerEquipmentCards() {
 			subtype: "equip2",
 			suit: "heart",
 			number: i,
-			image: "ext:奥特之星/assets/ultraman/card/atpf.png",
+			image: "ext:奥特之星/assets/atpf.png",
 			ai: {
 				equipValue: 8.5,
 				basic: {
@@ -25,7 +25,7 @@ export function registerEquipmentCards() {
 		subtype: "equip5",
 		suit: "heart",
 		number: 1,
-		image: "ext:奥特之星/assets/ultraman/card/sgb.png",
+		image: "ext:奥特之星/assets/sgb.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "迪迦" || player.name == "闪耀迪迦") return 999;
@@ -45,7 +45,7 @@ export function registerEquipmentCards() {
 		subtype: "equip5",
 		suit: "spade",
 		number: 1,
-		image: "ext:奥特之星/assets/ultraman/card/hasgb.png",
+		image: "ext:奥特之星/assets/hasgb.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "黑暗迪迦") return 999;
@@ -65,7 +65,7 @@ export function registerEquipmentCards() {
 		subtype: "equip5",
 		suit: "club",
 		number: 12,
-		image: "ext:奥特之星/assets/ultraman/card/atyl.png",
+		image: "ext:奥特之星/assets/atyl.png",
 		ai: {
 			equipValue: 8,
 			basic: {

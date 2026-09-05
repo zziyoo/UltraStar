@@ -21,14 +21,13 @@ const newRoot = path.join(tmp, "new-tree", "extension", "奥特之星");
 fs.mkdirSync(oldRoot, { recursive: true });
 fs.mkdirSync(newRoot, { recursive: true });
 
-// ---- 恢复旧树 ----
+// ---- 恢复旧树（完整基线提交树，兼容任意基线结构）----
+// Windows bsdtar 解 tar 流会损坏 UTF-8 文件名，故按文件逐个 git show 恢复；
+// 素材二进制文件不参与 import 对比，跳过以加速
 console.log("parity base commit: " + baseCommit);
-const headFiles = [
-	"extension.js", "assetsManifest.js", "bgmList.js",
-	"dynamicTranslate.js", "easterEggs.js", "intro.js",
-	"equipment/equipmentCards.js", "equipment/equipmentSkills.js", "equipment/xnnequipment.js",
-];
-for (const f of headFiles) {
+const tracked = execFileSync(git, ["-C", repo, "ls-tree", "-r", "--name-only", "-z", baseCommit], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).split("\0").filter(Boolean);
+for (const f of tracked) {
+	if (/\.(jpg|jpeg|png|gif|webp|mp3|ogg|wav|zip|psd)$/i.test(f)) continue;
 	const dest = path.join(oldRoot, f);
 	fs.mkdirSync(path.dirname(dest), { recursive: true });
 	const buf = execFileSync(git, ["-C", repo, "show", `${baseCommit}:${f}`], { maxBuffer: 64 * 1024 * 1024 });
@@ -47,7 +46,6 @@ export const lib = {
 	namePrefix: null,
 	element: {}, config: {}, rank: {},
 	filter: new Proxy({}, { get: (t, k) => { if (!(k in t)) t[k] = anyFn; return t[k]; } }),
-	sort: { group: () => 0 },
 	__calls: calls,
 };
 export const game = {
@@ -70,18 +68,22 @@ const errors = [];
 const note = [];
 
 // ---- 深度对比工具 ----
-// 已知路径修复归一：assets/<作品>/ → 旧直连路径（素材迁移的必要同步）
+// 已知路径修复归一：素材路径归一到文件名（旧直连/旧分包/新平铺三种布局等效）
 const FR = "(?:ultraman|genshin|honkai-star-rail|uma-musume|misc|common|kof)";
 function normalizeStr(s) {
 	return s
 		.replaceAll("extension_奥特之星_easterEgg_enabled", "extension_无名扩展_easterEgg_enabled")
-		.replace(new RegExp(`奥特之星/assets/${FR}/`, "g"), "奥特之星/") // 素材迁移：作品前缀归一
+		.replace(new RegExp(`奥特之星/assets/(?:${FR}/)?(?:image|card|audio(?:/die|/skill)?|kingdom|easterEggs|easteregg|camp|tierlist)?/?`, "g"), "奥特之星/") // 素材迁移：新布局路径归一
+		.replace(new RegExp(`奥特之星/(?:image|card|audio(?:/die|/skill)?|kingdom|easterEggs)/`, "g"), "奥特之星/") // 旧直连路径归一
+		.replace("奥特之星/kingdom/", "奥特之星/")
+		.replace("奥特之星/easterEggs/", "奥特之星/")
 		.replace(new RegExp(`(?:无名扩展|奥特之星)/`, "g"), "<EXT>/") // 扩展改名遗留修复归一
 		.replace(/\s*style="color:\s*#[0-9A-Fa-f]+;?"/g, ""); // 功能按钮自定义颜色为 UI 调整，归一
 }
 function normalizeFnText(t) {
 	return normalizeStr(t)
 		.replace(new RegExp(`(["'\`])assets/${FR}/`, "g"), "$1") // playAudio 多参形式
+		.replace(new RegExp(`["'](?:${FR}/)?(?:audio(?:/die|/skill)?|image|card|kingdom)?/?([^"']+\\.(?:jpg|png|mp3))["']`, "g"), '"$1"') // 相对素材路径归一到文件名
 		.replaceAll("<EXT>/audio/skill/", "<EXT>/") // 旧 bgm 拼接形式归一
 		.replaceAll("<EXT>/assets/", "<EXT>/") // 新 bgm 拼接形式归一
 		.replaceAll('"../../CHANGELOG.md"', '"../CHANGELOG.md"') // changelog fetch 归一
@@ -149,50 +151,95 @@ deepEqual(packOld.help, packNew.help, "pack.help");
 // copyRepoUrl（复制仓库地址）为新增功能项，属预期差异；功能按钮颜色经 normalizeStr 归一
 deepEqual(packOld.config, packNew.config, "pack.config", { ignoreKey: /^copyRepoUrl$/ });
 
-// ---- 执行 content()，收集分包注册 ----
+// ---- 执行 content()，校验单包 + characterSort 结构 ----
 const modOld = await import(pathToFileURL(path.join(tmp, "old-tree", "noname.js")).href);
 const modNew = await import(pathToFileURL(path.join(tmp, "new-tree", "noname.js")).href);
 if (typeof packOld.content === "function" && typeof packNew.content === "function") {
 	packOld.content();
 	packNew.content();
-	// 分包注册是分包框架引入的新能力（旧版无此机制），不做新旧相等对比；
-	// 关键不变量：分包角色不得同时出现在总包 package.character.character 中（避免重复注册）
+	// 关键不变量：新结构 content() 不得再注册任何独立分包（分包身份改由 characterSort 表达）
 	const newCalls = modNew.lib.__calls.addCharacterPack;
-	console.log("NOTE: content() addCharacterPack calls: old=" + modOld.lib.__calls.addCharacterPack.length + " new=" + newCalls.length);
-	const packCharsPre = new Set(Object.keys(packNew.package.character.character));
-	for (const call of newCalls) {
-		for (const name of Object.keys(call.character ?? {})) {
-			if (packCharsPre.has(name)) errors.push(`分包 ${call.name} 的角色 ${name} 同时存在于总包（重复注册）`);
-		}
-		console.log(`NOTE: 分包 ${call.name}（${Object.keys(call.character ?? {}).length} 角色）`);
+	if (newCalls.length !== 0) {
+		errors.push(`content() 仍注册了 ${newCalls.length} 个分包（应并入总包 characterSort）`);
 	}
 }
 
-// ---- 角色键序与内容对比（分包模式/普通模式）----
-const keysOld = Object.keys(packOld.package.character.character);
-const keysNew = Object.keys(packNew.package.character.character);
-const managedCalls = modNew.lib.__calls.addCharacterPack;
+// ---- 旧分包角色集合（旧树 content() 经 addCharacterPack 注册的角色）----
+const managedCalls = modOld.lib.__calls.addCharacterPack;
 const managedNames = new Set(managedCalls.flatMap(c => Object.keys(c.character ?? {})));
-if (keysOld.length !== keysNew.length) {
-	// 分包模式：新总包键序必须等于旧总包键序排除分包角色后的序列
-	const filtered = keysOld.filter(k => !managedNames.has(k));
-	if (filtered.length !== keysNew.length || filtered.some((k, i) => k !== keysNew[i])) {
-		errors.push("总包键序与旧键序（排除分包角色）不一致");
-	} else {
-		note.push(`分包模式：总包 ${keysNew.length} 角色 = 旧 ${keysOld.length} - 分包 ${managedNames.size}，顺序与原序一致`);
-	}
-	// 等效视图：把分包角色合并回总包副本后做深度对比（键序不敏感），确保内容无丢失
-	const packCharsEquiv = { ...packNew.package.character.character };
-	for (const c of managedCalls) for (const [k, v] of Object.entries(c.character ?? {})) packCharsEquiv[k] ??= v;
-	const equivPackage = { ...packNew.package, character: { ...packNew.package.character, character: packCharsEquiv } };
-	deepEqual(packOld.package, equivPackage, "pack.package(含分包等效)");
-} else {
-	deepEqual(packOld.package, packNew.package, "pack.package");
-	for (let i = 0; i < Math.min(keysOld.length, keysNew.length); i++)
-		if (keysOld[i] !== keysNew[i]) errors.push(`CHAR ORDER at #${i}: ${keysOld[i]} !== ${keysNew[i]}`);
-}
-note.push(`package.character.character: 旧 ${keysOld.length} / 新总包 ${keysNew.length} + 分包 ${managedNames.size}`);
 
+// ---- 角色完整性：旧总包 ∪ 旧分包 = 新总包，且旧总包键序为新键序的子序列 ----
+const charsOld = packOld.package.character.character;
+const keysOld = Object.keys(charsOld);
+const charsNew = packNew.package.character.character;
+const keysNew = Object.keys(charsNew);
+const allOldNames = new Set([...keysOld, ...managedNames]);
+for (const k of allOldNames) {
+	if (!(k in charsNew)) errors.push(`角色丢失: ${k}（未进入新总包）`);
+}
+for (const k of keysNew) {
+	if (!allOldNames.has(k)) errors.push(`新总包出现未知角色: ${k}`);
+}
+let matched = 0;
+for (const k of keysNew) {
+	if (k === keysOld[matched]) matched++;
+}
+if (matched !== keysOld.length) {
+	errors.push(`旧总包键序未保持（子序列匹配 ${matched}/${keysOld.length}）`);
+}
+note.push(`package.character.character: 旧总包 ${keysOld.length} + 旧分包 ${managedNames.size} = 新总包 ${keysNew.length}`);
+
+// ---- 角色内容一致（旧总包角色 + 旧分包角色）----
+for (const k of keysOld) deepEqual(charsOld[k], charsNew[k], `character.${k}`);
+for (const call of managedCalls) {
+	for (const [k, v] of Object.entries(call.character ?? {})) {
+		if (!(k in charsNew)) continue; // 丢失已在上方报错
+		deepEqual(v, charsNew[k], `character.${k}(旧分包${call.name})`);
+	}
+}
+
+// ---- 旧包其余元数据必须原样保留于新包 ----
+const charMetaOld = packOld.package.character, charMetaNew = packNew.package.character;
+for (const key of ["characterTitle", "characterIntro"]) {
+	deepEqual(charMetaOld[key] ?? {}, charMetaNew[key] ?? {}, `character.${key}`);
+}
+for (const [k, v] of Object.entries(charMetaOld.translate ?? {})) {
+	deepEqual(v, charMetaNew.translate?.[k], `character.translate.${k}`);
+}
+deepEqual(packOld.package.skill, packNew.package.skill, "pack.skill");
+
+// ---- characterSort 校验（新结构核心不变量）----
+const csOuter = charMetaNew.characterSort;
+if (!csOuter || typeof csOuter !== "object" || Array.isArray(csOuter)) {
+	errors.push("package.character.characterSort 缺失或结构错误");
+} else {
+	const outerKeys = Object.keys(csOuter);
+	if (outerKeys.length !== 1 || outerKeys[0] !== packNew.name) {
+		errors.push(`characterSort 外层键应为包名 ${packNew.name}，实际 ${JSON.stringify(outerKeys)}`);
+	}
+	const cs = csOuter[packNew.name] ?? {};
+	const sortTranslate = charMetaNew.translate ?? {};
+	const seen = new Map();
+	for (const [sortId, list] of Object.entries(cs)) {
+		if (!Array.isArray(list)) {
+			errors.push(`characterSort.${sortId} 不是数组`);
+			continue;
+		}
+		if (!sortTranslate[sortId]) errors.push(`分类 ${sortId} 缺少 translate 显示名`);
+		for (const k of list) {
+			if (!(k in charsNew)) errors.push(`分类 ${sortId} 引用不存在的角色: ${k}`);
+			if (seen.has(k)) errors.push(`角色 ${k} 重复出现在分类 ${seen.get(k)} 与 ${sortId}`);
+			else seen.set(k, sortId);
+		}
+	}
+	for (const k of keysNew) {
+		if (!seen.has(k)) errors.push(`角色 ${k} 未归入任何分类`);
+	}
+	note.push(`characterSort: ${Object.keys(cs).length} 个分类覆盖 ${seen.size}/${keysNew.length} 角色`);
+}
+
+// 兼容不同基线：旧版 precontent 可能包装 lib.sort.group，mock 无 lib.sort 时需兜底
+for (const mod of [modOld, modNew]) mod.lib.sort ??= { group: () => 0 };
 packOld.precontent();
 packNew.precontent();
 

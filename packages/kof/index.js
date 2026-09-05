@@ -6,6 +6,8 @@ import { translate as _st } from "./skills/translate.js";
 import { characterTranslate as _ctr, characterTitle as _cti, characterIntro as _cin } from "./data/characters-meta.js";
 
 export default {
+	id: "kof",
+	name: "KOF",
 	characters: Object.assign({}, _c0),
 	characterTranslate: Object.assign({}, _ctr),
 	characterTitle: Object.assign({}, _cti),

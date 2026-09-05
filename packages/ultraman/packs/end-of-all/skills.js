@@ -2,7 +2,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
 export const skills = {
 	plcmhuanjing: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/huanjing"],
+		audio: ["ext:奥特之星/assets/huanjing"],
 		trigger: {
 			global: "judgeBegin",
 		},
@@ -92,7 +92,7 @@ export const skills = {
 		},
 	},
 	plcmlengjing: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/lengjing"],
+		audio: ["ext:奥特之星/assets/lengjing"],
 		group: ["plcmlengjing_target"],
 		trigger: {
 			target: "useCardToTarget",
@@ -130,7 +130,7 @@ export const skills = {
 		},
 		subSkill: {
 			target: {
-				audio: ["ext:奥特之星/assets/ultraman/audio/skill/lengjing"],
+				audio: ["ext:奥特之星/assets/lengjing"],
 				trigger: {
 					player: "useCardToPlayered",
 				},
@@ -156,7 +156,7 @@ export const skills = {
 		},
 	},
 	plcmjinghua: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jinghua"],
+		audio: ["ext:奥特之星/assets/jinghua"],
 		forced: true,
 		locked: false,
 		trigger: { player: "useCardAfter" },
@@ -273,7 +273,7 @@ export const skills = {
 		},
 	},
 	jtjeheiwu: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
+		audio: ["ext:奥特之星/assets/jtje"],
 		trigger: { global: "phaseEnd" },
 		forced: true,
 		filter(event, player) {
@@ -327,7 +327,7 @@ export const skills = {
 		},
 	},
 	jtjeluoke: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
+		audio: ["ext:奥特之星/assets/jtje"],
 		trigger: { player: "damageBegin3" },
 		forced: true,
 		filter(event, player) {
@@ -350,7 +350,7 @@ export const skills = {
 	},
 	jtjeguanchuan: {
 		mark: true,
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
+		audio: ["ext:奥特之星/assets/jtje"],
 		enable: "phaseUse",
 		usable: 1,
 		skillAnimation: true,

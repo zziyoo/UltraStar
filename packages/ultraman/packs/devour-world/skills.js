@@ -3,7 +3,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 export const skills = {
 	aplxiongye: {
 		forced: true,
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/xiongye1", "ext:奥特之星/assets/ultraman/audio/skill/xiongye2"],
+		audio: ["ext:奥特之星/assets/xiongye1", "ext:奥特之星/assets/xiongye2"],
 		trigger: { global: ["damageBegin2", "damageBegin4"] },
 		filter(event, player, triggerName) {
 			if (triggerName === "damageBegin2" && event.source === player && event.player !== player) return true;

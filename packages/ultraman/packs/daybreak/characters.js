@@ -7,8 +7,8 @@ export const characters = {
 		hp: 4,
 		skills: ["atzfzhenli", "atzfchiyuan"],
 		names: "null|健",
-		img: "extension/奥特之星/assets/ultraman/image/奥特之父.jpg",
-		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/奥特之父.mp3"],
+		img: "extension/奥特之星/assets/奥特之父.jpg",
+		dieAudios: ["ext:奥特之星/assets/奥特之父.mp3"],
 	},
 	闪耀迪迦: {
 		sex: "male",
@@ -16,8 +16,8 @@ export const characters = {
 		hp: 4,
 		skills: ["sydjqiji", "sydjhuihuang"],
 		names: "null|迪迦",
-		img: "extension/奥特之星/assets/ultraman/image/闪耀迪迦.jpg",
-		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/那位大人.mp3"],
+		img: "extension/奥特之星/assets/闪耀迪迦.jpg",
+		dieAudios: ["ext:奥特之星/assets/那位大人.mp3"],
 	},
 	至高盖亚: {
 		sex: "male",
@@ -25,7 +25,7 @@ export const characters = {
 		hp: 4,
 		skills: ["zggylianshuai", "zggyjili"],
 		names: "null|盖亚",
-		img: "extension/奥特之星/assets/ultraman/image/至高盖亚.jpg",
-		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/那位大人.mp3"],
+		img: "extension/奥特之星/assets/至高盖亚.jpg",
+		dieAudios: ["ext:奥特之星/assets/那位大人.mp3"],
 	},
 };

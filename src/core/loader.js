@@ -7,7 +7,7 @@ import umaMusume from "../../packages/uma-musume/index.js";
 import misc from "../../packages/misc/index.js";
 import kof from "../../packages/kof/index.js";
 
-export const packages = [ultraman, genshin, honkaiStarRail, umaMusume, misc, kof];
+export const packages = [ultraman, umaMusume, genshin, honkaiStarRail, kof, misc];
 
 // 注册全部作品装备：先卡片后技能，与原扩展行为一致
 export function registerAllEquipment() {

@@ -7,9 +7,9 @@ let errors = 0;
 
 // 重构前（git HEAD）即缺失的上游素材：代码有引用但仓库从未包含，保持引用不动
 const KNOWN_MISSING = new Set([
-	"assets/misc/image/爻袁术.jpg",
-	"assets/misc/audio/die/爻袁术.mp3",
-	"assets/ultraman/audio/die/黑暗迪迦.mp3",
+	"assets/爻袁术.jpg",
+	"assets/爻袁术.mp3",
+	"assets/黑暗迪迦.mp3",
 ]);
 
 function walk(dir, filter) {
@@ -52,7 +52,7 @@ for (const ref of refs) {
 }
 console.log(`asset refs checked: ${refs.size} (dynamic \${} refs skipped)`);
 
-// ---- 1b. 彩蛋音频值专项校验（eggPlayAudio 拼接 ultraman/audio/easterEggs/<audio>）----
+// ---- 1b. 彩蛋音频值专项校验（eggPlayAudio 拼接 easteregg/<audio>）----
 const eggFile = jsFiles.find(f => f.endsWith("easterEgg.js"));
 if (eggFile) {
 	const src = read(eggFile);
@@ -60,7 +60,7 @@ if (eggFile) {
 	let m, count = 0;
 	while ((m = audRe.exec(src))) {
 		count++;
-		const p = path.join(repo, "assets", "ultraman", "audio", "easterEggs", m[1]);
+		const p = path.join(repo, "assets", "easteregg", m[1]);
 		if (!fs.existsSync(p)) {
 			errors++;
 			console.log(`MISSING easterEgg audio: ${m[1]}`);
@@ -73,7 +73,7 @@ if (eggFile) {
 const bgmFile = path.join(repo, "data/bgm/bgmList.js");
 if (fs.existsSync(bgmFile)) {
 	const src = read(bgmFile);
-	const valRe = /["']([\w./-]+\/(?:audio|image)\/[^"']+)["']/g;
+	const valRe = /["']([\w-]+\.mp3)["']/g;
 	let m, bgmCount = 0;
 	while ((m = valRe.exec(src))) {
 		bgmCount++;
@@ -112,6 +112,7 @@ for (const x of extra) console.log(`  NOTE extra (not in manifest, legacy): ${x}
 // ---- 4. 全局文本：无旧路径/无名扩展残留（CHANGELOG 历史与 tools/ 脚本本身除外）----
 const allText = walk(repo, n => /\.(js|mjs|json|md|txt)$/.test(n));
 const oldPathRe = /奥特之星\/(image|audio|card)\//;
+const nestedAssetsRe = /assets\/(genshin|honkai-star-rail|kof|misc|ultraman|uma-musume|common)\//;
 const wmRe = /无名扩展/;
 for (const f of allText) {
 	const rel = path.relative(repo, f).split(path.sep).join("/");
@@ -122,6 +123,10 @@ for (const f of allText) {
 		if (oldPathRe.test(lines[i])) {
 			errors++;
 			console.log(`OLD PATH residue: ${rel}:${i + 1}`);
+		}
+		if (nestedAssetsRe.test(lines[i])) {
+			errors++;
+			console.log(`NESTED assets PATH residue: ${rel}:${i + 1}`);
 		}
 		if (wmRe.test(lines[i])) {
 			errors++;

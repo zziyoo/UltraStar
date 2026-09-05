@@ -60,7 +60,7 @@ const text = document.createElement("div");
 text.className = "wm-changelog-text";
 const img = document.createElement("img");
 img.className = "wm-changelog-img";
-img.src = extUrl.substring(0, extUrl.lastIndexOf("/") + 1) + "../../assets/common/image/tierlist.png";
+img.src = extUrl.substring(0, extUrl.lastIndexOf("/") + 1) + "../../assets/tierlist/tierlist.png";
 text.appendChild(img);
 box.appendChild(title);
 box.appendChild(hint);

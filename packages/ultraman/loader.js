@@ -8,9 +8,9 @@ import daybreak from "./packs/daybreak/index.js";
 import boundlessCosmos from "./packs/boundless-cosmos/index.js";
 
 // 奥特曼分包清单：新增分包只需新建 packs/<id>/ 并加入此数组
-export const packs = [endOfAll, devourWorld, eternalTorch, daybreak, boundlessCosmos];
+export const packs = [eternalTorch, daybreak, devourWorld, endOfAll, boundlessCosmos];
 
-// 加载并验证所有分包，返回合并结果与"角色 → 分包"映射。
+// 加载并验证所有分包，返回合并结果。
 // 校验项：分包 id 重复/缺失、name 缺失、角色重复、技能重复、角色引用技能是否存在。
 // 问题通过 console.error 报告，便于开发期快速发现。
 export function loadPacks() {
@@ -23,7 +23,6 @@ export function loadPacks() {
 		characterTitle: {},
 		characterIntro: {},
 	};
-	const charToPack = {};
 	const seenIds = new Set();
 	const seenChars = new Set();
 	const seenSkills = new Set(Object.keys(sharedSkills));
@@ -40,7 +39,6 @@ export function loadPacks() {
 			else {
 				seenChars.add(id);
 				merged.characters[id] = pack.characters[id];
-				charToPack[id] = pack.id;
 			}
 		}
 		for (const id of Object.keys(pack.skills ?? {})) {
@@ -66,5 +64,5 @@ export function loadPacks() {
 
 	for (const p of problems) console.error("[ultraman pack loader] " + p);
 
-	return { merged, charToPack, problems };
+	return { merged, problems };
 }

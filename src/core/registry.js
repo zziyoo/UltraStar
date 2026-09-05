@@ -55,20 +55,32 @@ const CHARACTER_ORDER = [
 		"阿斯特拉",
 ];
 
+// 分包 → 总包内部分类（characterSort，机制同本体 character/sp 包）：
+// id 作分类键，name 作分类显示名；无 characterSorts 的作品包整体作为一个分类
+function buildCharacterSort() {
+	const characterSort = {};
+	const characterSortTranslate = {};
+	for (const pkg of packages) {
+		const sorts = pkg.characterSorts ?? [{ id: pkg.id, name: pkg.name, characters: pkg.characters ?? {} }];
+		for (const sort of sorts) {
+			if (!sort?.id || !sort?.name) continue;
+			characterSort[sort.id] = Object.keys(sort.characters);
+			characterSortTranslate[sort.id] = sort.name;
+		}
+	}
+	return { characterSort, characterSortTranslate };
+}
+
 export function buildPackage() {
 	const charMap = {};
 	for (const pkg of packages) Object.assign(charMap, pkg.characters);
-	// 已迁入分包的角色由 content() 阶段的 game.addCharacterPack 注册为独立分包，
-	// 不再进入扩展总包，避免同一角色同时出现在总包与分包
-	const packManaged = new Set();
-	for (const pkg of packages) {
-		for (const name of Object.keys(pkg.charToPack ?? {})) packManaged.add(name);
-	}
+	// 全部角色统一进入唯一的奥特之星总包，分包身份由 characterSort 表达
 	const character = {};
 	for (const name of CHARACTER_ORDER) {
-		if (charMap[name] && !packManaged.has(name)) character[name] = charMap[name];
+		if (charMap[name]) character[name] = charMap[name];
 	}
-	const characterTranslate = { 奥特之星: "奥特之星" };
+	const { characterSort, characterSortTranslate } = buildCharacterSort();
+	const characterTranslate = { 奥特之星: "奥特之星", ...characterSortTranslate };
 	const characterTitle = {};
 	const characterIntro = {};
 	const skill = {};
@@ -86,6 +98,9 @@ export function buildPackage() {
 			translate: characterTranslate,
 			characterTitle,
 			characterIntro,
+			characterSort: {
+				奥特之星: characterSort,
+			},
 		},
 		card: {
 			card: {},

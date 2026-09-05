@@ -2,7 +2,7 @@
 
 export const skills = {
 	ffshenqu: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/shenqu1", "ext:奥特之星/assets/genshin/audio/skill/shenqu2"],
+		audio: ["ext:奥特之星/assets/shenqu1", "ext:奥特之星/assets/shenqu2"],
 		trigger: { player: "dying" },
 		forced: true,
 		async content(event, trigger, player) {
@@ -123,7 +123,7 @@ export const skills = {
 			round: {
 				trigger: { global: "roundEnd" },
 				forced: true,
-				audio: ["ext:奥特之星/assets/genshin/audio/skill/shenpan"],
+				audio: ["ext:奥特之星/assets/shenpan"],
 				async content(event, trigger, player) {
 					const aliveCount = game.countPlayer();
 					const topCards = get.cards(aliveCount);
@@ -173,7 +173,7 @@ export const skills = {
 				skillAnimation: true,
 				animationColor: "water",
 				prompt2: "赦免",
-				audio: ["ext:奥特之星/assets/genshin/audio/skill/shenpan-success"],
+				audio: ["ext:奥特之星/assets/shenpan-success"],
 				filter(event, player) {
 					if (player.countMark("ffshenpan_wu") >= 500) return true;
 					const allPlayers = game.filterPlayer(p => p.isAlive());
@@ -195,7 +195,7 @@ export const skills = {
 				skillAnimation: true,
 				animationColor: "fire",
 				prompt2: "死刑",
-				audio: ["ext:奥特之星/assets/genshin/audio/skill/shenpan-fail"],
+				audio: ["ext:奥特之星/assets/shenpan-fail"],
 				filter(event, player) {
 					const otherPlayers = game.filterPlayer(p => p !== player && p.isAlive());
 					if (otherPlayers.length === 0) return false;
@@ -216,11 +216,11 @@ export const skills = {
 				silent: true,
 				async content(event, trigger, player) {
 					if (player.hasSkill("ffsongshi")) {
-						game.playAudio("ext:奥特之星/assets/genshin/audio/die/芙宁娜芙卡洛斯-赦免.mp3");
+						game.playAudio("ext:奥特之星/assets/芙宁娜芙卡洛斯-赦免.mp3");
 					} else if (player.hasSkill("ffguqi")) {
-						game.playAudio("ext:奥特之星/assets/genshin/audio/die/芙宁娜芙卡洛斯-死刑.mp3");
+						game.playAudio("ext:奥特之星/assets/芙宁娜芙卡洛斯-死刑.mp3");
 					} else {
-						game.playAudio("ext:奥特之星/assets/genshin/audio/die/芙宁娜芙卡洛斯.mp3");
+						game.playAudio("ext:奥特之星/assets/芙宁娜芙卡洛斯.mp3");
 					}
 				},
 			},
@@ -258,7 +258,7 @@ export const skills = {
 		},
 	},
 	ffduwu: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/duwu"],
+		audio: ["ext:奥特之星/assets/duwu"],
 		trigger: { global: "phaseEnd" },
 		forced: true,
 		mark: true,
@@ -416,7 +416,7 @@ export const skills = {
 		async content(event, trigger, player) {
 			if (!player.getStorage("ffguqi_played", false)) {
 				player.setStorage("ffguqi_played", true);
-				const audio = new Audio("extension/奥特之星/assets/genshin/audio/skill/guqi.mp3");
+				const audio = new Audio("extension/奥特之星/assets/guqi.mp3");
 				audio.play();
 			}
 			game.log(player, "发动了【孤泣】");
@@ -448,7 +448,7 @@ export const skills = {
 		},
 	},
 	nwlthailang: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/hailang1", "ext:奥特之星/assets/genshin/audio/skill/hailang2", "ext:奥特之星/assets/genshin/audio/skill/hailang3"],
+		audio: ["ext:奥特之星/assets/hailang1", "ext:奥特之星/assets/hailang2", "ext:奥特之星/assets/hailang3"],
 		trigger: { player: "useCard2" },
 		filter(event, player) {
 			const card = event.card;
@@ -521,7 +521,7 @@ export const skills = {
 		},
 	},
 	nwltgongzheng: {
-		audio: "ext:奥特之星/assets/genshin/audio/skill/gongzheng",
+		audio: "ext:奥特之星/assets/gongzheng",
 		forced: true,
 		trigger: {
 			global: "useCardAfter",
@@ -618,7 +618,7 @@ export const skills = {
 		},
 	},
 	nwltjuecai: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/juecai1", "ext:奥特之星/assets/genshin/audio/skill/juecai2", "ext:奥特之星/assets/genshin/audio/skill/juecai3"],
+		audio: ["ext:奥特之星/assets/juecai1", "ext:奥特之星/assets/juecai2", "ext:奥特之星/assets/juecai3"],
 		enable: "phaseUse",
 		usable: 1,
 		direct: true,
@@ -725,7 +725,7 @@ export const skills = {
 		},
 	},
 	alqnhuahui: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/huahui1", "ext:奥特之星/assets/genshin/audio/skill/huahui2", "ext:奥特之星/assets/genshin/audio/skill/huahui3"],
+		audio: ["ext:奥特之星/assets/huahui1", "ext:奥特之星/assets/huahui2", "ext:奥特之星/assets/huahui3"],
 		trigger: { global: "roundStart" },
 		frequent: true,
 		locked: false,
@@ -918,7 +918,7 @@ export const skills = {
 		subSkill: {
 			damage: {
 				charlotte: true,
-				audio: ["ext:奥特之星/assets/genshin/audio/skill/zhanshou1", "ext:奥特之星/assets/genshin/audio/skill/zhanshou2"],
+				audio: ["ext:奥特之星/assets/zhanshou1", "ext:奥特之星/assets/zhanshou2"],
 				trigger: { source: "damageBegin1" },
 				filter(event, player) {
 					if (event.source !== player) return false;
@@ -953,7 +953,7 @@ export const skills = {
 		},
 	},
 	alqneyue: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/eyue1", "ext:奥特之星/assets/genshin/audio/skill/eyue2", "ext:奥特之星/assets/genshin/audio/skill/eyue3"],
+		audio: ["ext:奥特之星/assets/eyue1", "ext:奥特之星/assets/eyue2", "ext:奥特之星/assets/eyue3"],
 		enable: "chooseToUse",
 		skillAnimation: true,
 		group: ["alqneyue_roundreset", "alqneyue_norecover"],
@@ -1083,7 +1083,7 @@ export const skills = {
 			}
 			const choice = player.getStorage("skkjimie_choice");
 			if (choice === "mie") {
-				game.playAudio("..", "extension", "奥特之星", "assets/genshin/audio/skill/jiejimie" + (Math.floor(Math.random() * 3) + 1));
+				game.playAudio("..", "extension", "奥特之星", "assets/jiejimie" + (Math.floor(Math.random() * 3) + 1));
 				const mieCount = player.countMark("skkjimie_liexi");
 				if (mieCount > 0) {
 					player.removeMark("skkjimie_liexi", mieCount);
@@ -1121,7 +1121,7 @@ export const skills = {
 		},
 		subSkill: {
 			jieshan: {
-				audio: ["ext:奥特之星/assets/genshin/audio/skill/jiejishan1", "ext:奥特之星/assets/genshin/audio/skill/jiejishan2", "ext:奥特之星/assets/genshin/audio/skill/jiejishan3", "ext:奥特之星/assets/genshin/audio/skill/jiejishan4", "ext:奥特之星/assets/genshin/audio/skill/jiejishan5"],
+				audio: ["ext:奥特之星/assets/jiejishan1", "ext:奥特之星/assets/jiejishan2", "ext:奥特之星/assets/jiejishan3", "ext:奥特之星/assets/jiejishan4", "ext:奥特之星/assets/jiejishan5"],
 				charlotte: true,
 				trigger: { player: "useCardAfter" },
 				firstDo: true,
@@ -1188,7 +1188,7 @@ export const skills = {
 		},
 	},
 	skkduduan: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/duduan1", "ext:奥特之星/assets/genshin/audio/skill/duduan2"],
+		audio: ["ext:奥特之星/assets/duduan1", "ext:奥特之星/assets/duduan2"],
 		forced: true,
 		locked: false,
 		trigger: { global: "useCardAfter" },
@@ -1346,7 +1346,7 @@ export const skills = {
 		},
 	},
 	ffyuanwu: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/yuanwu1", "ext:奥特之星/assets/genshin/audio/skill/yuanwu2"],
+		audio: ["ext:奥特之星/assets/yuanwu1", "ext:奥特之星/assets/yuanwu2"],
 		group: ["ffyuanwu_huang", "ffyuanwu_mang", "ffyuanwu_mang_damage"],
 		subSkill: {
 			huang: {
@@ -1404,7 +1404,7 @@ export const skills = {
 		},
 	},
 	ffkuanghuan: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/kuanghuan1", "ext:奥特之星/assets/genshin/audio/skill/kuanghuan2", "ext:奥特之星/assets/genshin/audio/skill/kuanghuan3"],
+		audio: ["ext:奥特之星/assets/kuanghuan1", "ext:奥特之星/assets/kuanghuan2", "ext:奥特之星/assets/kuanghuan3"],
 		trigger: {
 			global: ["gameStart", "roundStart"],
 		},
@@ -1531,7 +1531,7 @@ export const skills = {
 		},
 	},
 	qsklingjiang: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/lingjiang1", "ext:奥特之星/assets/genshin/audio/skill/lingjiang2"],
+		audio: ["ext:奥特之星/assets/lingjiang1", "ext:奥特之星/assets/lingjiang2"],
 		trigger: { global: "phaseBegin" },
 		forced: true,
 		locked: false,
@@ -1653,7 +1653,7 @@ export const skills = {
 						const isSave = evt.name !== "phaseUse" && cardName === "tao";
 						const isRespondOnly = evt.name === "chooseToRespond";
 						return {
-							audio: ["ext:奥特之星/assets/genshin/audio/skill/lingjiang1", "ext:奥特之星/assets/genshin/audio/skill/lingjiang2"],
+							audio: ["ext:奥特之星/assets/lingjiang1", "ext:奥特之星/assets/lingjiang2"],
 							filterCard: () => false,
 							selectCard: -1,
 							selectTarget: isSave || isRespondOnly ? -1 : undefined,
@@ -1793,7 +1793,7 @@ export const skills = {
 				player.addTempSkill("qsksuohun_no_distance");
 				player.setStorage("_qsksuohun_no_distance", true);
 				return {
-					audio: ["ext:奥特之星/assets/genshin/audio/skill/suohun1", "ext:奥特之星/assets/genshin/audio/skill/suohun2"],
+					audio: ["ext:奥特之星/assets/suohun1", "ext:奥特之星/assets/suohun2"],
 					filterCard: () => false,
 					selectCard: -1,
 					viewAs: nature ? { name: "sha", nature } : { name: "sha" },
@@ -1842,7 +1842,7 @@ export const skills = {
 		},
 	},
 	mwkzhihuo: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/zhihuo1", "ext:奥特之星/assets/genshin/audio/skill/zhihuo2", "ext:奥特之星/assets/genshin/audio/skill/zhihuo3"],
+		audio: ["ext:奥特之星/assets/zhihuo1", "ext:奥特之星/assets/zhihuo2", "ext:奥特之星/assets/zhihuo3"],
 		direct: true,
 		mod: {
 			cardnature(card, player) {
@@ -2018,7 +2018,7 @@ export const skills = {
 		},
 	},
 	mwkfenyao: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/fenyao1", "ext:奥特之星/assets/genshin/audio/skill/fenyao2", "ext:奥特之星/assets/genshin/audio/skill/fenyao3"],
+		audio: ["ext:奥特之星/assets/fenyao1", "ext:奥特之星/assets/fenyao2", "ext:奥特之星/assets/fenyao3"],
 		trigger: { global: "phaseBegin" },
 		direct: true,
 		filter(event, player) {
@@ -2080,7 +2080,7 @@ export const skills = {
 		group: ["mwkfantian_use"],
 		subSkill: {
 			use: {
-				audio: ["ext:奥特之星/assets/genshin/audio/skill/fantian1", "ext:奥特之星/assets/genshin/audio/skill/fantian2", "ext:奥特之星/assets/genshin/audio/skill/fantian3"],
+				audio: ["ext:奥特之星/assets/fantian1", "ext:奥特之星/assets/fantian2", "ext:奥特之星/assets/fantian3"],
 				enable: "phaseUse",
 				skillAnimation: true,
 				filter(event, player) {
@@ -2126,7 +2126,7 @@ export const skills = {
 		},
 	},
 	xnnjuelie: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/juelie1", "ext:奥特之星/assets/genshin/audio/skill/juelie2", "ext:奥特之星/assets/genshin/audio/skill/juelie3"],
+		audio: ["ext:奥特之星/assets/juelie1", "ext:奥特之星/assets/juelie2", "ext:奥特之星/assets/juelie3"],
 		enable: "phaseUse",
 		usable: 3,
 		async content(event, trigger, player) {
@@ -2233,7 +2233,7 @@ export const skills = {
 		},
 	},
 	xnnduancui: {
-		audio: ["ext:奥特之星/assets/genshin/audio/skill/duancui1", "ext:奥特之星/assets/genshin/audio/skill/duancui2"],
+		audio: ["ext:奥特之星/assets/duancui1", "ext:奥特之星/assets/duancui2"],
 		enable: "phaseUse",
 		usable: 3,
 		async content(event, trigger, player) {

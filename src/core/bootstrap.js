@@ -98,70 +98,58 @@ export function arenaReady() {
 }
 
 export function precontent() {
-			game.addGroup("yv", "宇", "宇", {
-				color: [129, 60, 133, 1],
-				image: "ext:奥特之星/assets/common/image/kingdom/yv.png",
-			});
-			game.addGroup("shou", "兽", "兽", {
-				color: [246, 246, 246, 1],
-				image: "ext:奥特之星/assets/common/image/kingdom/shou.png",
+			game.addGroup("ao_red", "奥", "奥", {
+				color: [255, 0, 0, 1],
+				image: "ext:奥特之星/assets/camp/ao_red.png",
 			});
 			game.addGroup("ao", "奥", "奥", {
 				color: [255, 225, 76, 1],
-				image: "ext:奥特之星/assets/common/image/kingdom/ao.png",
-			});
-			game.addGroup("ao_red", "奥", "奥", {
-				color: [255, 0, 0, 1],
-				image: "ext:奥特之星/assets/common/image/kingdom/ao_red.png",
+				image: "ext:奥特之星/assets/camp/ao.png",
 			});
 			game.addGroup("ao_black", "奥", "奥", {
 				color: [255, 255, 255, 1],
-				image: "ext:奥特之星/assets/common/image/kingdom/ao_black.png",
+				image: "ext:奥特之星/assets/camp/ao_black.png",
+			});
+			game.addGroup("yv", "宇", "宇", {
+				color: [129, 60, 133, 1],
+				image: "ext:奥特之星/assets/camp/yv.png",
+			});
+			game.addGroup("shou", "兽", "兽", {
+				color: [246, 246, 246, 1],
+				image: "ext:奥特之星/assets/camp/shou.png",
 			});
 			game.addGroup("ji", "机", "机", {
 				color: [176, 208, 226, 1],
-				image: "ext:奥特之星/assets/common/image/kingdom/ji.png",
+				image: "ext:奥特之星/assets/camp/ji.png",
 			});
-
-			// 选将界面势力按钮顺序 = 各势力首个角色在 lib.character 中的注册序，
-			// 自定义势力在本体 lib.sort.group 中权重相同会随注册序漂移，
-			// 此处包装排序函数显式固定"奥"系顺序：ao_red → ao → ao_black
-			const originGroupSort = lib.sort.group;
-			const aoGroupOrder = { ao_red: 9.1, ao: 9.2, ao_black: 9.3 };
-			lib.sort.group = (a, b) => {
-				if (a in aoGroupOrder || b in aoGroupOrder) {
-					return (aoGroupOrder[a] ?? 9.4) - (aoGroupOrder[b] ?? 9.4);
-				}
-				return originGroupSort(a, b);
-			};
 
 			lib.characterSubstitute = lib.characterSubstitute || {};
 			lib.characterSubstitute["奈克瑟斯"] = [
-				["奈克瑟斯-青年型", ["ext:奥特之星/assets/ultraman/image/奈克瑟斯-青年型.jpg"]],
-				["奈克瑟斯-蓝色青年型", ["ext:奥特之星/assets/ultraman/image/奈克瑟斯-蓝色青年型.jpg"]],
+				["奈克瑟斯-青年型", ["ext:奥特之星/assets/奈克瑟斯-青年型.jpg"]],
+				["奈克瑟斯-蓝色青年型", ["ext:奥特之星/assets/奈克瑟斯-蓝色青年型.jpg"]],
 			];
 			lib.characterSubstitute["芙宁娜芙卡洛斯"] = [
-				["芙宁娜-成功", ["ext:奥特之星/assets/genshin/image/芙宁娜-成功.jpg"]],
-				["芙宁娜-失败", ["ext:奥特之星/assets/genshin/image/芙宁娜-失败.jpg"]],
+				["芙宁娜-成功", ["ext:奥特之星/assets/芙宁娜-成功.jpg"]],
+				["芙宁娜-失败", ["ext:奥特之星/assets/芙宁娜-失败.jpg"]],
 			];
 			lib.characterSubstitute["迪迦"] = [
-				["迪迦-复合", ["ext:奥特之星/assets/ultraman/image/迪迦-复合.jpg"]],
-				["迪迦-强力", ["ext:奥特之星/assets/ultraman/image/迪迦-强力.jpg"]],
-				["迪迦-空中", ["ext:奥特之星/assets/ultraman/image/迪迦-空中.jpg"]],
+				["迪迦-复合", ["ext:奥特之星/assets/迪迦-复合.jpg"]],
+				["迪迦-强力", ["ext:奥特之星/assets/迪迦-强力.jpg"]],
+				["迪迦-空中", ["ext:奥特之星/assets/迪迦-空中.jpg"]],
 			];
 			lib.characterSubstitute["戴拿"] = [
-				["戴拿-闪亮", ["ext:奥特之星/assets/ultraman/image/戴拿-闪亮.jpg"]],
-				["戴拿-奇迹", ["ext:奥特之星/assets/ultraman/image/戴拿-奇迹.jpg"]],
-				["戴拿-强壮", ["ext:奥特之星/assets/ultraman/image/戴拿-强壮.jpg"]],
+				["戴拿-闪亮", ["ext:奥特之星/assets/戴拿-闪亮.jpg"]],
+				["戴拿-奇迹", ["ext:奥特之星/assets/戴拿-奇迹.jpg"]],
+				["戴拿-强壮", ["ext:奥特之星/assets/戴拿-强壮.jpg"]],
 			];
-			lib.characterSubstitute["杰斯提斯"] = [["杰斯提斯-粉碎", ["ext:奥特之星/assets/ultraman/image/杰斯提斯-粉碎.jpg"]]];
-			lib.characterSubstitute["黄泉"] = [["黄泉-啼泽", ["ext:奥特之星/assets/honkai-star-rail/image/黄泉-啼泽.jpg"]]];
+			lib.characterSubstitute["杰斯提斯"] = [["杰斯提斯-粉碎", ["ext:奥特之星/assets/杰斯提斯-粉碎.jpg"]]];
+			lib.characterSubstitute["黄泉"] = [["黄泉-啼泽", ["ext:奥特之星/assets/黄泉-啼泽.jpg"]]];
 
 			lib.characterReplace = lib.characterReplace || {};
 			lib.characterReplace["迪迦"] = ["迪迦", "闪耀迪迦", "黑暗迪迦"];
 			lib.characterReplace["芙宁娜"] = ["芙宁娜", "芙宁娜芙卡洛斯"];
 
-			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:奥特之星/assets/honkai-star-rail/image/死龙.jpg"]];
+			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:奥特之星/assets/死龙.jpg"]];
 			lib.character["死龙"].isHiddenBoss = true;
 			lib.character["死龙"].isAiForbidden = true;
 			lib.translate["死龙"] = "死龙";
