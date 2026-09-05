@@ -39,7 +39,7 @@ for (const f of headFiles) {
 fs.cpSync(repo, newRoot, { recursive: true, filter: src => !src.includes(`${path.sep}.git${path.sep}`) && path.basename(src) !== ".git" });
 
 // ---- mock noname.js ----
-const mockSrc = `const calls = { addGroup: [] };
+const mockSrc = `const calls = { addGroup: [], addCharacterPack: [] };
 const anyFn = function () {};
 export const lib = {
 	character: {}, skill: {}, card: {}, translate: {},
@@ -51,6 +51,7 @@ export const lib = {
 };
 export const game = {
 	addGroup: (...args) => { calls.addGroup.push(args); },
+	addCharacterPack: (pack, name) => { calls.addCharacterPack.push({ name, character: pack.character }); },
 	saveExtensionConfig: () => {},
 	getExtensionConfig: () => null,
 	playAudio: () => {},
@@ -123,8 +124,9 @@ function deepEqual(a, b, p, opts = {}) {
 	}
 	const ka = Object.keys(a), kb = Object.keys(b);
 	const setA = new Set(ka), setB = new Set(kb);
-	for (const k of ka) if (!setB.has(k)) errors.push(`KEY ONLY-IN-OLD at ${p}.${k}`);
-	for (const k of kb) if (!setA.has(k)) errors.push(`KEY ONLY-IN-NEW at ${p}.${k}`);
+	const ign = k => opts.ignoreKey?.test(k);
+	for (const k of ka) if (!setB.has(k) && !ign(k)) errors.push(`KEY ONLY-IN-OLD at ${p}.${k}`);
+	for (const k of kb) if (!setA.has(k) && !ign(k)) errors.push(`KEY ONLY-IN-NEW at ${p}.${k}`);
 	for (const k of ka) if (setB.has(k)) deepEqual(a[k], b[k], `${p}.${k}`, opts);
 }
 
@@ -152,9 +154,24 @@ for (let i = 0; i < Math.min(keysOld.length, keysNew.length); i++)
 	if (keysOld[i] !== keysNew[i]) errors.push(`CHAR ORDER at #${i}: ${keysOld[i]} !== ${keysNew[i]}`);
 note.push(`package.character.character keys: ${keysOld.length}（顺序严格对比${errors.length ? "存在差异" : "一致"}）`);
 
-// ---- 执行 precontent，对比注册结果 ----
+// ---- 执行 content()/precontent()，对比注册结果 ----
 const modOld = await import(pathToFileURL(path.join(tmp, "old-tree", "noname.js")).href);
 const modNew = await import(pathToFileURL(path.join(tmp, "new-tree", "noname.js")).href);
+if (typeof packOld.content === "function" && typeof packNew.content === "function") {
+	packOld.content();
+	packNew.content();
+	// 分包注册是分包框架引入的新能力（旧版无此机制），不做新旧相等对比；
+	// 关键不变量：分包角色不得同时出现在总包 package.character.character 中（避免重复注册）
+	const newCalls = modNew.lib.__calls.addCharacterPack;
+	console.log("NOTE: content() addCharacterPack calls: old=" + modOld.lib.__calls.addCharacterPack.length + " new=" + newCalls.length);
+	const packChars = new Set(Object.keys(packNew.package.character.character));
+	for (const call of newCalls) {
+		for (const name of Object.keys(call.character ?? {})) {
+			if (packChars.has(name)) errors.push(`分包 ${call.name} 的角色 ${name} 同时存在于总包（重复注册）`);
+		}
+		console.log(`NOTE: 分包 ${call.name}（${Object.keys(call.character ?? {}).length} 角色）`);
+	}
+}
 packOld.precontent();
 packNew.precontent();
 
@@ -165,7 +182,8 @@ function mapToObj(m) {
 	return o;
 }
 for (const key of ["card", "skill", "translate", "character", "characterSubstitute", "characterReplace"]) {
-	deepEqual(modOld.lib[key], modNew.lib[key], `lib.${key}`);
+	// <分包ID>_character_config 为分包框架新增的包显示名键，属预期差异
+	deepEqual(modOld.lib[key], modNew.lib[key], `lib.${key}`, { ignoreKey: /_character_config$/ });
 }
 deepEqual(mapToObj(modOld.lib.namePrefix), mapToObj(modNew.lib.namePrefix), "lib.namePrefix");
 deepEqual(modOld.lib.__calls.addGroup, modNew.lib.__calls.addGroup, "game.addGroup calls");
