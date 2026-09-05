@@ -123,6 +123,18 @@ export function precontent() {
 				image: "ext:奥特之星/assets/common/image/kingdom/ji.png",
 			});
 
+			// 选将界面势力按钮顺序 = 各势力首个角色在 lib.character 中的注册序，
+			// 自定义势力在本体 lib.sort.group 中权重相同会随注册序漂移，
+			// 此处包装排序函数显式固定"奥"系顺序：ao_red → ao → ao_black
+			const originGroupSort = lib.sort.group;
+			const aoGroupOrder = { ao_red: 9.1, ao: 9.2, ao_black: 9.3 };
+			lib.sort.group = (a, b) => {
+				if (a in aoGroupOrder || b in aoGroupOrder) {
+					return (aoGroupOrder[a] ?? 9.4) - (aoGroupOrder[b] ?? 9.4);
+				}
+				return originGroupSort(a, b);
+			};
+
 			lib.characterSubstitute = lib.characterSubstitute || {};
 			lib.characterSubstitute["奈克瑟斯"] = [
 				["奈克瑟斯-青年型", ["ext:奥特之星/assets/ultraman/image/奈克瑟斯-青年型.jpg"]],

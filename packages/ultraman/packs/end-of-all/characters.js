@@ -11,7 +11,7 @@ export const characters = {
 		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/普利茨墨.mp3"],
 	},
 	加坦杰厄: {
-		sex: "null",
+		sex: "none",
 		group: "shou",
 		hp: 4,
 		skills: ["jtjeheiwu", "jtjeluoke", "jtjeguanchuan"],
