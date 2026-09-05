@@ -12,7 +12,7 @@ export const packages = [ultraman, umaMusume, genshin, honkaiStarRail, kof, misc
 // 注册全部作品装备：先卡片后技能，与原扩展行为一致
 export function registerAllEquipment() {
 	for (const pkg of packages) {
-		if (pkg.registerEquipmentCards) pkg.registerEquipmentCards();
+		if (pkg.registerEquipment) pkg.registerEquipment();
 	}
 	for (const pkg of packages) {
 		if (pkg.registerEquipmentSkills) pkg.registerEquipmentSkills();

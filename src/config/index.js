@@ -48,7 +48,7 @@ export default {
 		},
 	},
 	version: {
-		name: "版本：1.3.2",
+		name: "版本：2.1.1",
 		clear: true,
 		nopointer: true,
 	},

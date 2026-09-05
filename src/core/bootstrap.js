@@ -3,7 +3,6 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 import assetsManifest from "../../data/manifests/assets.js";
 import easterEggs from "../systems/easterEgg.js";
 import { initBgmSystem } from "../systems/bgm.js";
-import { registerDynamicTranslates } from "../systems/dynamicTranslate.js";
 import { registerCharacterRanks } from "../systems/tierlist.js";
 import { registerAllEquipment } from "./loader.js";
 
@@ -90,7 +89,6 @@ export function arenaReady() {
 				console.error(e);
 			}
 
-			registerDynamicTranslates();
 			registerCharacterRanks();
 
 			initBgmSystem();

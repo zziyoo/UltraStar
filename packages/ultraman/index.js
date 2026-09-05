@@ -1,7 +1,7 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import { loadPacks, packs } from "./loader.js";
-import { registerEquipmentCards } from "./equipment/cards.js";
+import { registerEquipment } from "./equipment/equipment.js";
 import { registerEquipmentSkills } from "./equipment/skills.js";
 
 const { merged } = loadPacks();
@@ -11,6 +11,8 @@ export default {
 	characterTranslate: merged.characterTranslate,
 	characterTitle: merged.characterTitle,
 	characterIntro: merged.characterIntro,
+	voices: merged.voices,
+	dynamicTranslate: merged.dynamicTranslate,
 	skills: merged.skills,
 	skillTranslate: merged.skillTranslate,
 	// 分包 → 总包内部分类（characterSort）清单，registry 据此在奥特之星总包内生成分组
@@ -19,6 +21,6 @@ export default {
 		name: pack.name,
 		characters: pack.characters ?? {},
 	})),
-	registerEquipmentCards,
+	registerEquipment,
 	registerEquipmentSkills,
 };

@@ -83,14 +83,18 @@ export function buildPackage() {
 	const characterTranslate = { 奥特之星: "奥特之星", ...characterSortTranslate };
 	const characterTitle = {};
 	const characterIntro = {};
+	const dynamicTranslate = {};
 	const skill = {};
 	const skillTranslate = {};
 	for (const pkg of packages) {
 		Object.assign(characterTranslate, pkg.characterTranslate);
+		// 台词（voices，格式同本体 character/<包>/voices.js）并入角色翻译区，随 character.translate 注册
+		Object.assign(characterTranslate, pkg.voices ?? {});
 		Object.assign(characterTitle, pkg.characterTitle);
 		Object.assign(characterIntro, pkg.characterIntro);
 		Object.assign(skill, pkg.skills);
 		Object.assign(skillTranslate, pkg.skillTranslate);
+		Object.assign(dynamicTranslate, pkg.dynamicTranslate ?? {});
 	}
 	return {
 		character: {
@@ -101,6 +105,8 @@ export function buildPackage() {
 			characterSort: {
 				奥特之星: characterSort,
 			},
+			// 动态技能描述：随 character 区块由本体 loadCharacter 注册进 lib.dynamicTranslate
+			dynamicTranslate,
 		},
 		card: {
 			card: {},

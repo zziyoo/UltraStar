@@ -22,6 +22,8 @@ export function loadPacks() {
 		skillTranslate: {},
 		characterTitle: {},
 		characterIntro: {},
+		voices: {},
+		dynamicTranslate: {},
 	};
 	const seenIds = new Set();
 	const seenChars = new Set();
@@ -60,6 +62,8 @@ export function loadPacks() {
 		Object.assign(merged.skillTranslate, pack.skillTranslate ?? {});
 		Object.assign(merged.characterTitle, pack.characterTitle ?? {});
 		Object.assign(merged.characterIntro, pack.characterIntro ?? {});
+		Object.assign(merged.voices, pack.voices ?? {});
+		Object.assign(merged.dynamicTranslate, pack.dynamicTranslate ?? {});
 	}
 
 	for (const p of problems) console.error("[ultraman pack loader] " + p);
