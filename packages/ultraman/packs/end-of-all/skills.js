@@ -1,139 +1,6 @@
-import { lib, game, ui, get, ai, _status } from "../../../../../noname.js";
+import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
 export const skills = {
-	jtjeheiwu: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
-		trigger: { global: "phaseEnd" },
-		forced: true,
-		filter(event, player) {
-			if (event.player === player) return false;
-			if (!event.player.isIn()) return false;
-			return true;
-		},
-		async content(event, trigger, player) {
-			game.playSkillBgm("guaishou");
-			const target = trigger.player;
-			const num1 = player.getStorage("jtjeheiwu_num1", 1);
-			const num2 = player.getStorage("jtjeheiwu_num2", 1);
-			const choices = [];
-			if (target.countCards("he") >= num1) {
-				choices.push("弃置" + num1 + "张牌");
-			}
-			choices.push("失去" + num2 + "点体力");
-			const result = await target
-				.chooseControl(choices)
-				.set("prompt", "黑雾：请选择一项")
-				.set("ai", () => {
-					const p = get.player();
-					const n1 = get.event().num1;
-					const n2 = get.event().num2;
-					const opts = get.event().choices;
-					const canDiscard = opts.includes("弃置" + n1 + "张牌");
-					const loseHpOption = "失去" + n2 + "点体力";
-					if (p.hp <= n2 && canDiscard) {
-						return "弃置" + n1 + "张牌";
-					}
-					if (!canDiscard) {
-						return loseHpOption;
-					}
-					if (p.hp - n2 > 2) {
-						return loseHpOption;
-					}
-					return "弃置" + n1 + "张牌";
-				})
-				.set("num1", num1)
-				.set("num2", num2)
-				.set("choices", choices)
-				.forResult();
-			if (!result?.control) return;
-			if (result.control === "弃置" + num1 + "张牌") {
-				await target.chooseToDiscard(num1, "he", true);
-				player.setStorage("jtjeheiwu_num1", num1 + 1);
-			} else if (result.control === "失去" + num2 + "点体力") {
-				await target.loseHp(num2);
-				player.setStorage("jtjeheiwu_num2", num2 + 1);
-			}
-		},
-	},
-	jtjeluoke: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
-		trigger: { player: "damageBegin3" },
-		forced: true,
-		filter(event, player) {
-			if (!event.card) return false;
-			const color = get.color(event.card);
-			if (color !== "black") return false;
-			return get.tag(event.card, "damage");
-		},
-		async content(event, trigger, player) {
-			game.playSkillBgm("guaishou");
-			trigger.cancel();
-		},
-		ai: {
-			effect: {
-				target(card, player, target) {
-					if (get.color(card) === "black" && get.tag(card, "damage")) return 0;
-				},
-			},
-		},
-	},
-	jtjeguanchuan: {
-		mark: true,
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
-		enable: "phaseUse",
-		usable: 1,
-		skillAnimation: true,
-		init(player) {
-			if (!player.getStorage("jtjeguanchuan_used", null)) player.setStorage("jtjeguanchuan_used", []);
-		},
-		filter(event, player) {
-			return game.hasPlayer(target => target !== player && target.hp < Math.ceil(target.maxHp / 2) && !player.getStorage("jtjeguanchuan_used", []).includes(target));
-		},
-		filterTarget(card, player, target) {
-			if (target === player) return false;
-			if (target.hp >= Math.ceil(target.maxHp / 2)) return false;
-			if (player.getStorage("jtjeguanchuan_used", []).includes(target)) return false;
-			return true;
-		},
-		check(card, player) {
-			const targets = game.filterPlayer(target => target !== player && target.hp < Math.ceil(target.maxHp / 2) && !player.getStorage("jtjeguanchuan_used", []).includes(target));
-			if (targets.length === 0) return 0;
-			let max = 0;
-			for (const t of targets) {
-				const att = get.attitude(player, t);
-				if (att < 0) {
-					const val = Math.abs(att) * t.hp;
-					if (val > max) max = val;
-				}
-			}
-			return max;
-		},
-		async content(event, trigger, player) {
-			game.playSkillBgm("guaishou");
-			const target = event.targets[0];
-			const hp = target.hp;
-			player.markAuto("jtjeguanchuan_used", [target]);
-			await target.loseHp(hp);
-		},
-		ai: {
-			order: 10,
-			result: {
-				target(player, target) {
-					if (target.hp >= Math.ceil(target.maxHp / 2)) return 0;
-					return -target.hp;
-				},
-			},
-		},
-		marktext: "石",
-		intro: {
-			name: "贯穿",
-			content(storage, player) {
-				const used = player.getStorage("jtjeguanchuan_used", []);
-				if (!used.length) return "此技能未发动过";
-				return "已对" + used.map(target => get.translation(target)).join("、") + "发动过此技能";
-			},
-		},
-	},
 	plcmhuanjing: {
 		audio: ["ext:奥特之星/assets/ultraman/audio/skill/huanjing"],
 		trigger: {
@@ -402,6 +269,139 @@ export const skills = {
 						if (player.getStorage("plcmjinghua_ban", []).includes(get.suit(card))) return false;
 					},
 				},
+			},
+		},
+	},
+	jtjeheiwu: {
+		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
+		trigger: { global: "phaseEnd" },
+		forced: true,
+		filter(event, player) {
+			if (event.player === player) return false;
+			if (!event.player.isIn()) return false;
+			return true;
+		},
+		async content(event, trigger, player) {
+			game.playSkillBgm("guaishou");
+			const target = trigger.player;
+			const num1 = player.getStorage("jtjeheiwu_num1", 1);
+			const num2 = player.getStorage("jtjeheiwu_num2", 1);
+			const choices = [];
+			if (target.countCards("he") >= num1) {
+				choices.push("弃置" + num1 + "张牌");
+			}
+			choices.push("失去" + num2 + "点体力");
+			const result = await target
+				.chooseControl(choices)
+				.set("prompt", "黑雾：请选择一项")
+				.set("ai", () => {
+					const p = get.player();
+					const n1 = get.event().num1;
+					const n2 = get.event().num2;
+					const opts = get.event().choices;
+					const canDiscard = opts.includes("弃置" + n1 + "张牌");
+					const loseHpOption = "失去" + n2 + "点体力";
+					if (p.hp <= n2 && canDiscard) {
+						return "弃置" + n1 + "张牌";
+					}
+					if (!canDiscard) {
+						return loseHpOption;
+					}
+					if (p.hp - n2 > 2) {
+						return loseHpOption;
+					}
+					return "弃置" + n1 + "张牌";
+				})
+				.set("num1", num1)
+				.set("num2", num2)
+				.set("choices", choices)
+				.forResult();
+			if (!result?.control) return;
+			if (result.control === "弃置" + num1 + "张牌") {
+				await target.chooseToDiscard(num1, "he", true);
+				player.setStorage("jtjeheiwu_num1", num1 + 1);
+			} else if (result.control === "失去" + num2 + "点体力") {
+				await target.loseHp(num2);
+				player.setStorage("jtjeheiwu_num2", num2 + 1);
+			}
+		},
+	},
+	jtjeluoke: {
+		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
+		trigger: { player: "damageBegin3" },
+		forced: true,
+		filter(event, player) {
+			if (!event.card) return false;
+			const color = get.color(event.card);
+			if (color !== "black") return false;
+			return get.tag(event.card, "damage");
+		},
+		async content(event, trigger, player) {
+			game.playSkillBgm("guaishou");
+			trigger.cancel();
+		},
+		ai: {
+			effect: {
+				target(card, player, target) {
+					if (get.color(card) === "black" && get.tag(card, "damage")) return 0;
+				},
+			},
+		},
+	},
+	jtjeguanchuan: {
+		mark: true,
+		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jtje"],
+		enable: "phaseUse",
+		usable: 1,
+		skillAnimation: true,
+		init(player) {
+			if (!player.getStorage("jtjeguanchuan_used", null)) player.setStorage("jtjeguanchuan_used", []);
+		},
+		filter(event, player) {
+			return game.hasPlayer(target => target !== player && target.hp < Math.ceil(target.maxHp / 2) && !player.getStorage("jtjeguanchuan_used", []).includes(target));
+		},
+		filterTarget(card, player, target) {
+			if (target === player) return false;
+			if (target.hp >= Math.ceil(target.maxHp / 2)) return false;
+			if (player.getStorage("jtjeguanchuan_used", []).includes(target)) return false;
+			return true;
+		},
+		check(card, player) {
+			const targets = game.filterPlayer(target => target !== player && target.hp < Math.ceil(target.maxHp / 2) && !player.getStorage("jtjeguanchuan_used", []).includes(target));
+			if (targets.length === 0) return 0;
+			let max = 0;
+			for (const t of targets) {
+				const att = get.attitude(player, t);
+				if (att < 0) {
+					const val = Math.abs(att) * t.hp;
+					if (val > max) max = val;
+				}
+			}
+			return max;
+		},
+		async content(event, trigger, player) {
+			game.playSkillBgm("guaishou");
+			const target = event.targets[0];
+			const hp = target.hp;
+			player.markAuto("jtjeguanchuan_used", [target]);
+			await target.loseHp(hp);
+		},
+		ai: {
+			order: 10,
+			result: {
+				target(player, target) {
+					if (target.hp >= Math.ceil(target.maxHp / 2)) return 0;
+					return -target.hp;
+				},
+			},
+		},
+		marktext: "石",
+		intro: {
+			name: "贯穿",
+			content(storage, player) {
+				const used = player.getStorage("jtjeguanchuan_used", []);
+				if (!used.length) return "此技能未发动过";
+				return "已对" + used.map(target => get.translation(target)).join("、") + "发动过此技能";
 			},
 		},
 	},

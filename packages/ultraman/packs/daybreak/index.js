@@ -7,8 +7,8 @@ import { characterTitle, characterIntro } from "./data.js";
 
 // id 用于代码与路径；name 用于游戏内分包显示名，二者分离，改名只需改 name
 export default {
-	id: "example-pack",
-	name: "示例分包",
+	id: "daybreak",
+	name: "长夜破晓",
 	characters,
 	skills,
 	characterTranslate,

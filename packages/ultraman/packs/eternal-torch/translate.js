@@ -1,28 +1,28 @@
-import { lib, game, ui, get, ai, _status } from "../../../../../noname.js";
+import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
-export const translate = {
-	aplxiongye: "雄野",
-	aplxiongye_info: "锁定技，当你对其他角色造成伤害时，或其他角色对你造成伤害时，你将牌堆顶的3X张牌扣置于你的武将牌上（X为伤害数），称为“野”；你可以将“野”当做手牌使用或打出。",
-	aplaojie: "傲节",
-	aplaojie_info: "锁定技，你无法使用或打出【闪】。",
+export const characterTranslate = {
+	奈克瑟斯: "奈克瑟斯",//薪火不灭
+	迪迦: "迪迦",//薪火不灭
+	希卡利: "希卡利",//薪火不灭
+	杰克: "杰克",//薪火不灭
+	奥特曼: "奥特曼",//薪火不灭
+	戴拿: "戴拿",//薪火不灭
+	佐菲: "佐菲",//薪火不灭
+	泰罗: "泰罗",//薪火不灭
+	艾斯: "艾斯",//薪火不灭
+	赛文: "赛文",//薪火不灭
+	雷欧: "雷欧",//薪火不灭
+	杰斯提斯: "杰斯提斯",//薪火不灭
+	爱迪: "爱迪",//薪火不灭
+	阿斯特拉: "阿斯特拉",//薪火不灭
+};
+export const skillTranslate = {
 	nkssjicheng: "继承",
 	nkssjicheng_info: "当你造成伤害后，或出牌阶段开始时，若以下技能你未全部获得，你获得第一个未获得的技能：" + get.poptip("nksslingyu") + "，" + get.poptip("nkssguangshi") + "，并增加一点体力上限，回复一点体力，摸一张牌。当你死亡时，你可以令一名其他角色获得" + get.poptip("nkssjicheng") + "和你因此获得的技能。",
 	nksslingyu: "领域",
 	nksslingyu_info: "出牌阶段限一次，你可以选择任意名其他角色，令其获得“美塔”标记。若场上有“美塔”：你对有“美塔”的角色使用牌无次数限制，且你们之间的距离视为1；有“美塔”的角色受到的伤害+1，其摸牌时摸牌数-1；你与有“美塔”的角色使用牌只能指定你们为目标；没有“美塔”的其他角色使用牌只能指定没有“美塔”的其他角色为目标。你的回合开始时，移除场上所有的“美塔”。",
 	nkssguangshi: "光矢",
 	nkssguangshi_info: "当你使用牌后，你获得一枚“矢”标记（至多两枚）。出牌阶段限一次，你可以弃置所有“矢”标记，视为使用一张伤害数等同于弃置标记数的【杀】。",
-	atzfzhenli: "真力",
-	atzfzhenli_info: "锁定技，当你手牌数少于体力上限时，你将手牌摸至体力上限。你使用牌无距离限制。",
-	atzfchiyuan: "驰援",
-	atzfchiyuan_info: "出牌阶段限一次，你可以将任意张手牌交给一名其他角色。",
-	atzwxingmian: "星冕",
-	atzwxingmian_info: "任意角色回合开始时，你可以弃置一张牌并视为使用一张你本轮未以此法使用过的牌（延时锦囊牌除外）。",
-	atzwbuxi: "不息",
-	atzwbuxi_info: "每回合限四次，当一名角色的体力值发生变化时，你可以选择一项：①令其摸X张牌（X为当前其体力值）。②选择一名角色A和另一名角色B，A摸一张牌，B弃置一张牌，若A手牌数小于B，你可以重新选择A，B并执行流程。③令其弃置X张牌（至少为二），然后回复一点体力。",
-	sydjqiji: "祈冀",
-	sydjqiji_info: "锁定技，任意角色回合结束后，你摸牌至两倍场上存活角色数；当你失去体力时，取消之。",
-	sydjhuihuang: "辉煌",
-	sydjhuihuang_info: "当你成为其他角色使用牌的目标时，若你未记录此牌名，记录并取消之；否则你可以弃置一张同类型的牌并取消之。回合开始时，你可以：①弃置2X张牌并减少X种记录过的牌名。②弃置两张牌，视为使用一张普通锦囊牌。",
 	djsj: "水晶",
 	djsj_info: "游戏开始时或获得此技能时，你获得" + get.poptip("djfuhe") + "。出牌阶段限三次，你可以：①失去" + get.poptip("djfuhe") + "，获得" + get.poptip("djqiangli") + "或" + get.poptip("djkongzhong") + "。②失去" + get.poptip("djqiangli") + "或" + get.poptip("djkongzhong") + "，获得" + get.poptip("djfuhe") + "。",
 	djfuhe: "复合",
@@ -31,17 +31,6 @@ export const translate = {
 	djqiangli_info: "锁定技，你造成的伤害+1；其他角色只能使用相同花色的牌响应你使用的牌。",
 	djkongzhong: "空中",
 	djkongzhong_info: "锁定技，其他角色计算与你的距离+1，你计算与其他角色的距离-1；其他角色无法响应你的【杀】。",
-	hadjheian: "黑暗",
-	hadjheian_info: "锁定技，你摸牌改为从弃牌堆摸，使用或重铸后的牌改为置入牌堆底。",
-	hadjanrong: "暗融",
-	hadjanrong_discard: "暗融",
-	hadjanrong_info: "锁定技，当你受到非红色【杀】造成的伤害后，你获得伤害来源的一个技能并增加一点体力上限。你可以如手牌般使用或打出弃牌堆底的X张牌（X为你的体力上限）。",
-	hadjyihui: "熠辉",
-	hadjyihui_info: "觉醒技，回合开始时，若你因" + get.poptip("hadjanrong") + "获得过至少三个技能，你回复一点体力并失去" + get.poptip("hadjanrong") + "，并将武将牌替换为”迪迦”。",
-	sjyuzhi: "域知",
-	sjyuzhi_info: "一名角色体力/手牌数不因" + get.poptip("sjzhanren") + "发生变化时，若其体力/手牌数小于等于1且你拥有" + get.poptip("sjzhanren") + "，你可以令其摸一张牌并对其发动" + get.poptip("sjzhanren") + "。",
-	sjzhanren: "斩刃",
-	sjzhanren_info: "出牌阶段限一次，你可以观看一名角色的手牌与牌堆顶等量的牌，然后你可以将其中任意张牌交换。若其手牌花色均不同/相同，你弃置其所有手牌/令其从牌堆底摸等量张牌；若其手牌数为1，则由你选择弃牌或摸牌。若其因此弃牌或摸牌，重置此技能发动次数。",
 	xklkeyan: "科研",
 	xklkeyan_info: "出牌阶段限一次，你可以观看牌堆顶的一张牌并猜测此牌花色和点数；若你至少猜对一项，你获得此牌且本回合此技能可发动次数加猜对项数，此牌不计入手牌上限，且使用此牌无次数与距离限制。",
 	xkllizhu: "力助",
@@ -58,14 +47,6 @@ export const translate = {
 	atmguanglun_info: "每回合每种牌名限一次，当你使用伤害牌后（【闪电】除外），你可以摸两张牌或回复一点体力，令此牌额外结算一次。出牌阶段各限一次，你可以视为使用一张【决斗】或【火攻】。",
 	atmzhuangshuo: "壮硕",
 	atmzhuangshuo_info: "锁定技，雷属性伤害对你无效。",
-	jtjeheiwu: "黑雾",
-	jtjeheiwu_info: "锁定技，其他角色回合结束时，你令其选择一项：①弃置一张牌。②失去一点体力。然后对应选项的数字+1。",
-	jtjeheiwu_num1: "黑雾",
-	jtjeheiwu_num2: "黑雾",
-	jtjeluoke: "螺壳",
-	jtjeluoke_info: "锁定技，黑色伤害牌造成的伤害对你无效。",
-	jtjeguanchuan: "贯穿",
-	jtjeguanchuan_info: "每名角色限一次，出牌阶段限一次，你可以令一名体力值小于体力上限一半（向上取整）的其他角色失去全部体力。",
 	dnshuijing: "水晶",
 	dnshuijing_info: "游戏开始时或获得此技能时，你获得" + get.poptip("dnshanliang") + "。出牌阶段限一次，你可以：①失去" + get.poptip("dnshanliang") + "，获得" + get.poptip("dnqiji") + "或" + get.poptip("dnqiangzhuang") + "。②失去" + get.poptip("dnqiji") + "或" + get.poptip("dnqiangzhuang") + "，获得" + get.poptip("dnshanliang") + "。",
 	dnshanliang: "闪亮",
@@ -91,10 +72,6 @@ export const translate = {
 	swbingfu_info: "当你使用牌指定一名其他角色为目标后，你可以进行一次判定，若结果为：红心，视为对其使用一张无次数限制且不计入次数的普通【杀】；方块，其不可响应此牌；黑桃，你弃置其一张牌；梅花，其弃置两张牌。",
 	swxiongjia: "胸甲",
 	swxiongjia_info: "每名角色结束阶段，若本回合有：至少两种花色的牌进入弃牌堆，你摸一张牌；至少三种花色的牌进入弃牌堆，你回复一点体力。",
-	zggylianshuai: "连摔",
-	zggylianshuai_info: "当你使用【杀】后，你可以弃置手牌中一种类型与花色组合的所有牌（需为基本牌或锦囊牌且不能是本轮弃置过的组合），并视为使用一张无次数限制的【杀】。",
-	zggyjili: "极力",
-	zggyjili_info: "你可以将一张非伤害类牌当普通的【杀】使用。当你使用【杀】指定目标后，你可以与目标同时展示一张手牌，然后弃置你展示的牌并执行一项（若对方无牌则视为展示7点）：1.摸X张牌（X为两张牌点数差值的一半，向下取整）；2.此【杀】伤害+Y（Y为X的一半，向上取整）；3.令此【杀】无法被响应。",
 	leofenzhan: "奋战",
 	leofenzhan_info: "锁定技。摸牌阶段，你多摸X张牌；出牌阶段，可额外使用X张【杀】。结束阶段，你摸X张牌（X为你已损失的体力值）。",
 	leofeiti: "飞踢",
@@ -111,10 +88,4 @@ export const translate = {
 	astlqiuyv_info: `使命技，游戏开始时，你获得游戏角色数枚”囚“标记。其他角色计算与你的距离，你计算与其他角色的距离均+X；其他角色成为牌的目标后，你移去一枚”囚“标记。<br>成功：回合开始时，若你没有”囚“标记，你获得${get.poptip("astlgongjin")}`,
 	astlgongjin: "共进",
 	astlgongjin_info: "限定技，出牌阶段，你可以选择一名其他角色。其/你受到伤害时，你/其可以改为你/其受到此伤害；你/其于摸牌阶段外不因此技能摸牌时，其/你摸等量的牌。",
-	plcmhuanjing: "幻境",
-	plcmhuanjing_info: "任意一名角色进行判定前，你可以观看牌堆顶和牌堆底各一张牌，然后可以获得其中一张，将另一张置于另一端。",
-	plcmlengjing: "棱镜",
-	plcmlengjing_info: "当你成为伤害类牌的目标时/使用非伤害类牌时，你可以进行判定：若判定花色与该牌相同，取消之/此牌无法被响应。",
-	plcmjinghua: "晶化",
-	plcmjinghua_info: "其他角色未响应你对其使用的牌后，你选择一项：1.展示其手牌并获得与此牌花色相同的手牌和装备牌；2.直到其下个回合结束，其无法使用此花色的牌。",
 };

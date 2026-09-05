@@ -145,16 +145,8 @@ if (typeof packOld.precontent !== "function" || typeof packNew.precontent !== "f
 	errors.push("precontent not function on both sides");
 deepEqual(packOld.help, packNew.help, "pack.help");
 deepEqual(packOld.config, packNew.config, "pack.config");
-// package 必须全等，但 character.character 键序另做严格检查
-deepEqual(packOld.package, packNew.package, "pack.package");
-const keysOld = Object.keys(packOld.package.character.character);
-const keysNew = Object.keys(packNew.package.character.character);
-if (keysOld.length !== keysNew.length) errors.push(`CHAR COUNT: ${keysOld.length} !== ${keysNew.length}`);
-for (let i = 0; i < Math.min(keysOld.length, keysNew.length); i++)
-	if (keysOld[i] !== keysNew[i]) errors.push(`CHAR ORDER at #${i}: ${keysOld[i]} !== ${keysNew[i]}`);
-note.push(`package.character.character keys: ${keysOld.length}（顺序严格对比${errors.length ? "存在差异" : "一致"}）`);
 
-// ---- 执行 content()/precontent()，对比注册结果 ----
+// ---- 执行 content()，收集分包注册 ----
 const modOld = await import(pathToFileURL(path.join(tmp, "old-tree", "noname.js")).href);
 const modNew = await import(pathToFileURL(path.join(tmp, "new-tree", "noname.js")).href);
 if (typeof packOld.content === "function" && typeof packNew.content === "function") {
@@ -164,14 +156,40 @@ if (typeof packOld.content === "function" && typeof packNew.content === "functio
 	// 关键不变量：分包角色不得同时出现在总包 package.character.character 中（避免重复注册）
 	const newCalls = modNew.lib.__calls.addCharacterPack;
 	console.log("NOTE: content() addCharacterPack calls: old=" + modOld.lib.__calls.addCharacterPack.length + " new=" + newCalls.length);
-	const packChars = new Set(Object.keys(packNew.package.character.character));
+	const packCharsPre = new Set(Object.keys(packNew.package.character.character));
 	for (const call of newCalls) {
 		for (const name of Object.keys(call.character ?? {})) {
-			if (packChars.has(name)) errors.push(`分包 ${call.name} 的角色 ${name} 同时存在于总包（重复注册）`);
+			if (packCharsPre.has(name)) errors.push(`分包 ${call.name} 的角色 ${name} 同时存在于总包（重复注册）`);
 		}
 		console.log(`NOTE: 分包 ${call.name}（${Object.keys(call.character ?? {}).length} 角色）`);
 	}
 }
+
+// ---- 角色键序与内容对比（分包模式/普通模式）----
+const keysOld = Object.keys(packOld.package.character.character);
+const keysNew = Object.keys(packNew.package.character.character);
+const managedCalls = modNew.lib.__calls.addCharacterPack;
+const managedNames = new Set(managedCalls.flatMap(c => Object.keys(c.character ?? {})));
+if (keysOld.length !== keysNew.length) {
+	// 分包模式：新总包键序必须等于旧总包键序排除分包角色后的序列
+	const filtered = keysOld.filter(k => !managedNames.has(k));
+	if (filtered.length !== keysNew.length || filtered.some((k, i) => k !== keysNew[i])) {
+		errors.push("总包键序与旧键序（排除分包角色）不一致");
+	} else {
+		note.push(`分包模式：总包 ${keysNew.length} 角色 = 旧 ${keysOld.length} - 分包 ${managedNames.size}，顺序与原序一致`);
+	}
+	// 等效视图：把分包角色合并回总包副本后做深度对比（键序不敏感），确保内容无丢失
+	const packCharsEquiv = { ...packNew.package.character.character };
+	for (const c of managedCalls) for (const [k, v] of Object.entries(c.character ?? {})) packCharsEquiv[k] ??= v;
+	const equivPackage = { ...packNew.package, character: { ...packNew.package.character, character: packCharsEquiv } };
+	deepEqual(packOld.package, equivPackage, "pack.package(含分包等效)");
+} else {
+	deepEqual(packOld.package, packNew.package, "pack.package");
+	for (let i = 0; i < Math.min(keysOld.length, keysNew.length); i++)
+		if (keysOld[i] !== keysNew[i]) errors.push(`CHAR ORDER at #${i}: ${keysOld[i]} !== ${keysNew[i]}`);
+}
+note.push(`package.character.character: 旧 ${keysOld.length} / 新总包 ${keysNew.length} + 分包 ${managedNames.size}`);
+
 packOld.precontent();
 packNew.precontent();
 

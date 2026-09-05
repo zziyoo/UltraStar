@@ -1,10 +1,14 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import { skills as sharedSkills } from "./shared/skills.js";
-import examplePack from "./packs/example-pack/index.js";
+import endOfAll from "./packs/end-of-all/index.js";
+import devourWorld from "./packs/devour-world/index.js";
+import eternalTorch from "./packs/eternal-torch/index.js";
+import daybreak from "./packs/daybreak/index.js";
+import boundlessCosmos from "./packs/boundless-cosmos/index.js";
 
 // 奥特曼分包清单：新增分包只需新建 packs/<id>/ 并加入此数组
-export const packs = [examplePack];
+export const packs = [endOfAll, devourWorld, eternalTorch, daybreak, boundlessCosmos];
 
 // 加载并验证所有分包，返回合并结果与"角色 → 分包"映射。
 // 校验项：分包 id 重复/缺失、name 缺失、角色重复、技能重复、角色引用技能是否存在。

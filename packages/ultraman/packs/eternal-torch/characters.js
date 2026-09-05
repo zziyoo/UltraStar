@@ -1,32 +1,32 @@
-import { lib, game, ui, get, ai, _status } from "../../../../../noname.js";
+import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
 export const characters = {
-	安培拉星人: {
+	奈克瑟斯: {
 		sex: "male",
-		group: "yv",
-		hp: 5,
-		skills: ["aplxiongye", "aplaojie"],
-		names: "null|安培拉星人",
-		img: "extension/奥特之星/assets/ultraman/image/安培拉星人.jpg",
-		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/安培拉星人.mp3"],
+		group: "ao_red",
+		hp: 4,
+		skills: ["nkssjicheng"],
+		names: "null|奈克瑟斯",
+		img: "extension/奥特之星/assets/ultraman/image/奈克瑟斯.jpg",
+		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/奈克瑟斯.mp3"],
 	},
-	奥特之父: {
+	迪迦: {
 		sex: "male",
 		group: "ao",
 		hp: 4,
-		skills: ["atzfzhenli", "atzfchiyuan"],
-		names: "null|健",
-		img: "extension/奥特之星/assets/ultraman/image/奥特之父.jpg",
-		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/奥特之父.mp3"],
+		skills: ["djsj"],
+		names: "null|迪迦",
+		img: "extension/奥特之星/assets/ultraman/image/迪迦-复合.jpg",
+		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/迪迦.mp3"],
 	},
-	奥特之王: {
+	希卡利: {
 		sex: "male",
 		group: "ao",
-		hp: 4,
-		skills: ["atzwxingmian", "atzwbuxi"],
-		names: "null|皮特",
-		img: "extension/奥特之星/assets/ultraman/image/奥特之王.jpg",
-		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/那位大人.mp3"],
+		hp: 3,
+		skills: ["xklkeyan", "xkllizhu"],
+		names: "null|希卡利",
+		img: "extension/奥特之星/assets/ultraman/image/希卡利.jpg",
+		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/希卡利.mp3"],
 	},
 	奥特曼: {
 		sex: "male",
@@ -45,6 +45,15 @@ export const characters = {
 		names: "null|杰克",
 		img: "extension/奥特之星/assets/ultraman/image/杰克.jpg",
 		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/杰克.mp3"],
+	},
+	戴拿: {
+		sex: "male",
+		group: "ao",
+		hp: 4,
+		skills: ["dnshuijing"],
+		names: "null|戴拿",
+		img: "extension/奥特之星/assets/ultraman/image/戴拿-闪亮.jpg",
+		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/戴拿.mp3"],
 	},
 	佐菲: {
 		sex: "male",
@@ -92,6 +101,15 @@ export const characters = {
 		img: "extension/奥特之星/assets/ultraman/image/雷欧.jpg",
 		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/那位大人.mp3"],
 	},
+	杰斯提斯: {
+		sex: "none",
+		group: "ao",
+		hp: 4,
+		skills: ["jstsfensui"],
+		names: "null|杰斯提斯",
+		img: "extension/奥特之星/assets/ultraman/image/杰斯提斯.jpg",
+		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/那位大人.mp3"],
+	},
 	爱迪: {
 		sex: "male",
 		group: "ao",
@@ -109,5 +127,5 @@ export const characters = {
 		names: "null|阿斯特拉",
 		img: "extension/奥特之星/assets/ultraman/image/阿斯特拉.jpg",
 		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/那位大人.mp3"],
-	}
+	},
 };
