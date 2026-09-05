@@ -1,6 +1,6 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
-import assetsManifest from "../../data/manifests/assets.js";
+import assetsManifest from "../../data/assets.js";
 import easterEggs from "../systems/easterEgg.js";
 import { initBgmSystem } from "../systems/bgm.js";
 import { registerCharacterRanks } from "../systems/tierlist.js";

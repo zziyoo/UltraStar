@@ -1,6 +1,6 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
-import bgmList from "../../data/bgm/bgmList.js";
+import bgmList from "../../data/bgmList.js";
 
 // 初始化全局 BGM 播放系统（arenaReady 时调用）
 export function initBgmSystem() {

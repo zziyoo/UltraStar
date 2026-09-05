@@ -70,7 +70,7 @@ if (eggFile) {
 }
 
 // ---- 2. BGM 数据：相对 assets/ 的每个值必须存在 ----
-const bgmFile = path.join(repo, "data/bgm/bgmList.js");
+const bgmFile = path.join(repo, "data/bgmList.js");
 if (fs.existsSync(bgmFile)) {
 	const src = read(bgmFile);
 	const valRe = /["']([\w-]+\.mp3)["']/g;
@@ -87,7 +87,7 @@ if (fs.existsSync(bgmFile)) {
 }
 
 // ---- 3. 清单条目必须在磁盘存在；磁盘额外文件仅提示（旧项目即有清单外文件）----
-const manifestFile = path.join(repo, "data/manifests/assets.js");
+const manifestFile = path.join(repo, "data/assets.js");
 const manifestSrc = read(manifestFile);
 const listRe = /["'](assets\/[^"']+)["']/g;
 const listed = new Set();

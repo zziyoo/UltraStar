@@ -7,9 +7,10 @@
   "version": "2.1.1",
   "changelog": "CHANGELOG.md",
   "files": [
-    "data/bgm/bgmList.js",
-    "data/equipment/xnnequipment.js",
-    "data/manifests/assets.js",
+    "data/assets.js",
+    "data/bgmList.js",
+    "data/characterRank.js",
+    "data/xnnequipment.js",
     "extension.js",
     "packages/genshin/characters-meta.js",
     "packages/genshin/characters.js",
