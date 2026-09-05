@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url";
 
 const repo = path.resolve(process.argv[2] ?? ".");
 const git = process.argv[3] ?? "git";
+const baseCommit = process.argv[4] ?? "HEAD"; // 注册对比基准（重构前为 639787b）
 const tmp = path.join(os.tmpdir(), "ultrastar-parity");
 fs.rmSync(tmp, { recursive: true, force: true });
 
@@ -21,6 +22,7 @@ fs.mkdirSync(oldRoot, { recursive: true });
 fs.mkdirSync(newRoot, { recursive: true });
 
 // ---- 恢复旧树 ----
+console.log("parity base commit: " + baseCommit);
 const headFiles = [
 	"extension.js", "assetsManifest.js", "bgmList.js",
 	"dynamicTranslate.js", "easterEggs.js", "intro.js",
@@ -29,7 +31,7 @@ const headFiles = [
 for (const f of headFiles) {
 	const dest = path.join(oldRoot, f);
 	fs.mkdirSync(path.dirname(dest), { recursive: true });
-	const buf = execFileSync(git, ["-C", repo, "show", `HEAD:${f}`], { maxBuffer: 64 * 1024 * 1024 });
+	const buf = execFileSync(git, ["-C", repo, "show", `${baseCommit}:${f}`], { maxBuffer: 64 * 1024 * 1024 });
 	fs.writeFileSync(dest, buf);
 }
 
@@ -67,7 +69,7 @@ const note = [];
 
 // ---- 深度对比工具 ----
 // 已知路径修复归一：assets/<作品>/ → 旧直连路径（素材迁移的必要同步）
-const FR = "(?:ultraman|genshin|honkai-star-rail|uma-musume|misc|common)";
+const FR = "(?:ultraman|genshin|honkai-star-rail|uma-musume|misc|common|kof)";
 function normalizeStr(s) {
 	return s
 		.replaceAll("extension_奥特之星_easterEgg_enabled", "extension_无名扩展_easterEgg_enabled")

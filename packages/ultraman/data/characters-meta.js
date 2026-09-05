@@ -1,6 +1,7 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../noname.js";
 
 export const characterTranslate = {
+	普利茨墨: "普利茨墨",
 	安培拉星人: "安培拉星人",
 	奈克瑟斯: "奈克瑟斯",
 	奥特之父: "奥特之父",
@@ -13,7 +14,6 @@ export const characterTranslate = {
 	杰克: "杰克",
 	奥特曼: "奥特曼",
 	加坦杰厄: "加坦杰厄",
-	伊格尼兹: "伊格尼兹",
 	戴拿: "戴拿",
 	佐菲: "佐菲",
 	泰罗: "泰罗",
@@ -29,6 +29,7 @@ export const characterTranslate = {
 	至高盖亚_prefix: "至高",
 };
 export const characterTitle = {
+	普利茨墨: "光怪兽",
 	安培拉星人: "黑暗皇帝",
 	奈克瑟斯: "光之纽带",
 	奥特之父: "宇宙警备队大队长",
@@ -41,7 +42,6 @@ export const characterTitle = {
 	杰克: "归来的奥特曼",
 	奥特曼: "初代奥特曼",
 	加坦杰厄: "黑暗支配者",
-	伊格尼兹: "狂妄的伪神",
 	戴拿: "星光战士",
 	佐菲: "宇宙警备队队长",
 	泰罗: "宇宙警备队总教官",

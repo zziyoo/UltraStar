@@ -134,219 +134,274 @@ export const skills = {
 			},
 		},
 	},
-	ignzshenji: {
-		audio: ["ext:奥特之星/assets/ultraman/audio/skill/ignz1", "ext:奥特之星/assets/ultraman/audio/skill/ignz2", "ext:奥特之星/assets/ultraman/audio/skill/ignz3", "ext:奥特之星/assets/ultraman/audio/skill/ignz4", "ext:奥特之星/assets/ultraman/audio/skill/ignz5", "ext:奥特之星/assets/ultraman/audio/skill/ignz6", "ext:奥特之星/assets/ultraman/audio/skill/ignz7", "ext:奥特之星/assets/ultraman/audio/skill/ignz8"],
-		enable: ["chooseToUse", "chooseToRespond"],
-		usable: 1,
-		forced: true,
-		locked: false,
-		autoSort(cards, num) {
-			if (!cards || cards.length < num) return cards.slice(0, num);
-			const result = [];
-			const used = new Set();
-			const backtrack = () => {
-				if (result.length === num) {
-					return true;
-				}
-				for (let i = 0; i < cards.length; i++) {
-					if (used.has(i)) continue;
-					const card = cards[i];
-					if (result.length > 0) {
-						const lastCard = result[result.length - 1];
-						if (get.type(card) === get.type(lastCard) || get.suit(card) === get.suit(lastCard)) {
-							continue;
+	plcmhuanjing: {
+		audio: ["ext:奥特之星/assets/ultraman/audio/skill/huanjing"],
+		trigger: {
+			global: "judgeBegin",
+		},
+		filter() {
+			return ui.cardPile.childNodes.length > 1;
+		},
+		async content(event, trigger, player) {
+			const topCard = get.cards()[0];
+			const bottomCard = get.bottomCards()[0];
+			const cards = [topCard, bottomCard];
+			let targetSuit = null;
+			let evt = event.getParent();
+			while (evt) {
+				if (evt.name === "plcmlengjing") {
+					if (evt.triggername === "useCardToBefore" || evt.triggername === "useCardToPlayered") {
+						const trig = evt.getTrigger();
+						if (trig?.card) {
+							targetSuit = get.suit(trig.card);
+							break;
 						}
 					}
-					result.push(card);
-					used.add(i);
-					if (backtrack()) {
-						return true;
-					}
-					result.pop();
-					used.delete(i);
 				}
-				return false;
-			};
-			if (backtrack()) {
-				return result;
+				evt = evt.parent;
 			}
-			return cards.slice(0, num);
-		},
-		hiddenCard(player, name) {
-			const info = get.info({ name });
-			if (info && info.type === "delay") return false;
-			if (info && info.type === "equip") return false;
-			return true;
-		},
-		chooseButton: {
-			dialog(event, player) {
-				const list = get.inpileVCardList(info => {
-					if (info[0] === "equip") return false;
-					const name = info[2];
-					const info2 = get.info({ name });
-					if (info2 && info2.type === "delay") return false;
-					if (event.name === "phaseUse") {
-						return player.hasUseTarget({ name: name, nature: info[3] });
+			if (targetSuit) {
+				const topMatch = get.suit(topCard) === targetSuit;
+				const bottomMatch = get.suit(bottomCard) === targetSuit;
+				if (topMatch && !bottomMatch) {
+					ui.cardPile.appendChild(bottomCard);
+					game.cardsGotoPile(topCard, "insert");
+					return;
+				}
+			}
+			const str = '<div class="text center">牌堆顶/牌堆底</div>';
+			const result = await player
+				.chooseButton(["幻境：选择要获得的牌", str, cards], false)
+				.set("ai", button => {
+					const judgeFn = trigger.judge;
+					if (typeof judgeFn !== "function") {
+						return get.value(button.link, player);
 					}
-					return true;
-				});
-				return ui.create.dialog("神计：选择要使用的牌", [list, "vcard"]);
-			},
-			filter(button, player) {
-				const name = button.link[2];
-				const info = get.info({ name });
-				if (info && info.type === "delay") return false;
-				if (info && info.type === "equip") return false;
-				const evt = _status.event.getParent();
-				if (evt && evt.filterCard) {
-					return evt.filterCard(get.autoViewAs({ name: name, nature: button.link[3] }, "unsure"), player, evt);
-				}
-				return player.hasUseTarget({ name: name, nature: button.link[3] });
-			},
-			check(button) {
-				const player = get.player();
-				const name = button.link[2];
-				const nature = button.link[3];
-				const evt = _status.event.getParent();
-				if (evt?.type === "dying" && evt.dying) {
-					const attitude = get.attitude(player, evt.dying);
-					if (attitude <= 0) return -10;
-					return 5 + player.getUseValue({ name: name, nature: nature });
-				}
-				if (evt && evt.name !== "phaseUse" && evt.filterCard) {
-					const card = get.autoViewAs({ name: name, nature: nature }, "unsure");
-					if (evt.filterCard(card, player, evt)) {
-						return 5 + player.getUseValue({ name: name, nature: nature });
+					const attitude = get.attitude(player, trigger.player);
+					const desired = attitude > 0 ? 1 : attitude < 0 ? -1 : 0;
+					const resultOf = card => ({
+						card,
+						name: card.name,
+						number: get.number(card),
+						suit: get.suit(card),
+						color: get.color(card),
+						node: card.node,
+					});
+					const benefit = card => desired * judgeFn(resultOf(card));
+					const base = benefit(topCard);
+					const nextCard = ui.cardPile.childNodes[0] || topCard;
+					const cardVal = card => get.value(card, player) / 4;
+					if (button.link === topCard) {
+						return benefit(bottomCard) - base + cardVal(topCard);
 					}
+					return benefit(nextCard) - base + cardVal(bottomCard);
+				})
+				.forResult();
+			if (result.bool) {
+				const chosen = result.links[0];
+				const isTop = chosen === topCard;
+				if (isTop) {
+					await player.gain(topCard, "draw");
+					game.log(player, "获得了牌堆顶的一张牌");
+					game.cardsGotoPile(bottomCard, "insert");
+					game.log(player, "将", bottomCard, "置于了牌堆顶");
+				} else {
+					await player.gain(bottomCard, "gain2");
+					game.log(player, "获得了牌堆底的一张牌");
+					ui.cardPile.appendChild(topCard);
+					game.log(player, "将", topCard, "置于了牌堆底");
 				}
-				return player.getUseValue({ name: name, nature: nature });
-			},
-			backup(links, player) {
-				const name = links[0][2];
-				const nature = links[0][3];
-				return {
-					filterCard: () => false,
-					selectCard: -1,
-					viewAs: { name: name, nature: nature, isCard: true },
-					log: false,
-					async precontent(event, trigger, player) {
-						player.logSkill("ignzshenji");
-						const countUse = () => {
-							const stat = player.getStat("skill");
-							stat.ignzshenji = (stat.ignzshenji || 0) + 1;
-						};
-						const cardName = event.result.card.name;
-						const cardNature = event.result.card.nature;
-						const x = player.getStorage("ignzshenji_x", 1);
-						let drawNum = 1;
-						if (x > 1) {
-							const list = [];
-							for (let i = 1; i <= x; i++) {
-								list.push(i.toString());
-							}
-							const result2 = await player
-								.chooseControl(list)
-								.set("prompt", "神计：选择要摸的牌数")
-								.set("ai", () => {
-									return list[list.length - 1];
-								})
-								.forResult();
-							if (!result2?.control) {
-								event.result.bool = false;
-								return;
-							}
-							drawNum = parseInt(result2.control) || 1;
-						}
-						await player.draw(drawNum);
-						if (drawNum === x) {
-							player.setStorage("ignzshenji_x", x + 1);
-						} else {
-							player.setStorage("ignzshenji_x", Math.max(1, x - 1));
-						}
-						const allCards = player.getCards("h");
-						let showCards = [];
-						if (!event.isMine()) {
-							showCards = lib.skill.ignzshenji.autoSort(allCards, drawNum);
-						} else {
-							const autoResult = await player
-								.chooseControl(["手动选牌", "一键选牌"])
-								.set("prompt", "神计：选择选牌方式")
-								.set("ai", () => "一键选牌")
-								.forResult();
-							if (autoResult.control === "一键选牌") {
-								showCards = lib.skill.ignzshenji.autoSort(allCards, drawNum);
-								game.log(player, "使用一键选牌");
-							} else {
-								const result3 = await player
-									.chooseButton(["神计：排序展示手牌（按顺序展示）", allCards], true, drawNum)
-									.set("ai", button => {
-										const cards = get.event().dialog.buttons.map(b => b.link);
-										const selected = get.event().selected || [];
-										if (selected.length >= drawNum) return 0;
-										const card = button.link;
-										for (const prev of selected) {
-											if (get.type(card) === get.type(prev) || get.suit(card) === get.suit(prev)) {
-												return -1;
-											}
-										}
-										return 1;
-									})
-									.forResult();
-								if (!result3?.links?.length) {
-									game.log(player, "神计展示失败，弃置" + drawNum + "张牌");
-									await player.chooseToDiscard("he", drawNum, true);
-									countUse();
-									event.result.bool = false;
-									return;
-								}
-								showCards = result3.links;
-							}
-						}
-						await player.showCards(showCards, "神计：展示手牌");
-						let success = true;
-						for (let i = 0; i < showCards.length - 1; i++) {
-							const card = showCards[i];
-							const nextCard = showCards[i + 1];
-							if (get.type(card) === get.type(nextCard) || get.suit(card) === get.suit(nextCard)) {
-								success = false;
-								break;
-							}
-						}
-						if (!success) {
-							await player.chooseToDiscard("he", drawNum, true);
-							countUse();
-							event.cancel();
-							event.getParent().goto(0);
-							return;
-						}
-					},
-				};
-			},
-			prompt(links, player) {
-				const name = links[0][2];
-				return "神计：选择要使用的牌";
-			},
+			} else {
+				ui.cardPile.appendChild(bottomCard);
+				game.cardsGotoPile(topCard, "insert");
+				game.log("大家就当无事发生~(*^ω^*)");
+			}
 		},
 		ai: {
-			order: 10,
-			result: {
-				player(player) {
-					return 1;
-				},
-				target(player, target, card) {
-					const evt = _status.event;
-					if (evt.dying && evt.dying === target) {
-						return get.attitude(player, target) > 0 ? 5 : -10;
+			expose: 0.1,
+			tag: {
+				rejudge: 0.5,
+			},
+		},
+	},
+	plcmlengjing: {
+		audio: ["ext:奥特之星/assets/ultraman/audio/skill/lengjing"],
+		group: ["plcmlengjing_target"],
+		trigger: {
+			target: "useCardToTarget",
+		},
+		filter(event, player) {
+			if (get.tag(event.card, "damage")) {
+				return event.player !== player;
+			}
+			return false;
+		},
+		async content(event, trigger, player) {
+			const targetSuit = get.suit(trigger.card);
+			const result = await player
+				.judge(card => {
+					return get.suit(card) === targetSuit ? 10 : 0;
+				})
+				.set("judge2", result => result.suit === targetSuit)
+				.forResult();
+			if (result?.suit === targetSuit) {
+				trigger.targets.remove(player);
+				trigger.getParent().triggeredTargets2.remove(player);
+				trigger.untrigger();
+			}
+		},
+		ai: {
+			effect: {
+				target_use(card, player, target, current, isLink) {
+					if (get.tag(card, "damage") || card?.name === "sha") {
+						if (!isLink && player !== target) {
+							return 0.5;
+						}
 					}
-					return 0;
 				},
 			},
-			respondSha: true,
-			respondShan: true,
-			respondWuxie: true,
-			save: true,
-			skillTagFilter(player, tag) {
-				return true;
+		},
+		subSkill: {
+			target: {
+				audio: ["ext:奥特之星/assets/ultraman/audio/skill/lengjing"],
+				trigger: {
+					player: "useCardToPlayered",
+				},
+				filter(event, player) {
+					if (event.player !== player) return false;
+					if (event.target === player) return false;
+					if (get.tag(event.card, "damage")) return false;
+					return true;
+				},
+				async content(event, trigger, player) {
+					const targetSuit = get.suit(trigger.card);
+					const result = await player
+						.judge(card => {
+							return get.suit(card) === targetSuit ? 10 : 0;
+						})
+						.set("judge2", result => result.suit === targetSuit)
+						.forResult();
+					if (result?.suit === targetSuit) {
+						trigger.directHit.add(trigger.target);
+					}
+				},
+			},
+		},
+	},
+	plcmjinghua: {
+		audio: ["ext:奥特之星/assets/ultraman/audio/skill/jinghua"],
+		forced: true,
+		locked: false,
+		trigger: { player: "useCardAfter" },
+		filter(event, player) {
+			if (!event.targets || event.targets.length === 0) return false;
+			if (!lib.suit.includes(get.suit(event.card))) return false;
+			const targets = event.targets.filter(target => target !== player && target.isAlive());
+			return targets.some(target => {
+				const hasResponded = target.hasHistory("useCard", evt => {
+					return evt.respondTo && evt.respondTo[1] === event.card;
+				});
+				const hasResponded2 = target.hasHistory("respond", evt => {
+					return evt.respondTo && evt.respondTo[1] === event.card;
+				});
+				return !hasResponded && !hasResponded2;
+			});
+		},
+		async content(event, trigger, player) {
+			const suit = get.suit(trigger.card);
+			const targets = trigger.targets.filter(target => target !== player && target.isAlive());
+			const unresponsedTargets = targets.filter(target => {
+				if (!target.isAlive()) return false;
+				const hasResponded = target.hasHistory("useCard", evt => {
+					return evt.respondTo && evt.respondTo[1] === trigger.card;
+				});
+				const hasResponded2 = target.hasHistory("respond", evt => {
+					return evt.respondTo && evt.respondTo[1] === trigger.card;
+				});
+				return !hasResponded && !hasResponded2;
+			});
+			if (unresponsedTargets.length === 0) return;
+			for (const target of unresponsedTargets) {
+				if (!target.isAlive()) continue;
+				const dialog = ui.create.dialog(`晶化：对${get.translation(target)}发动，选择一项`, "hidden");
+				dialog.add([
+					[
+						[1, "展示其手牌并获得与此牌相同花色的手牌和装备牌"],
+						[2, "直到其下回合结束，其无法使用此花色的牌"],
+					],
+					"textbutton",
+				]);
+				const result = await player
+					.chooseButton(dialog, true)
+					.set("ai", button => {
+						const choice = button.link;
+						const knownCards = target.getCards("he").filter(card => card.isKnownBy(player));
+						const knownSameSuit = knownCards.filter(card => get.suit(card) === suit).length;
+						const totalHe = target.countCards("he");
+						const estSameSuit = knownSameSuit + (totalHe - knownCards.length) / 4;
+						const gainValue = estSameSuit * 2;
+						if (choice === 1) return gainValue;
+						const attitude = get.attitude(player, target);
+						let banValue = 6;
+						if (attitude < 0 && estSameSuit <= 1) banValue = 14;
+						if (totalHe <= 2) banValue = 14;
+						if (attitude >= 0) banValue = 1;
+						return banValue;
+					})
+					.forResult();
+				if (result.bool && result.links) {
+					const choice = result.links[0];
+					game.log(player, "对", target, "发动了【晶化】");
+					if (choice === 1) {
+						target.showHandcards();
+						const targetHand = target.getCards("he");
+						const sameSuitCards = targetHand.filter(card => get.suit(card) === suit);
+						if (sameSuitCards.length > 0) {
+							await player.gain(sameSuitCards, target);
+							game.log(player, "获得了", target, `的${sameSuitCards.length}张`, get.translation(suit), "牌");
+						}
+					} else {
+						target.addTempSkill("plcmjinghua_ban", { player: "phaseEnd" });
+						target.markAuto("plcmjinghua_ban", [suit]);
+						game.log(target, "无法使用", get.translation(suit), "牌直到其下回合结束");
+					}
+				}
+			}
+		},
+		subSkill: {
+			ban: {
+				charlotte: true,
+				mark: true,
+				marktext: "晶",
+				intro: {
+					content(storage) {
+						if (storage?.length > 0) {
+							return `无法使用或打出${get.translation(storage)}牌`;
+						}
+						return "无法使用或打出特定花色的牌";
+					},
+				},
+				init(player, skill) {
+					const storage = player.getStorage(skill, []);
+					if (storage.length) {
+						player.addTip(skill, `晶化 限${get.translation(storage)}`);
+					}
+				},
+				onremove(player, skill) {
+					player.removeTip(skill);
+					player.setStorage(skill, undefined);
+				},
+				mod: {
+					cardEnabled(card, player) {
+						if (player.getStorage("plcmjinghua_ban", []).includes(get.suit(card))) return false;
+					},
+					cardRespondable(card, player) {
+						if (player.getStorage("plcmjinghua_ban", []).includes(get.suit(card))) return false;
+					},
+					cardSavable(card, player) {
+						if (player.getStorage("plcmjinghua_ban", []).includes(get.suit(card))) return false;
+					},
+				},
 			},
 		},
 	},

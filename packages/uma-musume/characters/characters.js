@@ -37,4 +37,22 @@ export const characters = {
 		img: "extension/奥特之星/assets/uma-musume/image/目白麦昆.jpg",
 		dieAudios: ["ext:奥特之星/assets/uma-musume/audio/die/目白麦昆.mp3"],
 	},
+	曼波: {
+		sex: "female",
+		group: "shen",
+		hp: 4,
+		skills: ["mbmanbo"],
+		names: "null|子右",
+		img: "extension/奥特之星/assets/uma-musume/image/曼波.jpg",
+		dieAudios: ["ext:奥特之星/assets/uma-musume/audio/die/曼波.mp3"],
+	},
+	哈基米: {
+		sex: "female",
+		group: "shen",
+		hp: 3,
+		skills: ["hjmhaqi"],
+		names: "null|哈基米",
+		img: "extension/奥特之星/assets/uma-musume/image/哈基米.jpg",
+		dieAudios: ["ext:奥特之星/assets/uma-musume/audio/die/哈基米.mp3"],
+	},
 };

@@ -10,13 +10,13 @@ export const characters = {
 		img: "extension/奥特之星/assets/ultraman/image/加坦杰厄.jpg",
 		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/加坦杰厄.mp3"],
 	},
-	伊格尼兹: {
-		sex: "male",
-		group: "shen",
+	普利茨墨: {
+		sex: "none",
+		group: "shou",
 		hp: 4,
-		skills: ["ignzshenji"],
-		names: "null|伊格尼兹",
-		img: "extension/奥特之星/assets/ultraman/image/伊格尼兹.jpg",
-		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/伊格尼兹.mp3"],
+		skills: ["plcmhuanjing", "plcmlengjing", "plcmjinghua"],
+		names: "null|普利茨墨",
+		img: "extension/奥特之星/assets/ultraman/image/普利茨墨.jpg",
+		dieAudios: ["ext:奥特之星/assets/ultraman/audio/die/普利茨墨.mp3"],
 	},
 };

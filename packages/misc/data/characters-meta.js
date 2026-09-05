@@ -1,20 +1,13 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../noname.js";
 
 export const characterTranslate = {
-	普利茨墨: "普利茨墨",
-	曼波: "曼波",
-	哈基米: "哈基米",
 	谋曹丕: "谋曹丕",
-	死龙: "死龙",
 	爻袁术: "爻袁术",
 	未遂: "未遂",
 	谋曹丕_prefix: "谋",
 	爻袁术_prefix: "爻",
 };
 export const characterTitle = {
-	普利茨墨: "光怪兽",
-	曼波: "子右人间体",
-	哈基米: "蜂蜜特饮",
 	谋曹丕: "魏文帝",
 	爻袁术: "我怎么知道什么称号，官方又没出",
 	未遂: "异界的神使",

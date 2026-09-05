@@ -1,33 +1,6 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../noname.js";
 
 export const characters = {
-	普利茨墨: {
-		sex: "none",
-		group: "shou",
-		hp: 4,
-		skills: ["plcmhuanjing", "plcmlengjing", "plcmjinghua"],
-		names: "null|普利茨墨",
-		img: "extension/奥特之星/assets/misc/image/普利茨墨.jpg",
-		dieAudios: ["ext:奥特之星/assets/misc/audio/die/普利茨墨.mp3"],
-	},
-	曼波: {
-		sex: "female",
-		group: "shen",
-		hp: 4,
-		skills: ["mbmanbo"],
-		names: "null|子右",
-		img: "extension/奥特之星/assets/misc/image/曼波.jpg",
-		dieAudios: ["ext:奥特之星/assets/misc/audio/die/曼波.mp3"],
-	},
-	哈基米: {
-		sex: "female",
-		group: "shen",
-		hp: 3,
-		skills: ["hjmhaqi"],
-		names: "null|哈基米",
-		img: "extension/奥特之星/assets/misc/image/哈基米.jpg",
-		dieAudios: ["ext:奥特之星/assets/misc/audio/die/哈基米.mp3"],
-	},
 	谋曹丕: {
 		sex: "male",
 		group: "wei",

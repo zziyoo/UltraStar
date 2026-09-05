@@ -501,4 +501,174 @@ export const skills = {
 			},
 		},
 	},
+	mbmanbo: {
+		audio: ["ext:奥特之星/assets/uma-musume/audio/skill/manbo1", "ext:奥特之星/assets/uma-musume/audio/skill/manbo2", "ext:奥特之星/assets/uma-musume/audio/skill/manbo3"],
+		group: ["mbmanbo_round"],
+		trigger: { player: "damageEnd" },
+		forced: true,
+		check(event, player) {
+			return true;
+		},
+		async content(event, trigger, player) {
+			if (!_status.characterlist) game.initCharacterList();
+			const obtainedSkills = player.getStorage("mbmanbo_skills", []);
+			const availableList = _status.characterlist.filter(name => {
+				const skills = lib.character[name]?.[3] || [];
+				const validSkills = skills.filter(skill => {
+					const info = get.info(skill);
+					return info && !info.charlotte && !info.hiddenSkill && !player.hasSkill(skill);
+				});
+				return validSkills.length > 0;
+			});
+			const list = availableList.randomGets(3);
+			if (list.length < 3) return;
+			const result = await player
+				.chooseButton(["曼波：选择一名角色", [list, "character"]], true)
+				.set("ai", button => {
+					const name = button.link;
+					const skills = lib.character[name]?.[3] || [];
+					const validSkills = skills.filter(skill => {
+						const info = get.info(skill);
+						return info && !info.charlotte && !info.hiddenSkill && !player.hasSkill(skill);
+					});
+					return validSkills.reduce((sum, skill) => sum + Math.max(get.skillRank(skill, "out"), get.skillRank(skill, "in")), 0);
+				})
+				.forResult();
+			if (!result.bool || !result.links?.length) return;
+			const chosen = result.links[0];
+			const skills = lib.character[chosen]?.[3] || [];
+			const validSkills = skills.filter(skill => {
+				const info = get.info(skill);
+				return info && !info.charlotte && !info.hiddenSkill && !player.hasSkill(skill);
+			});
+			if (validSkills.length === 0) return;
+			const result2 = await player
+				.chooseButton(["曼波：选择获得" + get.translation(chosen) + "的一个技能", [validSkills, "skill"]], true)
+				.set("ai", button => get.skillRank(button.link, "inout"))
+				.forResult();
+			if (!result2.bool || !result2.links?.length) return;
+			const skill = result2.links[0];
+			player.popup(skill);
+			await player.addSkills(skill);
+			player.markAuto("mbmanbo_skills", [skill]);
+		},
+		subSkill: {
+			round: {
+				audio: ["ext:奥特之星/assets/uma-musume/audio/skill/manbo1", "ext:奥特之星/assets/uma-musume/audio/skill/manbo2", "ext:奥特之星/assets/uma-musume/audio/skill/manbo3"],
+				trigger: { global: ["roundStart", "roundEnd"] },
+				forced: true,
+				async content(event, trigger, player) {
+					if (!_status.characterlist) game.initCharacterList();
+					const obtainedSkills = player.getStorage("mbmanbo_skills", []);
+					const availableList = _status.characterlist.filter(name => {
+						const skills = lib.character[name]?.[3] || [];
+						const validSkills = skills.filter(skill => {
+							const info = get.info(skill);
+							return info && !info.charlotte && !info.hiddenSkill && !player.hasSkill(skill);
+						});
+						return validSkills.length > 0;
+					});
+					const list = availableList.randomGets(3);
+					if (list.length < 3) return;
+					const result = await player
+						.chooseButton(["曼波：选择一名角色", [list, "character"]], true)
+						.set("ai", button => {
+							const name = button.link;
+							const skills = lib.character[name]?.[3] || [];
+							const validSkills = skills.filter(skill => {
+								const info = get.info(skill);
+								return info && !info.charlotte && !info.hiddenSkill && !player.hasSkill(skill);
+							});
+							return validSkills.reduce((sum, skill) => sum + Math.max(get.skillRank(skill, "out"), get.skillRank(skill, "in")), 0);
+						})
+						.forResult();
+					if (!result.bool || !result.links?.length) return;
+					const chosen = result.links[0];
+					const skills = lib.character[chosen]?.[3] || [];
+					const validSkills = skills.filter(skill => {
+						const info = get.info(skill);
+						return info && !info.charlotte && !info.hiddenSkill && !player.hasSkill(skill);
+					});
+					if (validSkills.length === 0) return;
+					const result2 = await player
+						.chooseButton(["曼波：选择获得" + get.translation(chosen) + "的一个技能", [validSkills, "skill"]], true)
+						.set("ai", button => get.skillRank(button.link, "inout"))
+						.forResult();
+					if (!result2.bool || !result2.links?.length) return;
+					const skill = result2.links[0];
+					player.popup(skill);
+					await player.addSkills(skill);
+					player.markAuto("mbmanbo_skills", [skill]);
+				},
+			},
+		},
+	},
+	hjmhaqi: {
+		audio: ["ext:奥特之星/assets/uma-musume/audio/skill/haqi1", "ext:奥特之星/assets/uma-musume/audio/skill/haqi2", "ext:奥特之星/assets/uma-musume/audio/skill/haqi3"],
+		group: ["hjmhaqi_phaseDraw"],
+		mark: true,
+		marktext: "哈",
+		intro: {
+			name: "哈气",
+			content(storage, player) {
+				const b = player.getStorage("haqi_draw", 0);
+				const c = player.getStorage("haqi_max", 0);
+				const d = player.getStorage("haqi_sha", 0);
+				return "·摸牌阶段多摸" + b + "张牌<br>·手牌上限+" + c + "<br>·出牌阶段可多出" + d + "张【杀】";
+			},
+		},
+		trigger: { global: ["damageSource", "damageEnd"] },
+		forced: true,
+		filter(event) {
+			return event.num > 0;
+		},
+		async content(event, trigger, player) {
+			const num = trigger.num;
+			let count = player.getStorage("haqi_count", 0);
+			for (let i = 0; i < num; i++) {
+				count++;
+				player.setStorage("haqi_count", count, true);
+				switch (count % 6) {
+					case 0:
+						player.setStorage("haqi_max", player.getStorage("haqi_max", 0) + 1, true);
+						break;
+					case 1:
+						await player.draw();
+						break;
+					case 2:
+						player.setStorage("haqi_draw", player.getStorage("haqi_draw", 0) + 1, true);
+						break;
+					case 3:
+						await player.recover();
+						break;
+					case 4:
+						await player.gainMaxHp();
+						break;
+					case 5:
+						player.setStorage("haqi_sha", player.getStorage("haqi_sha", 0) + 1, true);
+						break;
+				}
+			}
+		},
+		subSkill: {
+			phaseDraw: {
+				mod: {
+					maxHandcard(player, current) {
+						return current + player.getStorage("haqi_max", 0);
+					},
+					cardUsable(card, player, num) {
+						if (card.name === "sha") return num + player.getStorage("haqi_sha", 0);
+					},
+				},
+				trigger: { player: "phaseDrawBegin" },
+				forced: true,
+				filter(event, player) {
+					return player.getStorage("haqi_draw", 0) > 0;
+				},
+				async content(event, trigger, player) {
+					trigger.num += player.getStorage("haqi_draw", 0);
+				},
+			},
+		},
+	},
 };

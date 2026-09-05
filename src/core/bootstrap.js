@@ -149,7 +149,7 @@ export function precontent() {
 			lib.characterReplace["迪迦"] = ["迪迦", "闪耀迪迦", "黑暗迪迦"];
 			lib.characterReplace["芙宁娜"] = ["芙宁娜", "芙宁娜芙卡洛斯"];
 
-			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:奥特之星/assets/misc/image/死龙.jpg"]];
+			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:奥特之星/assets/honkai-star-rail/image/死龙.jpg"]];
 			lib.character["死龙"].isHiddenBoss = true;
 			lib.character["死龙"].isAiForbidden = true;
 			lib.translate["死龙"] = "死龙";

@@ -1,6 +1,7 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../noname.js";
 
 export const characterTranslate = {
+	死龙: "死龙",
 	流萤: "流萤",
 	大丽花: "大丽花",
 	忘归人: "忘归人",

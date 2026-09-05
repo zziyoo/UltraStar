@@ -1820,4 +1820,267 @@ export const skills = {
 			},
 		},
 	},
+	slyanxi: {
+		enable: "phaseUse",
+		usable: 4,
+		filter(event, player) {
+			if (player.name !== "死龙") return false;
+			if (!game.players.includes(player)) return false;
+			return true;
+		},
+		filterTarget(card, player, target) {
+			if (target === player) return false;
+			const xiadie = player._trueMe ?? game.players.find(p => p.hasSkill("xdanchao"));
+			if (xiadie && target === xiadie) return false;
+			return true;
+		},
+		selectTarget: [1, Infinity],
+		allowChooseAll: true,
+		multitarget: true,
+		async content(event, trigger, player) {
+			const x = game.players.filter(p => !p.isDead()).length;
+			await player.loseHp(5 + x);
+			for (const t of event.targets) {
+				if (t.isAlive()) {
+					await t.damage(1, player);
+				}
+			}
+		},
+		ai: {
+			order: 11,
+			result: {
+				player(player) {
+					const xiadie = player._trueMe ?? game.players.find(p => p.hasSkill("xdanchao"));
+					if (!xiadie) return -10;
+					const enemies = game.players.filter(p => {
+						if (p === player) return false;
+						if (xiadie && p === xiadie) return false;
+						if (get.attitude(xiadie, p) > 0) return false;
+						return true;
+					});
+					if (enemies.length === 0) return -10;
+					const x = game.players.filter(p => !p.isDead()).length;
+					if (player.getHp() <= 5 + x) return 1;
+					return enemies.length * 2;
+				},
+				target(player, target) {
+					if (target === player) return 0;
+					const xiadie = player._trueMe ?? game.players.find(p => p.hasSkill("xdanchao"));
+					if (xiadie && target === xiadie) return 0;
+					if (!xiadie) return 0;
+					if (get.attitude(xiadie, target) > 0) return 0;
+					return -1;
+				},
+			},
+		},
+	},
+	slyinbi: {
+		trigger: { global: "damageBegin4" },
+		filter(event, player) {
+			if (player.name !== "死龙") return false;
+			if (!game.players.includes(player)) return false;
+			if (!event.player) return false;
+			if (event.player === player) return false;
+			if (event.player.name === "死龙") return false;
+			if (event.player.hp - event.num > 0) return false;
+			return true;
+		},
+		prompt(event, player) {
+			return `是否对 ${get.translation(event.player)} 发动【荫蔽】？`;
+		},
+		check(event, player) {
+			const xiadie = player._trueMe ?? game.players.find(p => p.hasSkill("xdanchao"));
+			if (!xiadie) return false;
+			if (event.player === xiadie) return true;
+			const xiadieIdentity = xiadie.identity;
+			const targetIdentity = event.player.identity;
+			if (xiadieIdentity === "fan") {
+				if (targetIdentity !== "fan") return false;
+			} else if (xiadieIdentity === "zhu" || xiadieIdentity === "zhong") {
+				if (targetIdentity !== "zhu" && targetIdentity !== "zhong") return false;
+			} else if (xiadieIdentity === "nei") {
+				if (get.attitude(xiadie, event.player) <= 0) return false;
+			}
+			const reduceDamage = Math.max(0, event.num - Math.max(0, event.player.hp - 1));
+			const damageX = 5 * reduceDamage;
+			if (player.getHp() <= damageX) return false;
+			return true;
+		},
+		async content(event, trigger, player) {
+			const reduceDamage = Math.max(0, trigger.num - Math.max(0, trigger.player.hp - 1));
+			trigger.num -= reduceDamage;
+			game.log(player, "发动了【荫蔽】，令", trigger.player, `受到的伤害减少${reduceDamage}点`);
+			const damageX = 5 * reduceDamage;
+			if (trigger.source?.isAlive()) {
+				await player.damage(damageX, trigger.source);
+				game.log(player, "受到了来自", trigger.source, `的${damageX}点伤害`);
+			} else {
+				await player.damage(damageX);
+				game.log(player, `受到了${damageX}点伤害`);
+			}
+		},
+		ai: {
+			effect: {
+				target_use(card, player, target, current, isLink) {
+					if (target.name === "死龙" && target.hp - current <= 0) {
+						const xiadie = target._trueMe ?? game.players.find(p => p.hasSkill("xdanchao"));
+						if (xiadie && get.attitude(xiadie, player) > 0) {
+							return [0.5, 1];
+						}
+					}
+				},
+			},
+		},
+	},
+	slhuiyi: {
+		trigger: { player: ["dieBefore", "rest"] },
+		filter(event, player, name) {
+			if (player.name !== "死龙") return false;
+			if (name !== "rest" && !game.players.includes(player)) return false;
+			if (player.classList.contains("out")) return false;
+			if (name === "rest") return true;
+			return player.maxHp > 0;
+		},
+		forced: true,
+		forceDie: true,
+		forceOut: true,
+		priority: 15,
+		group: ["slhuiyi_phase", "slhuiyi_return", "slhuiyi_xiadieDie"],
+		async content(event, trigger, player) {
+			if (event.triggername === "rest") {
+				game.broadcastAll(p => {
+					p.classList.add("out");
+				}, player);
+				return;
+			}
+			trigger.cancel();
+			player.logSkill("slhuiyi");
+			const allCards = player.getCards("hej");
+			if (allCards.length > 0) {
+				await player.discard(allCards);
+				game.log(player, "弃置了区域内所有的牌");
+			}
+			player.setStorage("sl_phaseCount", 0);
+			player.storage.sl_resting = true;
+			const turnCount = player.getStorage("sl_turnCount", 0) + 1;
+			player.setStorage("sl_turnCount", turnCount);
+			game.log(player, `进入了休整状态（第${turnCount}次），回合数已清零`);
+			game.broadcastAll(p => {
+				p.classList.add("out");
+			}, player);
+		},
+		subSkill: {
+			phase: {
+				trigger: { player: "phaseAfter" },
+				forced: true,
+				forceDie: true,
+				filter(event, player) {
+					if (player.name !== "死龙") return false;
+					if (!game.players.includes(player)) return false;
+					return !player.storage.sl_resting;
+				},
+				async content(event, trigger, player) {
+					const phaseCount = player.getStorage("sl_phaseCount", 0) + 1;
+					player.setStorage("sl_phaseCount", phaseCount);
+					game.log(player, `已执行${phaseCount}个回合`);
+					if (phaseCount >= 3) {
+						player.setStorage("sl_phaseCount", 0);
+						player.setStorage("sl_turnCount", 0);
+						player.storage.sl_resting = false;
+						game.log(player, "已存在场上三个回合，即将死亡");
+						await player.die();
+					}
+				},
+			},
+			return: {
+				trigger: { player: "restEnd" },
+				forced: true,
+				locked: true,
+				charlotte: true,
+				silent: true,
+				forceDie: true,
+				forceOut: true,
+				filter(event, player) {
+					if (player.name !== "死龙") return false;
+					if (!game.players.includes(player)) return false;
+					return event.player === player;
+				},
+				async content(event, trigger, player) {
+					game.broadcastAll(p => {
+						p.classList.remove("out");
+					}, player);
+					await player.recover(player.maxHp - player.getHp());
+					player.storage.sl_resting = false;
+					game.log(player, "结束了休整状态，回复至满体力");
+				},
+			},
+			xiadieDie: {
+				trigger: { global: "dieAfter" },
+				forced: true,
+				forceDie: true,
+				forceOut: true,
+				filter(event, player) {
+					if (player.name !== "死龙") return false;
+					if (!game.players.includes(player)) return false;
+					if (!player.isAlive()) return false;
+					const xiadie = player._trueMe ?? game.players.find(p => p.hasSkill("xdanchao")) ?? game.dead.find(p => p.hasSkill("xdanchao"));
+					if (!xiadie) return false;
+					return event.player === xiadie;
+				},
+				async content(event, trigger, player) {
+					if (player.storage.sl_resting) {
+						game.broadcastAll(p => {
+							p.classList.remove("out");
+						}, player);
+						player.setStorage("sl_phaseCount", 0);
+						player.setStorage("sl_turnCount", 0);
+						player.storage.sl_resting = false;
+						game.log(player, "因遐蝶死亡而退出休整状态并移出游戏");
+					} else {
+						game.log(player, "因遐蝶死亡而移出游戏");
+					}
+					await player.removeSkills("slyanxi", "slyinbi", "slhuiyi", "slcontrol");
+					const index = game.players.indexOf(player);
+					if (index !== -1) {
+						game.players.splice(index, 1);
+					}
+					const deadIndex = game.dead.indexOf(player);
+					if (deadIndex !== -1) {
+						game.dead.splice(deadIndex, 1);
+					}
+					player.remove();
+					const friendSide = player.side;
+					const friendliesAlive = game.players.filter(p => p.side === friendSide && !p.isDead());
+					const enemiesAlive = game.players.filter(p => p.side !== friendSide && !p.isDead());
+					if (friendliesAlive.length === 0) {
+						game.over(false);
+					} else if (enemiesAlive.length === 0) {
+						game.over(true);
+					}
+				},
+			},
+		},
+	},
+	slcontrol: {
+		trigger: { player: ["phaseAfter", "dieAfter"] },
+		lastDo: true,
+		charlotte: true,
+		forceDie: true,
+		forced: true,
+		silent: true,
+		filter(event, player) {
+			return player.name === "死龙";
+		},
+		async content(event, trigger, player) {
+			await player.removeSkills("slcontrol");
+		},
+		onremove(player) {
+			if (player === game.me && player._trueMe) {
+				game.swapPlayerAuto(player._trueMe);
+				if (_status.auto) {
+					ui.click.auto();
+				}
+			}
+		},
+	},
 };
