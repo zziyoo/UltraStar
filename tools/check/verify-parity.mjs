@@ -47,6 +47,7 @@ export const lib = {
 	namePrefix: null,
 	element: {}, config: {}, rank: {},
 	filter: new Proxy({}, { get: (t, k) => { if (!(k in t)) t[k] = anyFn; return t[k]; } }),
+	sort: { group: () => 0 },
 	__calls: calls,
 };
 export const game = {
