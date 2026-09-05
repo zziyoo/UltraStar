@@ -1279,7 +1279,7 @@ export const skills = {
 		async content(event, trigger, player) {
 			const isHuang = !player.storage.ffshalong;
 			if (isHuang) {
-				game.playAudio("..", "extension", "奥特之星", "assets/genshin/audio/skill/shalong" + (Math.floor(Math.random() * 3) + 1));
+				game.playAudio("..", "extension", "奥特之星", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 1));
 				const members = game.filterPlayer(p => p.countMark("ffkuanghuan_member") > 0);
 				const targets = members.filter(m => m.hp > Math.ceil(m.maxHp / 2));
 				event.targets = targets;
@@ -1300,7 +1300,7 @@ export const skills = {
 					await next;
 				}
 			} else {
-				game.playAudio("..", "extension", "奥特之星", "assets/genshin/audio/skill/shalong" + (Math.floor(Math.random() * 3) + 4));
+				game.playAudio("..", "extension", "奥特之星", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 4));
 				const members = game.filterPlayer(p => p.countMark("ffkuanghuan_member") > 0);
 				for (const member of members) {
 					await member.recover(1);
@@ -2280,7 +2280,7 @@ export const skills = {
 				}
 				weights[clickedName] = (weights[clickedName] ?? 1) + 1.21 * equipmentNames.length;
 				clickCount++;
-				game.playAudio("..", "extension", "奥特之星", "assets/genshin/audio/skill/duancui" + (Math.floor(Math.random() * 2) + 1));
+				game.playAudio("..", "extension", "奥特之星", "audio/skill/duancui" + (Math.floor(Math.random() * 2) + 1));
 			}
 			const selectedEquips = [];
 			const tempEquipList = equipmentNames.slice(0);
