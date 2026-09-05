@@ -47,6 +47,7 @@ const triggerTypeName = {
 	damage: "伤害",
 	die: "死亡",
 	recover: "回复",
+	skill: "技能",
 };
 
 // ===== 简洁彩蛋 =====
@@ -124,6 +125,24 @@ eggs.gameStart = [
 	},
 ];
 
+// ===== 技能彩蛋 =====
+eggs.skill = [
+	{
+		id: "ultraman_astra_leo",
+		player: "阿斯特拉",
+		skill: "astlgongjin",
+		targets: ["雷欧"],
+		run: async function (player, targets) {
+			const brother = targets[0];
+			player.chat("哥哥！");
+			brother.chat("弟弟！");
+			await sleep(1000);
+			await player.gainMaxHp(1);
+			await brother.gainMaxHp(1);
+		},
+	},
+];
+
 // ===== 彩蛋图鉴数据 =====
 eggs.catalog = {
 	"奥特曼": [
@@ -167,6 +186,16 @@ eggs.catalog = {
 			triggerDescription: "对应角色使用【杀】或【决斗】造成伤害时触发。",
 			hint: "想想某些力量形态。",
 			content: ["大运来咯"],
+		},
+		{
+			id: "ultraman_astra_leo",
+			category: "奥特曼",
+			title: "哥哥！弟弟！",
+			characters: ["阿斯特拉", "雷欧"],
+			triggerType: "skill",
+			triggerDescription: "阿斯特拉发动技能「共进」并以雷欧为目标时触发。",
+			hint: "寻找一对失散多年的奥特亲兄弟。",
+			content: ["哥哥！", "弟弟！"],
 		},
 	],
 	"原神": [
@@ -397,6 +426,41 @@ eggs.init = function () {
 			},
 		};
 		game.addGlobalSkill("_wmEasterEggGameStart");
+	}
+	if (!lib.skill._wmEasterEggSkill) {
+		lib.skill._wmEasterEggSkill = {
+			trigger: { global: "useSkillAfter" },
+			forced: true,
+			silent: true,
+			popup: false,
+			filter(event, player) {
+				if (player !== event.player) return false;
+				if (!lib.config.extension_奥特之星_easterEgg_enabled) return false;
+				const skillEggs = lib._wmEasterEggs?.skill;
+				if (!skillEggs?.length) return false;
+				return skillEggs.some(egg => egg.skill === event.skill);
+			},
+			async content(event, trigger, player) {
+				const skillEggs = lib._wmEasterEggs?.skill;
+				if (!skillEggs?.length) return;
+				const matchPlayer = (target, name) => {
+					const names = lib.characterReplace?.[name] || [name];
+					return names.includes(target.name) || names.includes(target.name1) || names.includes(target.name2);
+				};
+				for (const egg of skillEggs) {
+					if (egg.skill && trigger.skill !== egg.skill) continue;
+					if (egg.player && !matchPlayer(trigger.player, egg.player)) continue;
+					const targets = (trigger.targets || []).filter(target => target !== trigger.player && target.isIn());
+					const matched = (egg.targets || []).map(name => targets.find(target => matchPlayer(target, name)));
+					if (egg.targets?.length && matched.some(target => !target)) continue;
+					if (typeof egg.run !== "function") continue;
+					await egg.run(trigger.player, matched.length ? matched : targets);
+					eggs.markDiscovered(egg.id);
+					break;
+				}
+			},
+		};
+		game.addGlobalSkill("_wmEasterEggSkill");
 	}
 };
 
