@@ -144,7 +144,8 @@ if (typeof packOld.arenaReady !== "function" || typeof packNew.arenaReady !== "f
 if (typeof packOld.precontent !== "function" || typeof packNew.precontent !== "function")
 	errors.push("precontent not function on both sides");
 deepEqual(packOld.help, packNew.help, "pack.help");
-deepEqual(packOld.config, packNew.config, "pack.config");
+// copyRepoUrl（点击复制仓库地址）为新增功能项，属预期差异
+deepEqual(packOld.config, packNew.config, "pack.config", { ignoreKey: /^copyRepoUrl$/ });
 
 // ---- 执行 content()，收集分包注册 ----
 const modOld = await import(pathToFileURL(path.join(tmp, "old-tree", "noname.js")).href);
