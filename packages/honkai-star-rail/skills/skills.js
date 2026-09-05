@@ -1446,7 +1446,7 @@ export const skills = {
 					const extra = player.countMark("xdyoudie_damage");
 					player.removeMark("xdyoudie_damage", extra);
 					player.unmarkSkill("xdyoudie_damage");
-					player.addTempSkill("xdyoudie_damage_effect");
+					player.addTempSkill("xdyoudie_damage_effect", "useCardAfter");
 					player.markAuto("xdyoudie_damage_effect", [trigger.card]);
 					player.setStorage("xdyoudie_extra", extra);
 					game.log(player, "的【幽蝶】效果触发，下一张伤害牌伤害+" + extra);
@@ -1464,7 +1464,6 @@ export const skills = {
 				async content(event, trigger, player) {
 					const extra = player.getStorage("xdyoudie_extra", 0);
 					trigger.num += extra;
-					player.setStorage("xdyoudie_extra", 0);
 					game.log(player, "的【幽蝶】效果生效，伤害+" + extra);
 				},
 			},
@@ -1874,13 +1873,13 @@ export const skills = {
 			} else if (xiadieIdentity === "nei") {
 				if (get.attitude(xiadie, event.player) <= 0) return false;
 			}
-			const reduceDamage = Math.max(0, event.num - Math.max(0, event.player.hp - 1));
+			const reduceDamage = Math.max(0, event.num - event.player.hp + 1);
 			const damageX = 5 * reduceDamage;
 			if (player.getHp() <= damageX) return false;
 			return true;
 		},
 		async content(event, trigger, player) {
-			const reduceDamage = Math.max(0, trigger.num - Math.max(0, trigger.player.hp - 1));
+			const reduceDamage = Math.max(0, trigger.num - trigger.player.hp + 1);
 			trigger.num -= reduceDamage;
 			game.log(player, "发动了【荫蔽】，令", trigger.player, `受到的伤害减少${reduceDamage}点`);
 			const damageX = 5 * reduceDamage;

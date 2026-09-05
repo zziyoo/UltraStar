@@ -75,7 +75,8 @@ function normalizeStr(s) {
 	return s
 		.replaceAll("extension_奥特之星_easterEgg_enabled", "extension_无名扩展_easterEgg_enabled")
 		.replace(new RegExp(`奥特之星/assets/${FR}/`, "g"), "奥特之星/") // 素材迁移：作品前缀归一
-		.replace(new RegExp(`(?:无名扩展|奥特之星)/`, "g"), "<EXT>/"); // 扩展改名遗留修复归一
+		.replace(new RegExp(`(?:无名扩展|奥特之星)/`, "g"), "<EXT>/") // 扩展改名遗留修复归一
+		.replace(/\s*style="color:\s*#[0-9A-Fa-f]+;?"/g, ""); // 功能按钮自定义颜色为 UI 调整，归一
 }
 function normalizeFnText(t) {
 	return normalizeStr(t)

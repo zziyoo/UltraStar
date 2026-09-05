@@ -77,9 +77,6 @@ export const skills = {
 		trigger: { global: ["changeHp"] },
 		filter(event, player) {
 			if (!event.player || !event.player.isAlive()) return false;
-			if (event.name === "damage") {
-				return event.num > 0;
-			}
 			if (event.name === "changeHp") {
 				return event.num !== 0;
 			}
