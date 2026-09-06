@@ -6,7 +6,7 @@ export function registerEquipment() {
 		subtype: "equip5",
 		suit: "heart",
 		number: 3,
-		image: "ext:奥特之星/assets/image/lybsq.png",
+		image: "ext:奥特之星/assets/equipment/lybsq.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "流萤") return 999;
@@ -27,7 +27,7 @@ export function registerEquipment() {
 		distance: { attackFrom: -1 },
 		suit: "club",
 		number: 8,
-		image: "ext:奥特之星/assets/image/glm.png",
+		image: "ext:奥特之星/assets/equipment/glm.png",
 		ai: {
 			equipValue(card, player) {
 				if (player.name == "流萤") return 999;

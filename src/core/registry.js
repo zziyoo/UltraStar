@@ -1,6 +1,7 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import { packages } from "./loader.js";
+import { VERSION } from "./version.js";
 
 // 角色合并顺序 = 原扩展 package.character.character 的键顺序（决定选将界面显示顺序）
 const CHARACTER_ORDER = [
@@ -53,6 +54,7 @@ const CHARACTER_ORDER = [
 		"未遂",
 		"爱迪",
 		"阿斯特拉",
+		"琪露诺",
 ];
 
 // 分包 → 总包内部分类（characterSort，机制同本体 character/sp 包）：
@@ -121,6 +123,6 @@ export function buildPackage() {
 		author: "子右",
 		diskURL: "https://github.com/zziyoo/UltraStar",
 		forumURL: "",
-		version: "2.1.1",
+		version: VERSION,
 	};
 }

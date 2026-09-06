@@ -15,7 +15,6 @@ export const skills = {
 			game.playSkillBgm("atzfzhenli");
 			await player.draw(player.maxHp - player.countCards("h"));
 		},
-
 		mod: {
 			attackRange(player, num) {
 				return 999;
@@ -45,11 +44,8 @@ export const skills = {
 		async content(event, trigger, player) {
 			await player.give(event.cards, event.targets[0]);
 		},
-		check(card) {
-			return 7 - get.value(card);
-		},
 		ai: {
-			order: 1,
+			order: 4,
 			result: {
 				target(player, target) {
 					if (target.hasSkillTag("nogain")) return 0;

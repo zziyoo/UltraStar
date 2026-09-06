@@ -2,6 +2,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import { openChangelog } from "../systems/changelog.js";
 import { openTierlist } from "../systems/tierlist.js";
+import { VERSION } from "../core/version.js";
 import easterEggs from "../systems/easterEgg.js";
 
 export default {
@@ -48,7 +49,7 @@ export default {
 		},
 	},
 	version: {
-		name: "版本：2.1.1",
+		name: `版本：${VERSION}`,
 		clear: true,
 		nopointer: true,
 	},

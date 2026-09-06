@@ -5,16 +5,17 @@ import easterEggs from "../systems/easterEgg.js";
 import { initBgmSystem } from "../systems/bgm.js";
 import { registerCharacterRanks } from "../systems/tierlist.js";
 import { registerAllEquipment } from "./loader.js";
+import { VERSION, VERSION_NOTE } from "./version.js";
 
 export function arenaReady() {
-			const currentVersion = "2.1.1";
+			const currentVersion = VERSION;
 			const extensionName = "奥特之星";
 			const savedVersion = lib.config[`extension_${extensionName}_version`] || "1.0.0";
 
 			if (savedVersion !== currentVersion) {
 				game.saveExtensionConfig(extensionName, "version", currentVersion);
 				setTimeout(() => {
-					const updateContent = ["【奥特之星】v" + currentVersion, "本次更新内容：", "修复bug，增加彩蛋出现概率，压缩素材", "加强：赛文（冰斧）,雷欧（奋战）", "调整：爱迪（重置）", "削弱：", "新增：阿斯特拉"];
+					const updateContent = ["【奥特之星】v" + currentVersion, "本次更新内容：", VERSION_NOTE];
 					const mask = document.createElement("div");
 					Object.assign(mask.style, {
 						position: "fixed",
@@ -98,27 +99,27 @@ export function arenaReady() {
 export function precontent() {
 			game.addGroup("ao_red", "奥", "奥", {
 				color: [255, 0, 0, 1],
-				image: "ext:奥特之星/assets/image/camp/ao_red.png",
+				image: "ext:奥特之星/assets/camp/ao_red.png",
 			});
 			game.addGroup("ao", "奥", "奥", {
 				color: [255, 225, 76, 1],
-				image: "ext:奥特之星/assets/image/camp/ao.png",
+				image: "ext:奥特之星/assets/camp/ao.png",
 			});
 			game.addGroup("ao_black", "奥", "奥", {
 				color: [255, 255, 255, 1],
-				image: "ext:奥特之星/assets/image/camp/ao_black.png",
+				image: "ext:奥特之星/assets/camp/ao_black.png",
 			});
 			game.addGroup("yv", "宇", "宇", {
 				color: [129, 60, 133, 1],
-				image: "ext:奥特之星/assets/image/camp/yv.png",
+				image: "ext:奥特之星/assets/camp/yv.png",
 			});
 			game.addGroup("shou", "兽", "兽", {
 				color: [246, 246, 246, 1],
-				image: "ext:奥特之星/assets/image/camp/shou.png",
+				image: "ext:奥特之星/assets/camp/shou.png",
 			});
 			game.addGroup("ji", "机", "机", {
 				color: [176, 208, 226, 1],
-				image: "ext:奥特之星/assets/image/camp/ji.png",
+				image: "ext:奥特之星/assets/camp/ji.png",
 			});
 
 			lib.characterSubstitute = lib.characterSubstitute || {};
