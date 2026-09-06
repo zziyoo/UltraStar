@@ -17,27 +17,30 @@ on:
         type: choice
         default: "最新版"
         options:
+          # <VERSION_OPTIONS>
           - 最新版
           - v2.1.0
-          - v1.9.9
+          # </VERSION_OPTIONS>
       old_version:
         description: "增补包：旧版本（默认上一版）"
         required: true
         type: choice
         default: "上一版"
         options:
+          # <OLD_VERSION_OPTIONS>
           - 上一版
           - v2.1.0
-          - v1.9.9
+          # </OLD_VERSION_OPTIONS>
       new_version:
         description: "增补包：新版本（默认最新版）"
         required: true
         type: choice
         default: "最新版"
         options:
+          # <NEW_VERSION_OPTIONS>
           - 最新版
           - v2.1.0
-          - v1.9.9
+          # </NEW_VERSION_OPTIONS>
 
 permissions:
   contents: write
