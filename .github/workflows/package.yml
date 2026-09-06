@@ -97,18 +97,26 @@ jobs:
           files: ${{ env.zip_path }}
           body: "自动打包产物：${{ env.zip_label }}"
 
-      # GitHub 会剥离资产名中的非 ASCII 字符，上传后通过 label 恢复中文显示名/下载名
-      - name: 设置资产中文显示名
+      # GitHub 会剥离资产名中的非 ASCII 字符，上传后通过 label 恢复中文显示名/下载名；
+      # 同时清理同名旧资产（重复上传会被 GitHub 追加 " (1)" 后缀），只保留最新一份
+      - name: 设置资产中文显示名并清理旧资产
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          asset_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq ".assets[] | select(.name == \"$zip_name\") | .id")
-          if [ -n "$asset_id" ]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" -f label="$zip_label"
-            echo "资产显示名已设置为：$zip_label"
-          else
+          asset_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq "[.assets[] | select(.name == \"$zip_name\") | .id] | max")
+          if [ -z "$asset_id" ]; then
             echo "未找到资产 $zip_name，跳过显示名设置"
+            exit 0
           fi
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" -f label="$zip_label"
+          echo "资产显示名已设置为：$zip_label"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq '.assets[] | [.id, .name] | @tsv' | while IFS=$'\t' read -r id name; do
+            [ "$id" = "$asset_id" ] && continue
+            norm=$(printf '%s' "$name" | sed -E 's/ \([0-9]+\)(\.[A-Za-z0-9]+)$/\1/')
+            if [ "$norm" = "$zip_name" ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" && echo "已清理旧资产：$name"
+            fi
+          done
 
       - name: Summary 输出下载入口
         run: |

@@ -271,7 +271,7 @@ function packageFull(tag, outDir, nameEn, nameCn) {
 	fs.rmSync(outZip, { force: true });
 	git(["-c", "core.autocrlf=false", "archive", "--format=zip", `--output=${outZip}`, tag, "--", ".", ...ARCHIVE_EXCLUDES]);
 	const count = compareSets(expected, listZip(outZip), `完整包 ${tag}`);
-	return { outZip, label: `${nameCn}-${tag}-full.zip`, commit, count };
+	return { outZip, label: `${nameCn}-${tag}-完整包.zip`, commit, count };
 }
 
 function packagePatch(oldTag, newTag, outDir, nameEn, nameCn) {
@@ -319,7 +319,7 @@ function packagePatch(oldTag, newTag, outDir, nameEn, nameCn) {
 	const newCommit = git(["rev-parse", "--short", `${newTag}^{commit}`]).trim();
 	return {
 		outZip,
-		label: `${nameCn}-${oldTag}-to-${newTag}-patch.zip`,
+		label: `${nameCn}-${oldTag}到${newTag}-增补包.zip`,
 		newCommit,
 		stats: { added, modified, renamed, copied, deleted, excludedDev, packaged: include.length },
 		include,
