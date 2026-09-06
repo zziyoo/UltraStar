@@ -4,28 +4,43 @@ on:
   workflow_dispatch:
     inputs:
       package_type:
-        description: "打包类型：full=完整包，patch=增补包"
+        description: "打包类型"
         required: true
         type: choice
+        default: "完整包"
         options:
-          - full
-          - patch
-        default: full
+          - 完整包
+          - 增补包
       version:
-        description: "完整包：版本 Tag（留空 = 最新版）"
-        required: false
-        type: string
-        default: ""
+        description: "完整包：选择版本（默认最新版）"
+        required: true
+        type: choice
+        default: "最新版"
+        options:
+          - 最新版
+          - v2.1.0
+          - v1.9.9
       old_version:
-        description: "增补包：旧版本 Tag（留空 = 最新版的上一版）"
-        required: false
-        type: string
-        default: ""
+        description: "增补包：旧版本（默认上一版）"
+        required: true
+        type: choice
+        default: "上一版"
+        options:
+          - 上一版
+          - v2.1.0
+          - v1.9.9
       new_version:
-        description: "增补包：新版本 Tag（留空 = 最新版）"
-        required: false
-        type: string
-        default: ""
+        description: "增补包：新版本（默认最新版）"
+        required: true
+        type: choice
+        default: "最新版"
+        options:
+          - 最新版
+          - v2.1.0
+          - v1.9.9
+
+permissions:
+  contents: write
 
 jobs:
   package:
@@ -33,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出仓库（完整历史）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -44,7 +59,7 @@ jobs:
           git tag --list 'v*' --sort=-v:refname | head -20
 
       - name: 安装 Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -64,14 +79,21 @@ jobs:
             --new "$PKG_NEW" \
             --out-dir dist
 
-      - name: 上传 Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.zip_name }}
-          path: ${{ env.zip_path }}
-          if-no-files-found: error
-
-      - name: Summary 补充下载入口
+      # 用当前 Tag 列表刷新本 workflow 的版本下拉选项（无变化时自动跳过）
+      - name: 刷新版本下拉选项
         run: |
-          echo "---" >> "$GITHUB_STEP_SUMMARY"
-          echo "📦 [点击前往本页底部 Artifacts 下载](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> "$GITHUB_STEP_SUMMARY"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node tools/package/refresh-choices.mjs
+
+      - name: 发布到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.release_tag }}
+          name: ${{ env.release_tag }}
+          files: ${{ env.zip_path }}
+          body: "自动打包产物：${{ env.zip_name }}"
+
+      - name: Summary 输出下载入口
+        run: |
+          echo "📦 [前往 Release 页面下载](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.release_tag }})" >> "$GITHUB_STEP_SUMMARY"
