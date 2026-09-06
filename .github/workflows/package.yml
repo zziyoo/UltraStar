@@ -90,12 +90,25 @@ jobs:
           node tools/package/refresh-choices.mjs
 
       - name: 发布到 Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.release_tag }}
           name: ${{ env.release_tag }}
           files: ${{ env.zip_path }}
-          body: "自动打包产物：${{ env.zip_name }}"
+          body: "自动打包产物：${{ env.zip_label }}"
+
+      # GitHub 会剥离资产名中的非 ASCII 字符，上传后通过 label 恢复中文显示名/下载名
+      - name: 设置资产中文显示名
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq ".assets[] | select(.name == \"$zip_name\") | .id")
+          if [ -n "$asset_id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" -f label="$zip_label"
+            echo "资产显示名已设置为：$zip_label"
+          else
+            echo "未找到资产 $zip_name，跳过显示名设置"
+          fi
 
       - name: Summary 输出下载入口
         run: |

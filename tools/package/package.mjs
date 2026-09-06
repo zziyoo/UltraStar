@@ -252,18 +252,29 @@ function readProjectName(tag) {
 	}
 }
 
-function packageFull(tag, outDir, projectName) {
+// GitHub Release 资产名不支持非 ASCII（上传时会被服务端剥离），文件名用英文，中文名通过 asset label 恢复
+function readProjectNameEn() {
+	try {
+		const url = git(["remote", "get-url", "origin"]).trim();
+		const m = url.match(/\/([^\/]+?)(?:\.git)?$/);
+		return m ? m[1] : "UltraStar";
+	} catch {
+		return "UltraStar";
+	}
+}
+
+function packageFull(tag, outDir, nameEn, nameCn) {
 	const commit = git(["rev-parse", "--short", `${tag}^{commit}`]).trim();
 	const expected = git(["ls-tree", "-r", "--name-only", "-z", tag]).split("\0").filter(Boolean).filter(p => !isExcluded(p));
 	if (!expected.length) fail(`版本 ${tag} 的树内容为空`);
-	const outZip = path.join(outDir, `${projectName}-${tag}-full.zip`);
+	const outZip = path.join(outDir, `${nameEn}-${tag}-full.zip`);
 	fs.rmSync(outZip, { force: true });
 	git(["-c", "core.autocrlf=false", "archive", "--format=zip", `--output=${outZip}`, tag, "--", ".", ...ARCHIVE_EXCLUDES]);
 	const count = compareSets(expected, listZip(outZip), `完整包 ${tag}`);
-	return { outZip, commit, count };
+	return { outZip, label: `${nameCn}-${tag}-full.zip`, commit, count };
 }
 
-function packagePatch(oldTag, newTag, outDir, projectName) {
+function packagePatch(oldTag, newTag, outDir, nameEn, nameCn) {
 	if (oldTag === newTag) fail(`旧版本与新版本相同（${oldTag}）：增补包要求选择两个不同的版本`);
 	const cmp = verCmp(oldTag, newTag);
 	if (cmp > 0) fail(`旧版本（${oldTag}）晚于新版本（${newTag}）：增补包只支持 旧版本 → 新版本 的正向差异，请交换两个版本后重试`);
@@ -299,7 +310,7 @@ function packagePatch(oldTag, newTag, outDir, projectName) {
 	const tarBuf = git(["-c", "core.autocrlf=false", "archive", "--format=tar", newTag], { encoding: "buffer" });
 	const entries = collectTarMembers(tarBuf, new Set(include));
 
-	const outZip = path.join(outDir, `${projectName}-${oldTag}-to-${newTag}-patch.zip`);
+	const outZip = path.join(outDir, `${nameEn}-${oldTag}-to-${newTag}-patch.zip`);
 	fs.rmSync(outZip, { force: true });
 	createZip(entries, outZip);
 
@@ -308,6 +319,7 @@ function packagePatch(oldTag, newTag, outDir, projectName) {
 	const newCommit = git(["rev-parse", "--short", `${newTag}^{commit}`]).trim();
 	return {
 		outZip,
+		label: `${nameCn}-${oldTag}-to-${newTag}-patch.zip`,
 		newCommit,
 		stats: { added, modified, renamed, copied, deleted, excludedDev, packaged: include.length },
 		include,
@@ -324,11 +336,11 @@ function writeSummary(md) {
 	console.log(md);
 }
 
-function writeOutputs(outZip, releaseTag) {
+function writeOutputs(outZip, label, releaseTag) {
 	const ghEnv = process.env.GITHUB_ENV;
 	if (!ghEnv) return;
 	try {
-		fs.appendFileSync(ghEnv, `zip_name=${path.basename(outZip)}\nzip_path=${outZip.replaceAll("\\", "/")}\nrelease_tag=${releaseTag}\n`, "utf8");
+		fs.appendFileSync(ghEnv, `zip_name=${path.basename(outZip)}\nzip_path=${outZip.replaceAll("\\", "/")}\nzip_label=${label}\nrelease_tag=${releaseTag}\n`, "utf8");
 	} catch {}
 }
 
@@ -349,8 +361,7 @@ function main() {
 
 	if (args.type === "full") {
 		const tag = resolveTag(args.version, tags, 0, "完整包版本");
-		const projectName = readProjectName(tag);
-		const { outZip, commit, count } = packageFull(tag, args.outDir, projectName);
+		const { outZip, label, commit, count } = packageFull(tag, args.outDir, readProjectNameEn(), readProjectName(tag));
 		writeSummary([
 			"## 打包结果",
 			"",
@@ -359,19 +370,18 @@ function main() {
 			"| 打包类型 | 完整包 |",
 			`| 版本 | ${tag}（${commit}） |`,
 			`| 文件数量 | ${count} |`,
-			`| 输出文件 | \`${path.basename(outZip)}\` |`,
+			`| 输出文件 | \`${label}\` |`,
 			"",
 			"压缩包将上传到该版本的 Release 页面，打包完成后点击下方链接下载。",
 		].join("\n"));
-		writeOutputs(outZip, tag);
+		writeOutputs(outZip, label, tag);
 		console.log(`[打包完成] ${outZip}（${count} 个文件）`);
 		return;
 	}
 
 	const newTag = resolveTag(args.new, tags, 0, "增补包新版本");
 	const oldTag = resolveTag(args.old, tags, 1, "增补包旧版本");
-	const projectName = readProjectName(newTag);
-	const { outZip, newCommit, stats, include } = packagePatch(oldTag, newTag, args.outDir, projectName);
+	const { outZip, label, newCommit, stats, include } = packagePatch(oldTag, newTag, args.outDir, readProjectNameEn(), readProjectName(newTag));
 	const fileList = include.slice(0, 50).map(p => `- ${p}`).join("\n")
 		+ (include.length > 50 ? `\n- ...等共 ${include.length} 个文件` : "");
 	writeSummary([
@@ -382,7 +392,7 @@ function main() {
 		"| 打包类型 | 增补包 |",
 		`| 旧版本 | ${oldTag} |`,
 		`| 新版本 | ${newTag}（${newCommit}） |`,
-		`| 输出文件 | \`${path.basename(outZip)}\` |`,
+		`| 输出文件 | \`${label}\` |`,
 		"",
 		"| 统计 | 数量 |",
 		"| --- | --- |",
