@@ -1,21 +1,5 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
-export const characterTranslate = {
-	奈克瑟斯: "奈克瑟斯",
-	迪迦: "迪迦",
-	希卡利: "希卡利",
-	杰克: "杰克",
-	奥特曼: "奥特曼",
-	戴拿: "戴拿",
-	佐菲: "佐菲",
-	泰罗: "泰罗",
-	艾斯: "艾斯",
-	赛文: "赛文",
-	雷欧: "雷欧",
-	杰斯提斯: "杰斯提斯",
-	爱迪: "爱迪",
-	阿斯特拉: "阿斯特拉",
-};
 export const skillTranslate = {
 	nkssjicheng: "继承",
 	nkssjicheng_info: "当你造成伤害后，或出牌阶段开始时，若以下技能你未全部获得，你获得第一个未获得的技能：" + get.poptip("nksslingyu") + "，" + get.poptip("nkssguangshi") + "，并增加一点体力上限，回复一点体力，摸一张牌。当你死亡时，你可以令一名其他角色获得" + get.poptip("nkssjicheng") + "和你因此获得的技能。",

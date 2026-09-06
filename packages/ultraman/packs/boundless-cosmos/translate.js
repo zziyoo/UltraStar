@@ -1,9 +1,5 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
-export const characterTranslate = {
-	奥特之王: "奥特之王",
-	赛迦: "赛迦",
-};
 export const skillTranslate = {
 	atzwxingmian: "星冕",
 	atzwxingmian_info: "任意角色回合开始时，你可以弃置一张牌并视为使用一张你本轮未以此法使用过的牌（延时锦囊牌除外）。",

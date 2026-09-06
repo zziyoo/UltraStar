@@ -1,0 +1,77 @@
+name: 手动打包
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_type:
+        description: "打包类型：full=完整包，patch=增补包"
+        required: true
+        type: choice
+        options:
+          - full
+          - patch
+        default: full
+      version:
+        description: "完整包：版本 Tag（留空 = 最新版）"
+        required: false
+        type: string
+        default: ""
+      old_version:
+        description: "增补包：旧版本 Tag（留空 = 最新版的上一版）"
+        required: false
+        type: string
+        default: ""
+      new_version:
+        description: "增补包：新版本 Tag（留空 = 最新版）"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  package:
+    name: 打包
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库（完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 获取全部版本 Tag
+        run: |
+          git fetch --tags --force --prune
+          echo "当前可用的版本 Tag："
+          git tag --list 'v*' --sort=-v:refname | head -20
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 打包脚本内部完成：版本解析与校验（相同版本/反向版本直接报错终止）、
+      # git diff 计算增补文件、zip 内容与预期集合的逐文件比对、Summary 输出
+      - name: 执行打包
+        env:
+          PKG_TYPE: ${{ inputs.package_type }}
+          PKG_VERSION: ${{ inputs.version }}
+          PKG_OLD: ${{ inputs.old_version }}
+          PKG_NEW: ${{ inputs.new_version }}
+        run: |
+          node scripts/package/package.mjs \
+            --type "$PKG_TYPE" \
+            --version "$PKG_VERSION" \
+            --old "$PKG_OLD" \
+            --new "$PKG_NEW" \
+            --out-dir dist
+
+      - name: 上传 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.zip_name }}
+          path: ${{ env.zip_path }}
+          if-no-files-found: error
+
+      - name: Summary 补充下载入口
+        run: |
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "📦 [点击前往本页底部 Artifacts 下载](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> "$GITHUB_STEP_SUMMARY"

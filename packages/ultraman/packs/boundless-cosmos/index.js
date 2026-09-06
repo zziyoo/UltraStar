@@ -3,7 +3,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 import { characters } from "./characters.js";
 import { skills } from "./skills.js";
 import { characterTranslate, skillTranslate } from "./translate.js";
-import { characterTitle, characterIntro } from "./data.js";
+import { characterTitle, characterIntro } from "./characters-meta.js";
 import { voices } from "./voices.js";
 import { dynamicTranslates } from "./dynamicTranslate.js";
 

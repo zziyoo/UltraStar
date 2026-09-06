@@ -20,4 +20,6 @@ export const characterTitle = {
 	玛薇卡: "焚夜以炎",
 	希诺宁: "焮火铸魂",
 };
-export const characterIntro = {};
+export const characterIntro = {
+	
+};

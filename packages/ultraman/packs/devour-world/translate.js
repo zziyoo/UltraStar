@@ -1,10 +1,5 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
-export const characterTranslate = {
-	安培拉星人: "安培拉星人",
-	黑暗迪迦: "黑暗迪迦",
-	黑暗迪迦_prefix: "黑暗",
-};
 export const skillTranslate = {
 	aplxiongye: "雄野",
 	aplxiongye_info: "锁定技，当你对其他角色造成伤害时，或其他角色对你造成伤害时，你将牌堆顶的3X张牌扣置于你的武将牌上（X为伤害数），称为“野”；你可以将“野”当做手牌使用或打出。",

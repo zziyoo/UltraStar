@@ -1,9 +1,5 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
-export const characterTranslate = {
-	普利茨墨: "普利茨墨",
-	加坦杰厄: "加坦杰厄",
-};
 export const skillTranslate = {
 	jtjeheiwu: "黑雾",
 	jtjeheiwu_info: "锁定技，其他角色回合结束时，你令其选择一项：①弃置一张牌。②失去一点体力。然后对应选项的数字+1。",

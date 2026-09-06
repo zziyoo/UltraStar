@@ -1,12 +1,5 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
 
-export const characterTranslate = {
-	奥特之父: "奥特之父",
-	闪耀迪迦: "闪耀迪迦",
-	至高盖亚: "至高盖亚",
-	闪耀迪迦_prefix: "闪耀",
-	至高盖亚_prefix: "至高",
-};
 export const skillTranslate = {
 	atzfzhenli: "真力",
 	atzfzhenli_info: "锁定技，当你手牌数少于体力上限时，你将手牌摸至体力上限。你使用牌无距离限制。",

@@ -112,10 +112,10 @@ for (const x of extra) console.log(`  NOTE extra (not in manifest, legacy): ${x}
 const allText = walk(repo, n => /\.(js|mjs|json|md|txt)$/.test(n));
 const oldPathRe = /奥特之星\/(image|audio|card)\//;
 const nestedAssetsRe = /assets\/(genshin|honkai-star-rail|kof|misc|ultraman|uma-musume|common)\//;
-// 旧平铺布局残留：assets/ 直连带扩展名的文件（现应位于 assets/audio/ 或 assets/image/ 下）
-const flatAssetsRe = /奥特之星\/assets\/(?!audio\/|image\/)[^"'\s`()\[\]]+\.(?:mp3|jpe?g|png|gif|webp)/;
-// 旧平铺布局残留：playAudio 多参形式的 "assets/<名>" 段（现应为 "audio/<名>" 或 "image/<名>"）
-const flatSegmentRe = /["']assets\/(?!audio\/|image\/)/;
+// 旧平铺布局残留：assets/ 根下直连带扩展名的文件（现应位于 assets/ 的各子目录下）
+const flatAssetsRe = /奥特之星\/assets\/[^\/"'\s`()\[\]]+\.(?:mp3|jpe?g|png|gif|webp)/;
+// 旧平铺布局残留：playAudio 多参形式的 "assets/<名>" 段（现应为 "audio/<名>" 或 "image/<名>" 等子目录形式）
+const flatSegmentRe = /["']assets\/[^\/"'\s]+["']/;
 const wmRe = /无名扩展/;
 for (const f of allText) {
 	const rel = path.relative(repo, f).split(path.sep).join("/");

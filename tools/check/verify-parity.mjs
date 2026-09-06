@@ -72,6 +72,8 @@ const note = [];
 const FR = "(?:ultraman|genshin|honkai-star-rail|uma-musume|misc|common|kof)";
 function normalizeStr(s) {
 	return s
+		.replaceAll("\r\n", "\n")
+		.replaceAll("\r", "\n")
 		.replaceAll("extension_奥特之星_easterEgg_enabled", "extension_无名扩展_easterEgg_enabled")
 		.replace(new RegExp(`奥特之星/assets/(?:${FR}/)?(?:image(?:/camp|/tierlist)?|card|audio(?:/die|/skill|/easteregg)?|kingdom|easterEggs|easteregg|camp|tierlist)?/?`, "g"), "奥特之星/") // 素材迁移：新布局路径归一（audio/image 分类目录及历史布局）
 		.replace(new RegExp(`奥特之星/(?:image|card|audio(?:/die|/skill)?|kingdom|easterEggs)/`, "g"), "奥特之星/") // 旧直连路径归一
