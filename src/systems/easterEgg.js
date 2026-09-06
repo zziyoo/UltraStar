@@ -123,6 +123,17 @@ eggs.gameStart = [
 			return false;
 		},
 	},
+	{
+		id: "touhou_manbo_cirno",
+		characters: ["曼波", "琪露诺"],
+		run: async players => {
+			const cirno = players[1];
+			const manbo = players[0];
+			cirno.chat("武将pr交给子右审核");
+			await sleep(2000);
+			manbo.chat("咕咕嘎嘎！");
+		},
+	},
 ];
 
 // ===== 技能彩蛋 =====
@@ -250,6 +261,18 @@ eggs.catalog = {
 			triggerDescription: "黄泉因使用【桃】回复体力时，有概率触发。",
 			hint: "她爱吃桃子。",
 			content: ["🍑"],
+		},
+	],
+	"东方project": [
+		{
+			id: "touhou_manbo_cirno",
+			category: "东方project",
+			title: "武将pr交给子右审核",
+			characters: ["曼波", "琪露诺"],
+			triggerType: "gameStart",
+			triggerDescription: "曼波与琪露诺同时出现时触发。",
+			hint: "武将pr要交给谁审核呢。",
+			content: ["武将pr交给子右审核", "咕咕嘎嘎！"],
 		},
 	],
 	"其他": [
