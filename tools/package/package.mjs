@@ -1,9 +1,9 @@
 // 手动打包脚本：完整包 / 增补包
-// 配合 .github/workflows/package.yml 在 GitHub Actions 上运行，也可在本地执行（需 git，zip 缺失时回退 bsdtar）
+// 配合 .github/workflows/package.yml 在 GitHub Actions 上运行，也可在本地执行（需 git）
 // 用法：
-//   node tools/package/package.mjs --type full  [--version v2.1.0]
-//   node tools/package/package.mjs --type patch [--old v2.0.0] [--new v2.1.0]
-// 版本一律指 git tag（vX.Y.Z）；留空时自动取最新 Tag（增补包旧版本默认取上一版）
+//   node tools/package/package.mjs --type 完整包  [--version v2.1.0]
+//   node tools/package/package.mjs --type 增补包 [--old v2.0.0] [--new v2.1.0]
+// 版本一律指 git tag（vX.Y.Z）；"最新版"自动取最新 Tag，"上一版"自动取其前一版
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -324,19 +324,25 @@ function writeSummary(md) {
 	console.log(md);
 }
 
-function writeOutputs(outZip) {
+function writeOutputs(outZip, releaseTag) {
 	const ghEnv = process.env.GITHUB_ENV;
 	if (!ghEnv) return;
 	try {
-		fs.appendFileSync(ghEnv, `zip_name=${path.basename(outZip)}\nzip_path=${outZip.replaceAll("\\", "/")}\n`, "utf8");
+		fs.appendFileSync(ghEnv, `zip_name=${path.basename(outZip)}\nzip_path=${outZip.replaceAll("\\", "/")}\nrelease_tag=${releaseTag}\n`, "utf8");
 	} catch {}
 }
 
 function main() {
 	const args = parseArgs(process.argv.slice(2));
+	const TYPE_MAP = { "完整包": "full", "增补包": "patch", full: "full", patch: "patch" };
+	args.type = TYPE_MAP[args.type] ?? args.type;
 	if (args.type !== "full" && args.type !== "patch") {
-		fail(`打包类型必须是 full（完整包）或 patch（增补包），收到：${args.type || "(空)"}`);
+		fail(`打包类型必须是 完整包 或 增补包，收到：${args.type || "(空)"}`);
 	}
+	// 下拉哨兵值转自动解析
+	if (args.version === "最新版") args.version = "";
+	if (args.old === "上一版") args.old = "";
+	if (args.new === "最新版") args.new = "";
 	if (!fs.existsSync("info.json")) fail("请在仓库根目录运行本脚本（未找到 info.json）");
 	const tags = listVersionTags();
 	fs.mkdirSync(args.outDir, { recursive: true });
@@ -355,9 +361,9 @@ function main() {
 			`| 文件数量 | ${count} |`,
 			`| 输出文件 | \`${path.basename(outZip)}\` |`,
 			"",
-			"上传完成后可在本页底部 Artifacts 区域下载。",
+			"压缩包将上传到该版本的 Release 页面，打包完成后点击下方链接下载。",
 		].join("\n"));
-		writeOutputs(outZip);
+		writeOutputs(outZip, tag);
 		console.log(`[打包完成] ${outZip}（${count} 个文件）`);
 		return;
 	}
@@ -392,9 +398,9 @@ function main() {
 		"",
 		fileList,
 		"",
-		"上传完成后可在本页底部 Artifacts 区域下载。",
+		"压缩包将上传到新版本对应的 Release 页面，打包完成后点击下方链接下载。",
 	].join("\n"));
-	writeOutputs(outZip);
+	writeOutputs(outZip, newTag);
 	console.log(`[打包完成] ${outZip}（新增 ${stats.added.length} / 修改 ${stats.modified.length} / 重命名 ${stats.renamed.length} / 删除 ${stats.deleted.length}（不入包）/ 最终打包 ${stats.packaged}）`);
 }
 
