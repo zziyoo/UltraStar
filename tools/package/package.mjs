@@ -252,7 +252,9 @@ function readProjectName(tag) {
 	}
 }
 
-// GitHub Release 资产名不支持非 ASCII（上传时会被服务端剥离），文件名用英文，中文名通过 asset label 恢复
+// GitHub 上传 Release 资产时会把文件名里的非 ASCII 字符剥离（服务端行为），
+// 因此磁盘文件名用 ASCII；上传后由 package.yml 通过 PATCH 接口把资产名（即下载文件名）
+// 改回中文并同步显示名（label），PATCH 不被保留时回退为仅设置显示名
 function readProjectNameEn() {
 	try {
 		const url = git(["remote", "get-url", "origin"]).trim();
@@ -410,7 +412,7 @@ function main() {
 		"",
 		"压缩包将上传到新版本对应的 Release 页面，打包完成后点击下方链接下载。",
 	].join("\n"));
-	writeOutputs(outZip, newTag);
+		writeOutputs(outZip, label, newTag);
 	console.log(`[打包完成] ${outZip}（新增 ${stats.added.length} / 修改 ${stats.modified.length} / 重命名 ${stats.renamed.length} / 删除 ${stats.deleted.length}（不入包）/ 最终打包 ${stats.packaged}）`);
 }
 

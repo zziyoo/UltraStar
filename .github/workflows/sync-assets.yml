@@ -1,0 +1,71 @@
+name: 素材清单同步
+
+# 推送包含新增图片/语音时，自动将其登记进 data/assets.js 素材清单并提交；
+# 只提交清单文件本身，不会再次触发本工作流（paths 未包含 data/）
+on:
+  push:
+    branches: [main]
+    paths:
+      - "assets/**"
+      - ".github/workflows/sync-assets.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-assets-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 登记新增素材
+    runs-on: ubuntu-latest
+    steps:
+      # 完整历史：需要与推送前提交做 git diff 才能判定"新增"
+      - name: 检出仓库（完整历史）
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      # 对比基线取推送前提交；force push / 新分支导致 before 不可达时退回父提交，
+      # 首次推送（无父提交）无法判定新增，跳过
+      - name: 登记新增素材到清单
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            BEFORE=$(git rev-parse HEAD~1 2>/dev/null || true)
+          fi
+          if [ -z "$BEFORE" ]; then
+            echo "无法确定对比基线（首次推送且无父提交），跳过同步"
+            exit 0
+          fi
+          mapfile -t files < <(git diff --name-only --diff-filter=A "$BEFORE" "$GITHUB_SHA" -- assets/ \
+            | grep -Ei '\.(jpg|jpeg|png|gif|webp|mp3|wav|ogg)$' || true)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "本次推送未新增图片/语音，清单无需更新"
+            exit 0
+          fi
+          printf '检测到新增素材：\n%s\n' "${files[@]}"
+          node tools/update-manifest.mjs "${files[@]}"
+
+      - name: 校验素材清单与引用
+        run: node tools/check/check-assets.mjs .
+
+      - name: 提交清单更新
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/assets.js
+          if git diff --cached --quiet; then
+            echo "清单无变化，跳过提交"
+          else
+            git commit -m "chore: 自动登记新增素材到素材清单"
+            git push
+            echo "✅ 已自动登记新增素材到 data/assets.js" >> "$GITHUB_STEP_SUMMARY"
+          fi

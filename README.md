@@ -65,6 +65,7 @@ UltraStar/
 │   ├── xnnequipment.js           # 装备元数据
 │   └── 装备价值列表.txt           # 装备 AI 价值参考表
 └── tools/
+    ├── update-manifest.mjs      # 素材清单自动登记（CI 检测到新增素材后自动调用）
     └── check/                    # 一致性校验脚本
         ├── check-imports.mjs     # import 路径校验
         ├── check-assets.mjs      # 素材引用校验
@@ -253,10 +254,11 @@ assets/
 
 ### tools/
 
-开发、校验与维护脚本，需要 Node.js 运行。当前 `tools/check/` 下有三个一致性校验脚本：
+开发、校验与维护脚本，需要 Node.js 运行。`tools/check/` 下有三个一致性校验脚本，`tools/update-manifest.mjs` 用于素材清单登记：
 
 | 脚本 | 作用 |
 | --- | --- |
+| `update-manifest.mjs`（`tools/` 根目录） | 将新增的图片/语音按清单排序规则登记进 `data/assets.js`（已在清单中的跳过、只插入不重排既有条目）。GitHub 上的"素材清单同步"工作流在检测到推送新增素材后自动调用它并提交清单更新，本地也可手动执行：`node tools/update-manifest.mjs <新增文件...>` |
 | `check-imports.mjs` | 校验所有 `.js` 文件的 `import` / `export from` 相对路径都能解析到真实存在的文件 |
 | `check-assets.mjs` | 校验代码中的素材引用与磁盘文件一致、`data/assets.js` 清单与磁盘一致、无旧路径残留 |
 | `verify-parity.mjs` | 对比重构前后的扩展注册结果（合并后的包结构与 `lib.*` 注册内容）是否一致，用于大型重构的回归验证 |
@@ -281,7 +283,7 @@ node tools/check/check-assets.mjs .
 4. 在 characters-meta.js 中补充角色名称翻译、称号等元数据；
 5. 按需在 voices.js / dynamicTranslate.js 中添加台词与动态描述；
 6. 添加角色立绘、语音等素材到 assets/，并确认命名不冲突；
-7. 将新素材登记进 data/assets.js 素材清单；
+7. 将新素材登记进 data/assets.js 素材清单（推送到 GitHub 后，"素材清单同步"工作流会自动登记本次推送新增的图片/语音并提交清单更新；本地也可用 `node tools/update-manifest.mjs` 手动登记）；
 8. 将角色名加入 src/core/registry.js 的 CHARACTER_ORDER（否则合并总包时会被忽略，不会出现在选将界面）；
 9. 如需评级，将评级数据加入 data/characterRank.js；如技能触发 BGM，将映射加入 data/bgmList.js；
 10. 运行 tools/check/ 下的校验脚本进行完整性检查。

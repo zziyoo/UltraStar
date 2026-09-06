@@ -97,26 +97,47 @@ jobs:
           files: ${{ env.zip_path }}
           body: "自动打包产物：${{ env.zip_label }}"
 
-      # GitHub 会剥离资产名中的非 ASCII 字符，上传后通过 label 恢复中文显示名/下载名；
-      # 同时清理同名旧资产（重复上传会被 GitHub 追加 " (1)" 后缀），只保留最新一份
-      - name: 设置资产中文显示名并清理旧资产
+      # GitHub 上传资产时会把文件名中的非 ASCII 字符剥离（官方文档 Upload 端点行为），
+      # 但更新资产（PATCH）接口不受限制。上传后先把资产名（即下载文件名）改回中文，
+      # 显示名（label）同步设为同一中文名；若 GitHub 不保留中文名，则回退为仅设置中文显示名。
+      # 同时清理本 Release 上其它含版本号的 zip 旧资产（历史残留、重复上传的 " (1)" 副本）
+      - name: 设置资产中文名并清理旧资产
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          asset_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq "[.assets[] | select(.name == \"$zip_name\") | .id] | max")
+          set -o pipefail
+          # 定位本次上传的资产；重复上传会被 GitHub 追加 " (1)" 后缀，先归一化再匹配
+          asset_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq '.assets[] | [.id, .name] | @tsv' \
+            | while IFS=$'\t' read -r id name; do
+                norm=$(printf '%s' "$name" | sed -E 's/ \([0-9]+\)(\.[A-Za-z0-9]+)$/\1/')
+                if [ "$norm" = "$zip_name" ]; then echo "$id"; fi
+              done | sort -n | tail -1)
           if [ -z "$asset_id" ]; then
-            echo "未找到资产 $zip_name，跳过显示名设置"
+            echo "未找到资产 $zip_name，跳过中文名设置"
             exit 0
           fi
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" -f label="$zip_label"
-          echo "资产显示名已设置为：$zip_label"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq '.assets[] | [.id, .name] | @tsv' | while IFS=$'\t' read -r id name; do
-            [ "$id" = "$asset_id" ] && continue
-            norm=$(printf '%s' "$name" | sed -E 's/ \([0-9]+\)(\.[A-Za-z0-9]+)$/\1/')
-            if [ "$norm" = "$zip_name" ]; then
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" && echo "已清理旧资产：$name"
-            fi
-          done
+          patched=$(gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
+            -f name="$zip_label" -f label="$zip_label" --jq '.name' 2>&1 || true)
+          if [ "$patched" = "$zip_label" ]; then
+            echo "资产名已恢复为中文，下载文件名将随之生效：$zip_label"
+          else
+            echo "警告：GitHub 未保留中文资产名（实际为：$patched），回退为仅设置中文显示名"
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" -f name="$zip_name" -f label="$zip_label" > /dev/null
+          fi
+          # 只保留本次资产：其余 zip 资产名里含当前版本号的一律视为旧产物清理
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq '.assets[] | [.id, .name] | @tsv' \
+            | while IFS=$'\t' read -r id name; do
+                if [ "$id" = "$asset_id" ]; then continue; fi
+                case "$name" in
+                  *.zip|*.ZIP)
+                    case "$name" in
+                      *"$release_tag"*)
+                        gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" && echo "已清理旧资产：$name"
+                        ;;
+                    esac
+                    ;;
+                esac
+              done
 
       - name: Summary 输出下载入口
         run: |
