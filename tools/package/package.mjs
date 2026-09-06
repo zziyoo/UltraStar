@@ -252,9 +252,9 @@ function readProjectName(tag) {
 	}
 }
 
-// GitHub 上传 Release 资产时会把文件名里的非 ASCII 字符剥离（服务端行为），
-// 因此磁盘文件名用 ASCII；上传后由 package.yml 通过 PATCH 接口把资产名（即下载文件名）
-// 改回中文并同步显示名（label），PATCH 不被保留时回退为仅设置显示名
+// GitHub 资产名不支持非 ASCII（上传与 PATCH 更新都会剥离，2026-09-06 实测），
+// 因此磁盘文件名（即实际下载文件名）用英文；中文名通过 asset label 在 Release 页面展示，
+// package.yml 会先尝试 PATCH 中文名，失败则回退为此方案并在 Release 正文注明
 function readProjectNameEn() {
 	try {
 		const url = git(["remote", "get-url", "origin"]).trim();

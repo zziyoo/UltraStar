@@ -44,6 +44,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   package:
@@ -95,12 +97,43 @@ jobs:
           tag_name: ${{ env.release_tag }}
           name: ${{ env.release_tag }}
           files: ${{ env.zip_path }}
-          body: "自动打包产物：${{ env.zip_label }}"
+          body: |
+            自动打包产物：**${{ env.zip_label }}**
 
-      # GitHub 上传资产时会把文件名中的非 ASCII 字符剥离（官方文档 Upload 端点行为），
-      # 但更新资产（PATCH）接口不受限制。上传后先把资产名（即下载文件名）改回中文，
-      # 显示名（label）同步设为同一中文名；若 GitHub 不保留中文名，则回退为仅设置中文显示名。
-      # 同时清理本 Release 上其它含版本号的 zip 旧资产（历史残留、重复上传的 " (1)" 副本）
+            中文文件名下载（GitHub Pages）：
+            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ env.zip_label }}
+
+            （Pages 链接仅保留最近一次打包产物，历史版本请用下方的 Release 备用资产下载）
+
+            因 GitHub 平台限制资产名仅支持英文，备用下载（下载后请手动改名）：${{ env.zip_name }}
+
+      # Release 资产名无法含中文（GitHub 平台限制），中文文件名的压缩包改由 GitHub Pages 托管，
+      # 部署产物即网站上可直接下载的文件，Release 正文已附带该中文下载链接
+      - name: 生成中文名压缩包
+        run: |
+          owner="${GITHUB_REPOSITORY%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          echo "pages_base=https://${owner}.github.io/${repo}" >> "$GITHUB_ENV"
+          rm -rf pages-src
+          mkdir -p pages-src
+          cp "${{ env.zip_path }}" "pages-src/${{ env.zip_label }}"
+
+      - name: 配置 GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-src
+
+      - name: 部署到 GitHub Pages
+        uses: actions/deploy-pages@v4
+
+      # GitHub 会剥离资产名中的非 ASCII 字符（上传与 PATCH 更新均如此，2026-09-06 实测），
+      # 资产名（即 Release 下载文件名）只能为英文；中文名通过 label 在页面展示，
+      # 且由此前步骤部署到 GitHub Pages 的中文文件名压缩包作为正式下载入口。
+      # 本步骤仍先尝试 PATCH 中文名：若 GitHub 未来放开限制则直接生效；否则自动回退为
+      # 英文文件名 + 中文显示名，并清理本 Release 上其它含版本号的 zip 旧资产
       - name: 设置资产中文名并清理旧资产
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,10 +153,20 @@ jobs:
             -f name="$zip_label" -f label="$zip_label" --jq '.name' 2>&1 || true)
           if [ "$patched" = "$zip_label" ]; then
             echo "资产名已恢复为中文，下载文件名将随之生效：$zip_label"
+            final_name="$zip_label"
           else
-            echo "警告：GitHub 未保留中文资产名（实际为：$patched），回退为仅设置中文显示名"
+            echo "GitHub 不支持中文资产名（PATCH 后实际为：$patched），保持英文文件名 + 中文 label（页面显示名）"
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" -f name="$zip_name" -f label="$zip_label" > /dev/null
+            final_name="$zip_name"
           fi
+          {
+            echo ""
+            echo "### 资产命名结果"
+            echo ""
+            echo "- 页面显示名：$zip_label"
+            echo "- 实际下载文件名：**$final_name**"
+            echo "- 中文文件名下载（GitHub Pages）：[$zip_label]($pages_base/$zip_label)"
+          } >> "$GITHUB_STEP_SUMMARY"
           # 只保留本次资产：其余 zip 资产名里含当前版本号的一律视为旧产物清理
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq '.assets[] | [.id, .name] | @tsv' \
             | while IFS=$'\t' read -r id name; do
@@ -142,3 +185,4 @@ jobs:
       - name: Summary 输出下载入口
         run: |
           echo "📦 [前往 Release 页面下载](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.release_tag }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "中文文件名下载（GitHub Pages）：[${{ env.zip_label }}](${{ env.pages_base }}/${{ env.zip_label }})" >> "$GITHUB_STEP_SUMMARY"
