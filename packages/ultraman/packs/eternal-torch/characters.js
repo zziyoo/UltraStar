@@ -8,7 +8,7 @@ export const characters = {
 		skills: ["nkssjicheng"],
 		names: "null|奈克瑟斯",
 		img: "extension/奥特之星/assets/image/奈克瑟斯.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/奈克瑟斯.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/奈克瑟斯.mp3"],
 	},
 	迪迦: {
 		sex: "male",
@@ -17,7 +17,7 @@ export const characters = {
 		skills: ["djsj"],
 		names: "null|迪迦",
 		img: "extension/奥特之星/assets/image/迪迦-复合.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/迪迦.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/迪迦.mp3"],
 	},
 	希卡利: {
 		sex: "male",
@@ -26,7 +26,7 @@ export const characters = {
 		skills: ["xklkeyan", "xkllizhu"],
 		names: "null|希卡利",
 		img: "extension/奥特之星/assets/image/希卡利.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/希卡利.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/希卡利.mp3"],
 	},
 	奥特曼: {
 		sex: "male",
@@ -35,7 +35,7 @@ export const characters = {
 		skills: ["atmguanglun", "atmzhuangshuo", "atmnianli"],
 		names: "null|奥特曼",
 		img: "extension/奥特之星/assets/image/奥特曼.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 	杰克: {
 		sex: "male",
@@ -44,7 +44,7 @@ export const characters = {
 		skills: ["jkshouzhuo", "jkjuedi", "atmnianli"],
 		names: "null|杰克",
 		img: "extension/奥特之星/assets/image/杰克.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/杰克.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/杰克.mp3"],
 	},
 	戴拿: {
 		sex: "male",
@@ -53,7 +53,7 @@ export const characters = {
 		skills: ["dnshuijing"],
 		names: "null|戴拿",
 		img: "extension/奥特之星/assets/image/戴拿-闪亮.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/戴拿.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/戴拿.mp3"],
 	},
 	佐菲: {
 		sex: "male",
@@ -62,7 +62,7 @@ export const characters = {
 		skills: ["zfbaqi", "zfyakong", "atmnianli"],
 		names: "null|佐菲",
 		img: "extension/奥特之星/assets/image/佐菲.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/佐菲.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/佐菲.mp3"],
 	},
 	泰罗: {
 		sex: "male",
@@ -71,7 +71,7 @@ export const characters = {
 		skills: ["tlpoquan", "tlzhadan", "atmnianli"],
 		names: "null|泰罗",
 		img: "extension/奥特之星/assets/image/泰罗.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/泰罗.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/泰罗.mp3"],
 	},
 	艾斯: {
 		sex: "male",
@@ -80,7 +80,7 @@ export const characters = {
 		skills: ["asguangxian", "asduantou", "atmnianli"],
 		names: "null|艾斯",
 		img: "extension/奥特之星/assets/image/艾斯.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 	赛文: {
 		sex: "male",
@@ -89,7 +89,7 @@ export const characters = {
 		skills: ["swbingfu", "swxiongjia", "atmnianli"],
 		names: "null|赛文",
 		img: "extension/奥特之星/assets/image/赛文.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 	雷欧: {
 		sex: "male",
@@ -99,7 +99,7 @@ export const characters = {
 		skills: ["leofenzhan", "leofeiti"],
 		names: "null|雷欧",
 		img: "extension/奥特之星/assets/image/雷欧.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 	杰斯提斯: {
 		sex: "none",
@@ -108,7 +108,7 @@ export const characters = {
 		skills: ["jstsfensui"],
 		names: "null|杰斯提斯",
 		img: "extension/奥特之星/assets/image/杰斯提斯.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 	爱迪: {
 		sex: "male",
@@ -117,7 +117,7 @@ export const characters = {
 		skills: ["adkoudai", "adquanneng", "adjinghua"],
 		names: "null|爱迪",
 		img: "extension/奥特之星/assets/image/爱迪.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 	阿斯特拉: {
 		sex: "male",
@@ -126,6 +126,6 @@ export const characters = {
 		skills: ["astlqiuyv", "leofenzhan", "leofeiti"],
 		names: "null|阿斯特拉",
 		img: "extension/奥特之星/assets/image/阿斯特拉.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 };

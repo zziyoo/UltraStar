@@ -8,7 +8,7 @@ export const characters = {
 		skills: ["myjuesheng"],
 		names: "null|米浴",
 		img: "extension/奥特之星/assets/image/米浴.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/米浴.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/米浴.mp3"],
 	},
 	特别周: {
 		sex: "female",
@@ -17,7 +17,7 @@ export const characters = {
 		skills: ["tbznengchi"],
 		names: "null|特别周",
 		img: "extension/奥特之星/assets/image/特别周.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/特别周.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/特别周.mp3"],
 	},
 	黄金船: {
 		sex: "female",
@@ -26,7 +26,7 @@ export const characters = {
 		skills: ["hjcsuixin"],
 		names: "null|黄金船",
 		img: "extension/奥特之星/assets/image/黄金船.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/黄金船.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/黄金船.mp3"],
 	},
 	目白麦昆: {
 		sex: "female",
@@ -35,7 +35,7 @@ export const characters = {
 		skills: ["mbmkmingmen"],
 		names: "目白|麦昆",
 		img: "extension/奥特之星/assets/image/目白麦昆.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/目白麦昆.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/目白麦昆.mp3"],
 	},
 	曼波: {
 		sex: "female",
@@ -44,7 +44,7 @@ export const characters = {
 		skills: ["mbmanbo"],
 		names: "null|子右",
 		img: "extension/奥特之星/assets/image/曼波.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/曼波.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/曼波.mp3"],
 	},
 	哈基米: {
 		sex: "female",
@@ -53,6 +53,6 @@ export const characters = {
 		skills: ["hjmhaqi"],
 		names: "null|哈基米",
 		img: "extension/奥特之星/assets/image/哈基米.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/哈基米.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/哈基米.mp3"],
 	},
 };

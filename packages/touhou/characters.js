@@ -7,5 +7,6 @@ export const characters = {
 		hp: 3,
 		skills: ["qlnbingfeng", "qlnjiujiu"],
 		img: "extension/奥特之星/assets/image/琪露诺.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/琪露诺.mp3"],
 	},
 };

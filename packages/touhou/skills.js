@@ -2,6 +2,7 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 export const skills = {
 	qlnbingfeng: {
+		audio: ["ext:奥特之星/assets/audio/bingfeng.mp3"],
 		trigger: { source: "damageBegin4" },
 		filter(event, player) {
 			return (
@@ -65,6 +66,7 @@ export const skills = {
 		},
 	},
 	qlnjiujiu: {
+		audio: ["ext:奥特之星/assets/audio/jiujiu.mp3"],
 		direct: true,
 		trigger: { global: ["discardAfter", "loseToDiscardpileAfter", "cardsDiscardAfter", "loseAfter"] },
 		filter(event, player) {

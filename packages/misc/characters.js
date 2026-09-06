@@ -7,7 +7,7 @@ export const characters = {
 		hp: 3,
 		skills: ["mcpxingshang", "mcpfangzhu", "mcpsongwei"],
 		img: "extension/奥特之星/assets/image/谋曹丕.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/谋曹丕.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/谋曹丕.mp3"],
 	},
 	爻袁术: {
 		sex: "male",
@@ -24,6 +24,6 @@ export const characters = {
 		skills: ["wsgucheng", "wsgeshi"],
 		names: "符|图纳",
 		img: "extension/奥特之星/assets/image/未遂.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/未遂.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/未遂.mp3"],
 	},
 };

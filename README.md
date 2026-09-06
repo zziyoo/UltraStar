@@ -210,12 +210,14 @@ packages/ultraman/
 ```text
 assets/
 ├── audio/                # 音频（BGM 与语音 .mp3）
+│   ├── dieaudio/         # 角色死亡语音
 │   └── easteregg/        # 彩蛋音频
 └── image/                # 图片（角色立绘 .jpg、装备卡牌图 .png）
     ├── camp/             # 势力（阵营）图标
     └── tierlist/         # 角色评级图
 ```
 
+- **`assets/audio/dieaudio/`**：角色死亡语音（各包 `characters.js` 的 `dieAudios` 字段引用；个别特殊死亡语音由技能在死亡时机直接播放）。
 - **`assets/audio/easteregg/`**：彩蛋音频（供 `src/systems/easterEgg.js` 使用）。
 - **`assets/image/camp/`**：扩展自定义势力的图标（由 `src/core/bootstrap.js` 在初始化时注册）。
 - **`assets/image/tierlist/`**：角色评级相关图片（供 `src/systems/tierlist.js` 展示）。
@@ -223,7 +225,7 @@ assets/
 新增素材时需要注意：
 
 1. **资源命名必须全局唯一**，不能与其他作品、其他角色已使用的文件名冲突；
-2. 音频放入 `assets/audio/`，图片放入 `assets/image/`（彩蛋音频、阵营图标、评级图分别放入对应子目录）；
+2. 音频放入 `assets/audio/`，图片放入 `assets/image/`（死亡语音、彩蛋音频、阵营图标、评级图分别放入对应子目录）；
 3. 新增素材后，需要同步将其登记进 `data/assets.js` 素材清单，供启动时的完整性检测使用；
 4. 代码中引用素材时，使用 `src/core/assets.js` 提供的路径工具，保持引用方式统一。
 

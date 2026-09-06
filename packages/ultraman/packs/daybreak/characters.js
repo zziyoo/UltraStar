@@ -8,7 +8,7 @@ export const characters = {
 		skills: ["atzfzhenli", "atzfchiyuan"],
 		names: "null|健",
 		img: "extension/奥特之星/assets/image/奥特之父.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/奥特之父.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/奥特之父.mp3"],
 	},
 	闪耀迪迦: {
 		sex: "male",
@@ -17,7 +17,7 @@ export const characters = {
 		skills: ["sydjqiji", "sydjhuihuang"],
 		names: "null|迪迦",
 		img: "extension/奥特之星/assets/image/闪耀迪迦.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 	至高盖亚: {
 		sex: "male",
@@ -26,6 +26,6 @@ export const characters = {
 		skills: ["zggylianshuai", "zggyjili"],
 		names: "null|盖亚",
 		img: "extension/奥特之星/assets/image/至高盖亚.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那位大人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 };

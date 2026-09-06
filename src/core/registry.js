@@ -119,7 +119,12 @@ export function buildPackage() {
 			skill,
 			translate: skillTranslate,
 		},
-		intro: "奥特五大誓言：饿着肚子不能上学；好天气要晒被子；过马路时要注意来往车辆；不要依赖别人的力量；要光着脚在地上玩",
+		// intro 在扩展菜单中按 HTML 渲染，可直接内嵌图片
+		intro: [
+			"奥特五大誓言：饿着肚子不能上学；好天气要晒被子；过马路时要注意来往车辆；不要依赖别人的力量；要光着脚在地上玩",
+			"<li>欢迎大家进群支持本扩展",
+			`<img style="width:238px" src="${lib.assetURL}extension/奥特之星/assets/tierlist/welcome.jpg">`,
+		].join("<br>"),
 		author: "子右",
 		diskURL: "https://github.com/zziyoo/UltraStar",
 		forumURL: "",

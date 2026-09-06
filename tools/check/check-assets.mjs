@@ -6,10 +6,8 @@ const repo = process.argv[2] ?? process.cwd();
 let errors = 0;
 
 // 重构前（git HEAD）即缺失的上游素材：代码有引用但仓库从未包含，保持引用不动
-const KNOWN_MISSING = new Set([
-	"assets/image/爻袁术.jpg",
-	"assets/audio/爻袁术.mp3",
-]);
+// 当前为空：爻袁术图片已补齐，audio/爻袁术.mp3 已无代码引用
+const KNOWN_MISSING = new Set([]);
 
 function walk(dir, filter) {
 	if (!fs.existsSync(dir)) return [];

@@ -216,11 +216,11 @@ export const skills = {
 				silent: true,
 				async content(event, trigger, player) {
 					if (player.hasSkill("ffsongshi")) {
-						game.playAudio("ext:奥特之星/assets/audio/芙宁娜芙卡洛斯-赦免.mp3");
+						game.playAudio("ext:奥特之星/assets/audio/dieaudio/芙宁娜芙卡洛斯-赦免.mp3");
 					} else if (player.hasSkill("ffguqi")) {
-						game.playAudio("ext:奥特之星/assets/audio/芙宁娜芙卡洛斯-死刑.mp3");
+						game.playAudio("ext:奥特之星/assets/audio/dieaudio/芙宁娜芙卡洛斯-死刑.mp3");
 					} else {
-						game.playAudio("ext:奥特之星/assets/audio/芙宁娜芙卡洛斯.mp3");
+						game.playAudio("ext:奥特之星/assets/audio/dieaudio/芙宁娜芙卡洛斯.mp3");
 					}
 				},
 			},

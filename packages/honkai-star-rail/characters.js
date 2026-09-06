@@ -8,7 +8,7 @@ export const characters = {
 		skills: ["lyshishang", "lyranjin", "lyyuhuo"],
 		names: "null|流萤",
 		img: "extension/奥特之星/assets/image/流萤.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/流萤.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/流萤.mp3"],
 	},
 	大丽花: {
 		sex: "female",
@@ -17,7 +17,7 @@ export const characters = {
 		skills: ["dlhchizhuo"],
 		names: "null|大丽花",
 		img: "extension/奥特之星/assets/image/大丽花.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/大丽花.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/大丽花.mp3"],
 	},
 	忘归人: {
 		sex: "female",
@@ -26,7 +26,7 @@ export const characters = {
 		skills: ["wgryanzhao"],
 		names: "null|忘归人",
 		img: "extension/奥特之星/assets/image/忘归人.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/忘归人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/忘归人.mp3"],
 	},
 	灵砂: {
 		sex: "female",
@@ -35,7 +35,7 @@ export const characters = {
 		skills: ["lszhuoyan", "lsfenyun"],
 		names: "null|灵砂",
 		img: "extension/奥特之星/assets/image/灵砂.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/灵砂.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/灵砂.mp3"],
 	},
 	知更鸟: {
 		sex: "female",
@@ -44,7 +44,7 @@ export const characters = {
 		skills: ["zgnxiezou"],
 		names: "null|知更鸟",
 		img: "extension/奥特之星/assets/image/知更鸟.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/知更鸟.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/知更鸟.mp3"],
 	},
 	云璃: {
 		sex: "female",
@@ -52,7 +52,7 @@ export const characters = {
 		hp: 4,
 		skills: ["ylshanshuo", "ylxiahe", "ylkanpo"],
 		img: "extension/奥特之星/assets/image/云璃.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/云璃.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/云璃.mp3"],
 	},
 	遐蝶: {
 		sex: "female",
@@ -61,7 +61,7 @@ export const characters = {
 		skills: ["xdanchao", "xdyuejian", "xdyoudie"],
 		names: "null|遐蝶",
 		img: "extension/奥特之星/assets/image/遐蝶.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/遐蝶.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/遐蝶.mp3"],
 	},
 	黄泉: {
 		sex: "female",
@@ -70,6 +70,6 @@ export const characters = {
 		skills: ["hqchigui", "hqtize"],
 		names: "雷电忘川守|芽衣",
 		img: "extension/奥特之星/assets/image/黄泉.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/黄泉.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/黄泉.mp3"],
 	},
 };

@@ -16,7 +16,7 @@ export const characters = {
 		skills: ["nwlthailang", "nwltgongzheng", "nwltjuecai"],
 		names: "那维莱特|null",
 		img: "extension/奥特之星/assets/image/那维莱特.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/那维莱特.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那维莱特.mp3"],
 	},
 	阿蕾奇诺: {
 		sex: "female",
@@ -25,7 +25,7 @@ export const characters = {
 		skills: ["alqnhuahui", "alqnzhanshou", "alqneyue"],
 		names: "null|佩露薇利",
 		img: "extension/奥特之星/assets/image/阿蕾奇诺.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/阿蕾奇诺.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/阿蕾奇诺.mp3"],
 	},
 	丝柯克: {
 		sex: "female",
@@ -33,7 +33,7 @@ export const characters = {
 		hp: 4,
 		skills: ["skkjimie", "skkduduan"],
 		img: "extension/奥特之星/assets/image/丝柯克.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/丝柯克.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/丝柯克.mp3"],
 	},
 	芙宁娜: {
 		sex: "female",
@@ -42,7 +42,7 @@ export const characters = {
 		skills: ["ffshalong", "ffyuanwu", "ffkuanghuan"],
 		names: "null|芙宁娜",
 		img: "extension/奥特之星/assets/image/芙宁娜.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/芙宁娜.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/芙宁娜.mp3"],
 	},
 	恰斯卡: {
 		sex: "female",
@@ -51,7 +51,7 @@ export const characters = {
 		skills: ["qsklingjiang", "qsksuohun"],
 		names: "null|恰斯卡",
 		img: "extension/奥特之星/assets/image/恰斯卡.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/恰斯卡.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/恰斯卡.mp3"],
 	},
 	玛薇卡: {
 		sex: "female",
@@ -60,7 +60,7 @@ export const characters = {
 		skills: ["mwkzhihuo", "mwkfenyao", "mwkfantian"],
 		names: "null|玛薇卡",
 		img: "extension/奥特之星/assets/image/玛薇卡.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/玛薇卡.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/玛薇卡.mp3"],
 	},
 	希诺宁: {
 		sex: "female",
@@ -69,6 +69,6 @@ export const characters = {
 		skills: ["xnnjuelie", "xnnduancui"],
 		names: "null|希诺宁",
 		img: "extension/奥特之星/assets/image/希诺宁.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/希诺宁.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/希诺宁.mp3"],
 	},
 };
