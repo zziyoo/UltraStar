@@ -1,8 +1,8 @@
 // 手动打包脚本：完整包 / 增补包
 // 配合 .github/workflows/package.yml 在 GitHub Actions 上运行，也可在本地执行（需 git，zip 缺失时回退 bsdtar）
 // 用法：
-//   node scripts/package/package.mjs --type full  [--version v2.1.0]
-//   node scripts/package/package.mjs --type patch [--old v2.0.0] [--new v2.1.0]
+//   node tools/package/package.mjs --type full  [--version v2.1.0]
+//   node tools/package/package.mjs --type patch [--old v2.0.0] [--new v2.1.0]
 // 版本一律指 git tag（vX.Y.Z）；留空时自动取最新 Tag（增补包旧版本默认取上一版）
 import fs from "node:fs";
 import path from "node:path";
@@ -10,12 +10,11 @@ import { execFileSync } from "node:child_process";
 import { deflateRawSync } from "node:zlib";
 
 // 打包排除项：开发/CI 文件不进入发布包
-const EXCLUDED_PATHS = [".github", "tools", "scripts", "node_modules"];
+const EXCLUDED_PATHS = [".github", "tools", "node_modules"];
 const EXCLUDED_FILES = ["Thumbs.db", ".DS_Store"];
 const ARCHIVE_EXCLUDES = [
 	":(exclude).github",
 	":(exclude)tools",
-	":(exclude)scripts",
 	":(exclude)node_modules",
 	":(exclude,glob)**/Thumbs.db",
 	":(exclude,glob)**/.DS_Store",

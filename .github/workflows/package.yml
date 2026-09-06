@@ -57,7 +57,7 @@ jobs:
           PKG_OLD: ${{ inputs.old_version }}
           PKG_NEW: ${{ inputs.new_version }}
         run: |
-          node scripts/package/package.mjs \
+          node tools/package/package.mjs \
             --type "$PKG_TYPE" \
             --version "$PKG_VERSION" \
             --old "$PKG_OLD" \
