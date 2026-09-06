@@ -15,7 +15,7 @@ export const characters = {
 		hp: 4,
 		skills: ["yaoyaoyi", "yaochenwei"],
 		img: "extension/奥特之星/assets/image/爻袁术.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/爻袁术.mp3"],
+		dieAudios: ["yuanshu"],
 	},
 	未遂: {
 		sex: "female",
