@@ -1,5 +1,6 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 import { extAssetUrl } from "../core/assets.js";
+import { bindTap, isolateOverlayTouch } from "../ui/overlay.js";
 
 // ===== 公用函数 =====
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -492,8 +493,7 @@ const ensureEggCatalogStyles = () => {
 	if (document.getElementById("wm-egg-catalog-styles")) return;
 	const style = document.createElement("style");
 	style.id = "wm-egg-catalog-styles";
-	style.textContent = `.wm-egg-catalog-overlay div:not(.wm-egg-catalog-box):not(.wm-egg-tabs):not(.wm-egg-list){position:relative !important;display:block !important;}
-						@keyframes wmEggFadeIn{from{opacity:0}to{opacity:1}}
+	style.textContent = `@keyframes wmEggFadeIn{from{opacity:0}to{opacity:1}}
 						@keyframes wmEggSlideIn{from{transform:scale(0.5) translateY(-100px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 						.wm-egg-catalog-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;animation:wmEggFadeIn 0.5s ease-in-out;}
 						.wm-egg-catalog-overlay.detail{z-index:100000;}
@@ -564,10 +564,13 @@ eggs.openCatalog = function () {
 	box.appendChild(tabs);
 	box.appendChild(list);
 	overlay.appendChild(box);
-	overlay.addEventListener("click", e => {
+	isolateOverlayTouch(overlay);
+	bindTap(overlay, e => {
 		if (e.target === overlay) overlay.remove();
 	});
-	ui.window.appendChild(overlay);
+	// 与 changelog/tierlist 的 Overlay 保持一致：挂载到 document.body，
+	// 避免 ui.window 内部作用于任意后代 div 的本体样式干扰布局
+	document.body.appendChild(overlay);
 
 	const showDetail = egg => {
 		const found = discovered.includes(egg.id);
@@ -599,15 +602,16 @@ eggs.openCatalog = function () {
 		const back = document.createElement("div");
 		back.className = "wm-egg-back";
 		back.textContent = "← 返回列表";
-		back.onclick = () => detailOverlay.remove();
+		bindTap(back, () => detailOverlay.remove());
 		detailBox.appendChild(detailTitle);
 		detailBox.appendChild(detailText);
 		detailBox.appendChild(back);
 		detailOverlay.appendChild(detailBox);
-		detailOverlay.addEventListener("click", e => {
+		isolateOverlayTouch(detailOverlay);
+		bindTap(detailOverlay, e => {
 			if (e.target === detailOverlay) detailOverlay.remove();
 		});
-		ui.window.appendChild(detailOverlay);
+		document.body.appendChild(detailOverlay);
 	};
 
 	const renderTabs = () => {
@@ -616,12 +620,12 @@ eggs.openCatalog = function () {
 			const tab = document.createElement("div");
 			tab.className = "wm-egg-tab" + (cat === currentCategory ? " active" : "");
 			tab.textContent = cat;
-			tab.onclick = () => {
+			bindTap(tab, () => {
 				currentCategory = cat;
 				renderTabs();
 				renderList();
 				updateProgress();
-			};
+			});
 			tabs.appendChild(tab);
 		}
 	};
@@ -648,7 +652,7 @@ eggs.openCatalog = function () {
 			cardTrigger.className = "wm-egg-card-sub";
 			cardTrigger.textContent = `${triggerTypeName[egg.triggerType] || "特殊"}彩蛋`;
 			card.appendChild(cardTrigger);
-			card.onclick = () => showDetail(egg);
+			bindTap(card, () => showDetail(egg));
 			list.appendChild(card);
 		}
 	};

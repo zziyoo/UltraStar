@@ -5,23 +5,44 @@ import { openTierlist } from "../systems/tierlist.js";
 import { VERSION } from "../core/version.js";
 import easterEggs from "../systems/easterEgg.js";
 
-// 手机端触摸优化：扩展菜单按钮在本体的触摸判定中，手指轻微移动（>10px）会被当作滑动
-// （touchScroll 将 _status.dragged 置 true），touchend 回调被跳过，导致快速轻点常常无效，
-// 必须长按稳定后才触发。这里在捕获阶段响应合成 click（手机端轻点/短划仍会产生，且不依赖
-// _status.dragged），使这两个入口用手指轻点即可打开；打开函数有幂等保护，重复触发无害。
+// 手机端触摸优化：扩展菜单按钮经本体 listen 绑定，touchend 回调受全局 _status.dragged
+// 门控，而手机上手指轻微抖动（按 documentZoom 换算后超过 10px）即会把 _status.dragged
+// 置 true；合成 click 又被本体 document 级 touchmove preventDefault（windowtouchmove）
+// 抑制，且 click 兜底在首次触摸后因 _status.touchconfirmed 永久失效。三者叠加导致快速
+// 轻点经常无效，只能长按静止后松开才触发。这里改为在 document 捕获阶段直接识别落在这
+// 两个入口上的轻触（单指且位移不超过 10px），命中后 stopPropagation + preventDefault，
+// 保证一次轻触只触发一次，也不影响本体其他 UI 的触摸行为；两个打开函数均有幂等保护。
 if (typeof document !== "undefined") {
 	(() => {
 		const configNames = new Set(["extension_奥特之星_viewTierlist", "extension_奥特之星_viewEggCatalog"]);
-		document.addEventListener("click", e => {
-			if (!lib.config.touchscreen) return;
-			for (let node = e.target; node && node !== document; node = node.parentNode) {
+		const findEntryName = node => {
+			for (; node && node !== document; node = node.parentNode) {
 				const name = node._link?.config?._name;
-				if (!configNames.has(name)) continue;
-				if (name === "extension_奥特之星_viewTierlist") openTierlist();
-				else easterEggs.openCatalog();
-				return;
+				if (configNames.has(name)) return name;
 			}
+			return null;
+		};
+		let startX = 0;
+		let startY = 0;
+		let tracking = false;
+		document.addEventListener("touchstart", e => {
+			tracking = !!lib.config?.touchscreen && e.touches.length === 1 && !!findEntryName(e.target);
+			if (!tracking) return;
+			startX = e.changedTouches[0].clientX;
+			startY = e.changedTouches[0].clientY;
 		}, true);
+		document.addEventListener("touchend", e => {
+			if (!tracking || e.touches.length > 0) return;
+			tracking = false;
+			const touch = e.changedTouches[0];
+			if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) return;
+			const name = findEntryName(e.target);
+			if (!name) return;
+			e.preventDefault();
+			e.stopPropagation();
+			if (name === "extension_奥特之星_viewTierlist") openTierlist();
+			else easterEggs.openCatalog();
+		}, { capture: true, passive: false });
 	})();
 }
 
