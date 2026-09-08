@@ -110,13 +110,13 @@ const ensureTierStyles = () => {
 	if (document.getElementById("wm-tier-styles")) return;
 	const style = document.createElement("style");
 	style.id = "wm-tier-styles";
-	style.textContent = `.wm-tier-content{flex:1;overflow-y:auto;padding:6px 10px 16px 0;-webkit-overflow-scrolling:touch;}
-						.wm-tier-row{display:flex;align-items:stretch;margin-bottom:8px;}
-						.wm-tier-label{width:86px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:10px;color:#fff;font-size:20px;font-weight:bold;text-shadow:1px 1px 2px rgba(0,0,0,0.6);margin-right:8px;}
+	style.textContent = `.wm-tier-content{position:relative;display:block !important;width:100%;flex:1 1 auto !important;min-height:0;overflow-y:auto !important;overflow-x:hidden;box-sizing:border-box;padding:6px 10px 16px 0;-webkit-overflow-scrolling:touch;}
+						.wm-tier-row{position:relative;display:flex !important;width:100%;min-height:96px;box-sizing:border-box;margin-bottom:8px;}
+						.wm-tier-label{position:relative;width:86px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:10px;color:#fff;font-size:20px;font-weight:bold;text-shadow:1px 1px 2px rgba(0,0,0,0.6);margin-right:8px;}
 						.wm-tier-label.unrated{font-size:15px;}
-						.wm-tier-cards{flex:1;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;background:rgba(0,0,0,0.18);border-radius:10px;padding:8px;min-height:52px;box-sizing:border-box;}
-						.wm-tier-cards.empty::after{content:"暂无";color:rgba(255,255,255,0.35);font-size:12px;align-self:center;margin:auto;}
-						.wm-tier-card{width:72px;}
+						.wm-tier-cards{position:relative;display:flex !important;flex:1 1 auto;min-width:0;min-height:96px;flex-wrap:wrap;align-content:flex-start;gap:6px;background:rgba(0,0,0,0.18);border-radius:10px;padding:8px;box-sizing:border-box;}
+						.wm-tier-cards.empty::after{content:"暂无";color:#fff;font-size:20px;align-self:center;margin:auto;text-shadow:1px 1px 2px rgba(0,0,0,0.8);}
+						.wm-tier-card{position:relative;width:72px;flex:0 0 72px;box-sizing:border-box;}
 						.wm-tier-card img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;object-position:center top;border-radius:6px;background:rgba(0,0,0,0.3);box-shadow:0 2px 6px rgba(0,0,0,0.35);}
 						.wm-tier-card.noimg::before{content:"无图";display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:3/4;border-radius:6px;background:rgba(0,0,0,0.25);border:1px dashed rgba(255,255,255,0.4);color:rgba(255,255,255,0.6);font-size:11px;box-sizing:border-box;}
 						.wm-tier-name{display:block;font-size:11px;line-height:1.3;color:#fff;text-align:center;margin-top:3px;text-shadow:1px 1px 2px rgba(0,0,0,0.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -174,14 +174,19 @@ const buildTierContent = rows => {
 
 // 名称显示开关（仅显示偏好，通过扩展配置记忆，不涉及排名数据）
 const wireNameToggle = (box, toggleBtn) => {
-	let showNames = lib.config["extension_奥特之星_tierShowNames"] !== false;
+	// lib.config 在部分环境（如页面未完全引导）下可能为 undefined，不能直接索引
+	let showNames = lib.config?.["extension_奥特之星_tierShowNames"] !== false;
 	const applyNameState = () => {
 		box.classList.toggle("wm-tier-hide", !showNames);
 		toggleBtn.textContent = showNames ? "隐藏名称" : "显示名称";
 	};
 	toggleBtn.addEventListener("click", () => {
 		showNames = !showNames;
-		game.saveExtensionConfig("奥特之星", "tierShowNames", showNames);
+		try {
+			game.saveExtensionConfig("奥特之星", "tierShowNames", showNames);
+		} catch (e) {
+			console.warn("[奥特之星] 名称显示偏好暂存失败（本次会话内仍生效）", e);
+		}
 		applyNameState();
 	});
 	applyNameState();

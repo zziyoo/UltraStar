@@ -257,7 +257,6 @@ export default [
 	"assets/audio/suohun2.mp3",
 	"assets/audio/sw.mp3",
 	"assets/audio/tailuo.mp3",
-	"assets/tierlist/tierlist.png",
 	"assets/audio/tize1.mp3",
 	"assets/audio/tize2.mp3",
 	"assets/audio/ws.mp3",
@@ -298,4 +297,5 @@ export default [
 	"assets/audio/zhuoyan1.mp3",
 	"assets/audio/zhuoyan2.mp3",
 	"assets/audio/zhuoyan3.mp3",
+	"assets/sundry/welcome.jpg",
 ];

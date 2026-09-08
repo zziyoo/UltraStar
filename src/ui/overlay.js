@@ -7,7 +7,7 @@ style.id = "wm-changelog-styles";
 style.textContent = `@keyframes wmFadeIn{from{opacity:0}to{opacity:1}}
 					@keyframes wmSlideIn{from{transform:scale(0.5) translateY(-100px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 					.wm-changelog-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;animation:wmFadeIn 0.5s ease-in-out;}
-					.wm-changelog-box{position:relative;width:70%;height:80%;max-width:900px;background:rgba(216,193,255,0.85);border-radius:20px;padding:0 40px;box-shadow:0 20px 60px rgba(180,150,255,0.5);animation:wmSlideIn 0.6s cubic-bezier(0.68,-0.55,0.265,1.55);overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;}
+					.wm-changelog-box{position:relative;width:70%;height:80%;max-width:900px;min-height:0;background:rgba(216,193,255,0.85);border-radius:20px;padding:0 40px;box-shadow:0 20px 60px rgba(180,150,255,0.5);animation:wmSlideIn 0.6s cubic-bezier(0.68,-0.55,0.265,1.55);overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;}
 					.wm-changelog-title{position:relative;color:#fff;font-size:22px;font-weight:bold;text-shadow:1px 1px 2px rgba(0,0,0,0.8);padding:20px 0 5px 0;text-align:center;flex-shrink:0;}
 					.wm-changelog-hint{position:relative;color:rgba(255,255,255,0.85);font-size:13px;text-align:center;text-shadow:1px 1px 2px rgba(0,0,0,0.6);padding-bottom:8px;flex-shrink:0;}
 					.wm-changelog-text{position:relative;color:#fff;line-height:1.8;font-size:14px;word-wrap:break-word;text-shadow:1px 1px 2px rgba(0,0,0,0.8);overflow-y:auto;flex:1;padding:10px 10px 20px 0;-webkit-overflow-scrolling:touch;}
@@ -35,9 +35,9 @@ overlay.appendChild(box);
 overlay.addEventListener("click", e => {
 	if (e.target === overlay) overlay.remove();
 });
-// ui.window 仅在 ui.create.arena() 后存在（src/noname/ui/create/index.js:2291），
-// 主菜单的扩展设置中为 undefined，直接挂载会抛 TypeError 导致页面空白；
-// 回退挂载到 document.body（overlay 为 fixed 定位，挂载点不影响显示）
-(ui.window ?? document.body).appendChild(overlay);
+// 必须挂载到 document.body：ui.window(#window) 内部存在大量作用于任意后代 div 的
+// 本体样式（layout/default/layout.css 等），会把 Overlay 内容布局破坏成空白；
+// overlay 为 fixed 定位，挂在 body 与挂在 ui.window 视觉完全一致，但不受其干扰
+document.body.appendChild(overlay);
 return { overlay, box, title, hint };
 };
