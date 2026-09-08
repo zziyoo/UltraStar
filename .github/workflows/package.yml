@@ -4,26 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       package_type:
-        description: "打包类型（测试包 = main 当前代码，仅上传 Artifact，不发布 Release）"
+        description: "打包类型（完整包 = main 当前 HEAD；增补包 = 两个版本 Tag 之间的差异）"
         required: true
         type: choice
         default: "完整包"
         options:
           - 完整包
           - 增补包
-          - 测试包
-      version:
-        description: "完整包：版本 Tag（留空或填「最新版」= 最新 Tag，如 v2.1.2）"
-        required: false
-        type: string
-        default: ""
       old_version:
-        description: "增补包：旧版本 Tag（「上一版」或如 v2.1.1）"
+        description: "增补包：旧版本 Tag（「上一版」或如 v2.1.1）；完整包忽略此项"
         required: false
         type: string
         default: "上一版"
       new_version:
-        description: "增补包：新版本 Tag（「最新版」或如 v2.1.2）"
+        description: "增补包：新版本 Tag（「最新版」或如 v2.1.2）；完整包忽略此项"
         required: false
         type: string
         default: "最新版"
@@ -54,33 +48,33 @@ jobs:
         with:
           node-version: "22"
 
-      # 版本解析与校验全部由脚本完成，workflow 不维护 Tag 列表、不自修改：
-      #   - "最新版"/"上一版"/留空 由脚本按运行时的真实 Tag 解析
-      #   - 指定 Tag 不存在 → 报错并列出有效 Tag
-      #   - Tag 与其 info.json 版本号不一致 → 拒绝打包
-      #   - 增补包相同版本/反向版本 → 拒绝打包
+      # 版本校验全部由脚本完成，workflow 不维护 Tag 列表、不自修改：
+      #   - 完整包 = 本次 checkout 的 main HEAD（git archive HEAD），版本号取 HEAD 的 info.json，
+      #     与任何 Tag 无关，不要求 Tag 存在，不做 Tag↔info.json 校验
+      #   - 增补包 = 旧 Tag → 新 Tag 正向差异："上一版"/"最新版" 由脚本按运行时 Tag 解析，
+      #     指定 Tag 不存在 → 报错并列出有效 Tag；Tag 与其 info.json 版本不一致 → 拒绝打包；
+      #     相同版本/反向版本 → 拒绝打包
       #   - zip 内容与预期集合逐文件比对；git archive 一律 -c core.autocrlf=false
       - name: 执行打包
         env:
           PKG_TYPE: ${{ inputs.package_type }}
-          PKG_VERSION: ${{ inputs.version }}
           PKG_OLD: ${{ inputs.old_version }}
           PKG_NEW: ${{ inputs.new_version }}
         run: |
           node tools/package/package.mjs \
             --type "$PKG_TYPE" \
-            --version "$PKG_VERSION" \
             --old "$PKG_OLD" \
             --new "$PKG_NEW" \
             --out-dir dist
 
-      # Release 仅由正式包创建：完整包 → 该版本 Tag；增补包 → 新版本 Tag。
-      # release_tag 由打包步骤在全部校验通过后写入 GITHUB_ENV，打包失败则本步骤不执行
+      # Release 标识：完整包 = "v" + HEAD 的 info.json.version（Tag 不存在时由发布步骤在本次
+      # 打包的 commit 上自动创建，仅作产物标识）；增补包 = 新版本 Tag（必须已存在）。
+      # release_tag 由打包步骤在全部校验通过后写入 GITHUB_ENV，打包失败则后续步骤不执行
       - name: 发布到 Release
-        if: inputs.package_type != '测试包'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.release_tag }}
+          target_commitish: ${{ github.sha }}
           name: ${{ env.release_tag }}
           files: ${{ env.zip_path }}
           body: |
@@ -96,7 +90,6 @@ jobs:
       # Release 资产名无法含中文（GitHub 平台限制），中文文件名的压缩包改由 GitHub Pages 托管，
       # 部署产物即网站上可直接下载的文件，Release 正文已附带该中文下载链接
       - name: 生成中文名压缩包
-        if: inputs.package_type != '测试包'
         run: |
           owner="${GITHUB_REPOSITORY%/*}"
           repo="${GITHUB_REPOSITORY#*/}"
@@ -106,17 +99,14 @@ jobs:
           cp "${{ env.zip_path }}" "pages-src/${{ env.zip_label }}"
 
       - name: 配置 GitHub Pages
-        if: inputs.package_type != '测试包'
         uses: actions/configure-pages@v5
 
       - name: 上传 Pages 产物
-        if: inputs.package_type != '测试包'
         uses: actions/upload-pages-artifact@v3
         with:
           path: pages-src
 
       - name: 部署到 GitHub Pages
-        if: inputs.package_type != '测试包'
         uses: actions/deploy-pages@v4
 
       # GitHub 会剥离资产名中的非 ASCII 字符（上传与 PATCH 更新均如此，2026-09-06 实测），
@@ -125,7 +115,6 @@ jobs:
       # 本步骤仍先尝试 PATCH 中文名：若 GitHub 未来放开限制则直接生效；否则自动回退为
       # 英文文件名 + 中文显示名，并清理本 Release 上其它含版本号的 zip 旧资产
       - name: 设置资产中文名并清理旧资产
-        if: inputs.package_type != '测试包'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -174,17 +163,6 @@ jobs:
               done
 
       - name: Summary 输出下载入口
-        if: inputs.package_type != '测试包'
         run: |
           echo "📦 [前往 Release 页面下载](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.release_tag }})" >> "$GITHUB_STEP_SUMMARY"
           echo "中文文件名下载（GitHub Pages）：[${{ env.zip_label }}](${{ env.pages_base }}/${{ env.zip_label }})" >> "$GITHUB_STEP_SUMMARY"
-
-      # 测试包：仅上传 Artifact（保留 30 天），不创建 Release、不部署 Pages、不打 Tag
-      - name: 上传测试包 Artifact
-        if: inputs.package_type == '测试包'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.zip_name }}
-          path: ${{ env.zip_path }}
-          retention-days: 30
-          if-no-files-found: error
