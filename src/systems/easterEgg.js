@@ -493,7 +493,12 @@ const ensureEggCatalogStyles = () => {
 	if (document.getElementById("wm-egg-catalog-styles")) return;
 	const style = document.createElement("style");
 	style.id = "wm-egg-catalog-styles";
-	style.textContent = `@keyframes wmEggFadeIn{from{opacity:0}to{opacity:1}}
+	// 必须保留：本体 layout/default/layout.css 存在无作用域的全局规则
+	// div{display:inline-block;position:absolute}，对挂在 document.body 的
+	// Overlay 同样生效；本规则使图鉴内部 div 恢复正常文档流布局
+	// （box/tabs/list 自身依赖 display:flex，须排除在外）
+	style.textContent = `.wm-egg-catalog-overlay div:not(.wm-egg-catalog-box):not(.wm-egg-tabs):not(.wm-egg-list){position:relative !important;display:block !important;}
+						@keyframes wmEggFadeIn{from{opacity:0}to{opacity:1}}
 						@keyframes wmEggSlideIn{from{transform:scale(0.5) translateY(-100px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 						.wm-egg-catalog-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;animation:wmEggFadeIn 0.5s ease-in-out;}
 						.wm-egg-catalog-overlay.detail{z-index:100000;}
