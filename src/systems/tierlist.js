@@ -3,8 +3,8 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 import { rankMap, rarityMap } from "../../data/characterRank.js";
 import { tierList, tierConfig } from "../../data/tierConfig.js";
 import { createChangelogOverlay, ensureChangelogStyles } from "../ui/overlay.js";
+import { buildPackage } from "../core/registry.js";
 import { packages } from "../core/loader.js";
-import { CHARACTER_ORDER } from "../core/registry.js";
 import { VERSION } from "../core/version.js";
 
 // 注册角色评级数据（arenaReady 时调用）
@@ -44,19 +44,20 @@ export function registerCharacterRanks() {
 
 // ---------- Tier 数据层 ----------
 
-// 合并所有分包角色 → Map<角色ID, 角色数据>（与 registry 角色库同源的单一数据源）
+// 角色数据库 = buildPackage() 的最终角色包（游戏实际注册的集合，键序即选将顺序）。
+// 不维护第二套角色列表：分包中存在但未进入最终包的角色（如漏登记 CHARACTER_ORDER）
+// 不属于游戏内角色，Tier 配置引用它们时会被当作未知 ID 警告并跳过
 export const buildCharacterMap = () => {
-	const map = new Map();
-	for (const pkg of packages) {
-		for (const [name, info] of Object.entries(pkg.characters ?? {})) {
-			if (!map.has(name)) map.set(name, info);
-		}
-	}
+	const perPackage = packages
+		.map((pkg, i) => `${pkg.id ?? pkg.name ?? "pack#" + i}:${Object.keys(pkg.characters ?? {}).length}`)
+		.join(", ");
+	const map = new Map(Object.entries(buildPackage().character.character));
+	console.info(`[奥特之星][Tier诊断] packages=${packages.length}(${perPackage}), characterMap=${map.size}`);
 	return map;
 };
 
 // 按 tierList 顺序解析配置：重复 ID 首次生效并警告；未知 ID 跳过并警告；
-// 角色库中未列入任何 Tier 的角色按选将顺序进入「未评级」区
+// 最终角色包中未列入任何 Tier 的角色按包内顺序（即选将顺序）进入「未评级」区
 export const parseTierRows = characterMap => {
 	const seen = new Set();
 	const rows = [];
@@ -69,7 +70,7 @@ export const parseTierRows = characterMap => {
 			}
 			const info = characterMap.get(id);
 			if (!info) {
-				console.warn(`[奥特之星] Tier ${tier.name} 中存在未知角色 ID：${id}，已跳过`);
+				console.warn(`[奥特之星] Tier ${tier.name} 中存在未知角色 ID：${id}，已跳过（该角色不在最终角色包中）`);
 				continue;
 			}
 			seen.add(id);
@@ -78,24 +79,19 @@ export const parseTierRows = characterMap => {
 		rows.push({ name: tier.name, members, unrated: false });
 	}
 	const unrated = [];
-	for (const id of CHARACTER_ORDER) {
-		const info = characterMap.get(id);
-		if (info && !seen.has(id)) {
-			seen.add(id);
-			unrated.push({ id, info });
-		}
-	}
-	// 兜底：角色库中存在但未登记进 CHARACTER_ORDER 的角色，同样进入未评级区
 	for (const [id, info] of characterMap) {
 		if (!seen.has(id)) {
-			seen.add(id);
 			unrated.push({ id, info });
 		}
 	}
 	rows.push({ name: "未评级", members: unrated, unrated: true });
+	console.info(`[奥特之星][Tier诊断] 各Tier角色数: ${rows.map(r => `${r.name}=${r.members.length}`).join(", ")}`);
 	return rows;
 };
 
+// img 字段已按项目素材约定存储完整相对路径（即 data/assets.js assetUrl 的产出形式）；
+// DOM 加载时由本体的扩展素材机制补全为绝对 URL（同本体的扩展菜单图片加载逻辑：
+// lib.assetURL + "extension/" + 扩展名 + "/" + 文件路径）
 const resolveImageUrl = info => (typeof info?.img === "string" && info.img ? lib.assetURL + info.img : null);
 const resolveName = id => lib.translate[id] ?? id;
 
@@ -137,11 +133,13 @@ const createTierCard = ({ id, info }) => {
 		const img = document.createElement("img");
 		img.src = url;
 		img.addEventListener("error", () => {
+			console.warn(`[奥特之星][Tier诊断] 角色图片加载失败：${id} -> ${url}`);
 			img.remove();
 			card.classList.add("noimg");
 		});
 		card.appendChild(img);
 	} else {
+		console.warn(`[奥特之星][Tier诊断] 角色缺少 img 字段：${id}`);
 		card.classList.add("noimg");
 	}
 	const name = document.createElement("span");
@@ -151,17 +149,8 @@ const createTierCard = ({ id, info }) => {
 	return card;
 };
 
-export const openTierlist = () => {
-	if (document.querySelector(".wm-changelog-overlay")) return;
-	ensureChangelogStyles();
-	ensureTierStyles();
-	const { box, title, hint } = createChangelogOverlay("【奥特之星】角色强度排行");
-	hint.textContent = "数据版本 v" + VERSION + " · 点击空白处关闭";
-	const toggleBtn = document.createElement("span");
-	toggleBtn.className = "wm-tier-toggle";
-	hint.appendChild(toggleBtn);
-
-	const rows = parseTierRows(buildCharacterMap());
+// 在游离 DOM 中完整构建 Tier 内容，全部成功后才由 openTierlist 挂载
+const buildTierContent = rows => {
 	const content = document.createElement("div");
 	content.className = "wm-tier-content";
 	rows.forEach((row, index) => {
@@ -180,12 +169,11 @@ export const openTierlist = () => {
 		rowEl.appendChild(cards);
 		content.appendChild(rowEl);
 	});
+	return content;
+};
 
-	box.appendChild(title);
-	box.appendChild(hint);
-	box.appendChild(content);
-
-	// 名称显示开关（仅显示偏好，通过扩展配置记忆，不涉及排名数据）
+// 名称显示开关（仅显示偏好，通过扩展配置记忆，不涉及排名数据）
+const wireNameToggle = (box, toggleBtn) => {
 	let showNames = lib.config["extension_奥特之星_tierShowNames"] !== false;
 	const applyNameState = () => {
 		box.classList.toggle("wm-tier-hide", !showNames);
@@ -197,4 +185,41 @@ export const openTierlist = () => {
 		applyNameState();
 	});
 	applyNameState();
+};
+
+// 失败兜底：给出完整可关闭的提示 Overlay，页面不留空白
+const showTierLoadError = e => {
+	const { box, title, hint } = createChangelogOverlay("【奥特之星】角色强度排行");
+	hint.textContent = "角色强度排行加载失败，请查看控制台";
+	const text = document.createElement("div");
+	text.className = "wm-changelog-text";
+	text.textContent = e?.stack ?? String(e);
+	box.appendChild(title);
+	box.appendChild(hint);
+	box.appendChild(text);
+};
+
+export const openTierlist = () => {
+	if (document.querySelector(".wm-changelog-overlay")) return;
+	ensureChangelogStyles();
+	ensureTierStyles();
+	console.info("[奥特之星][Tier诊断] 开始构建 Tier 排行页面");
+	try {
+		// 数据构建与 DOM 渲染全部成功后才创建 Overlay，任何异常都不会留下空白页面
+		const rows = parseTierRows(buildCharacterMap());
+		const content = buildTierContent(rows);
+		const { box, title, hint } = createChangelogOverlay("【奥特之星】角色强度排行");
+		hint.textContent = "数据版本 v" + VERSION + " · 点击空白处关闭";
+		const toggleBtn = document.createElement("span");
+		toggleBtn.className = "wm-tier-toggle";
+		hint.appendChild(toggleBtn);
+		box.appendChild(title);
+		box.appendChild(hint);
+		box.appendChild(content);
+		wireNameToggle(box, toggleBtn);
+		console.info("[奥特之星][Tier诊断] Tier 排行渲染完成");
+	} catch (e) {
+		console.error("[奥特之星] Tier 排行加载失败：", e);
+		showTierLoadError(e);
+	}
 };

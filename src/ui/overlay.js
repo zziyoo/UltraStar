@@ -35,6 +35,9 @@ overlay.appendChild(box);
 overlay.addEventListener("click", e => {
 	if (e.target === overlay) overlay.remove();
 });
-ui.window.appendChild(overlay);
+// ui.window 仅在 ui.create.arena() 后存在（src/noname/ui/create/index.js:2291），
+// 主菜单的扩展设置中为 undefined，直接挂载会抛 TypeError 导致页面空白；
+// 回退挂载到 document.body（overlay 为 fixed 定位，挂载点不影响显示）
+(ui.window ?? document.body).appendChild(overlay);
 return { overlay, box, title, hint };
 };
