@@ -105,6 +105,7 @@ export const skills = {
 				if (sum % 9 === 0) {
 					player.setStorage("qlnjiujiu", [], true);
 					player.logSkill("qlnjiujiu");
+					game.playSkillBgm("qln");
 					await player.draw(9);
 				} else {
 					player.setStorage("qlnjiujiu", queue, true);

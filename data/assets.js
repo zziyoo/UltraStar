@@ -298,4 +298,5 @@ export default [
 	"assets/audio/zhuoyan2.mp3",
 	"assets/audio/zhuoyan3.mp3",
 	"assets/sundry/welcome.jpg",
+	"assets/audio/qln.mp3",
 ];
