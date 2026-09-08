@@ -4,7 +4,8 @@ import { packages } from "./loader.js";
 import { VERSION } from "./version.js";
 
 // 角色合并顺序 = 原扩展 package.character.character 的键顺序（决定选将界面显示顺序）
-const CHARACTER_ORDER = [
+// 供 Tier 页「未评级」区复用，保持与选将界面一致的排序
+export const CHARACTER_ORDER = [
 		"普利茨墨",
 		"曼波",
 		"哈基米",

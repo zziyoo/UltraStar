@@ -10,6 +10,7 @@
     "data/assets.js",
     "data/bgmList.js",
     "data/characterRank.js",
+    "data/tierConfig.js",
     "data/xnnequipment.js",
     "extension.js",
     "packages/genshin/characters-meta.js",
