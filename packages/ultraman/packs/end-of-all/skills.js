@@ -136,7 +136,6 @@ export const skills = {
 				},
 				filter(event, player) {
 					if (event.player !== player) return false;
-					if (event.target === player) return false;
 					if (get.tag(event.card, "damage")) return false;
 					return true;
 				},
@@ -190,6 +189,22 @@ export const skills = {
 			if (unresponsedTargets.length === 0) return;
 			for (const target of unresponsedTargets) {
 				if (!target.isAlive()) continue;
+				const gainSameSuitCards = async () => {
+					target.showHandcards();
+					const targetHand = target.getCards("he");
+					const sameSuitCards = targetHand.filter(card => get.suit(card) === suit);
+					if (sameSuitCards.length > 0) {
+						await player.gain(sameSuitCards, target);
+						game.log(player, "获得了", target, `的${sameSuitCards.length}张`, get.translation(suit), "牌");
+					}
+				};
+				const bannedSuits = target.getStorage("plcmjinghua_ban", []);
+				const isSuitBanned = Array.isArray(bannedSuits) && bannedSuits.includes(suit);
+				if (isSuitBanned) {
+					game.log(player, "对", target, "发动了【晶化】");
+					await gainSameSuitCards();
+					continue;
+				}
 				const dialog = ui.create.dialog(`晶化：对${get.translation(target)}发动，选择一项`, "hidden");
 				dialog.add([
 					[
@@ -220,13 +235,7 @@ export const skills = {
 					const choice = result.links[0];
 					game.log(player, "对", target, "发动了【晶化】");
 					if (choice === 1) {
-						target.showHandcards();
-						const targetHand = target.getCards("he");
-						const sameSuitCards = targetHand.filter(card => get.suit(card) === suit);
-						if (sameSuitCards.length > 0) {
-							await player.gain(sameSuitCards, target);
-							game.log(player, "获得了", target, `的${sameSuitCards.length}张`, get.translation(suit), "牌");
-						}
+						await gainSameSuitCards();
 					} else {
 						target.addTempSkill("plcmjinghua_ban", { player: "phaseEnd" });
 						target.markAuto("plcmjinghua_ban", [suit]);
