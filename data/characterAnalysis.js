@@ -53,3 +53,36 @@ export const characterAnalysis = {
 	琪露诺: { output: "C", defense: "C", operation: "S", control: "S", support: "C", development: "A" },
 	ChatGPT娘: { output: "B", defense: "B", operation: "A", control: "S", support: "B", development: "C" },
 };
+
+// 评级 → 分数映射（全局唯一评分来源：排行榜与角色分析面板共用，勿在别处重写）
+export const GRADE_SCORES = {
+	S: 11,
+	A: 8,
+	B: 5,
+	C: 3,
+	D: 1,
+	E: 0,
+};
+
+const SCORE_KEYS = ["output", "defense", "operation", "control", "support", "development"];
+
+// 计算六维总分；analysis 缺失、六维不全或存在非法评级时返回 null（调用方应归入「未评级」）
+export function calculateCharacterScore(analysis) {
+	if (!analysis) return null;
+	if (!SCORE_KEYS.every(key => Object.prototype.hasOwnProperty.call(analysis, key))) {
+		return null;
+	}
+	if (!SCORE_KEYS.every(key => Object.prototype.hasOwnProperty.call(GRADE_SCORES, analysis[key]))) {
+		return null;
+	}
+	return SCORE_KEYS.reduce((sum, key) => sum + GRADE_SCORES[analysis[key]], 0);
+}
+
+// 总分 → Tier：>=37 T0；30~36 T1；25~29 T2；<25 T3；无分返回 null
+export function getCharacterTier(score) {
+	if (score == null) return null;
+	if (score >= 37) return "T0";
+	if (score >= 30) return "T1";
+	if (score >= 25) return "T2";
+	return "T3";
+}

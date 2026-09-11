@@ -1,7 +1,8 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import { rankMap, rarityMap } from "../../data/characterRank.js";
-import { tierList, tierConfig } from "../../data/tierConfig.js";
+import { tierList } from "../../data/tierConfig.js";
+import { characterAnalysis, calculateCharacterScore, getCharacterTier } from "../../data/characterAnalysis.js";
 import { createChangelogOverlay, ensureChangelogStyles, bindTap } from "../ui/overlay.js";
 import { openCharacterAnalysis } from "../ui/characterAnalysis.js";
 import { buildPackage } from "../core/registry.js";
@@ -57,35 +58,33 @@ export const buildCharacterMap = () => {
 	return map;
 };
 
-// 按 tierList 顺序解析配置：重复 ID 首次生效并警告；未知 ID 跳过并警告；
-// 最终角色包中未列入任何 Tier 的角色按包内顺序（即选将顺序）进入「未评级」区
+// 评分驱动自动分级：遍历实际角色 → 六维评分 → getCharacterTier 自动判定 T0/T1/T2/T3；
+// 同 Tier 内按总分降序（同分保持角色数据库顺序）；无分析数据或六维不完整/非法者进入「未评级」，
+// 成员结构统一为 { id, info, analysis, score, tier }，供排行榜与分析面板共用
 export const parseTierRows = characterMap => {
-	const seen = new Set();
-	const rows = [];
-	for (const tier of tierList) {
-		const members = [];
-		for (const id of tierConfig[tier.id] ?? []) {
-			if (seen.has(id)) {
-				console.warn(`[奥特之星] 角色 ${id} 被多个 Tier 重复定义（${tier.name}），已忽略重复项`);
-				continue;
-			}
-			const info = characterMap.get(id);
-			if (!info) {
-				console.warn(`[奥特之星] Tier ${tier.name} 中存在未知角色 ID：${id}，已跳过（该角色不在最终角色包中）`);
-				continue;
-			}
-			seen.add(id);
-			members.push({ id, info });
-		}
-		rows.push({ name: tier.name, members, unrated: false });
-	}
-	const unrated = [];
+	const rows = tierList.map(tier => ({ name: tier.name, members: [], unrated: false, tierId: tier.id }));
+	const unrated = { name: "未评级", members: [], unrated: true };
 	for (const [id, info] of characterMap) {
-		if (!seen.has(id)) {
-			unrated.push({ id, info });
+		const analysis = characterAnalysis?.[id] ?? null;
+		const score = calculateCharacterScore(analysis);
+		if (score == null) {
+			console.warn(`[奥特之星][Tier] 角色 ${id} 缺少完整有效的六维分析数据，已归入「未评级」`);
+			unrated.members.push({ id, info, analysis, score: null, tier: null });
+			continue;
 		}
+		const tierId = getCharacterTier(score);
+		const row = rows.find(item => item.tierId === tierId);
+		if (!row) {
+			console.warn(`[奥特之星][Tier] 未知 Tier ${tierId}（角色 ${id}），已归入「未评级」`);
+			unrated.members.push({ id, info, analysis, score, tier: tierId });
+			continue;
+		}
+		row.members.push({ id, info, analysis, score, tier: tierId });
 	}
-	rows.push({ name: "未评级", members: unrated, unrated: true });
+	for (const row of rows) {
+		row.members.sort((a, b) => b.score - a.score);
+	}
+	rows.push(unrated);
 	console.info(`[奥特之星][Tier诊断] 各Tier角色数: ${rows.map(r => `${r.name}=${r.members.length}`).join(", ")}`);
 	return rows;
 };

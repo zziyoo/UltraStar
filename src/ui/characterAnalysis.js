@@ -1,6 +1,6 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
-import { characterAnalysis } from "../../data/characterAnalysis.js";
+import { characterAnalysis, calculateCharacterScore } from "../../data/characterAnalysis.js";
 import { bindTap, isolateOverlayTouch } from "./overlay.js";
 
 // ===== 六维定义（顺时针：上→右上→右下→下→左下→左上）=====
@@ -14,7 +14,6 @@ const DIMENSIONS = [
 ];
 const GRADES = ["S", "A", "B", "C", "D", "E"];
 const GRADE_VALUES = { S: 6, A: 5, B: 4, C: 3, D: 2, E: 1 };
-const GRADE_SCORES = { S: 11, A: 8, B: 5, C: 3, D: 1, E: 0 };
 const DEFAULT_GRADE = "C";
 
 // ===== 样式（命名空间 .wm-character-analysis-*，挂载到 head，仅注入一次）=====
@@ -137,6 +136,8 @@ export const openCharacterAnalysis = (id, info) => {
 	const grades = data
 		? DIMENSIONS.map(dim => (GRADES.includes(data[dim.key]) ? data[dim.key] : DEFAULT_GRADE))
 		: null;
+	// 总分与排行榜共用 calculateCharacterScore，保证两处显示完全一致
+	const score = calculateCharacterScore(data);
 
 	const overlay = document.createElement("div");
 	overlay.className = "wm-character-analysis-overlay";
@@ -197,7 +198,7 @@ export const openCharacterAnalysis = (id, info) => {
 	const name = document.createElement("div");
 	name.className = "wm-character-analysis-name";
 	const nameText = document.createElement("span");
-	nameText.textContent = (lib.translate[id] ?? id) + (grades ? ` ${grades.reduce((sum, grade) => sum + GRADE_SCORES[grade], 0)}分` : "");
+	nameText.textContent = (lib.translate[id] ?? id) + (score != null ? ` ${score}分` : "");
 	name.appendChild(nameText);
 	footer.appendChild(name);
 	box.appendChild(big);
