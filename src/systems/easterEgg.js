@@ -55,10 +55,10 @@ const triggerTypeName = {
 const eggs = {
 	useCard: [],
 	damage: [
-		{ id: "ultraman_red_form", character: "迪迦强力型", cardName: "sha", skill: "djqiangli", text: "一开始用红色形态作战不就行了吗？" },
-		{ id: "ultraman_red_form", character: "戴拿强壮型", cardName: "sha", skill: "dnqiangzhuang", text: "一开始用红色形态作战不就行了吗？" },
-		{ id: "ultraman_red_form", character: "戴拿强壮型", cardName: "juedou", skill: "dnqiangzhuang", text: "一开始用红色形态作战不就行了吗？" },
-		{ id: "ultraman_red_form", character: "至高盖亚", cardName: "sha", skill: "zggylianshuai", text: "一开始用红色形态作战不就行了吗？" },
+		{ id: "ultraman_red_form", character: "迪迦强力型", cardName: "sha", skill: "djqiangli", text: "大运来咯", audio: "dayunlaile.mp3" },
+		{ id: "ultraman_red_form", character: "戴拿强壮型", cardName: "sha", skill: "dnqiangzhuang", text: "大运来咯", audio: "dayunlaile.mp3" },
+		{ id: "ultraman_red_form", character: "戴拿强壮型", cardName: "juedou", skill: "dnqiangzhuang", text: "大运来咯", audio: "dayunlaile.mp3" },
+		{ id: "ultraman_red_form", character: "至高盖亚", cardName: "sha", skill: "zggylianshuai", text: "大运来咯", audio: "dayunlaile.mp3" },
 	],
 	die: [],
 };
@@ -133,6 +133,17 @@ eggs.gameStart = [
 			cirno.chat("武将pr交给子右审核");
 			await sleep(2000);
 			manbo.chat("咕咕嘎嘎！");
+		},
+	},
+	{
+		id: "chatgpt_manbo_xingzhu",
+		characters: ["曼波", "ChatGPT娘"],
+		run: async players => {
+			const manbo = players[0];
+			const gpt = players[1];
+			manbo.chat("小月");
+			gpt.chat("星主");
+			game.playAudio("ext:奥特之星/assets/audio/easteregg/xingzhu.mp3");
 		},
 	},
 ];
@@ -286,6 +297,16 @@ eggs.catalog = {
 			triggerDescription: "未遂与曼波同时登场时触发。",
 			hint: "子右和未遂。",
 			content: ["凑子右 → 凑未遂", "和我一起攻打天庭吧子右 → 有何不敢！"],
+		},
+		{
+			id: "chatgpt_manbo_xingzhu",
+			category: "其他",
+			title: "小月与星主",
+			characters: ["曼波", "ChatGPT娘"],
+			triggerType: "gameStart",
+			triggerDescription: "曼波与ChatGPT娘同时登场时触发。",
+			hint: "有人帮了子右大忙",
+			content: ["小月", "星主"],
 		},
 	],
 };

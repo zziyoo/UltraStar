@@ -2,7 +2,8 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import { rankMap, rarityMap } from "../../data/characterRank.js";
 import { tierList, tierConfig } from "../../data/tierConfig.js";
-import { createChangelogOverlay, ensureChangelogStyles } from "../ui/overlay.js";
+import { createChangelogOverlay, ensureChangelogStyles, bindTap } from "../ui/overlay.js";
+import { openCharacterAnalysis } from "../ui/characterAnalysis.js";
 import { buildPackage } from "../core/registry.js";
 import { packages } from "../core/loader.js";
 import { VERSION } from "../core/version.js";
@@ -146,6 +147,7 @@ const createTierCard = ({ id, info }) => {
 	name.className = "wm-tier-name";
 	name.textContent = resolveName(id);
 	card.appendChild(name);
+	bindTap(card, () => openCharacterAnalysis(id, info));
 	return card;
 };
 

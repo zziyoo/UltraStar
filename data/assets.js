@@ -141,6 +141,8 @@ export default [
 	"assets/audio/duwu.mp3",
 	"assets/audio/easteregg/dayunlaile.mp3",
 	"assets/audio/easteregg/saiwen.mp3",
+	"assets/audio/easteregg/xingzhu.mp3",
+	"assets/image/ChatGPT娘.jpg",
 	"assets/audio/eyue1.mp3",
 	"assets/audio/eyue2.mp3",
 	"assets/audio/eyue3.mp3",

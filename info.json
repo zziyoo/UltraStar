@@ -9,6 +9,7 @@
   "files": [
     "data/assets.js",
     "data/bgmList.js",
+    "data/characterAnalysis.js",
     "data/characterRank.js",
     "data/tierConfig.js",
     "data/xnnequipment.js",
@@ -110,6 +111,7 @@
     "src/systems/changelog.js",
     "src/systems/easterEgg.js",
     "src/systems/tierlist.js",
+    "src/ui/characterAnalysis.js",
     "src/ui/overlay.js"
   ]
 }

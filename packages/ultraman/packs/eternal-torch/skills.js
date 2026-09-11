@@ -95,7 +95,7 @@ export const skills = {
 						if (target.hasMark("nksslingyu_meita_mark")) return true;
 					},
 					globalFrom(from, to, distance) {
-						if (to.hasMark("nksslingyu_meita_mark") || from.hasSkill("nksslingyu")) return 1 - distance;
+						if (to.hasMark("nksslingyu_meita_mark")) return 1 - distance;
 					},
 					playerEnabled(card, player, target) {
 						if (player === target) return;
@@ -126,16 +126,15 @@ export const skills = {
 				trigger: { player: "phaseBegin" },
 				forced: true,
 				silent: true,
-				popup: false,
 				async content(event, trigger, player) {
 					game.countPlayer(current => {
 						if (current.hasMark("nksslingyu_meita_mark")) {
 							current.removeMark("nksslingyu_meita_mark", current.countMark("nksslingyu_meita_mark"));
+							current.unmarkSkill("nksslingyu_meita_mark");
 							current.removeSkill("nksslingyu_meita_distance");
 							current.removeSkill("nksslingyu_meita_damage");
 						}
 					});
-					game.log("所有“美塔”标记已被移除");
 				},
 			},
 			blocker: {
@@ -526,24 +525,29 @@ export const skills = {
 				charlotte: true,
 				onremove: true,
 				mod: {
+					getSuitInfo(card) {
+						let cardSuit = get.suit(card);
+						if (cardSuit === "unsure") return null;
+						if (cardSuit === "none" || cardSuit === undefined) {
+							if (card.cards && card.cards.length > 0) {
+								cardSuit = get.suit(card.cards[0]);
+							}
+						}
+						return cardSuit;
+					},
+					checkSuit(card, target) {
+						const cardSuit = lib.skill.djqiangli_respond.mod.getSuitInfo(card);
+						if (cardSuit === null) return false;
+						const targetSuit = target.getStorage("djqiangli_suit", "");
+						if (!targetSuit || targetSuit === "none") return true;
+						if (cardSuit === "none" || cardSuit === undefined) return false;
+						if (cardSuit !== targetSuit) return false;
+						return true;
+					},
 					cardRespondable(card, player) {
 						const target = _status.currentPhase;
 						if (target && target.hasSkill("djqiangli") && target !== player && target.getStorage("djqiangli_suit", null)) {
-							let cardSuit = get.suit(card);
-							if (cardSuit === "unsure") return;
-							if (cardSuit === "none" || cardSuit === undefined) {
-								if (card.cards && card.cards.length > 0) {
-									cardSuit = get.suit(card.cards[0]);
-								}
-							}
-							const targetSuit = target.getStorage("djqiangli_suit", "");
-							if (cardSuit === "none" || cardSuit === undefined) {
-								if (targetSuit === "none") return;
-								return false;
-							}
-							if (cardSuit !== targetSuit) {
-								return false;
-							}
+							return lib.skill.djqiangli_respond.mod.checkSuit(card, target);
 						}
 					},
 					cardEnabled(card, player) {
@@ -551,21 +555,7 @@ export const skills = {
 						if (evt && (evt.type === "dying" || evt.name === "_save")) return;
 						const target = _status.currentPhase;
 						if (target && target.hasSkill("djqiangli") && target !== player && target.getStorage("djqiangli_suit", null)) {
-							let cardSuit = get.suit(card);
-							if (cardSuit === "unsure") return;
-							if (cardSuit === "none" || cardSuit === undefined) {
-								if (card.cards && card.cards.length > 0) {
-									cardSuit = get.suit(card.cards[0]);
-								}
-							}
-							const targetSuit = target.getStorage("djqiangli_suit", "");
-							if (cardSuit === "none" || cardSuit === undefined) {
-								if (targetSuit === "none") return;
-								return false;
-							}
-							if (cardSuit !== targetSuit) {
-								return false;
-							}
+							return lib.skill.djqiangli_respond.mod.checkSuit(card, target);
 						}
 					},
 				},
@@ -2107,7 +2097,8 @@ export const skills = {
 						})
 						.set("sourcex", target)
 						.set("playerx", player)
-						.set("addCount", false);
+						.set("addCount", false)
+						.set("tlpoquan_source", true);
 				},
 			},
 			draw: {
@@ -2115,7 +2106,8 @@ export const skills = {
 				forced: true,
 				popup: false,
 				filter(event, player) {
-					return event.getParent(2).name === "tlpoquan_afterUse" && player._tlpoquan_firstCard;
+					const parent = event.getParent();
+					return parent && parent.tlpoquan_source === true && player._tlpoquan_firstCard;
 				},
 				async content(event, trigger, player) {
 					game.playSkillBgm("poquan");
@@ -2900,7 +2892,7 @@ export const skills = {
 			target.addSkills("astlgongjin_link");
 			player.markAuto("astlgongjin_link", [target]);
 			target.markAuto("astlgongjin_link", [player]);
-			player.awakenSkill("astlgongjin");	
+			player.awakenSkill("astlgongjin");
 		},
 		ai: {
 			order: 10,
@@ -2937,7 +2929,7 @@ export const skills = {
 					const result = await brother
 						.chooseBool(`共进：是否改为由你受到这${get.cnNumber(trigger.num)}点伤害？`)
 						.set("ai", () => {
-							return get.attitude(brother, player) > 0 && ((brother.hp > trigger.num + 1) || brother.hp <= 1) ? 1 : 0;
+							return get.attitude(brother, player) > 0 && (brother.hp > trigger.num + 1 || brother.hp <= 1) ? 1 : 0;
 						})
 						.forResult();
 					if (result.bool) {

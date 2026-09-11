@@ -204,10 +204,9 @@ export const skills = {
 							const costCards = cardResult.cards;
 							const list = [];
 							const cardNames = lib.inpile;
-							const excludeNames = ["wuxie", "bingliang", "lebu", "shandian"];
 							for (const name of cardNames) {
-								const type = get.type2(name, false);
-								if (type === "trick" && !excludeNames.includes(name)) {
+								const type = get.type(name, false);
+								if (type === "trick" && lib.card[name].enable) {
 									list.push([type, "", name]);
 								}
 							}
@@ -224,7 +223,6 @@ export const skills = {
 									for (const card of costCards) {
 										await player.lose(card, ui.discardPile);
 									}
-									game.log(player, "弃置了", costCards);
 									player.logSkill("sydjhuihuang");
 									const vcard = { name: name };
 									await player.chooseUseTarget(vcard, true, false);

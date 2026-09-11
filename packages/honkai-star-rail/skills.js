@@ -1864,15 +1864,8 @@ export const skills = {
 			const xiadie = player._trueMe ?? game.players.find(p => p.hasSkill("xdanchao"));
 			if (!xiadie) return false;
 			if (event.player === xiadie) return true;
-			const xiadieIdentity = xiadie.identity;
-			const targetIdentity = event.player.identity;
-			if (xiadieIdentity === "fan") {
-				if (targetIdentity !== "fan") return false;
-			} else if (xiadieIdentity === "zhu" || xiadieIdentity === "zhong") {
-				if (targetIdentity !== "zhu" && targetIdentity !== "zhong") return false;
-			} else if (xiadieIdentity === "nei") {
-				if (get.attitude(xiadie, event.player) <= 0) return false;
-			}
+			const att = get.attitude(xiadie, event.player);
+			if (att <= 0) return false;
 			const reduceDamage = Math.max(0, event.num - event.player.hp + 1);
 			const damageX = 5 * reduceDamage;
 			if (player.getHp() <= damageX) return false;
@@ -1881,14 +1874,11 @@ export const skills = {
 		async content(event, trigger, player) {
 			const reduceDamage = Math.max(0, trigger.num - trigger.player.hp + 1);
 			trigger.num -= reduceDamage;
-			game.log(player, "发动了【荫蔽】，令", trigger.player, `受到的伤害减少${reduceDamage}点`);
 			const damageX = 5 * reduceDamage;
 			if (trigger.source?.isAlive()) {
 				await player.damage(damageX, trigger.source);
-				game.log(player, "受到了来自", trigger.source, `的${damageX}点伤害`);
 			} else {
 				await player.damage(damageX);
-				game.log(player, `受到了${damageX}点伤害`);
 			}
 		},
 		ai: {

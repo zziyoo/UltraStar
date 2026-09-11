@@ -802,8 +802,8 @@ export const skills = {
 					return event.targets.some(target => target !== player && target.hasMark("alqnhuahui_xue"));
 				},
 				async content(event, trigger, player) {
-				for (const target of trigger.targets) {
-					target.removeMark("alqnhuahui_xue", 1);
+					for (const target of trigger.targets) {
+						target.removeMark("alqnhuahui_xue", 1);
 						const roundGain = player.getStorage("alqnhuahui_roundGain", 0);
 						const curMingqi = player.countMark("alqnhuahui_mingqi");
 						if (roundGain < 3 && curMingqi < 4) {
@@ -815,8 +815,8 @@ export const skills = {
 						}
 						await player.draw();
 					}
-				for (const target of trigger.targets) {
-					if (target.countMark("alqnhuahui_xue") > 0) {
+					for (const target of trigger.targets) {
+						if (target.countMark("alqnhuahui_xue") > 0) {
 							target.markSkill("alqnhuahui_xue");
 						} else {
 							target.unmarkSkill("alqnhuahui_xue");
@@ -1279,7 +1279,7 @@ export const skills = {
 		async content(event, trigger, player) {
 			const isHuang = !player.storage.ffshalong;
 			if (isHuang) {
-				game.playAudio("..", "extension", "奥特之星", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 1));
+				game.playAudio("..", "extension", "奥特之星", "assets/audio/shalong" + (Math.floor(Math.random() * 3) + 1));
 				const members = game.filterPlayer(p => p.countMark("ffkuanghuan_member") > 0);
 				const targets = members.filter(m => m.hp > Math.ceil(m.maxHp / 2));
 				event.targets = targets;
@@ -1300,7 +1300,7 @@ export const skills = {
 					await next;
 				}
 			} else {
-				game.playAudio("..", "extension", "奥特之星", "audio/skill/shalong" + (Math.floor(Math.random() * 3) + 4));
+				game.playAudio("..", "extension", "奥特之星", "assets/audio/shalong" + (Math.floor(Math.random() * 3) + 4));
 				const members = game.filterPlayer(p => p.countMark("ffkuanghuan_member") > 0);
 				for (const member of members) {
 					await member.recover(1);
@@ -1652,6 +1652,20 @@ export const skills = {
 						const evt = get.event().getParent();
 						const isSave = evt.name !== "phaseUse" && cardName === "tao";
 						const isRespondOnly = evt.name === "chooseToRespond";
+						const removeRecord = (player, name) => {
+							const records = player.getStorage("qsklingjiang_records", []);
+							const idx = records.indexOf(name);
+							if (idx > -1) {
+								records.splice(idx, 1);
+								player.setStorage("qsklingjiang_records", records);
+								player.markSkill("qsklingjiang");
+								if (records.length === 0) {
+									const next = game.createEvent("qsklingjiang_recordEmpty", false);
+									next.player = player;
+									next.setContent("emptyEvent");
+								}
+							}
+						};
 						return {
 							audio: ["ext:奥特之星/assets/audio/lingjiang1", "ext:奥特之星/assets/audio/lingjiang2"],
 							filterCard: () => false,
@@ -1661,34 +1675,10 @@ export const skills = {
 							viewAs: { name: cardName },
 							popname: true,
 							async onuse(result, player) {
-								const name = lib.skill.qsklingjiang_use_backup.cardName;
-								const records = player.getStorage("qsklingjiang_records", []);
-								const idx = records.indexOf(name);
-								if (idx > -1) {
-									records.splice(idx, 1);
-									player.setStorage("qsklingjiang_records", records);
-									player.markSkill("qsklingjiang");
-									if (records.length === 0) {
-										const next = game.createEvent("qsklingjiang_recordEmpty", false);
-										next.player = player;
-										next.setContent("emptyEvent");
-									}
-								}
+								removeRecord(player, lib.skill.qsklingjiang_use_backup.cardName);
 							},
 							async onrespond(result, player) {
-								const name = lib.skill.qsklingjiang_use_backup.cardName;
-								const records = player.getStorage("qsklingjiang_records", []);
-								const idx = records.indexOf(name);
-								if (idx > -1) {
-									records.splice(idx, 1);
-									player.setStorage("qsklingjiang_records", records);
-									player.markSkill("qsklingjiang");
-									if (records.length === 0) {
-										const next = game.createEvent("qsklingjiang_recordEmpty", false);
-										next.player = player;
-										next.setContent("emptyEvent");
-									}
-								}
+								removeRecord(player, lib.skill.qsklingjiang_use_backup.cardName);
 							},
 						};
 					},
@@ -1992,15 +1982,15 @@ export const skills = {
 				forced: true,
 				popup: false,
 				filter(event, player) {
-					if (player.getStorage("_mwkzhihuo_fireround", 0) > 0 && game.roundNumber > player.getStorage("_mwkzhihuo_fireround", 0)) return false;
+					const fireround = player.getStorage("_mwkzhihuo_fireround", 0);
+					if (fireround > 0 && game.roundNumber > fireround) {
+						player.removeSkill("mwkzhihuo_firedebuff");
+						player.setStorage("_mwkzhihuo_fireround", 0);
+						return false;
+					}
 					return event.hasNature?.("fire") ?? false;
 				},
 				async content(event, trigger, player) {
-					if (player.getStorage("_mwkzhihuo_fireround", 0) > 0 && game.roundNumber > player.getStorage("_mwkzhihuo_fireround", 0)) {
-						player.removeSkill("mwkzhihuo_firedebuff");
-						player.setStorage("_mwkzhihuo_fireround", 0);
-						return;
-					}
 					trigger.num++;
 				},
 				mark: true,
@@ -2280,7 +2270,7 @@ export const skills = {
 				}
 				weights[clickedName] = (weights[clickedName] ?? 1) + 1.21 * equipmentNames.length;
 				clickCount++;
-				game.playAudio("..", "extension", "奥特之星", "audio/skill/duancui" + (Math.floor(Math.random() * 2) + 1));
+				game.playAudio("..", "extension", "奥特之星", "assets/audio/duancui" + (Math.floor(Math.random() * 2) + 1));
 			}
 			const selectedEquips = [];
 			const tempEquipList = equipmentNames.slice(0);

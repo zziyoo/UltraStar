@@ -26,4 +26,12 @@ export const characters = {
 		img: "extension/奥特之星/assets/image/未遂.jpg",
 		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/未遂.mp3"],
 	},
+	ChatGPT娘: {
+		sex: "female",
+		group: "shen",
+		hp: 4,
+		skills: ["gptfenxi", "gptjiansuo", "gptdaan"],
+		names: "Chat|Gpt",
+		img: "extension/奥特之星/assets/image/ChatGPT娘.jpg",
+	},
 };

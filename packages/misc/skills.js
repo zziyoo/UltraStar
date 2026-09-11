@@ -576,7 +576,7 @@ export const skills = {
 		init(player, skill) {
 			game.broadcastAll(
 				(player, skill) => {
-					const observer = new MutationObserver(mutationsList => {
+					player._yaoyaoyi_observer = new MutationObserver(mutationsList => {
 						for (const mutation of mutationsList) {
 							if (mutation.type === "childList") {
 								const cards = player._start_cards ?? [];
@@ -614,8 +614,8 @@ export const skills = {
 						}
 					});
 					const config = { childList: true };
-					observer.observe(player.node.handcards1, config);
-					observer.observe(player.node.handcards2, config);
+					player._yaoyaoyi_observer.observe(player.node.handcards1, config);
+					player._yaoyaoyi_observer.observe(player.node.handcards2, config);
 					player.node.handcards1.cardMod ??= {};
 					player.node.handcards2.cardMod ??= {};
 					const cardMod = card => {
@@ -668,6 +668,10 @@ export const skills = {
 		},
 		onremove(player, skill) {
 			player.removeGaintag(`${skill}_tag`);
+			if (player._yaoyaoyi_observer) {
+				player._yaoyaoyi_observer.disconnect();
+				delete player._yaoyaoyi_observer;
+			}
 			game.broadcastAll(
 				(player, skill) => {
 					player.node.handcards1.classList.remove(skill);
@@ -949,7 +953,7 @@ export const skills = {
 			global: "phaseEnd",
 		},
 		filter(event, player) {
-			return (!player.hasHistory("damage"));
+			return !player.hasHistory("damage");
 		},
 		async content(event, trigger, player) {
 			player.addMark("wsgeshi", 1);
@@ -983,6 +987,279 @@ export const skills = {
 		intro: {
 			name: "世",
 			content: "mark",
+		},
+	},
+	gptfenxi: {
+		audio: ["ext:奥特之星/assets/audio/fenxi1.mp3", "ext:奥特之星/assets/audio/fenxi2.mp3"],
+		trigger: { global: "useCardToTargeted" },
+		filter(event, player) {
+			return player.isIn() && event.target != player && event.target.isIn() && event.target.countCards("h") > 0;
+		},
+		logTarget: "target",
+		check(event, player) {
+			return get.attitude(player, event.target) < 0 ? 1 : 0;
+		},
+		async content(event, trigger, player) {
+			const target = trigger.target;
+			const result = await player
+				.choosePlayerCard(target, "h", "visible", true, `分析：观看${get.translation(target)}的手牌，选择其中一张牌`)
+				.forResult();
+			if (!result?.bool || !result.links?.length) {
+				return;
+			}
+			const chosen = result.links[0];
+			const same = get.type2(chosen) === get.type2(trigger.card);
+			const bool = await player
+				.chooseControl("确定", "cancel2")
+				.set(
+					"prompt",
+					same
+						? `分析：是否令${get.translation(target)}弃置${get.translation(chosen)}？`
+						: `分析：是否获得${get.translation(chosen)}？`
+				)
+				.set("ai", () => (get.attitude(player, target) < 0 ? "确定" : "cancel2"))
+				.forResult();
+			if (bool?.control != "确定") {
+				return;
+			}
+			if (same) {
+				await target.discard(chosen);
+			} else {
+				await player.gain(chosen, target, "give");
+			}
+		},
+	},
+	gptjiansuo: {
+		audio: ["ext:奥特之星/assets/audio/jiansuo1.mp3", "ext:奥特之星/assets/audio/jiansuo2.mp3"],
+		enable: "phaseUse",
+		usable: 2,
+		filter(event, player) {
+			return ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes();
+		},
+		async content(event, trigger, player) {
+			if (ui.cardPile.childNodes.length < 5) {
+				await game.washCard();
+			}
+			const cards = get.cards(5);
+			if (!cards.length) {
+				return;
+			}
+			const result = await player
+				.chooseCardButton(cards, 1, `检索：观看牌堆顶的${get.cnNumber(cards.length)}张牌，选择其中一张牌获得之`, true)
+				.set("ai", button => get.buttonValue(button))
+				.forResult();
+			if (!result?.bool || !result.links?.length) {
+				return;
+			}
+			const chosen = result.links[0];
+			const rest = cards.filter(card => card != chosen);
+			game.addCardKnower(cards, player);
+			await player.gain(chosen, "gain2");
+			if (rest.length) {
+				const move = await player
+					.chooseToMove_new(`检索：将其余${get.cnNumber(rest.length)}张牌以任意顺序置于牌堆顶（靠左的牌更靠上）`, true)
+					.set("list", [["牌堆顶", rest]])
+					.set("filterMove", (from, to) => typeof to != "number")
+					.set("filterOk", moved => moved[0].length == rest.length)
+					.set("processAI", list => [list[0][1].slice().sort((a, b) => get.value(b) - get.value(a))])
+					.forResult();
+				if (move?.bool && move.moved?.length) {
+					const arranged = move.moved[0];
+					for (let i = arranged.length - 1; i >= 0; i--) {
+						arranged[i].fix();
+						ui.cardPile.insertBefore(arranged[i], ui.cardPile.firstChild);
+					}
+				}
+			}
+			const type = get.type2(chosen);
+			if (type === "basic" && !player.getHistory("custom", evt => evt.gptjiansuo_draw).length) {
+				const bool = await player.chooseBool("检索：是否摸一张牌？", () => true).forResult();
+				if (bool?.bool) {
+					player.getHistory("custom").push({ gptjiansuo_draw: true });
+					await player.draw();
+				}
+			} else if (type === "trick" && !player.getHistory("custom", evt => evt.gptjiansuo_discard).length) {
+				const result2 = await player
+					.chooseTarget("检索：弃置一名角色的一张牌", (card, player, target) => target.hasDiscardableCards(player, "hej"))
+					.set("ai", target => lib.card.guohe.ai.result.target(player, target))
+					.forResult();
+				if (result2?.bool && result2.targets?.length) {
+					player.getHistory("custom").push({ gptjiansuo_discard: true });
+					await player
+						.discardPlayerCard(result2.targets[0], "hej", true)
+						.set("target", result2.targets[0])
+						.set("ai", lib.card.guohe.ai.button);
+				}
+			} else if (type === "equip" && !player.getHistory("custom", evt => evt.gptjiansuo_recover).length) {
+				const result2 = await player
+					.chooseTarget("检索：令一名角色回复1点体力", (card, player, target) => target.isDamaged())
+					.set("ai", target => get.recoverEffect(target, player, player))
+					.forResult();
+				if (result2?.bool && result2.targets?.length) {
+					player.getHistory("custom").push({ gptjiansuo_recover: true });
+					await result2.targets[0].recover();
+				}
+			}
+		},
+		ai: {
+			order: 7,
+			result: {
+				player: 1,
+			},
+		},
+	},
+	gptdaan: {
+		audio: ["ext:奥特之星/assets/audio/daan1.mp3", "ext:奥特之星/assets/audio/daan2.mp3"],
+		enable: ["chooseToUse", "chooseToRespond"],
+		usable: 1,
+		filter(event, player) {
+			return (
+				(ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes()) &&
+				get.inpileVCardList(info => event.filterCard({ name: info[2], nature: info[3], isCard: true }, player, event)).length > 0
+			);
+		},
+		hiddenCard(player, name) {
+			if (!lib.inpile.includes(name)) {
+				return false;
+			}
+			return ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes();
+		},
+		chooseButton: {
+			dialog(event, player) {
+				const list = get.inpileVCardList(info => lib.skill.gptdaan.hiddenCard(player, info[2]));
+				return ui.create.dialog("答案", [list, "vcard"]);
+			},
+			filter(button, player) {
+				const evt = get.event().getParent();
+				return evt.filterCard({ name: button.link[2], nature: button.link[3], isCard: true }, player, evt);
+			},
+			check(button) {
+				const player = get.player();
+				const evt = get.event().getParent();
+				if (evt.dying) {
+					return get.attitude(player, evt.dying);
+				}
+				if (evt.type !== "phase") {
+					return 1;
+				}
+				return player.getUseValue({ name: button.link[2], nature: button.link[3] });
+			},
+			prompt(links) {
+				const evt = get.event().getParent();
+				return `答案：将牌堆顶的牌当作${get.translation(links[0][3]) || ""}【${get.translation(links[0][2])}】${evt.name == "chooseToRespond" ? "打出" : "使用"}`;
+			},
+			backup(links) {
+				const name = links[0][2];
+				const nature = links[0][3];
+				return {
+					viewAs: { name: name, nature: nature, isCard: true },
+					filterCard: () => false,
+					selectCard: -1,
+					log: false,
+					async precontent(event, trigger, player) {
+						if (ui.cardPile.childNodes.length < 7) {
+							await game.washCard();
+						}
+						const cards = get.cards(7);
+						if (!cards.length) {
+							event.result = {};
+							return;
+						}
+						const result = await player
+							.chooseCardButton(
+								cards,
+								1,
+								`答案：展示牌堆顶的${get.cnNumber(cards.length)}张牌，选择其中一张牌当作【${get.translation(name)}】使用或打出`,
+								true
+							)
+							.set("ai", button => {
+								let val = get.value(button.link);
+								if (get.name(button.link) == name) {
+									val += 5;
+								}
+								return val;
+							})
+							.forResult();
+						if (!result?.bool || !result.links?.length) {
+							event.result = {};
+							return;
+						}
+						const chosen = result.links[0];
+						const rest = cards.filter(card => card != chosen);
+						game.addCardKnower(cards, player);
+						if (rest.length) {
+							const move = await player
+								.chooseToMove_new(`答案：将其余${get.cnNumber(rest.length)}张牌以任意顺序置于牌堆顶（靠左的牌更靠上）`, true)
+								.set("list", [["牌堆顶", rest]])
+								.set("filterMove", (from, to) => typeof to != "number")
+								.set("filterOk", moved => moved[0].length == rest.length)
+								.set("processAI", list => [list[0][1].slice().sort((a, b) => get.value(b) - get.value(a))])
+								.forResult();
+							if (move?.bool && move.moved?.length) {
+								const arranged = move.moved[0];
+								for (let i = arranged.length - 1; i >= 0; i--) {
+									arranged[i].fix();
+									ui.cardPile.insertBefore(arranged[i], ui.cardPile.firstChild);
+								}
+							}
+						}
+						event.result.cards = [chosen];
+						event.result.card = get.autoViewAs({ name: name, nature: nature }, [chosen]);
+					},
+				};
+			},
+		},
+		group: ["gptdaan_draw"],
+		subSkill: {
+			draw: {
+				audio: "gptdaan",
+				charlotte: true,
+				forced: true,
+				popup: false,
+				trigger: { player: ["useCardAfter", "respondAfter"] },
+				filter(event, player) {
+					if (event.skill != "gptdaan_backup" || !event.cards?.length || !event.card) {
+						return false;
+					}
+					return get.name(event.cards[0], player) == get.name(event.card);
+				},
+				async content(event, trigger, player) {
+					await player.draw(2);
+					player.refreshSkill("gptdaan");
+				},
+			},
+		},
+		ai: {
+			respondSha: true,
+			respondShan: true,
+			skillTagFilter(player) {
+				return ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes();
+			},
+			order(item, player) {
+				if (player && _status.event.type == "phase") {
+					const list = get.inpileVCardList(info => lib.skill.gptdaan.hiddenCard(player, info[2]));
+					let max = 0;
+					list.forEach(info => {
+						const card = { name: info[2], nature: info[3] };
+						if (player.getUseValue(card) > 0) {
+							const temp = get.order(card);
+							if (temp > max) {
+								max = temp;
+							}
+						}
+					});
+					if (max > 0) {
+						max += 1;
+					}
+					return max;
+				}
+				return 1;
+			},
+			result: {
+				player(player) {
+					return get.event().dying ? get.attitude(player, get.event().dying) : 1;
+				},
+			},
 		},
 	},
 };
