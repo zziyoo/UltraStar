@@ -2961,4 +2961,39 @@ export const skills = {
 			},
 		},
 	},
+	mksjvhua: {
+		enable: "phaseUse",
+		usable: 1,
+		async content(event, trigger, player) {
+			await player.loseHp(1);
+			await player.draw(player.maxHp);
+			player.addTempSkill("mksjvhua_unlimited");
+		},
+		ai: {
+			order: 7,
+			result: {
+				player(player) {
+					if (player.maxHp <= 1) return 0;
+					return 1;
+				},
+			},
+		},
+		subSkill: {
+			unlimited: {
+				charlotte: true,
+				name: "巨化",
+				mod: {
+					cardUsable() {
+						return Infinity;
+					},
+					targetInRange() {
+						return true;
+					},
+					ignoredHandcard() {
+						return true;
+					},
+				},
+			},
+		},
+	},
 };

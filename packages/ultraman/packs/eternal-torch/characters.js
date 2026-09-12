@@ -128,4 +128,13 @@ export const characters = {
 		img: "extension/奥特之星/assets/image/阿斯特拉.jpg",
 		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
+	麦克斯: {
+		sex: "male",
+		group: "ao",
+		hp: 4,
+		skills: ["swbingfu", "betfenshen", "mksjvhua"],
+		names: "null|麦克斯",
+		img: "extension/奥特之星/assets/image/麦克斯.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/麦克斯.mp3"],
+	},
 };

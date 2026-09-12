@@ -1002,7 +1002,9 @@ export const skills = {
 		async content(event, trigger, player) {
 			const target = trigger.target;
 			const result = await player
-				.choosePlayerCard(target, "h", "visible", true, `分析：观看${get.translation(target)}的手牌，选择其中一张牌`)
+				.choosePlayerCard(target, "h", true)
+				.set("prompt", `分析：观看${get.translation(target)}的手牌，选择其中一张牌`)
+				.set("visible", true)
 				.forResult();
 			if (!result?.bool || !result.links?.length) {
 				return;
@@ -1011,12 +1013,7 @@ export const skills = {
 			const same = get.type2(chosen) === get.type2(trigger.card);
 			const bool = await player
 				.chooseControl("确定", "cancel2")
-				.set(
-					"prompt",
-					same
-						? `分析：是否令${get.translation(target)}弃置${get.translation(chosen)}？`
-						: `分析：是否获得${get.translation(chosen)}？`
-				)
+				.set("prompt", same ? `分析：是否令${get.translation(target)}弃置${get.translation(chosen)}？` : `分析：是否获得${get.translation(chosen)}？`)
 				.set("ai", () => (get.attitude(player, target) < 0 ? "确定" : "cancel2"))
 				.forResult();
 			if (bool?.control != "确定") {
@@ -1083,10 +1080,7 @@ export const skills = {
 					.set("ai", target => lib.card.guohe.ai.result.target(player, target))
 					.forResult();
 				if (result2?.bool && result2.targets?.length) {
-					await player
-						.discardPlayerCard(result2.targets[0], "hej", true)
-						.set("target", result2.targets[0])
-						.set("ai", lib.card.guohe.ai.button);
+					await player.discardPlayerCard(result2.targets[0], "hej", true).set("target", result2.targets[0]).set("ai", lib.card.guohe.ai.button);
 				}
 			} else if (type === "equip") {
 				const result2 = await player
@@ -1110,10 +1104,7 @@ export const skills = {
 		enable: ["chooseToUse", "chooseToRespond"],
 		usable: 1,
 		filter(event, player) {
-			return (
-				(ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes()) &&
-				get.inpileVCardList(info => event.filterCard({ name: info[2], nature: info[3], isCard: true }, player, event)).length > 0
-			);
+			return (ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes()) && get.inpileVCardList(info => event.filterCard({ name: info[2], nature: info[3], isCard: true }, player, event)).length > 0;
 		},
 		hiddenCard(player, name) {
 			if (!lib.inpile.includes(name)) {
@@ -1163,12 +1154,7 @@ export const skills = {
 							return;
 						}
 						const result = await player
-							.chooseCardButton(
-								cards,
-								1,
-								`答案：展示牌堆顶的${get.cnNumber(cards.length)}张牌，选择其中一张牌当作【${get.translation(name)}】使用或打出`,
-								true
-							)
+							.chooseCardButton(cards, 1, `答案：展示牌堆顶的${get.cnNumber(cards.length)}张牌，选择其中一张牌当作【${get.translation(name)}】使用或打出`, true)
 							.set("ai", button => {
 								let val = get.value(button.link);
 								if (get.name(button.link) == name) {

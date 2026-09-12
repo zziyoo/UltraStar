@@ -29,6 +29,7 @@ export function loadPacks() {
 	const seenIds = new Set();
 	const seenChars = new Set();
 	const seenSkills = new Set(Object.keys(sharedSkills));
+	const charPack = new Map();
 
 	for (const pack of packs) {
 		const pid = pack.id ?? "(缺少id)";
@@ -42,6 +43,7 @@ export function loadPacks() {
 			else {
 				seenChars.add(id);
 				merged.characters[id] = pack.characters[id];
+				charPack.set(id, pid);
 			}
 		}
 		for (const id of Object.keys(pack.skills ?? {})) {
@@ -51,13 +53,6 @@ export function loadPacks() {
 				merged.skills[id] = pack.skills[id];
 			}
 		}
-		for (const [name, info] of Object.entries(pack.characters ?? {})) {
-			for (const sk of info?.skills ?? []) {
-				if (!(sk in merged.skills) && !(sk in sharedSkills)) {
-					problems.push(`角色 ${name}（分包 ${pid}）引用了不存在的技能: ${sk}`);
-				}
-			}
-		}
 
 		Object.assign(merged.characterTranslate, pack.characterTranslate ?? {});
 		Object.assign(merged.skillTranslate, pack.skillTranslate ?? {});
@@ -65,6 +60,14 @@ export function loadPacks() {
 		Object.assign(merged.characterIntro, pack.characterIntro ?? {});
 		Object.assign(merged.voices, pack.voices ?? {});
 		Object.assign(merged.dynamicTranslate, pack.dynamicTranslate ?? {});
+	}
+
+	for (const [name, info] of Object.entries(merged.characters)) {
+		for (const sk of info?.skills ?? []) {
+			if (!(sk in merged.skills)) {
+				problems.push(`角色 ${name}（分包 ${charPack.get(name)}）引用了不存在的技能: ${sk}`);
+			}
+		}
 	}
 
 	for (const p of problems) console.error("[ultraman pack loader] " + p);

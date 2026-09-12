@@ -93,7 +93,7 @@ export const skills = {
 	},
 	betfenshen: {
 		audio: ["ext:奥特之星/assets/audio/fenshen"],
-		group: ["betfenshen_damage", "betfenshen_target"],
+		group: ["betfenshen_mark", "betfenshen_damage", "betfenshen_target"],
 		subSkill: {
 			mark: {
 				mark: true,
