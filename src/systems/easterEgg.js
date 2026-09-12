@@ -220,6 +220,16 @@ eggs.catalog = {
 			hint: "寻找一对失散多年的奥特亲兄弟。",
 			content: ["哥哥！", "弟弟！"],
 		},
+		{
+			id: "ultraman_guanglun_baltan",
+			category: "奥特曼",
+			title: "满门忠烈",
+			characters: ["奥特曼", "巴尔坦星人"],
+			triggerType: "damage",
+			triggerDescription: "奥特曼发动技能「光轮」对巴尔坦星人造成伤害时，有概率触发。",
+			hint: "一道八分光轮，一道斯派修姆光线，成全了宇宙忍者的忠烈之名。",
+			content: ["满门忠烈"],
+		},
 	],
 	"原神": [
 		{
@@ -507,6 +517,33 @@ eggs.init = function () {
 		};
 		game.addGlobalSkill("_wmEasterEggSkill");
 	}
+	if (!lib.skill._wmEasterEggGuanglun) {
+		lib.skill._wmEasterEggGuanglun = {
+			trigger: { global: "damageBegin4" },
+			forced: true,
+			silent: true,
+			popup: false,
+			filter(event, player) {
+				if (player !== event.source) return false;
+				if (!lib.config.extension_奥特之星_easterEgg_enabled) return false;
+				const source = event.source;
+				if (!source.isIn() || !source.hasSkill("atmguanglun")) return false;
+				if (!event.player.isIn()) return false;
+				if (!eggMatchPlayer(event.player, "巴尔坦星人")) return false;
+				const useCard = event.getParent("useCard", true);
+				return !!useCard?.skill && String(useCard.skill).startsWith("atmguanglun");
+			},
+			async content(event, trigger, player) {
+				if (Math.random() >= 0.08) return;
+				const target = trigger.player;
+				trigger.cancel();
+				game.log("满门忠烈！");
+				await target.die();
+				eggs.markDiscovered("ultraman_guanglun_baltan");
+			},
+		};
+		game.addGlobalSkill("_wmEasterEggGuanglun");
+	}
 };
 
 // ===== 彩蛋图鉴界面 =====
@@ -523,7 +560,7 @@ const ensureEggCatalogStyles = () => {
 						@keyframes wmEggSlideIn{from{transform:scale(0.5) translateY(-100px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 						.wm-egg-catalog-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;animation:wmEggFadeIn 0.5s ease-in-out;}
 						.wm-egg-catalog-overlay.detail{z-index:100000;}
-						.wm-egg-catalog-overlay .wm-egg-catalog-box{position:relative;width:70%;height:80%;max-width:900px;background:rgba(216,193,255,0.85);border-radius:20px;padding:0 40px;box-shadow:0 20px 60px rgba(180,150,255,0.5);animation:wmEggSlideIn 0.6s cubic-bezier(0.68,-0.55,0.265,1.55);overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;}
+						.wm-egg-catalog-overlay .wm-egg-catalog-box{position:relative;width:77%;height:84%;max-width:990px;background:rgba(216,193,255,0.85);border-radius:20px;padding:0 40px;box-shadow:0 20px 60px rgba(180,150,255,0.5);animation:wmEggSlideIn 0.6s cubic-bezier(0.68,-0.55,0.265,1.55);overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;}
 						.wm-egg-catalog-title{color:#fff;font-size:26px;font-weight:bold;text-shadow:1px 1px 2px rgba(0,0,0,0.8);padding:20px 0 5px 0;text-align:center;flex-shrink:0;position:relative;}
 						.wm-egg-catalog-progress{color:#fff;font-size:18px;text-align:center;text-shadow:1px 1px 2px rgba(0,0,0,0.6);flex-shrink:0;position:relative;}
 						.wm-egg-catalog-hint{color:rgba(255,255,255,0.85);font-size:14px;text-align:center;text-shadow:1px 1px 2px rgba(0,0,0,0.6);padding-bottom:8px;flex-shrink:0;position:relative;}

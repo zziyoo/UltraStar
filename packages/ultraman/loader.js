@@ -4,11 +4,12 @@ import { skills as sharedSkills } from "./shared/skills.js";
 import endOfAll from "./packs/end-of-all/index.js";
 import devourWorld from "./packs/devour-world/index.js";
 import eternalTorch from "./packs/eternal-torch/index.js";
+import starseaBeacon from "./packs/starsea-beacon/index.js";
 import daybreak from "./packs/daybreak/index.js";
 import boundlessCosmos from "./packs/boundless-cosmos/index.js";
 
 // 奥特曼分包清单：新增分包只需新建 packs/<id>/ 并加入此数组
-export const packs = [eternalTorch, daybreak, devourWorld, endOfAll, boundlessCosmos];
+export const packs = [eternalTorch, starseaBeacon, daybreak, devourWorld, endOfAll, boundlessCosmos];
 
 // 加载并验证所有分包，返回合并结果。
 // 校验项：分包 id 重复/缺失、name 缺失、角色重复、技能重复、角色引用技能是否存在。

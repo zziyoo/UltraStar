@@ -1072,31 +1072,28 @@ export const skills = {
 				}
 			}
 			const type = get.type2(chosen);
-			if (type === "basic" && !player.getHistory("custom", evt => evt.gptjiansuo_draw).length) {
+			if (type === "basic") {
 				const bool = await player.chooseBool("检索：是否摸一张牌？", () => true).forResult();
 				if (bool?.bool) {
-					player.getHistory("custom").push({ gptjiansuo_draw: true });
 					await player.draw();
 				}
-			} else if (type === "trick" && !player.getHistory("custom", evt => evt.gptjiansuo_discard).length) {
+			} else if (type === "trick") {
 				const result2 = await player
 					.chooseTarget("检索：弃置一名角色的一张牌", (card, player, target) => target.hasDiscardableCards(player, "hej"))
 					.set("ai", target => lib.card.guohe.ai.result.target(player, target))
 					.forResult();
 				if (result2?.bool && result2.targets?.length) {
-					player.getHistory("custom").push({ gptjiansuo_discard: true });
 					await player
 						.discardPlayerCard(result2.targets[0], "hej", true)
 						.set("target", result2.targets[0])
 						.set("ai", lib.card.guohe.ai.button);
 				}
-			} else if (type === "equip" && !player.getHistory("custom", evt => evt.gptjiansuo_recover).length) {
+			} else if (type === "equip") {
 				const result2 = await player
 					.chooseTarget("检索：令一名角色回复1点体力", (card, player, target) => target.isDamaged())
 					.set("ai", target => get.recoverEffect(target, player, player))
 					.forResult();
 				if (result2?.bool && result2.targets?.length) {
-					player.getHistory("custom").push({ gptjiansuo_recover: true });
 					await result2.targets[0].recover();
 				}
 			}

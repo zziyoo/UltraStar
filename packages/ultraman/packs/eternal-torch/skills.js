@@ -2859,6 +2859,9 @@ export const skills = {
 				},
 				async content(event, trigger, player) {
 					player.removeMark("astlqiuyv", 1);
+					if (!player.countMark("astlqiuyv")) {
+						player.unmarkSkill("astlqiuyv");
+					}
 				},
 			},
 			achieve: {

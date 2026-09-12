@@ -161,6 +161,7 @@ export const skills = {
 		trigger: { player: "useCardAfter" },
 		filter(event, player) {
 			if (!event.targets || event.targets.length === 0) return false;
+			if (get.type(event.card) === "delay") return false;
 			if (!lib.suit.includes(get.suit(event.card))) return false;
 			const targets = event.targets.filter(target => target !== player && target.isAlive());
 			return targets.some(target => {

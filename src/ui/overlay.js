@@ -7,7 +7,7 @@ style.id = "wm-changelog-styles";
 style.textContent = `@keyframes wmFadeIn{from{opacity:0}to{opacity:1}}
 					@keyframes wmSlideIn{from{transform:scale(0.5) translateY(-100px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 					.wm-changelog-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;animation:wmFadeIn 0.5s ease-in-out;}
-					.wm-changelog-box{position:relative;width:70%;height:80%;max-width:900px;min-height:0;background:rgba(216,193,255,0.85);border-radius:20px;padding:0 40px;box-shadow:0 20px 60px rgba(180,150,255,0.5);animation:wmSlideIn 0.6s cubic-bezier(0.68,-0.55,0.265,1.55);overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;}
+					.wm-changelog-box{position:relative;width:77%;height:84%;max-width:990px;min-height:0;background:rgba(216,193,255,0.85);border-radius:20px;padding:0 40px;box-shadow:0 20px 60px rgba(180,150,255,0.5);animation:wmSlideIn 0.6s cubic-bezier(0.68,-0.55,0.265,1.55);overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;}
 					.wm-changelog-title{position:relative;color:#fff;font-size:22px;font-weight:bold;text-shadow:1px 1px 2px rgba(0,0,0,0.8);padding:20px 0 5px 0;text-align:center;flex-shrink:0;}
 					.wm-changelog-hint{position:relative;color:rgba(255,255,255,0.85);font-size:13px;text-align:center;text-shadow:1px 1px 2px rgba(0,0,0,0.6);padding-bottom:8px;flex-shrink:0;}
 					.wm-changelog-text{position:relative;color:#fff;line-height:1.8;font-size:14px;word-wrap:break-word;text-shadow:1px 1px 2px rgba(0,0,0,0.8);overflow-y:auto;flex:1;padding:10px 10px 20px 0;-webkit-overflow-scrolling:touch;}
