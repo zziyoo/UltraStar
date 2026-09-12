@@ -2156,14 +2156,14 @@ export const skills = {
 			await target.damage(damageAmount);
 		},
 		ai: {
-			order: 4,
+			order: 3,
 			result: {
 				player(player) {
 					const targets = game.filterPlayer(cur => cur !== player && get.attitude(player, cur) < 0 && cur.isIn());
 					for (const target of targets) {
 						const potentialDamage = Math.max(1, player.hp);
 						if (target.hp - potentialDamage < 1) {
-							return 10;
+							return 1;
 						}
 					}
 					return 0;
