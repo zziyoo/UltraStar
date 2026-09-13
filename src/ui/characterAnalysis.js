@@ -16,10 +16,9 @@ const GRADES = ["S", "A", "B", "C", "D", "E"];
 const GRADE_VALUES = { S: 6, A: 5, B: 4, C: 3, D: 2, E: 1 };
 const DEFAULT_GRADE = "C";
 
-// ===== 样式（命名空间 .wm-character-analysis-*，挂载到 head，仅注入一次）=====
+// ===== 样式（命名空间 .wm-character-analysis-*，挂载到 head）=====
 const ensureAnalysisStyles = () => {
-	if (document.getElementById("wm-character-analysis-styles")) return;
-	const style = document.createElement("style");
+	const style = document.getElementById("wm-character-analysis-styles") ?? document.createElement("style");
 	style.id = "wm-character-analysis-styles";
 	style.textContent = `@keyframes wmAnalysisFadeIn{from{opacity:0}to{opacity:1}}
 						@keyframes wmAnalysisPanelIn{from{transform:scale(0.86) translateY(-60px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
@@ -84,8 +83,30 @@ const ensureAnalysisStyles = () => {
 							.wm-character-analysis-footer{padding:3px 18px 8px;}
 							.wm-character-analysis-name{padding:4px 18px;font-size:clamp(13px,2.8vh,18px);}
 						}
+						/* 触摸设备使用运行时标记，避免手机 WebView 的 CSS 视口尺寸导致媒体查询不命中 */
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-frame{width:calc(100vw - 12px);max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-header{padding:10px 40px 0;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-body{flex-direction:column;gap:4px;padding:2px 10px 0;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-left{flex:none;width:100%;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-radar{max-width:min(330px,calc(100dvh - 330px));}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-photo{height:auto;max-height:min(30vh,230px);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-photo img{max-height:min(30vh,230px);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-title{font-size:16px;letter-spacing:4px;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-big{font-size:90px;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-footer{padding:4px 12px 10px;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-name{padding:5px 20px;font-size:16px;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-frame{width:min(96vw,1000px);height:calc(100vh - 12px);height:calc(100dvh - 12px);max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-header{padding:clamp(6px,1.1vh,12px) 46px 0;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-title{font-size:clamp(15px,2.8vh,21px);letter-spacing:clamp(3px,0.8vw,7px);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-sub{font-size:clamp(8px,1.6vh,11px);letter-spacing:clamp(2px,0.45vw,4px);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-body{gap:clamp(4px,1vh,10px);padding:clamp(2px,0.6vh,5px) 20px 0;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-radar{max-width:min(330px,42vh);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-photo{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-photo img{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-footer{padding:3px 18px 8px;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-name{padding:4px 18px;font-size:clamp(13px,2.8vh,18px);}
 						`;
-	document.head.appendChild(style);
+	if (!style.parentNode) document.head.appendChild(style);
 };
 
 // ===== 雷达图（SVG 动态生成）=====
@@ -160,7 +181,11 @@ export const openCharacterAnalysis = (id, info) => {
 	const score = calculateCharacterScore(data);
 
 	const overlay = document.createElement("div");
-	overlay.className = "wm-character-analysis-overlay";
+	const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+	const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+	const isTouchDevice = !!lib.config?.touchscreen || (navigator.maxTouchPoints ?? 0) > 0 || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+	const mobileLayout = isTouchDevice ? ` wm-character-analysis-mobile-${viewportHeight > viewportWidth ? "portrait" : "landscape"}` : "";
+	overlay.className = `wm-character-analysis-overlay${mobileLayout}`;
 	const frame = document.createElement("div");
 	frame.className = "wm-character-analysis-frame";
 	const box = document.createElement("div");

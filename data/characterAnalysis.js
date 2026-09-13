@@ -6,7 +6,7 @@ export const characterAnalysis = {
 	遐蝶: { output: "A", defense: "C", operation: "C", control: "C", support: "A", development: "C" },
 	赛迦: { output: "B", defense: "B", operation: "A", control: "A", support: "A", development: "C" },
 	谋曹丕: { output: "C", defense: "C", operation: "B", control: "S", support: "B", development: "B" },
-	那维莱特: { output: "A", defense: "C", operation: "A", control: "B", support: "A", development: "C" },
+	那维莱特: { output: "A", defense: "C", operation: "A", control: "C", support: "A", development: "C" },
 	阿蕾奇诺: { output: "S", defense: "B", operation: "C", control: "C", support: "C", development: "B" },
 	云璃: { output: "A", defense: "B", operation: "B", control: "C", support: "C", development: "C" },
 	闪耀迪迦: { output: "C", defense: "A", operation: "A", control: "C", support: "C", development: "C" },
