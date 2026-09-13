@@ -58,6 +58,7 @@ const ensureAnalysisStyles = () => {
 						.wm-character-analysis-name{transform:skewX(-12deg);border:1px solid rgba(255,215,0,0.55);border-left:4px solid rgba(255,85,96,0.75);background:linear-gradient(90deg,rgba(255,85,96,0.16),rgba(111,216,255,0.13));padding:7px 30px;color:#fff;font-size:20px;font-weight:bold;letter-spacing:2px;text-shadow:1px 1px 3px rgba(0,0,0,0.9);}
 						.wm-character-analysis-name > span{display:inline-block;transform:skewX(12deg);}
 						@media (max-width:640px){
+							.wm-character-analysis-frame{max-height:55vh;}
 							.wm-character-analysis-body{flex-direction:column;gap:6px;padding:4px 14px;}
 							.wm-character-analysis-left{flex:none;width:100%;}
 							.wm-character-analysis-photo{max-height:36vh;}

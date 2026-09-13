@@ -343,13 +343,23 @@ function packagePatch(oldTag, newTag, outDir, nameEn, nameCn) {
 
 	const includeAll = [...added, ...modified, ...renamed.map(r => r.to), ...copied.map(c => c.to)];
 	const excludedDev = includeAll.filter(isExcluded);
-	const include = includeAll.filter(p => !isExcluded(p));
+
+	// 增补包强制包含主目录下的固定文件（无论本次版本间是否有改动）：
+	// 例如主入口 extension.js 必须在每个增补包中附带，否则旧版主程序不会被正确覆盖。
+	// 仅当该文件确实存在于新版本树中时才追加，避免 collectTarMembers 因缺成员而失败；
+	// 已出现在差异中的同名文件不再重复计入（仍照常入包）。
+	const newTree = git(["ls-tree", "-r", "--name-only", newTag]).split("\n").map(s => s.trim()).filter(Boolean);
+	const FORCE_INCLUDE = ["extension.js"];
+	const forced = FORCE_INCLUDE.filter(f => newTree.includes(f) && !includeAll.includes(f));
+
+	const includeSet = new Set([...includeAll, ...forced].filter(p => !isExcluded(p)));
+	const include = [...includeSet];
 	if (!include.length) fail(`版本 ${oldTag} → ${newTag} 之间没有可打包的变更文件`);
 
 	// 从新版本的 git 树中提取文件内容（不使用工作区，保证内容与版本一致）
 	// tar 解析与 zip 写入均在 Node 内完成，避免外部工具的编码与平台差异
 	const tarBuf = git(["-c", "core.autocrlf=false", "archive", "--format=tar", newTag], { encoding: "buffer" });
-	const entries = collectTarMembers(tarBuf, new Set(include));
+	const entries = collectTarMembers(tarBuf, includeSet);
 
 	const outZip = path.join(outDir, `${nameEn}-${oldTag}-to-${newTag}-patch.zip`);
 	fs.rmSync(outZip, { force: true });
@@ -447,6 +457,7 @@ function main() {
 		`| 复制 | ${stats.copied.length} |`,
 		`| 删除（不入包） | ${stats.deleted.length} |`,
 		`| 排除（开发文件） | ${stats.excludedDev.length} |`,
+		`| 强制包含（固定文件） | ${stats.forced.length}（${stats.forced.join(", ") || "无"}） |`,
 		`| 最终打包 | ${stats.packaged} |`,
 		"",
 		"### 变更文件清单",

@@ -1201,7 +1201,8 @@ export const skills = {
 				popup: false,
 				trigger: { player: ["useCardAfter", "respondAfter"] },
 				filter(event, player) {
-					return event.skill == "gptdaan_backup" && event.cards?.length && event.card;
+					if (event.skill != "gptdaan_backup" || !event.cards?.length || !event.card) return false;
+					return event.cards[0].name == event.card.name;
 				},
 				async content(event, trigger, player) {
 					await player.draw(2);
