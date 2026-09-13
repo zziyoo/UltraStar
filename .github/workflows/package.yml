@@ -12,12 +12,12 @@ on:
           - 完整包
           - 增补包
       old_version:
-        description: "增补包：旧版本 Tag；完整包忽略此项"
+        description: "增补包：旧版本 Tag（默认上一正式版本）；完整包忽略此项"
         required: false
         type: string
         default: "上一版"
       new_version:
-        description: "增补包：新版本 Tag；完整包忽略此项"
+        description: "增补包：新版本 Tag；默认使用当前 main 最新代码"
         required: false
         type: string
         default: "最新版"
@@ -35,6 +35,8 @@ jobs:
       - name: 检出仓库（完整历史）
         uses: actions/checkout@v5
         with:
+          # 手动运行可能从旧 Tag/旧提交进入 Actions 页面；打包始终以默认分支当前最新代码为准
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: 获取全部版本 Tag
@@ -49,11 +51,10 @@ jobs:
           node-version: "22"
 
       # 版本校验全部由脚本完成，workflow 不维护 Tag 列表、不自修改：
-      #   - 完整包 = 本次 checkout 的 main HEAD（git archive HEAD），版本号取 HEAD 的 info.json，
+      #   - 完整包 = 本次 checkout 的默认分支最新 HEAD（git archive HEAD），版本号取 HEAD 的 info.json，
       #     与任何 Tag 无关，不要求 Tag 存在，不做 Tag↔info.json 校验
-      #   - 增补包 = 旧 Tag → 新 Tag 正向差异："上一版"/"最新版" 由脚本按运行时 Tag 解析，
-      #     指定 Tag 不存在 → 报错并列出有效 Tag；Tag 与其 info.json 版本不一致 → 拒绝打包；
-      #     相同版本/反向版本 → 拒绝打包
+      #   - 增补包 = 默认上一正式版本 Tag → 当前默认分支 HEAD 的正向差异；也支持显式指定新旧 Tag
+      #     重新生成历史增补包；指定 Tag 不存在/版本不一致/非正向差异 → 拒绝打包
       #   - zip 内容与预期集合逐文件比对；git archive 一律 -c core.autocrlf=false
       - name: 执行打包
         env:
@@ -67,14 +68,13 @@ jobs:
             --new "$PKG_NEW" \
             --out-dir dist
 
-      # Release 标识：完整包 = "v" + HEAD 的 info.json.version（Tag 不存在时由发布步骤在本次
-      # 打包的 commit 上自动创建，仅作产物标识）；增补包 = 新版本 Tag（必须已存在）。
+      # Release 标识：使用打包源代码的 info.json.version；增补包默认也会发布到该版本 Release。
       # release_tag 由打包步骤在全部校验通过后写入 GITHUB_ENV，打包失败则后续步骤不执行
       - name: 发布到 Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.release_tag }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ env.source_commit }}
           name: ${{ env.release_tag }}
           files: ${{ env.zip_path }}
           body: |

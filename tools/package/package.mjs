@@ -2,13 +2,14 @@
 // 配合 .github/workflows/package.yml 在 GitHub Actions 上运行，也可在本地执行（需 git）
 //
 // 版本模型（两套逻辑严格分离）：
-//   完整包 = 当前 main HEAD 快照
+//   完整包 = 当前最新 main HEAD 快照
 //     - 数据来源唯一：本次 checkout 的 HEAD（git archive HEAD），与任何 Tag 无关
 //     - 版本号取 HEAD 的 info.json.version，仅用于命名与展示，不作为打包条件
 //     - 不做 Tag↔info.json 一致性校验（完整包不使用 Tag）
-//   增补包 = 两个正式版本 Tag 之间的正向差异
-//     - 数据来源：git diff 旧Tag 新Tag，文件内容取自新 Tag 的树
-//     - 新旧 Tag 必须真实存在、不得相同或反向，且各自与 info.json 版本号一致
+//   增补包 = 正式版本 Tag → 当前最新 main HEAD 的正向差异
+//     - 默认数据来源：git diff 最近正式版本 Tag HEAD，文件内容取自 HEAD 的树
+//     - 也支持显式指定新旧版本 Tag，用于重新生成历史增补包
+//     - 旧版本 Tag 必须真实存在，并与该 Tag 内的 info.json 版本号一致
 //
 // 用法：
 //   node tools/package/package.mjs --type 完整包
@@ -73,26 +74,39 @@ function verCmp(a, b) {
 	return 0;
 }
 
-// 增补包专用：把旧/新版本输入解析为真实存在的版本 Tag。
-// 输入规则：空/"最新版" → 最新 v* Tag；"上一版" → 次新 v* Tag；"2.1.1"/"v2.1.1" → 必须真实存在。
-// 不存在时直接失败并列出有效 Tag（workflow 不维护 Tag 列表，一切以运行时为准）。
-// 完整包不经过此函数——它只打包当前 HEAD，与 Tag 无关。
-function resolveTagInput(raw, tags, label, emptyMode) {
+// 增补包专用：解析旧版本输入。默认以最近正式版本的前一版本 Tag 作为增补基线，
+// 这样“上一版 → 当前最新代码”会覆盖正式发版及其之后的全部变更。
+function resolveOldTagInput(raw, tags, label) {
 	const input = (raw ?? "").trim();
-	if (!input || input === "最新版" || input === "上一版") {
-		const wantPrev = input === "上一版" || (input === "" && emptyMode === "prev");
-		const tag = tags[wantPrev ? 1 : 0];
+	if (!input || input === "上一版") {
+		const tag = tags[1];
 		if (!tag) {
-			fail(wantPrev
-				? `无法确定${label}「上一版」：仓库至少需要两个 v* Tag（当前：${tags[0] ?? "无"}）。`
-				: `无法确定${label}：仓库中没有任何 v* Tag。`);
+			fail(`无法确定${label}「上一版」：仓库至少需要两个 v* Tag（当前：${tags[0] ?? "无"}）。`);
 		}
+		return tag;
+	}
+	if (input === "最新版") {
+		const tag = tags[0];
+		if (!tag) fail(`无法确定${label}：仓库中没有任何 v* Tag。`);
 		return tag;
 	}
 	const tag = input.startsWith("v") ? input : `v${input}`;
 	if (!tags.includes(tag)) {
 		const hint = tags.slice(0, 20).join(", ") || "（当前仓库没有任何 v* Tag）";
 		fail(`增补包${label}「${input}」不是有效的版本 Tag。可用版本：${hint}\n创建并推送 Tag：git tag ${tag} && git push origin ${tag}`);
+	}
+	return tag;
+}
+
+// 增补包专用：解析新版本输入。
+// 空/“最新版”指向本次 checkout 的 HEAD，而不是最新的正式 Tag；显式输入版本号时仍按 Tag 处理。
+function resolveNewRefInput(raw, tags) {
+	const input = (raw ?? "").trim();
+	if (!input || input === "最新版" || input === "当前代码" || input === "当前最新代码") return "HEAD";
+	const tag = input.startsWith("v") ? input : `v${input}`;
+	if (!tags.includes(tag)) {
+		const hint = tags.slice(0, 20).join(", ") || "（当前仓库没有任何 v* Tag）";
+		fail(`增补包新版本「${input}」不是有效的版本 Tag。可用版本：${hint}\n创建并推送 Tag：git tag ${tag} && git push origin ${tag}`);
 	}
 	return tag;
 }
@@ -294,6 +308,23 @@ function readProjectName(ref) {
 	}
 }
 
+function readProjectVersion(ref) {
+	try {
+		return JSON.parse(git(["show", `${ref}:info.json`])).version;
+	} catch (e) {
+		fail(`无法读取 ${ref} 中的 info.json：${e.message}`);
+	}
+}
+
+function isAncestor(base, tip) {
+	try {
+		git(["merge-base", "--is-ancestor", base, tip], { stdio: "ignore" });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 // 完整包：当前 HEAD 快照。唯一数据来源 = 本次 checkout 的 HEAD，与 Tag/历史版本完全无关；
 // 版本号取 HEAD 的 info.json.version，仅用于命名与展示
 function packageFull(outDir, nameEn, nameCn) {
@@ -304,24 +335,33 @@ function packageFull(outDir, nameEn, nameCn) {
 		fail(`无法读取当前 HEAD 的 info.json：${e.message}`);
 	}
 	if (!version) fail("当前 HEAD 的 info.json 缺少 version 字段，无法命名完整包");
-	const commit = git(["rev-parse", "--short", "HEAD"]).trim();
+	const sourceCommit = git(["rev-parse", "HEAD"]).trim();
+	const commit = sourceCommit.slice(0, 7);
 	const expected = git(["ls-tree", "-r", "--name-only", "-z", "HEAD"]).split("\0").filter(Boolean).filter(p => !isExcluded(p));
 	if (!expected.length) fail("当前 HEAD 的树内容为空");
 	const outZip = path.join(outDir, `${nameEn}-v${version}-full.zip`);
 	fs.rmSync(outZip, { force: true });
 	git(["-c", "core.autocrlf=false", "archive", "--format=zip", `--output=${outZip}`, "HEAD", "--", ".", ...ARCHIVE_EXCLUDES]);
 	const count = compareSets(expected, listZip(outZip), "完整包 HEAD");
-	return { outZip, label: `${nameCn}-v${version}-完整包.zip`, version, commit, count };
+	return { outZip, label: `${nameCn}-v${version}-完整包.zip`, version, commit, sourceCommit, count };
 }
 
-// 增补包：旧 Tag → 新 Tag 的正向差异（两个正式版本之间的更新文件）
-function packagePatch(oldTag, newTag, outDir, nameEn, nameCn) {
-	if (oldTag === newTag) fail(`旧版本与新版本相同（${oldTag}）：增补包要求选择两个不同的版本`);
-	const cmp = verCmp(oldTag, newTag);
-	if (cmp > 0) fail(`旧版本（${oldTag}）晚于新版本（${newTag}）：增补包只支持 旧版本 → 新版本 的正向差异，请交换两个版本后重试`);
-	if (cmp === 0) fail(`旧版本与新版本号相同（${oldTag} = ${newTag}）`);
+// 增补包：旧 Tag → 新 Tag/当前 HEAD 的正向差异
+function packagePatch(oldTag, newRef, outDir, nameEn, nameCn) {
+	if (oldTag === newRef) fail(`旧版本与新版本相同（${oldTag}）：增补包要求选择两个不同的版本`);
+	if (newRef !== "HEAD") {
+		const cmp = verCmp(oldTag, newRef);
+		if (cmp > 0) fail(`旧版本（${oldTag}）晚于新版本（${newRef}）：增补包只支持 旧版本 → 新版本 的正向差异，请交换两个版本后重试`);
+		if (cmp === 0) fail(`旧版本与新版本号相同（${oldTag} = ${newRef}）`);
+	}
+	if (!isAncestor(oldTag, newRef)) {
+		fail(`旧版本（${oldTag}）不是新版本（${newRef}）的祖先提交：增补包只支持正向差异，请确认打包分支和版本 Tag。`);
+	}
 
-	const raw = git(["diff", "--name-status", "-z", "--find-renames", oldTag, newTag]);
+	const newVersion = readProjectVersion(newRef);
+	if (!newVersion) fail(`新版本 ${newRef} 的 info.json 缺少 version 字段，无法命名增补包`);
+
+	const raw = git(["diff", "--name-status", "-z", "--find-renames", oldTag, newRef]);
 	const tokens = raw.split("\0");
 	const added = [], modified = [], renamed = [], copied = [], deleted = [];
 	for (let i = 0; i < tokens.length;) {
@@ -348,30 +388,36 @@ function packagePatch(oldTag, newTag, outDir, nameEn, nameCn) {
 	// 例如主入口 extension.js 必须在每个增补包中附带，否则旧版主程序不会被正确覆盖。
 	// 仅当该文件确实存在于新版本树中时才追加，避免 collectTarMembers 因缺成员而失败；
 	// 已出现在差异中的同名文件不再重复计入（仍照常入包）。
-	const newTree = git(["ls-tree", "-r", "--name-only", newTag]).split("\n").map(s => s.trim()).filter(Boolean);
+	const newTree = git(["ls-tree", "-r", "--name-only", newRef]).split("\n").map(s => s.trim()).filter(Boolean);
 	const FORCE_INCLUDE = ["extension.js"];
 	const forced = FORCE_INCLUDE.filter(f => newTree.includes(f) && !includeAll.includes(f));
 
 	const includeSet = new Set([...includeAll, ...forced].filter(p => !isExcluded(p)));
 	const include = [...includeSet];
-	if (!include.length) fail(`版本 ${oldTag} → ${newTag} 之间没有可打包的变更文件`);
+	if (!include.length) fail(`版本 ${oldTag} → ${newRef} 之间没有可打包的变更文件`);
 
 	// 从新版本的 git 树中提取文件内容（不使用工作区，保证内容与版本一致）
 	// tar 解析与 zip 写入均在 Node 内完成，避免外部工具的编码与平台差异
-	const tarBuf = git(["-c", "core.autocrlf=false", "archive", "--format=tar", newTag], { encoding: "buffer" });
+	const tarBuf = git(["-c", "core.autocrlf=false", "archive", "--format=tar", newRef], { encoding: "buffer" });
 	const entries = collectTarMembers(tarBuf, includeSet);
 
-	const outZip = path.join(outDir, `${nameEn}-${oldTag}-to-${newTag}-patch.zip`);
+	const targetName = newRef === "HEAD" ? `latest-v${newVersion}` : newRef;
+	const targetLabel = newRef === "HEAD" ? `当前最新代码(v${newVersion})` : newRef;
+	const outZip = path.join(outDir, `${nameEn}-${oldTag}-to-${targetName}-patch.zip`);
 	fs.rmSync(outZip, { force: true });
 	createZip(entries, outZip);
 
-	const count = compareSets(include, listZip(outZip), `增补包 ${oldTag} → ${newTag}`);
+	const count = compareSets(include, listZip(outZip), `增补包 ${oldTag} → ${targetLabel}`);
 	if (count !== include.length) fail(`增补包内部错误：打包数量 ${count} 与预期 ${include.length} 不符`);
-	const newCommit = git(["rev-parse", "--short", `${newTag}^{commit}`]).trim();
+	const sourceCommit = git(["rev-parse", `${newRef}^{commit}`]).trim();
+	const newCommit = sourceCommit.slice(0, 7);
 	return {
 		outZip,
-		label: `${nameCn}-${oldTag}到${newTag}-增补包.zip`,
+		label: `${nameCn}-${oldTag}到${targetLabel}-增补包.zip`,
 		newCommit,
+		sourceCommit,
+		newRef,
+		newVersion,
 		stats: { added, modified, renamed, copied, deleted, excludedDev, forced, packaged: include.length },
 		include,
 	};
@@ -387,13 +433,12 @@ function writeSummary(md) {
 	console.log(md);
 }
 
-// releaseTag：完整包 = "v" + HEAD 的 info.json.version（由 release 步骤在该 commit 上自动建 Tag，
-//   仅作打包产物标识，不是版本来源）；增补包 = 新版本 Tag
-function writeOutputs(outZip, label, releaseTag) {
+// releaseTag 使用打包源代码的 info.json.version，只作产物归属标识，不是内容来源。
+function writeOutputs(outZip, label, releaseTag, sourceCommit) {
 	const ghEnv = process.env.GITHUB_ENV;
 	if (!ghEnv) return;
 	try {
-		fs.appendFileSync(ghEnv, `zip_name=${path.basename(outZip)}\nzip_path=${outZip.replaceAll("\\", "/")}\nzip_label=${label}\nrelease_tag=${releaseTag}\n`, "utf8");
+		fs.appendFileSync(ghEnv, `zip_name=${path.basename(outZip)}\nzip_path=${outZip.replaceAll("\\", "/")}\nzip_label=${label}\nrelease_tag=${releaseTag}\nsource_commit=${sourceCommit}\n`, "utf8");
 	} catch {}
 }
 
@@ -410,7 +455,7 @@ function main() {
 
 	// ---------- 完整包：当前 main HEAD 快照，不依赖任何 Tag ----------
 	if (args.type === "full") {
-		const { outZip, label, version, commit, count } = packageFull(args.outDir, nameEn, "奥特之星");
+		const { outZip, label, version, commit, sourceCommit, count } = packageFull(args.outDir, nameEn, "奥特之星");
 		writeSummary([
 			"## 打包结果",
 			"",
@@ -425,18 +470,18 @@ function main() {
 			"",
 			"压缩包将发布到对应版本的 Release 页面，打包完成后点击下方链接下载。",
 		].join("\n"));
-		writeOutputs(outZip, label, `v${version}`);
+		writeOutputs(outZip, label, `v${version}`, sourceCommit);
 		console.log(`[打包完成] ${outZip}（${count} 个文件）`);
 		return;
 	}
 
-	// ---------- 增补包：旧 Tag → 新 Tag 的正向差异 ----------
+	// ---------- 增补包：旧 Tag → 新 Tag/当前 HEAD 的正向差异 ----------
 	const tags = listVersionTags();
-	const newTag = resolveTagInput(args.new, tags, "新版本", "latest");
-	const oldTag = resolveTagInput(args.old, tags, "旧版本", "prev");
-	checkTagVersionConsistency(newTag);
+	const newRef = resolveNewRefInput(args.new, tags);
+	const oldTag = resolveOldTagInput(args.old, tags, "旧版本");
 	checkTagVersionConsistency(oldTag);
-	const { outZip, label, newCommit, stats, include } = packagePatch(oldTag, newTag, args.outDir, nameEn, readProjectName(newTag));
+	if (newRef !== "HEAD") checkTagVersionConsistency(newRef);
+	const { outZip, label, newCommit, sourceCommit, newVersion, stats, include } = packagePatch(oldTag, newRef, args.outDir, nameEn, readProjectName(newRef));
 	const fileList = include.slice(0, 50).map(p => `- ${p}`).join("\n")
 		+ (include.length > 50 ? `\n- ...等共 ${include.length} 个文件` : "");
 	writeSummary([
@@ -446,7 +491,7 @@ function main() {
 		"| --- | --- |",
 		"| 打包类型 | 增补包 |",
 		`| 旧版本 | ${oldTag} |`,
-		`| 新版本 | ${newTag}（${newCommit}） |`,
+		`| 新版本 | ${newRef === "HEAD" ? `当前最新代码（v${newVersion}）` : newRef}（${newCommit}） |`,
 		`| 输出文件 | \`${label}\` |`,
 		"",
 		"| 统计 | 数量 |",
@@ -466,7 +511,7 @@ function main() {
 		"",
 		"压缩包将上传到新版本对应的 Release 页面，打包完成后点击下方链接下载。",
 	].join("\n"));
-	writeOutputs(outZip, label, newTag);
+	writeOutputs(outZip, label, newRef === "HEAD" ? `v${newVersion}` : newRef, sourceCommit);
 	console.log(`[打包完成] ${outZip}（新增 ${stats.added.length} / 修改 ${stats.modified.length} / 重命名 ${stats.renamed.length} / 删除 ${stats.deleted.length}（不入包）/ 最终打包 ${stats.packaged}）`);
 }
 

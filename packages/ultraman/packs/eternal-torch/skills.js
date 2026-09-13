@@ -2441,7 +2441,7 @@ export const skills = {
 			}
 		},
 		ai: {
-			order: 4,
+			order: 5,
 			result: {
 				player(player) {
 					const X = player.getDamagedHp();
