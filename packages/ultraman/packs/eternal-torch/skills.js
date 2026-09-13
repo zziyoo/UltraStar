@@ -2402,6 +2402,9 @@ export const skills = {
 			return target !== player && lib.filter.targetEnabled({ name: "sha" }, player, target) && lib.filter.targetInRange({ name: "sha" }, player, target);
 		},
 		selectTarget: 1,
+		check(card) {
+			return 7 - get.value(card);
+		},
 		async content(event, trigger, player) {
 			const cards = event.cards;
 			const target = event.target;
@@ -2450,7 +2453,7 @@ export const skills = {
 					return 0;
 				},
 				target(player, target) {
-					return get.damageEffect(target, player, player);
+					return get.damageEffect(target, player, target);
 				},
 			},
 		},

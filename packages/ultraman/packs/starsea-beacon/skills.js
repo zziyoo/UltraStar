@@ -116,16 +116,10 @@ export const skills = {
 						.chooseControl(choices)
 						.set("prompt", `分身：是否防止对你造成的${get.cnNumber(trigger.num)}点伤害？`)
 						.set("ai", () => {
-							if (trigger.num >= player.hp) {
-								if (player.countCards("he") >= 2) return 0;
-								if (player.hp > 1) return 1;
-								return choices.length - 1;
-							}
-							if (trigger.num > 1) {
-								if (player.countCards("he") >= 2) return 0;
-								if (player.hp > 2) return 1;
-							}
-							return choices.length - 1;
+							const source = trigger.source;
+							if (trigger.num === 1 && get.attitude(source, player) > 0) return choices.length - 1;
+							if (player.hp > 0) return choices.indexOf("失去一点体力");
+							return 0;
 						})
 						.forResult();
 					if (!result || result.control === "cancel2" || result.index === choices.length - 1) return;
