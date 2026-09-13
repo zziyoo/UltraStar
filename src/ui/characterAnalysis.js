@@ -25,7 +25,7 @@ const ensureAnalysisStyles = () => {
 						@keyframes wmAnalysisPanelIn{from{transform:scale(0.86) translateY(-60px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 						.wm-character-analysis-overlay div:not(.wm-character-analysis-big):not(.wm-character-analysis-close):not(.wm-character-analysis-header):not(.wm-character-analysis-body):not(.wm-character-analysis-left):not(.wm-character-analysis-right):not(.wm-character-analysis-photo):not(.wm-character-analysis-footer){position:relative !important;display:block !important;}
 						.wm-character-analysis-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.78);z-index:100200;display:flex;align-items:center;justify-content:center;animation:wmAnalysisFadeIn 0.35s ease-in-out;user-select:none;-webkit-user-select:none;}
-						.wm-character-analysis-frame{position:relative;display:block;width:min(92vw,880px);max-height:92vh;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;padding:2px;background:linear-gradient(135deg,rgba(111,216,255,0.55),rgba(255,255,255,0.12) 30%,rgba(255,85,96,0.45) 70%,rgba(255,215,0,0.4));clip-path:polygon(20px 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%,0 20px);-webkit-overflow-scrolling:touch;}
+						.wm-character-analysis-frame{position:relative;display:block;width:min(92vw,880px);max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box;padding:2px;background:linear-gradient(135deg,rgba(111,216,255,0.55),rgba(255,255,255,0.12) 30%,rgba(255,85,96,0.45) 70%,rgba(255,215,0,0.4));clip-path:polygon(20px 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%,0 20px);-webkit-overflow-scrolling:touch;}
 						.wm-character-analysis-box{position:relative;display:block;box-sizing:border-box;background:radial-gradient(circle at 18% 12%,rgba(111,216,255,0.10),transparent 42%),radial-gradient(circle at 85% 82%,rgba(255,85,96,0.09),transparent 42%),repeating-linear-gradient(45deg,rgba(255,255,255,0.022) 0 2px,transparent 2px 7px),#0c0f15;clip-path:polygon(20px 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%,0 20px);animation:wmAnalysisPanelIn 0.4s cubic-bezier(0.68,-0.4,0.3,1.3);overflow:hidden;}
 						.wm-character-analysis-big{position:absolute;right:10px;bottom:-18px;font-size:150px;line-height:1;font-weight:900;font-style:italic;color:rgba(255,255,255,0.045);pointer-events:none;letter-spacing:-6px;}
 						.wm-character-analysis-close{position:absolute;top:8px;right:12px;z-index:5;color:rgba(255,255,255,0.7);font-size:24px;line-height:1;padding:6px 12px;cursor:pointer;text-shadow:1px 1px 3px rgba(0,0,0,0.9);}
@@ -57,15 +57,34 @@ const ensureAnalysisStyles = () => {
 						.wm-character-analysis-footer{position:relative;display:flex;justify-content:center;padding:8px 18px 20px;}
 						.wm-character-analysis-name{transform:skewX(-12deg);border:1px solid rgba(255,215,0,0.55);border-left:4px solid rgba(255,85,96,0.75);background:linear-gradient(90deg,rgba(255,85,96,0.16),rgba(111,216,255,0.13));padding:7px 30px;color:#fff;font-size:20px;font-weight:bold;letter-spacing:2px;text-shadow:1px 1px 3px rgba(0,0,0,0.9);}
 						.wm-character-analysis-name > span{display:inline-block;transform:skewX(12deg);}
-						@media (max-width:640px){
-							.wm-character-analysis-frame{max-height:55vh;}
-							.wm-character-analysis-body{flex-direction:column;gap:6px;padding:4px 14px;}
+						/* 竖屏手机：上下排列，并按可视高度压缩两块内容，避免姓名/分数被裁掉 */
+						@media (max-width:640px) and (orientation:portrait){
+							.wm-character-analysis-frame{width:calc(100vw - 12px);max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
+							.wm-character-analysis-header{padding:10px 40px 0;}
+							.wm-character-analysis-body{flex-direction:column;gap:4px;padding:2px 10px 0;}
 							.wm-character-analysis-left{flex:none;width:100%;}
-							.wm-character-analysis-photo{max-height:36vh;}
-							.wm-character-analysis-photo img{max-height:36vh;}
+							.wm-character-analysis-radar{max-width:min(330px,calc(100dvh - 330px));}
+							.wm-character-analysis-photo{height:auto;max-height:min(30vh,230px);}
+							.wm-character-analysis-photo img{max-height:min(30vh,230px);}
 							.wm-character-analysis-title{font-size:16px;letter-spacing:4px;}
 							.wm-character-analysis-big{font-size:90px;}
-						}`;
+							.wm-character-analysis-footer{padding:4px 12px 10px;}
+							.wm-character-analysis-name{padding:5px 20px;font-size:16px;}
+						}
+						/* 横屏手机/小高度窗口：保持左右布局，并整体按高度缩放 */
+						@media (orientation:landscape) and (max-height:720px){
+							.wm-character-analysis-frame{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
+							.wm-character-analysis-header{padding:clamp(8px,1.6vh,16px) 46px 0;}
+							.wm-character-analysis-title{font-size:clamp(15px,3vh,21px);letter-spacing:clamp(3px,0.8vw,7px);}
+							.wm-character-analysis-sub{font-size:clamp(8px,1.8vh,11px);letter-spacing:clamp(2px,0.45vw,4px);}
+							.wm-character-analysis-body{gap:clamp(6px,1.5vh,16px);padding:clamp(4px,0.9vh,8px) 20px 0;}
+							.wm-character-analysis-radar{max-width:min(390px,47vh);}
+							.wm-character-analysis-photo{max-height:min(430px,calc(100dvh - 155px));}
+							.wm-character-analysis-photo img{max-height:min(430px,calc(100dvh - 155px));}
+							.wm-character-analysis-footer{padding:4px 18px 10px;}
+							.wm-character-analysis-name{padding:5px 22px;font-size:clamp(14px,3.2vh,20px);}
+						}
+						`;
 	document.head.appendChild(style);
 };
 
