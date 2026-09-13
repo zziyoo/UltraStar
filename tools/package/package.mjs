@@ -372,7 +372,7 @@ function packagePatch(oldTag, newTag, outDir, nameEn, nameCn) {
 		outZip,
 		label: `${nameCn}-${oldTag}到${newTag}-增补包.zip`,
 		newCommit,
-		stats: { added, modified, renamed, copied, deleted, excludedDev, packaged: include.length },
+		stats: { added, modified, renamed, copied, deleted, excludedDev, forced, packaged: include.length },
 		include,
 	};
 }
