@@ -53,7 +53,7 @@ export const characterAnalysis = {
 	琪露诺: { output: "C", defense: "C", operation: "S", control: "S", support: "C", development: "A" },
 	ChatGPT娘: { output: "S", defense: "B", operation: "S", control: "S", support: "B", development: "C" },
 	巴尔坦星人: { output: "C", defense: "B", operation: "C", control: "A", support: "C", development: "C" },
-	麦克斯: { output: "A", defense: "B", operation: "B", control: "B", support: "C", development: "D" },
+	麦克斯: { output: "A", defense: "B", operation: "B", control: "B", support: "C", development: "C" },
 };
 
 // 评级 → 分数映射（全局唯一评分来源：排行榜与角色分析面板共用，勿在别处重写）

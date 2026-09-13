@@ -24,4 +24,5 @@ export default {
 	ws: ["ws.mp3"],
 	ad: ["ad.mp3"],
 	qln: ["qln.mp3"],
+	mks: ["mks.mp3"],
 };

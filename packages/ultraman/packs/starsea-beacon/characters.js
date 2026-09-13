@@ -8,6 +8,6 @@ export const characters = {
 		skills: ["betdongjie", "betfenshen", "betshunyi"],
 		names: "null|巴尔坦星人",
 		img: "extension/奥特之星/assets/image/巴尔坦星人.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/巴尔坦星人.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/guanglun.mp3"],
 	},
 };

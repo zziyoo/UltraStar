@@ -884,7 +884,6 @@ export const skills = {
 		},
 	},
 	alqnzhanshou: {
-		charlotte: true,
 		targetprompt2(target) {
 			const player = get.player();
 			if (target !== player && target.hasMark("alqnhuahui_xue")) {

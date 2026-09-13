@@ -2968,9 +2968,10 @@ export const skills = {
 			await player.loseHp(1);
 			await player.draw(player.maxHp);
 			player.addTempSkill("mksjvhua_unlimited");
+			game.playSkillBgm("mks");
 		},
 		ai: {
-			order: 7,
+			order: 8,
 			result: {
 				player(player) {
 					if (player.maxHp <= 1) return 0;
@@ -2981,7 +2982,6 @@ export const skills = {
 		subSkill: {
 			unlimited: {
 				charlotte: true,
-				name: "巨化",
 				mod: {
 					cardUsable() {
 						return Infinity;

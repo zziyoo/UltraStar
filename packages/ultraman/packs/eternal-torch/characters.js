@@ -135,6 +135,6 @@ export const characters = {
 		skills: ["swbingfu", "betfenshen", "mksjvhua"],
 		names: "null|麦克斯",
 		img: "extension/奥特之星/assets/image/麦克斯.jpg",
-		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/麦克斯.mp3"],
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 };

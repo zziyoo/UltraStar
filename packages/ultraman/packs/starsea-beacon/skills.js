@@ -92,7 +92,6 @@ export const skills = {
 		},
 	},
 	betfenshen: {
-		audio: ["ext:奥特之星/assets/audio/fenshen"],
 		group: ["betfenshen_mark", "betfenshen_damage", "betfenshen_target"],
 		subSkill: {
 			mark: {
@@ -109,7 +108,8 @@ export const skills = {
 				trigger: { player: "damageBegin4" },
 				direct: true,
 				filter(event, player) {
-					return event.num > 0 && (player.countCards("he") >= 2 || player.hp > 0);
+					if (event.source && event.num === 1 && player.hp > 1 && get.attitude(event.source, player) > 0) return false;
+					return true;
 				},
 				async content(event, trigger, player) {
 					const choices = [];

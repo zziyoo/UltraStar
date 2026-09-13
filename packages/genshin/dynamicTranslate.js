@@ -17,8 +17,8 @@ const dynamicTranslates = {
 	},
 	ffyuanwu(player) {
 		const bool = player.storage.ffshalong;
-		let huangEffect = "当你造成伤害后，若" + get.poptip("ffshalong") + "状态为：荒：你可以令所有“沙龙成员”回复一点体力",
-			mangEffect = "当你回复体力后，若" + get.poptip("ffshalong") + "状态为：芒：你可以视为使用一张无距离限制，不计入次数且无次数限制的【杀】，此【杀】造成伤害后，你令所有“沙龙成员”失去一点体力";
+		let huangEffect = `当你造成伤害后，若${get.poptip("ffshalong")}状态为：荒：你可以令所有“沙龙成员”回复一点体力`,
+			mangEffect = `当你回复体力后，若${get.poptip("ffshalong")}状态为：芒：你可以视为使用一张无距离限制，不计入次数且无次数限制的【杀】，此【杀】造成伤害后，你令所有“沙龙成员”失去一点体力`;
 		if (bool) {
 			mangEffect = `<span class='bluetext'>${mangEffect}</span>`;
 		} else {

@@ -160,37 +160,4 @@ export function precontent() {
 			lib.namePrefix.set("至高", { color: "#FF0000", nature: "redmm" });
 
 			registerAllEquipment();
-			// //神秘补丁
-			// if (lib.element.content.useCard && !lib.element.content.useCard._useCardEffectEndInjected) {
-			// 	lib.element.content.useCard._useCardEffectEndInjected = true;
-			// 	const arr = lib.element.content.useCard;
-			// 	let idx = -1;
-			// 	for (let i = 0; i < arr.length; i++) {
-			// 		const src = typeof arr[i] === "function" ? arr[i].toString() : "";
-			// 		if (src.includes("effectedCount") && src.includes("effectCount") && src.includes("goto")) {
-			// 			idx = i;
-			// 			break;
-			// 		}
-			// 	}
-			// 	if (idx !== -1) {
-			// 		arr.splice(idx, 0, async (event, trigger, player) => {
-			// 			if (event.all_excluded) {
-			// 				return;
-			// 			}
-			// 			const next = game.createEvent("useCardEffectEnd", false, event);
-			// 			next.setContent(async (event, trigger, player) => {
-			// 				await event.trigger("useCardEffectEnd");
-			// 			});
-			// 			next.card = event.card;
-			// 			next.cards = event.cards;
-			// 			next.targets = event.targets;
-			// 			next.target = event.target;
-			// 			next.player = event.player;
-			// 			next.skill = event.skill;
-			// 			next.effectedCount = event.effectedCount;
-			// 			next.effectCount = event.effectCount;
-			// 			await next;
-			// 		});
-			// 	}
-			// }
 }

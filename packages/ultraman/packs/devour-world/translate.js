@@ -11,5 +11,5 @@ export const skillTranslate = {
 	hadjanrong_discard: "暗融",
 	hadjanrong_info: "锁定技，当你受到非红色【杀】造成的伤害后，你获得伤害来源的一个技能并增加一点体力上限。你可以如手牌般使用或打出弃牌堆底的X张牌（X为你的体力上限）。",
 	hadjyihui: "熠辉",
-	hadjyihui_info: "觉醒技，回合开始时，若你因" + get.poptip("hadjanrong") + "获得过至少三个技能，你回复一点体力并失去" + get.poptip("hadjanrong") + "，并将武将牌替换为”迪迦”。",
+	hadjyihui_info: `觉醒技，回合开始时，若你因${get.poptip("hadjanrong")}获得过至少三个技能，你回复一点体力并失去${get.poptip("hadjanrong")}，并将武将牌替换为”迪迦”。`,
 };
