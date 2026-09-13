@@ -12,12 +12,12 @@ on:
           - 完整包
           - 增补包
       old_version:
-        description: "增补包：旧版本 Tag（默认上一正式版本）；完整包忽略此项"
+        description: "增补包：旧版本 Tag；完整包忽略此项"
         required: false
         type: string
         default: "上一版"
       new_version:
-        description: "增补包：新版本 Tag；默认使用当前 main 最新代码"
+        description: "增补包：新版本 Tag；完整包忽略此项"
         required: false
         type: string
         default: "最新版"
