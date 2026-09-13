@@ -511,7 +511,7 @@ function main() {
 		"",
 		"压缩包将上传到新版本对应的 Release 页面，打包完成后点击下方链接下载。",
 	].join("\n"));
-	writeOutputs(outZip, label, newTag);
+	writeOutputs(outZip, label, newRef === "HEAD" ? `v${newVersion}` : newRef, sourceCommit);
 	console.log(`[打包完成] ${outZip}（新增 ${stats.added.length} / 修改 ${stats.modified.length} / 重命名 ${stats.renamed.length} / 删除 ${stats.deleted.length}（不入包）/ 最终打包 ${stats.packaged}）`);
 }
 
