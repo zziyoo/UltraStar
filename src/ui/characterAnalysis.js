@@ -24,7 +24,7 @@ const ensureAnalysisStyles = () => {
 						@keyframes wmAnalysisPanelIn{from{transform:scale(0.86) translateY(-60px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
 						.wm-character-analysis-overlay div:not(.wm-character-analysis-big):not(.wm-character-analysis-close):not(.wm-character-analysis-header):not(.wm-character-analysis-body):not(.wm-character-analysis-left):not(.wm-character-analysis-right):not(.wm-character-analysis-photo):not(.wm-character-analysis-footer){position:relative !important;display:block !important;}
 						.wm-character-analysis-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.78);z-index:100200;display:flex;align-items:center;justify-content:center;animation:wmAnalysisFadeIn 0.35s ease-in-out;user-select:none;-webkit-user-select:none;}
-						.wm-character-analysis-frame{position:relative;display:block;width:min(92vw,880px);max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box;padding:2px;background:linear-gradient(135deg,rgba(111,216,255,0.55),rgba(255,255,255,0.12) 30%,rgba(255,85,96,0.45) 70%,rgba(255,215,0,0.4));clip-path:polygon(20px 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%,0 20px);-webkit-overflow-scrolling:touch;}
+						.wm-character-analysis-frame{position:relative;display:block;width:min(92vw,calc(100vw - 12px),880px);min-width:0;max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;box-sizing:border-box;padding:2px;background:linear-gradient(135deg,rgba(111,216,255,0.55),rgba(255,255,255,0.12) 30%,rgba(255,85,96,0.45) 70%,rgba(255,215,0,0.4));clip-path:polygon(20px 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%,0 20px);-webkit-overflow-scrolling:touch;}
 						.wm-character-analysis-box{position:relative;display:block;box-sizing:border-box;background:radial-gradient(circle at 18% 12%,rgba(111,216,255,0.10),transparent 42%),radial-gradient(circle at 85% 82%,rgba(255,85,96,0.09),transparent 42%),repeating-linear-gradient(45deg,rgba(255,255,255,0.022) 0 2px,transparent 2px 7px),#0c0f15;clip-path:polygon(20px 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%,0 20px);animation:wmAnalysisPanelIn 0.4s cubic-bezier(0.68,-0.4,0.3,1.3);overflow:hidden;}
 						.wm-character-analysis-big{position:absolute;right:10px;bottom:-18px;font-size:150px;line-height:1;font-weight:900;font-style:italic;color:rgba(255,255,255,0.045);pointer-events:none;letter-spacing:-6px;}
 						.wm-character-analysis-close{position:absolute;top:8px;right:12px;z-index:5;color:rgba(255,255,255,0.7);font-size:24px;line-height:1;padding:6px 12px;cursor:pointer;text-shadow:1px 1px 3px rgba(0,0,0,0.9);}
@@ -72,18 +72,20 @@ const ensureAnalysisStyles = () => {
 						}
 						/* 横屏手机/小高度窗口：保持左右布局，并整体按高度缩放 */
 						@media (orientation:landscape) and (max-height:720px){
-							.wm-character-analysis-frame{width:min(96vw,1000px);height:calc(100vh - 12px);height:calc(100dvh - 12px);max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
-							.wm-character-analysis-header{padding:clamp(6px,1.1vh,12px) 46px 0;}
+							.wm-character-analysis-frame{width:min(96vw,1000px);height:135vh;height:135dvh;max-height:none;}
+							.wm-character-analysis-box{height:100%;display:flex !important;flex-direction:column;}
+							.wm-character-analysis-header{padding:clamp(12px,2vh,20px) 46px 4px;}
 							.wm-character-analysis-title{font-size:clamp(15px,2.8vh,21px);letter-spacing:clamp(3px,0.8vw,7px);}
 							.wm-character-analysis-sub{font-size:clamp(8px,1.6vh,11px);letter-spacing:clamp(2px,0.45vw,4px);}
-							.wm-character-analysis-body{gap:clamp(4px,1vh,10px);padding:clamp(2px,0.6vh,5px) 20px 0;}
-							.wm-character-analysis-radar{max-width:min(330px,42vh);}
-							.wm-character-analysis-photo{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
-							.wm-character-analysis-photo img{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
-							.wm-character-analysis-footer{padding:3px 18px 8px;}
-							.wm-character-analysis-name{padding:4px 18px;font-size:clamp(13px,2.8vh,18px);}
+							.wm-character-analysis-body{flex:1 1 auto;min-height:0;align-items:center;gap:clamp(4px,1vh,10px);padding:clamp(2px,0.6vh,5px) 20px 72px;}
+							.wm-character-analysis-radar{max-width:min(570px,calc(100vh + 50px));max-width:min(570px,calc(100dvh + 50px));}
+							.wm-character-analysis-photo{height:auto;max-height:min(570px,calc(100vh + 50px));max-height:min(570px,calc(100dvh + 50px));}
+							.wm-character-analysis-photo img{max-height:min(570px,calc(100vh + 50px));max-height:min(570px,calc(100dvh + 50px));transform:scale(0.81);transform-origin:center;}
+							.wm-character-analysis-radar{transform:scale(0.81);transform-origin:center;}
+							.wm-character-analysis-footer{position:absolute;left:0;right:0;bottom:0;z-index:2;box-sizing:border-box;padding:12px 18px 12px;}
+							.wm-character-analysis-name{padding:7px 30px;font-size:clamp(16px,3.5vh,20px);}
 						}
-						/* 触摸设备使用运行时标记，避免手机 WebView 的 CSS 视口尺寸导致媒体查询不命中 */
+						/* 移动设备使用运行时标记，避免手机 WebView 的 CSS 视口尺寸导致媒体查询不命中 */
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-frame{width:calc(100vw - 12px);max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-header{padding:10px 40px 0;}
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-body{flex-direction:column;gap:4px;padding:2px 10px 0;}
@@ -95,16 +97,18 @@ const ensureAnalysisStyles = () => {
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-big{font-size:90px;}
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-footer{padding:4px 12px 10px;}
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-portrait .wm-character-analysis-name{padding:5px 20px;font-size:16px;}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-frame{width:min(96vw,1000px);height:calc(100vh - 12px);height:calc(100dvh - 12px);max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-header{padding:clamp(6px,1.1vh,12px) 46px 0;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-frame{width:min(96vw,1000px);height:135vh;height:135dvh;max-height:none;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-box{height:100%;display:flex !important;flex-direction:column;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-header{padding:clamp(12px,2vh,20px) 46px 4px;}
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-title{font-size:clamp(15px,2.8vh,21px);letter-spacing:clamp(3px,0.8vw,7px);}
 						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-sub{font-size:clamp(8px,1.6vh,11px);letter-spacing:clamp(2px,0.45vw,4px);}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-body{gap:clamp(4px,1vh,10px);padding:clamp(2px,0.6vh,5px) 20px 0;}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-radar{max-width:min(330px,42vh);}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-photo{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-photo img{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-footer{padding:3px 18px 8px;}
-						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-name{padding:4px 18px;font-size:clamp(13px,2.8vh,18px);}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-body{flex:1 1 auto;min-height:0;align-items:center;gap:clamp(4px,1vh,10px);padding:clamp(2px,0.6vh,5px) 20px 72px;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-radar{max-width:min(570px,calc(100vh + 50px));max-width:min(570px,calc(100dvh + 50px));}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-photo{height:auto;max-height:min(570px,calc(100vh + 50px));max-height:min(570px,calc(100dvh + 50px));}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-photo img{max-height:min(570px,calc(100vh + 50px));max-height:min(570px,calc(100dvh + 50px));transform:scale(0.81);transform-origin:center;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-radar{transform:scale(0.81);transform-origin:center;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-footer{position:absolute;left:0;right:0;bottom:0;z-index:2;box-sizing:border-box;padding:12px 18px 12px;}
+						.wm-character-analysis-overlay.wm-character-analysis-mobile-landscape .wm-character-analysis-name{padding:7px 30px;font-size:clamp(16px,3.5vh,20px);}
 						`;
 	if (!style.parentNode) document.head.appendChild(style);
 };
@@ -183,8 +187,10 @@ export const openCharacterAnalysis = (id, info) => {
 	const overlay = document.createElement("div");
 	const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
 	const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-	const isTouchDevice = !!lib.config?.touchscreen || (navigator.maxTouchPoints ?? 0) > 0 || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-	const mobileLayout = isTouchDevice ? ` wm-character-analysis-mobile-${viewportHeight > viewportWidth ? "portrait" : "landscape"}` : "";
+	// 不使用 touchscreen/maxTouchPoints 判断：Windows 触摸屏电脑也会命中，导致桌面端误套手机全屏样式
+	const isMobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+	const isSmallViewport = viewportWidth <= 640 && viewportHeight <= 960;
+	const mobileLayout = isMobileUserAgent || isSmallViewport ? ` wm-character-analysis-mobile-${viewportHeight > viewportWidth ? "portrait" : "landscape"}` : "";
 	overlay.className = `wm-character-analysis-overlay${mobileLayout}`;
 	const frame = document.createElement("div");
 	frame.className = "wm-character-analysis-frame";
