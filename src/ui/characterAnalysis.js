@@ -73,16 +73,16 @@ const ensureAnalysisStyles = () => {
 						}
 						/* 横屏手机/小高度窗口：保持左右布局，并整体按高度缩放 */
 						@media (orientation:landscape) and (max-height:720px){
-							.wm-character-analysis-frame{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
-							.wm-character-analysis-header{padding:clamp(8px,1.6vh,16px) 46px 0;}
-							.wm-character-analysis-title{font-size:clamp(15px,3vh,21px);letter-spacing:clamp(3px,0.8vw,7px);}
-							.wm-character-analysis-sub{font-size:clamp(8px,1.8vh,11px);letter-spacing:clamp(2px,0.45vw,4px);}
-							.wm-character-analysis-body{gap:clamp(6px,1.5vh,16px);padding:clamp(4px,0.9vh,8px) 20px 0;}
-							.wm-character-analysis-radar{max-width:min(390px,47vh);}
-							.wm-character-analysis-photo{max-height:min(430px,calc(100dvh - 155px));}
-							.wm-character-analysis-photo img{max-height:min(430px,calc(100dvh - 155px));}
-							.wm-character-analysis-footer{padding:4px 18px 10px;}
-							.wm-character-analysis-name{padding:5px 22px;font-size:clamp(14px,3.2vh,20px);}
+							.wm-character-analysis-frame{width:min(96vw,1000px);height:calc(100vh - 12px);height:calc(100dvh - 12px);max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);}
+							.wm-character-analysis-header{padding:clamp(6px,1.1vh,12px) 46px 0;}
+							.wm-character-analysis-title{font-size:clamp(15px,2.8vh,21px);letter-spacing:clamp(3px,0.8vw,7px);}
+							.wm-character-analysis-sub{font-size:clamp(8px,1.6vh,11px);letter-spacing:clamp(2px,0.45vw,4px);}
+							.wm-character-analysis-body{gap:clamp(4px,1vh,10px);padding:clamp(2px,0.6vh,5px) 20px 0;}
+							.wm-character-analysis-radar{max-width:min(330px,42vh);}
+							.wm-character-analysis-photo{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
+							.wm-character-analysis-photo img{max-height:min(320px,calc(100vh - 235px));max-height:min(320px,calc(100dvh - 235px));}
+							.wm-character-analysis-footer{padding:3px 18px 8px;}
+							.wm-character-analysis-name{padding:4px 18px;font-size:clamp(13px,2.8vh,18px);}
 						}
 						`;
 	document.head.appendChild(style);
