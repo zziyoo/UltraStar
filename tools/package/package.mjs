@@ -401,8 +401,9 @@ function packagePatch(oldTag, newRef, outDir, nameEn, nameCn) {
 	const tarBuf = git(["-c", "core.autocrlf=false", "archive", "--format=tar", newRef], { encoding: "buffer" });
 	const entries = collectTarMembers(tarBuf, includeSet);
 
-	const targetName = newRef === "HEAD" ? `latest-v${newVersion}` : newRef;
-	const targetLabel = newRef === "HEAD" ? `当前最新代码(v${newVersion})` : newRef;
+	// 文件名保持原有格式：内容目标即使是当前 HEAD，也按其项目版本号命名。
+	const targetName = `v${newVersion}`;
+	const targetLabel = `v${newVersion}`;
 	const outZip = path.join(outDir, `${nameEn}-${oldTag}-to-${targetName}-patch.zip`);
 	fs.rmSync(outZip, { force: true });
 	createZip(entries, outZip);

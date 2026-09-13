@@ -107,10 +107,6 @@ export const skills = {
 				charlotte: true,
 				trigger: { player: "damageBegin4" },
 				direct: true,
-				filter(event, player) {
-					if (event.source && event.num === 1 && player.hp > 1 && get.attitude(event.source, player) > 0) return false;
-					return true;
-				},
 				async content(event, trigger, player) {
 					const choices = [];
 					if (player.countCards("he") >= 2) choices.push("弃置两张牌");
