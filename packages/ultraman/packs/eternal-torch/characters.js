@@ -137,4 +137,11 @@ export const characters = {
 		img: "extension/奥特之星/assets/image/麦克斯.jpg",
 		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
+	阿古茹: {
+		sex: "male",
+		group: "ao",
+		hp: 4,
+		skills: ["agrhaiyang", "agrguangren", "agrqiege"],
+		names: "null|阿古茹",
+	},
 };

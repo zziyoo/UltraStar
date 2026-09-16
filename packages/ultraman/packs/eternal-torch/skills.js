@@ -2198,6 +2198,9 @@ export const skills = {
 		filterCard(card, player) {
 			return !ui.selected.cards.some(cardx => get.suit(cardx, player) === get.suit(card, player));
 		},
+		check(card) {
+			return 7 - get.value(card);
+		},
 		selectCard: [1, 4],
 		position: "h",
 		complexCard: true,
@@ -2222,7 +2225,7 @@ export const skills = {
 			await target.damage(remainingHand === 0 ? 2 : 1, player);
 		},
 		ai: {
-			order: 7,
+			order: 6,
 			result: {
 				target(player, target) {
 					return -2;
@@ -2403,7 +2406,7 @@ export const skills = {
 		},
 		selectTarget: 1,
 		check(card) {
-			return 7 - get.value(card);
+			return 8 - get.value(card);
 		},
 		async content(event, trigger, player) {
 			const cards = event.cards;
@@ -2995,6 +2998,133 @@ export const skills = {
 					ignoredHandcard() {
 						return true;
 					},
+				},
+			},
+		},
+	},
+	agrhaiyang: {
+		trigger: { global: "phaseAfter" },
+		forced: true,
+		filter(event, player) {
+			return player.isIn();
+		},
+		async content(event, trigger, player) {
+			const highest = game.hasPlayer(current => current !== player && current.isIn() && current.getHp() >= player.getHp());
+			if (player.getHp() < player.maxHp && highest) {
+				await player.recover();
+			} else {
+				await player.draw(2);
+			}
+		},
+	},
+	agrguangren: {
+		enable: "phaseUse",
+		usable: 1,
+		async content(event, trigger, player) {
+			await player.loseHp();
+			player.addTempSkill("agrguangren_effect", { player: "phaseBegin" });
+		},
+		ai: {
+			order: 13,
+			result: {
+				player(player) {
+					if (player.getHp() <= 1) return -10;
+					return 1;
+				},
+			},
+		},
+		subSkill: {
+			effect: {
+				charlotte: true,
+				trigger: { source: "damageBegin1" },
+				forced: true,
+				silent: true,
+				popup: false,
+				filter(event, player) {
+					return event.source === player && get.name(event.card) === "sha";
+				},
+				async content(event, trigger) {
+					trigger.num++;
+				},
+				mod: {
+					attackRange(player, num) {
+						return num + 1;
+					},
+					cardUsable(card, player, num) {
+						if (get.name(card) === "sha") return num + 1;
+					},
+				},
+			},
+		},
+	},
+	agrqiege: {
+		enable: "phaseUse",
+		usable: 4,
+		position: "he",
+		discard: false,
+		lose: false,
+		delay: false,
+		mark: true,
+		marktext: "割",
+		intro: {
+			content(storage) {
+				if (!storage?.length) return "本回合尚未弃置花色";
+				return "本回合已弃置花色：" + storage.map(suit => get.translation(suit)).join("、");
+			},
+		},
+		init(player, skill) {
+			if (!Array.isArray(player.getStorage(skill))) player.setStorage(skill, []);
+		},
+		filter(event, player) {
+			const used = player.getStorage("agrqiege", []);
+			return player.hasCard(card => {
+				const suit = get.suit(card);
+				return suit !== "none" && suit !== "unsure" && !used.includes(suit);
+			}, "he") && game.hasPlayer(target => target !== player && target.isIn() && target.countCards("he") > 0);
+		},
+		filterCard(card, player) {
+			const suit = get.suit(card);
+			return suit !== "none" && suit !== "unsure" && !player.getStorage("agrqiege", []).includes(suit);
+		},
+		selectCard: 1,
+		filterTarget(card, player, target) {
+			return target !== player && target.isIn() && target.countCards("he") > 0;
+		},
+		selectTarget: 1,
+		check(card) {
+			return 7 - get.value(card);
+		},
+		async content(event, trigger, player) {
+			const costCard = event.cards?.[0];
+			const target = event.targets?.[0];
+			if (!costCard || !target?.isIn()) return;
+			const suit = get.suit(costCard);
+			player.markAuto("agrqiege", [suit]);
+			await player.discard(costCard);
+			if (target.countCards("he") > 0) {
+				await player.discardPlayerCard({ target, position: "he", forced: true });
+			}
+		},
+		group: ["agrqiege_reset"],
+		ai: {
+			order: 7,
+			result: {
+				player(player) {
+					return player.countCards("he") > 0 ? 1 : 0;
+				},
+				target(player, target) {
+					return get.attitude(player, target) < 0 ? -1 : 0;
+				},
+			},
+		},
+		subSkill: {
+			reset: {
+				trigger: { player: "phaseUseEnd" },
+				forced: true,
+				silent: true,
+				popup: false,
+				async content(event, trigger, player) {
+					player.setStorage("agrqiege", [], true);
 				},
 			},
 		},
