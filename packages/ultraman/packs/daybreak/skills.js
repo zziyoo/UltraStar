@@ -505,6 +505,7 @@ export const skills = {
 		},
 		viewAs: { name: "sha" },
 		prompt: "将一张非伤害类牌当普通的【杀】使用",
+		position: "he",
 		check(card) {
 			return 6 - get.value(card);
 		},
@@ -632,7 +633,7 @@ export const skills = {
 							player.addTempSkill("zggyjili_damage");
 							const list = player.getStorage("zggyjili_damage_list") || [];
 							list.push({ target, card: trigger.card, num: Y });
-							player.setStorage("zggyjili_damage_list", list, true);
+							player.setStorage("zggyjili_damage_list", list);
 						} else {
 							trigger.directHit.add(target);
 							game.log(player, "令此【杀】对", get.translation(target), "不可被响应");
@@ -656,7 +657,7 @@ export const skills = {
 					if (item) {
 						trigger.num += item.num;
 						const newList = list.filter(i => i !== item);
-						player.setStorage("zggyjili_damage_list", newList, true);
+						player.setStorage("zggyjili_damage_list", newList);
 					}
 				},
 			},

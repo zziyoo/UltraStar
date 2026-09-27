@@ -2049,9 +2049,10 @@ export const skills = {
 			return get.type2(card) !== get.type2(firstCard) && get.color(card) !== get.color(firstCard);
 		},
 		selectCard: 2,
+		position: "he",
 		viewAs: { name: "sha" },
 		check(card) {
-			return 5 - get.value(card);
+			return 6 - get.value(card);
 		},
 		ai: {
 			order: 7,
@@ -3009,6 +3010,7 @@ export const skills = {
 			return player.isIn();
 		},
 		async content(event, trigger, player) {
+			game.playSkillBgm("agr");
 			const highest = game.hasPlayer(current => current !== player && current.isIn() && current.getHp() >= player.getHp());
 			if (player.getHp() < player.maxHp && highest) {
 				await player.recover();
@@ -3125,6 +3127,65 @@ export const skills = {
 				popup: false,
 				async content(event, trigger, player) {
 					player.setStorage("agrqiege", [], true);
+				},
+			},
+		},
+	},
+	gydadi: {
+		trigger: { global: "phaseAfter" },
+		forced: true,
+		filter(event, player) {
+			return player.isIn();
+		},
+		async content(event, trigger, player) {
+			game.playSkillBgm("gy");
+			const num = player.countCards("h");
+			const hasMore = game.hasPlayer(current => current !== player && current.isIn() && current.countCards("h") > num);
+			if (!hasMore && player.getHp() < player.maxHp) {
+				await player.recover();
+			} else {
+				await player.draw(2);
+			}
+		},
+	},
+	gychongquan: {
+		enable: "phaseUse",
+		usable: 1,
+		filter(event, player) {
+			return game.hasPlayer(target => player.canCompare(target));
+		},
+		filterTarget(card, player, target) {
+			return player.canCompare(target);
+		},
+		selectTarget: 1,
+		async content(event, trigger, player) {
+			const target = event.targets?.[0];
+			while (target?.isIn() && player.isIn()) {
+				player.line(target);
+				const { bool, tie } = (await player.chooseToCompare(target).forResult()) ?? {};
+				if (bool && target.isIn()) {
+					await target.damage(1, player);
+				} else if (!bool && !tie && player.isIn()) {
+					await player.damage(1, target);
+				}
+				if (!bool || !target.isIn() || !player.isIn() || !player.canCompare(target)) break;
+				const goon = await player
+					.chooseBool(get.prompt("gychongquan", target))
+					.set("ai", () => get.attitude(player, target) < 0)
+					.forResult();
+				if (!goon?.bool) break;
+			}
+		},
+		ai: {
+			order: 9,
+			result: {
+				player(player, target) {
+					if (!target || !player.canCompare(target)) return 0;
+					const strong = player.getCards("h").some(card => get.number(card) >= 10);
+					return get.damageEffect(target, player, player) - get.damageEffect(player, target, target) + (strong ? 1 : -1);
+				},
+				target(player, target) {
+					return -1;
 				},
 			},
 		},

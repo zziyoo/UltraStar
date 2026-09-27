@@ -49,6 +49,7 @@ const triggerTypeName = {
 	die: "死亡",
 	recover: "回复",
 	skill: "技能",
+	phase: "阶段",
 };
 
 // ===== 简洁彩蛋 =====
@@ -166,6 +167,25 @@ eggs.skill = [
 	},
 ];
 
+// ===== 阶段彩蛋 =====
+// player/ally 用角色 id 精确匹配：盖亚与至高盖亚已构成同名替换组，
+// 走 eggMatchPlayer 会把至高盖亚也算成盖亚，导致变身后再反复触发。
+eggs.phase = [
+	{
+		id: "ultraman_gaia_supreme",
+		player: "盖亚",
+		ally: "阿古茹",
+		to: "至高盖亚",
+		run: async function (player, ally) {
+			ally.chat("收下光芒吧，我梦");
+			await sleep(2000);
+			player.chat("盖亚！");
+			await sleep(1000);
+			await player.changeCharacter(["至高盖亚"]);
+		},
+	},
+];
+
 // ===== 彩蛋图鉴数据 =====
 eggs.catalog = {
 	"奥特曼": [
@@ -229,6 +249,36 @@ eggs.catalog = {
 			triggerDescription: "奥特曼发动技能「光轮」对巴尔坦星人造成伤害时，有概率触发。",
 			hint: "一道八分光轮，一道斯派修姆光线，成全了宇宙忍者的忠烈之名。",
 			content: ["满门忠烈"],
+		},
+		{
+			id: "ultraman_ace_beidou",
+			category: "奥特曼",
+			title: "北斗，你是否清醒",
+			characters: ["艾斯"],
+			triggerType: "damage",
+			triggerDescription: "艾斯对队友造成伤害时，队友有概率触发。",
+			hint: "打自己人？你是否清醒。",
+			content: ["北斗，你是否清醒"],
+		},
+		{
+			id: "ultraman_ace_pofu",
+			category: "奥特曼",
+			title: "住嘴！你这个泼妇！",
+			characters: ["艾斯"],
+			triggerType: "damage",
+			triggerDescription: "艾斯对女性角色造成伤害时，有概率触发。",
+			hint: "光之锯人似乎格外暴躁。",
+			content: ["住嘴！你这个泼妇！"],
+		},
+		{
+			id: "ultraman_gaia_supreme",
+			category: "奥特曼",
+			title: "大地与海洋并肩之时",
+			characters: ["盖亚", "阿古茹"],
+			triggerType: "phase",
+			triggerDescription: "盖亚的出牌阶段开始时，若阿古茹在场且双方同阵营，盖亚变为至高盖亚。",
+			hint: "当海洋之光与大地之光站到同一边时，新的姿态就会诞生。",
+			content: ["收下光芒吧，我梦", "盖亚！"],
 		},
 	],
 	"原神": [
@@ -404,6 +454,16 @@ eggs.init = function () {
 				if (egg.character) eggs.markEggCharacter(egg.id, egg.character);
 				break;
 			}
+			if (eggMatchPlayer(source, "艾斯") && source !== this && sameCamp(source, this) && Math.random() < 0.8) {
+				this.chat("北斗，你是否清醒");
+				eggs.markDiscovered("ultraman_ace_beidou");
+				eggs.markEggCharacter("ultraman_ace_beidou", "艾斯");
+			}
+			if (eggMatchPlayer(source, "艾斯") && source !== this && this.hasSex("female") && Math.random() < 0.16) {
+				source.chat("住嘴！你这个泼妇！");
+				eggs.markDiscovered("ultraman_ace_pofu");
+				eggs.markEggCharacter("ultraman_ace_pofu", "艾斯");
+			}
 		}
 		return event;
 	};
@@ -516,6 +576,38 @@ eggs.init = function () {
 			},
 		};
 		game.addGlobalSkill("_wmEasterEggSkill");
+	}
+	if (!lib.skill._wmEasterEggPhase) {
+		const findPhaseAlly = (player, name) =>
+			game.players?.find(current => current !== player && current.isIn() && current.name === name && sameCamp(player, current)) ?? null;
+		lib.skill._wmEasterEggPhase = {
+			trigger: { global: "phaseUseBegin" },
+			forced: true,
+			silent: true,
+			popup: false,
+			filter(event, player) {
+				if (player !== event.player) return false;
+				if (!lib.config.extension_奥特之星_easterEgg_enabled) return false;
+				const phaseEggs = lib._wmEasterEggs?.phase;
+				if (!phaseEggs?.length) return false;
+				return phaseEggs.some(egg => egg.player === player.name && !!findPhaseAlly(player, egg.ally));
+			},
+			async content(event, trigger, player) {
+				const phaseEggs = lib._wmEasterEggs?.phase;
+				if (!phaseEggs?.length) return;
+				for (const egg of phaseEggs) {
+					if (egg.player !== player.name) continue;
+					const ally = findPhaseAlly(player, egg.ally);
+					if (!ally || typeof egg.run !== "function") continue;
+					await egg.run(player, ally);
+					eggs.markDiscovered(egg.id);
+					eggs.markEggCharacter(egg.id, egg.player);
+					eggs.markEggCharacter(egg.id, egg.ally);
+					break;
+				}
+			},
+		};
+		game.addGlobalSkill("_wmEasterEggPhase");
 	}
 	if (!lib.skill._wmEasterEggGuanglun) {
 		lib.skill._wmEasterEggGuanglun = {

@@ -1112,6 +1112,23 @@ export const skills = {
 			}
 			return ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes();
 		},
+		guessTypes: ["basic", "trick", "equip"],
+		guessLabel(types) {
+			return types.map(type => `${get.translation(type)}牌`).join("≥");
+		},
+		countType(cards) {
+			const counts = { basic: 0, trick: 0, equip: 0 };
+			cards.forEach(card => {
+				const type = get.type2(card, false);
+				if (counts[type] !== undefined) {
+					counts[type]++;
+				}
+			});
+			return counts;
+		},
+		checkGuess(types, counts) {
+			return counts[types[0]] >= counts[types[1]] && counts[types[1]] >= counts[types[2]];
+		},
 		chooseButton: {
 			dialog(event, player) {
 				const list = get.inpileVCardList(info => lib.skill.gptdaan.hiddenCard(player, info[2]));
@@ -1148,7 +1165,48 @@ export const skills = {
 						if (ui.cardPile.childNodes.length < 7) {
 							await game.washCard();
 						}
-						const cards = get.cards(7);
+						const num = Math.min(7, ui.cardPile.childNodes.length);
+						if (!num) {
+							event.result = {};
+							return;
+						}
+						const types = lib.skill.gptdaan.guessTypes;
+						const labels = types.map(type => lib.skill.gptdaan.guessLabel([type]));
+						const estimated = lib.skill.gptdaan.countType(Array.from(ui.cardPile.childNodes).concat(Array.from(ui.discardPile.childNodes)));
+						const byLabel = {};
+						types.forEach((type, i) => {
+							byLabel[labels[i]] = estimated[type];
+						});
+						const picked = [];
+						for (let i = 0; i < types.length; i++) {
+							const controls = labels.filter(label => !picked.includes(label));
+							const step = await player
+								.chooseControl({
+									controls,
+									prompt: i
+										? `答案：数量第${get.cnNumber(i + 1, true)}多的是`
+										: `答案：猜测牌堆顶的${get.cnNumber(num)}张牌中各类型牌的数量关系，第一多的是`,
+									ai: () => {
+										const evt = get.event();
+										let best = evt.controls[0];
+										for (const control of evt.controls) {
+											if (evt.byLabel[control] > evt.byLabel[best]) {
+												best = control;
+											}
+										}
+										return best;
+									},
+								})
+								.set("byLabel", byLabel)
+								.forResult();
+							if (!controls.includes(step?.control)) {
+								event.result = {};
+								return;
+							}
+							picked.push(step.control);
+						}
+						const guessed = picked.map(label => types[labels.indexOf(label)]);
+						const cards = get.cards(num);
 						if (!cards.length) {
 							event.result = {};
 							return;
@@ -1157,37 +1215,30 @@ export const skills = {
 							.chooseCardButton(cards, 1, `答案：展示牌堆顶的${get.cnNumber(cards.length)}张牌，选择其中一张牌当作【${get.translation(name)}】使用或打出`, true)
 							.set("ai", button => {
 								let val = get.value(button.link);
-								if (get.name(button.link) == name) {
+								if (get.name(button.link) === name) {
 									val += 5;
 								}
 								return val;
 							})
 							.forResult();
-						if (!result?.bool || !result.links?.length) {
+						const chosen = result?.bool && result.links?.length ? result.links[0] : null;
+						const rest = cards.filter(card => card !== chosen);
+						game.addCardKnower(cards, player);
+						for (let i = rest.length - 1; i >= 0; i--) {
+							rest[i].fix();
+							ui.cardPile.insertBefore(rest[i], ui.cardPile.firstChild);
+						}
+						if (!chosen) {
 							event.result = {};
 							return;
 						}
-						const chosen = result.links[0];
-						const rest = cards.filter(card => card != chosen);
-						game.addCardKnower(cards, player);
-						if (rest.length) {
-							const move = await player
-								.chooseToMove_new(`答案：将其余${get.cnNumber(rest.length)}张牌以任意顺序置于牌堆顶（靠左的牌更靠上）`, true)
-								.set("list", [["牌堆顶", rest]])
-								.set("filterMove", (from, to) => typeof to != "number")
-								.set("filterOk", moved => moved[0].length == rest.length)
-								.set("processAI", list => [list[0][1].slice().sort((a, b) => get.value(b) - get.value(a))])
-								.forResult();
-							if (move?.bool && move.moved?.length) {
-								const arranged = move.moved[0];
-								for (let i = arranged.length - 1; i >= 0; i--) {
-									arranged[i].fix();
-									ui.cardPile.insertBefore(arranged[i], ui.cardPile.firstChild);
-								}
-							}
-						}
+						const counts = lib.skill.gptdaan.countType(cards);
+						const correct = lib.skill.gptdaan.checkGuess(guessed, counts);
+						const detail = lib.skill.gptdaan.guessTypes.map(type => `${get.translation(type)}牌${counts[type]}张`).join("，");
+						game.log(player, `的答案：牌堆顶的${get.cnNumber(cards.length)}张牌中${detail}，猜测${lib.skill.gptdaan.guessLabel(guessed)}`, correct ? "#g正确" : "#r错误");
 						event.result.cards = [chosen];
 						event.result.card = get.autoViewAs({ name: name, nature: nature }, [chosen]);
+						event.result._apply_args = { gptdaan_guess: correct };
 					},
 				};
 			},
@@ -1201,8 +1252,7 @@ export const skills = {
 				popup: false,
 				trigger: { player: ["useCardAfter", "respondAfter"] },
 				filter(event, player) {
-					if (event.skill != "gptdaan_backup" || !event.cards?.length || !event.card) return false;
-					return event.cards[0].name == event.card.name;
+					return event.skill === "gptdaan_backup" && event.gptdaan_guess === true;
 				},
 				async content(event, trigger, player) {
 					await player.draw(2);

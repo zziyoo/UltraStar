@@ -25,4 +25,6 @@ export default {
 	ad: ["ad.mp3"],
 	qln: ["qln.mp3"],
 	mks: ["mks.mp3"],
+	agr: ["haiyang.mp3"],
+	gy: ["dadi.mp3"],
 };

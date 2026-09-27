@@ -991,6 +991,11 @@ export const skills = {
 		ai: {
 			order: 3,
 			save: true,
+			skillTagFilter(player, tag, arg) {
+				if (arg !== player) return false;
+				if (player.getStorage("alqneyue_used", false)) return false;
+				return player.countMark("alqnhuahui_mingqi") > 0;
+			},
 			result: {
 				player(player) {
 					if (player.getHp() <= 0) return 13;

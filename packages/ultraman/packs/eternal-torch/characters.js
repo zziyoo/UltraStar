@@ -143,5 +143,16 @@ export const characters = {
 		hp: 4,
 		skills: ["agrhaiyang", "agrguangren", "agrqiege"],
 		names: "null|阿古茹",
+		img: "extension/奥特之星/assets/image/阿古茹.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
+	},
+	盖亚: {
+		sex: "male",
+		group: "ao",
+		hp: 4,
+		skills: ["gydadi", "gychongquan"],
+		names: "null|盖亚",
+		img: "extension/奥特之星/assets/image/盖亚.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 };

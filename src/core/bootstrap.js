@@ -148,6 +148,7 @@ export function precontent() {
 			lib.characterReplace = lib.characterReplace || {};
 			lib.characterReplace["迪迦"] = ["迪迦", "闪耀迪迦", "黑暗迪迦"];
 			lib.characterReplace["芙宁娜"] = ["芙宁娜", "芙宁娜芙卡洛斯"];
+			lib.characterReplace["盖亚"] = ["盖亚", "至高盖亚"];
 
 			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:奥特之星/assets/image/死龙.jpg"]];
 			lib.character["死龙"].isHiddenBoss = true;
