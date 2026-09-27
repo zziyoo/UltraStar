@@ -54,7 +54,7 @@ export const characterAnalysis = {
 	ChatGPT娘: { output: "S", defense: "B", operation: "S", control: "S", support: "B", development: "C" },
 	巴尔坦星人: { output: "C", defense: "B", operation: "C", control: "A", support: "C", development: "C" },
 	麦克斯: { output: "A", defense: "B", operation: "B", control: "B", support: "C", development: "C" },
-	阿古茹: { output: "B", defense: "A", operation: "B", control: "B", support: "C", development: "C" },
+	阿古茹: { output: "A", defense: "B", operation: "B", control: "B", support: "C", development: "C" },
 	盖亚: { output: "B", defense: "B", operation: "A", control: "B", support: "C", development: "C" },
 };
 
