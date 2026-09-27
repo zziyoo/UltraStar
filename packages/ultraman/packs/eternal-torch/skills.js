@@ -3140,7 +3140,7 @@ export const skills = {
 		async content(event, trigger, player) {
 			game.playSkillBgm("gy");
 			const num = player.countCards("h");
-			const hasMore = game.hasPlayer(current => current !== player && current.isIn() && current.countCards("h") > num);
+			const hasMore = game.hasPlayer(current => current !== player && current.isIn() && current.countCards("h") >= num);
 			if (!hasMore && player.getHp() < player.maxHp) {
 				await player.recover();
 			} else {

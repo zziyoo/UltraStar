@@ -46,7 +46,7 @@ export const characterAnalysis = {
 	至高盖亚: { output: "S", defense: "C", operation: "A", control: "C", support: "C", development: "C" },
 	雷欧: { output: "A", defense: "C", operation: "B", control: "C", support: "C", development: "B" },
 	杰斯提斯: { output: "B", defense: "B", operation: "B", control: "C", support: "B", development: "C" },
-	黄泉: { output: "A", defense: "C", operation: "C", control: "A", support: "C", development: "C" },
+	黄泉: { output: "A", defense: "C", operation: "C", control: "S", support: "C", development: "C" },
 	未遂: { output: "B", defense: "C", operation: "B", control: "C", support: "C", development: "C" },
 	爱迪: { output: "B", defense: "B", operation: "B", control: "C", support: "B", development: "C" },
 	阿斯特拉: { output: "B", defense: "C", operation: "B", control: "C", support: "B", development: "B" },
@@ -54,7 +54,8 @@ export const characterAnalysis = {
 	ChatGPT娘: { output: "S", defense: "B", operation: "S", control: "S", support: "B", development: "C" },
 	巴尔坦星人: { output: "C", defense: "B", operation: "C", control: "A", support: "C", development: "C" },
 	麦克斯: { output: "A", defense: "B", operation: "B", control: "B", support: "C", development: "C" },
-	阿古茹: { output: "B", defense: "B", operation: "B", control: "B", support: "C", development: "C" },
+	阿古茹: { output: "B", defense: "A", operation: "B", control: "B", support: "C", development: "C" },
+	盖亚: { output: "B", defense: "B", operation: "A", control: "B", support: "C", development: "C" },
 };
 
 // 评级 → 分数映射（全局唯一评分来源：排行榜与角色分析面板共用，勿在别处重写）
