@@ -22,9 +22,11 @@ import {
 	addGap,
 	addLine,
 	addOverlayButton,
+	bindOverlayTap,
 	currentScreenNode,
 	openOverlay,
 	openScreen,
+	showNotice,
 	skillInfo,
 	skillName,
 	skillOwner,
@@ -99,8 +101,8 @@ export function showHub(api) {
 export function showShop(api) {
 	const run = api.run;
 	// 与存档页同一套自建浮层：标题与资源栏固定、中间滚动，返回固定在标题栏右上角
-	const overlay = openOverlay("wm-rogue-shop-overlay");
-	const shop = ui.create.div(".wm-rogue-shop", overlay);
+	const stage = openOverlay("wm-rogue-shop-overlay");
+	const shop = ui.create.div(".wm-rogue-shop", stage);
 
 	const head = ui.create.div(".wm-rogue-shop-head", shop);
 	const titlebar = ui.create.div(".wm-rogue-titlebar", head);
@@ -116,7 +118,7 @@ export function showShop(api) {
 
 	const body = ui.create.div(".wm-rogue-shop-body", shop);
 	ui.create.div(".wm-rogue-shop-section-title", "技能商店", body);
-	ui.create.div(".wm-rogue-shop-subtitle", `每次进店最多购买 ${SKILL_PURCHASE_COUNT} 个技能`, body);
+	ui.create.div(".wm-rogue-shop-subtitle", `每次进店最多购买 ${SKILL_PURCHASE_COUNT} 个技能　点卡片可看完整描述`, body);
 	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
 
@@ -136,7 +138,8 @@ export function showShop(api) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
 	};
-	shopView = { node: overlay, paint };
+	// 记浮层根节点用于原位刷新的存活判断（openOverlay 返回的是里面的居中层）
+	shopView = { node: currentScreenNode(), paint };
 	paint(run);
 }
 
@@ -161,6 +164,8 @@ function buildOfferCard(parent, offer, api) {
 	const intro = skillInfo(offer.id);
 	const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
 	desc.title = intro;
+	// 卡面只显示 5 行，点卡片看完整说明（按钮上的点击会阻止冒泡，不会连带打开）
+	bindOverlayTap(card, () => showNotice([skillName(offer.id), intro || "（该技能没有描述）"]));
 
 	const foot = ui.create.div(".wm-rogue-shop-foot", card);
 	const price = ui.create.div(".wm-rogue-shop-price", "", foot);

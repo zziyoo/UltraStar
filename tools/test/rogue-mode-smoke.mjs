@@ -251,6 +251,12 @@ await check("启动：空存档直接进入六槽页", () => {
 	}
 	assert(text.includes("新建"), "空存档应提供新建");
 	assert(text.includes("存档记录"), "应有仿造梦西游的标题栏");
+	// 滚动层（浮层）与居中层（stage）分开，居中是 CSS 的事，不再用 JS 算像素边距
+	const overlay = common.currentScreenNode();
+	const stage = nodesWithClass("wm-rogue-stage")[0];
+	assert(stage, "浮层里应有居中层");
+	assertEqual(stage.parentNode, overlay, "居中层挂在浮层下");
+	assertEqual(nodesWithClass("wm-rogue-panel")[0]?.parentNode, stage, "面板挂在居中层里");
 	return `槽位 ${cfg.SLOT_COUNT}`;
 });
 
@@ -505,6 +511,7 @@ await check("商店：浮层骨架——固定标题与资源栏 + 三张技能�
 	assert(saved.shopOffers.every(offer => typeof offer.id === "string" && Number.isFinite(offer.price)), "候选结构");
 	const overlay = common.currentScreenNode();
 	assertEqual(overlay?.id, "wm-rogue-overlay", "商店走自建浮层，与存档页同一套承载");
+	assertEqual(nodesWithClass("wm-rogue-shop")[0]?.parentNode?.classList?.contains("wm-rogue-stage"), true, "商店面板挂在居中层里");
 	assertEqual(nodesWithClass("wm-rogue-shop-card").length, cfg.SKILL_OFFER_COUNT, "技能卡数");
 	assertEqual(nodesWithClass("wm-rogue-stat-card").length, cfg.STAT_IDS.length, "属性卡数");
 	assertEqual(nodesWithClass("wm-rogue-res-cell").length, 3, "资源块三块");
@@ -544,19 +551,47 @@ await check("商店：技能卡画出出处头像，没有出处的标成专属"
 	return `头像 ${avatars[0].__background[0]} / ${names.join("、")}`;
 });
 
+await check("商店：点技能卡弹完整描述，点购买按钮不会顺带弹出", async () => {
+	putRun(0, {
+		currentBattle: null,
+		currency: { gold: 1000, exp: 0 },
+		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
+	});
+	session();
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-shop-card")[0]);
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "点卡片应弹出完整描述");
+	assert(screenText().includes("测试用技能。"), "弹层里是完整描述");
+	nodesWithClass("wm-rogue-popup")[0].remove();
+	// 购买按钮的点击要阻止冒泡，只买东西、不弹描述
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	await flush();
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "购买按钮不应连带打开描述");
+	assert(lib.storage.rogueSlots[0].skills.includes("rogue_extra"), "技能已买到");
+	return "描述弹层 + 按钮不冒泡";
+});
+
 await check("商店：购买一个后本次不能再买第二个", async () => {
+	putRun(0, {
+		currentBattle: null,
+		currency: { gold: 1000, exp: 0 },
+		shopOffers: [
+			{ id: "rogue_extra", price: 10, sold: false },
+			{ id: "rogue_xushui", price: 10, sold: false },
+			{ id: "rogue_jiema", price: 10, sold: false },
+		],
+	});
 	session();
 	click("商店");
 	const overlay = common.currentScreenNode();
-	const first = lib.storage.rogueSlots[0].shopOffers[0];
 	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
 	await flush();
 	assertEqual(common.currentScreenNode(), overlay, "购买不重开窗口");
 	assert(screenText().includes("已购买"), `已购买原位显示：${screenText()}`);
 	const after = lib.storage.rogueSlots[0];
 	assertEqual(after.shopOffers.filter(offer => offer.sold).length, 1, "只标记一项已购");
-	assertEqual(after.currency.gold, 1000 - first.price, "扣款落盘");
-	assert(after.skills.includes(first.id), "技能已拥有");
+	assertEqual(after.currency.gold, 990, "扣款落盘");
+	assert(after.skills.includes("rogue_extra"), "技能已拥有");
 	putRun(0, { currency: { gold: 9999, exp: 0 } }, after);
 	session();
 	click("商店");
@@ -566,7 +601,7 @@ await check("商店：购买一个后本次不能再买第二个", async () => {
 	session();
 	click("商店");
 	assert(screenText().includes("金币不足"), "余额不足显示在购买按钮上");
-	return `买到 ${first.id}`;
+	return "买到 rogue_extra";
 });
 
 await check("技能上限：满槽购买走替换页，替换后仍不超过 3 个", async () => {

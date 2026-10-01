@@ -89,8 +89,10 @@ export function adoptScreen(dialog, page = "adopt") {
 
 /**
  * 打开一个自建浮层页面（挂 document.body）。
- * @param {string} [extraClass] 追加到浮层根节点的类名（如手机窄屏）
- * @returns {HTMLDivElement} 浮层根节点，往里挂 .wm-rogue-* 结构
+ * 结构分两层：浮层自己只负责滚动与遮罩，里面再套一层 .wm-rogue-stage 做居中——
+ * 滚动层与居中层分开，内容矮时居中、内容高时从顶部开始滚动，不用固定 top/transform。
+ * @param {string} [extraClass] 追加到浮层根节点的类名（如手机窄屏、商店）
+ * @returns {HTMLDivElement} .wm-rogue-stage，往里挂 .wm-rogue-* 结构
  */
 export function openOverlay(extraClass) {
 	closeScreen();
@@ -106,10 +108,13 @@ export function openOverlay(extraClass) {
 	// 本体在 document 上无条件 preventDefault 所有 touchmove，会让浮层内的原生滚动失效，
 	// 也会把滑动记成全局手势；这里按 overlay.js 的做法把浮层内的触摸事件隔离掉
 	isolateOverlayTouch(overlay);
+	const stage = document.createElement("div");
+	stage.className = "wm-rogue-stage";
+	overlay.appendChild(stage);
 	const page = `overlay:${extraClass ?? ""}`;
 	currentScreen = { node: overlay, kind: "overlay", page };
 	restoreScroll(overlay, "overlay", page);
-	return overlay;
+	return stage;
 }
 
 /** 一行文字：正文自己带 <b>，说明行不带 */

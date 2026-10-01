@@ -8,19 +8,23 @@
 const STYLE_ID = "wm-rogue-styles";
 
 const CSS = `
-/* 竖直方向用「flex 列 + 面板 margin:auto」居中：空间够时上下留白，不够时从顶部开始并可滚动 */
+/* 浮层只负责遮罩与滚动；居中是里面 .wm-rogue-stage 的事，两者分开 */
 .wm-rogue-overlay { position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9998;
-	background: rgba(0,0,0,0.55); display: flex; flex-direction: column; align-items: center;
-	overflow-y: auto; -webkit-overflow-scrolling: touch; font-size: 16px; line-height: 1.5;
+	background: rgba(0,0,0,0.55); overflow-y: auto; -webkit-overflow-scrolling: touch;
+	font-size: 16px; line-height: 1.5;
 	font-family: 'STXinwei', 'xinwei', 'Microsoft YaHei', sans-serif; }
-.wm-rogue-panel { margin: auto 0; padding: 0; box-sizing: border-box; }
+/* 居中层：内容矮时 margin:auto 把它放在正中；内容比视口高时 auto 外边距归零，
+   从顶部开始正常滚动（用 align-items:center / 固定 top / transform 都会把溢出部分顶出视口） */
+.wm-rogue-stage { display: flex; box-sizing: border-box; width: 100%; min-height: 100%; padding: 30px 0; }
+.wm-rogue-panel { margin: auto; padding: 0; box-sizing: border-box; }
 .wm-rogue-titlebar { position: relative; display: flex; align-items: center; justify-content: center;
 	min-height: 48px; margin-bottom: 14px; border-radius: 6px;
 	background: linear-gradient(rgba(255,255,255,0.16), rgba(255,255,255,0.06));
 	border: 1px solid rgba(255,255,255,0.14); }
 .wm-rogue-title { font-size: 24px; font-weight: bold; color: #fff; letter-spacing: 4px;
 	text-shadow: 0 2px 4px rgba(0,0,0,0.85); }
-.wm-rogue-back { position: absolute; right: 8px; top: 7px; }
+/* 返回定位在标题栏内（titlebar 是 relative），所以永远不会贴到屏幕边缘 */
+.wm-rogue-back { position: absolute; right: 8px; top: 3px; }
 /* 两列由 <table> 承载（见 slots.js 的 buildSlotTable），这里只负责卡片与文字的外观 */
 .wm-rogue-card { position: relative; min-height: 104px; padding: 12px 14px; border-radius: 8px;
 	text-align: left; box-sizing: border-box;
@@ -46,70 +50,78 @@ const CSS = `
 .wm-rogue-link { position: absolute; right: 10px; bottom: 8px; font-size: 13px; cursor: pointer;
 	color: rgba(255,150,140,0.9); text-decoration: underline; user-select: none; }
 .wm-rogue-link:hover { color: #ff6b57; }
-.wm-rogue-btn { display: inline-block; padding: 4px 14px; border-radius: 4px; cursor: pointer;
-	font-size: 14px; color: #fff; white-space: nowrap; user-select: none;
+.wm-rogue-btn { display: inline-block; padding: 6px 18px; border-radius: 4px; cursor: pointer;
+	font-size: 18px; color: #fff; white-space: nowrap; user-select: none;
 	background: linear-gradient(rgba(90,90,90,0.9), rgba(50,50,50,0.95));
 	border: 1px solid rgba(255,255,255,0.28); box-shadow: 0 1px 3px rgba(0,0,0,0.6); }
 .wm-rogue-btn:hover { border-color: rgba(255,200,120,0.9); }
-.wm-rogue-btn.wm-rogue-small { padding: 3px 12px; font-size: 13px; }
+.wm-rogue-btn.wm-rogue-small { padding: 4px 14px; font-size: 15px; }
 .wm-rogue-btn.wm-rogue-danger { background: linear-gradient(rgba(150,60,50,0.92), rgba(90,30,25,0.95)); }
 /* 浮层内的自建弹层：本体对话框会被浮层（z-index 9998）压住，所以浮层当前时用这个 */
 .wm-rogue-popup { position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9999;
 	background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; }
-.wm-rogue-popup-box { min-width: 280px; max-width: 520px; padding: 18px 20px; border-radius: 8px;
+/* 弹层限高可滚：技能完整描述可能很长 */
+.wm-rogue-popup-box { min-width: 280px; max-width: 560px; max-height: 72%; overflow-y: auto;
+	padding: 18px 20px; border-radius: 8px;
 	background: linear-gradient(rgba(28,28,28,0.96), rgba(12,12,12,0.98));
 	border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 24px rgba(0,0,0,0.6); }
-.wm-rogue-popup-line { font-size: 16px; color: #fff; line-height: 1.6; margin-bottom: 6px; }
+.wm-rogue-popup-line { font-size: 17px; color: #fff; line-height: 1.6; margin-bottom: 6px; }
 .wm-rogue-popup-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 
-/* ---- 商店：固定「标题 + 资源栏」，中间滚动，返回固定在标题栏右上角 ---- */
-/* 浮层本身不滚，滚动交给 .wm-rogue-shop-body，这样资源栏与返回始终可见 */
-.wm-rogue-shop-overlay { overflow: hidden; padding: 10px 0; }
+/* ---- 商店：固定「标题 + 资源栏」，中间滚动，返回固定在标题栏右上角 ----
+   字号层级（由大到小）：标题 30 → 区域标题 24 → 资源数值 26 → 技能名 22 / 属性名 21
+   → 等级与价格 18 → 描述 17 / 属性效果 16 → 出处与说明 14 */
+/* 商店是整屏布局：浮层不滚、居中层撑满，滚动交给 .wm-rogue-shop-body */
+.wm-rogue-shop-overlay { overflow: hidden; }
+#wm-rogue-overlay.wm-rogue-shop-overlay .wm-rogue-stage { height: 100%; min-height: 0; padding: 14px 0; }
+#wm-rogue-overlay.wm-rogue-shop-overlay .wm-rogue-title { font-size: 30px; letter-spacing: 6px; }
 .wm-rogue-shop { display: flex; flex-direction: column; width: min(1100px, calc(100% - 24px));
 	height: 100%; margin: 0 auto; }
 .wm-rogue-shop-head { flex: none; }
 .wm-rogue-shop-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 4px 10px 2px; }
 /* 资源块：数字大、标签小，三块等宽并排 */
 .wm-rogue-res { display: flex; gap: 10px; margin-bottom: 10px; }
-.wm-rogue-res-cell { flex: 1 1 0; min-width: 0; padding: 6px 10px 5px; border-radius: 6px; text-align: center;
+.wm-rogue-res-cell { flex: 1 1 0; min-width: 0; padding: 8px 12px 6px; border-radius: 6px; text-align: center;
 	background: linear-gradient(rgba(255,255,255,0.15), rgba(255,255,255,0.05));
 	border: 1px solid rgba(255,255,255,0.16); }
-.wm-rogue-res-num { font-size: 24px; line-height: 1.1; font-weight: bold; color: #ffd479;
+.wm-rogue-res-num { font-size: 26px; line-height: 1.15; font-weight: bold; color: #ffd479;
 	text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
-.wm-rogue-res-label { font-size: 12px; color: rgba(255,255,255,0.62); letter-spacing: 1px; }
-.wm-rogue-shop-section-title { margin: 12px 0 4px; font-size: 19px; font-weight: bold; color: #fff;
-	letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
-.wm-rogue-shop-subtitle { margin-bottom: 8px; font-size: 12px; color: rgba(255,255,255,0.55); }
+.wm-rogue-res-label { font-size: 13px; color: rgba(255,255,255,0.62); letter-spacing: 2px; }
+.wm-rogue-shop-section-title { margin: 14px 0 5px; font-size: 24px; font-weight: bold; color: #fff;
+	letter-spacing: 4px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+.wm-rogue-shop-subtitle { margin-bottom: 9px; font-size: 14px; color: rgba(255,255,255,0.58); }
 /* 三张技能卡：一行放得下就横排，窄屏自动换行 */
-.wm-rogue-shop-cards, .wm-rogue-stat-cards { display: flex; flex-wrap: wrap; gap: 10px; }
-.wm-rogue-shop-card, .wm-rogue-stat-card { flex: 1 1 260px; min-width: 0; box-sizing: border-box;
-	padding: 10px 12px; border-radius: 8px; display: flex; flex-direction: column;
+.wm-rogue-shop-cards, .wm-rogue-stat-cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.wm-rogue-shop-card, .wm-rogue-stat-card { flex: 1 1 300px; min-width: 0; box-sizing: border-box;
+	padding: 12px 14px; border-radius: 8px; display: flex; flex-direction: column;
 	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
 	border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.wm-rogue-shop-card { cursor: pointer; }
+.wm-rogue-shop-card:hover { border-color: rgba(255,180,80,0.7); }
 .wm-rogue-shop-card.wm-rogue-off, .wm-rogue-stat-card.wm-rogue-off { opacity: 0.62; }
-.wm-rogue-shop-top { display: flex; align-items: center; gap: 8px; }
+.wm-rogue-shop-top { display: flex; align-items: center; gap: 10px; }
 /* 出处头像只做“这技能来自谁”的提示，比选将页的武将牌小得多 */
-.wm-rogue-shop-avatar { flex: none; width: 42px; height: 56px; border-radius: 4px;
+.wm-rogue-shop-avatar { flex: none; width: 48px; height: 64px; border-radius: 4px;
 	border: 1px solid rgba(255,255,255,0.25); background-size: cover; background-position: center; }
-.wm-rogue-shop-name { font-size: 18px; font-weight: bold; color: #fff; line-height: 1.25;
+.wm-rogue-shop-name { font-size: 22px; font-weight: bold; color: #fff; line-height: 1.25;
 	text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
-.wm-rogue-shop-owner { margin-top: 6px; font-size: 12px; color: rgba(255,255,255,0.55); }
-/* 描述限高：超长技能描述不该把整页撑长；完整文本在 title 里，鼠标悬停可看 */
-.wm-rogue-shop-desc { margin-top: 6px; font-size: 13px; line-height: 1.45; color: rgba(255,255,255,0.86);
-	max-height: 5.8em; overflow: hidden; }
+.wm-rogue-shop-owner { margin-top: 7px; font-size: 14px; color: rgba(255,255,255,0.6); }
+/* 描述限高约 5 行：超长描述不会撑高整张卡；完整文本点卡片看（title 只是给鼠标用户的顺带） */
+.wm-rogue-shop-desc { margin-top: 7px; font-size: 17px; line-height: 1.5; color: rgba(255,255,255,0.88);
+	max-height: 7.5em; overflow: hidden; }
 .wm-rogue-shop-foot, .wm-rogue-stat-foot { display: flex; align-items: center; justify-content: space-between;
-	gap: 8px; margin-top: auto; padding-top: 10px; }
-.wm-rogue-shop-price { font-size: 13px; color: #ffd479; }
+	gap: 10px; margin-top: auto; padding-top: 12px; }
+.wm-rogue-shop-price { font-size: 18px; color: #ffd479; }
 .wm-rogue-shop-buy, .wm-rogue-stat-up { flex: none; }
 .wm-rogue-btn.wm-rogue-disabled { opacity: 0.45; cursor: default; border-color: rgba(255,255,255,0.18); }
 .wm-rogue-btn.wm-rogue-disabled:hover { border-color: rgba(255,255,255,0.18); }
-.wm-rogue-stat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.wm-rogue-stat-name { font-size: 17px; font-weight: bold; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
-.wm-rogue-stat-level { font-size: 13px; color: #ffd479; }
-.wm-rogue-stat-effects { margin-top: 6px; }
-.wm-rogue-stat-effect { font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.86); }
+.wm-rogue-stat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.wm-rogue-stat-name { font-size: 21px; font-weight: bold; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.wm-rogue-stat-level { font-size: 18px; color: #ffd479; }
+.wm-rogue-stat-effects { margin-top: 7px; }
+.wm-rogue-stat-effect { font-size: 16px; line-height: 1.55; color: rgba(255,255,255,0.88); }
 .wm-rogue-stat-effect.wm-rogue-none { color: rgba(255,255,255,0.5); }
-.wm-rogue-stat-price { font-size: 13px; color: #ffd479; }
+.wm-rogue-stat-price { font-size: 18px; color: #ffd479; }
 
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
@@ -144,7 +156,8 @@ const CSS = `
    下面把浮层内的定位语义钉死，只保留刻意绝对定位的几个元素。 */
 #wm-rogue-overlay div { position: static !important; }
 #wm-rogue-overlay .wm-rogue-popup { position: fixed !important; }
-#wm-rogue-overlay .wm-rogue-card { position: relative !important; }
+#wm-rogue-overlay .wm-rogue-card,
+#wm-rogue-overlay .wm-rogue-titlebar { position: relative !important; }
 #wm-rogue-overlay .wm-rogue-tag,
 #wm-rogue-overlay .wm-rogue-link,
 #wm-rogue-overlay .wm-rogue-back { position: absolute !important; }
@@ -157,6 +170,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-flag,
 #wm-rogue-overlay .wm-rogue-panel { display: block !important; }
 #wm-rogue-overlay .wm-rogue-titlebar { display: flex !important; }
+#wm-rogue-overlay .wm-rogue-stage { display: flex !important; }
 #wm-rogue-overlay .wm-rogue-btn { display: inline-block !important; }
 /* 商店：布局语义同样钉死——主题的裸 div 规则会把它们变成 inline-block 并排，卡片就不再是竖直卡片 */
 #wm-rogue-overlay.wm-rogue-shop-overlay { overflow: hidden !important; }

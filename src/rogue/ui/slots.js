@@ -185,24 +185,14 @@ function buildSlotCard(api, index) {
 	return card;
 }
 
-/** 竖直居中：按面板实际高度算像素外边距，不依赖 flex 的自动外边距 */
-function centerPanel(panel) {
-	const rect = typeof panel.getBoundingClientRect === "function" ? panel.getBoundingClientRect() : null;
-	const height = (rect && rect.height) || panel.offsetHeight || 0;
-	const viewport = window.innerHeight || document.documentElement.clientHeight || 800;
-	const top = Math.max(24, Math.round((viewport - height) / 2));
-	panel.style.marginTop = `${top}px`;
-	panel.style.marginBottom = "24px";
-}
-
 function renderSlots(api) {
 	const wide = !get.is.phoneLayout();
-	const overlay = openOverlay(wide ? "" : "wm-rogue-narrow");
-	const panel = ui.create.div(".wm-rogue-panel", overlay);
+	// openOverlay 返回居中层（stage），面板靠 CSS 的 margin:auto 居中，不再用 JS 算像素边距
+	const stage = openOverlay(wide ? "" : "wm-rogue-narrow");
+	const panel = ui.create.div(".wm-rogue-panel", stage);
 	const layout = sizeSlotPage(panel, wide);
 	buildTitlebar(panel, "存档记录", () => api.leaveMode());
 	panel.appendChild(buildSlotTable(api, layout));
-	centerPanel(panel);
 }
 
 /** 新建：先选玩法 */
