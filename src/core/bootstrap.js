@@ -5,6 +5,7 @@ import easterEggs from "../systems/easterEgg.js";
 import { initBgmSystem } from "../systems/bgm.js";
 import { registerCharacterRanks } from "../systems/tierlist.js";
 import { registerAllEquipment } from "./loader.js";
+import { registerRogueMode } from "../rogue/mode.js";
 import { VERSION, VERSION_NOTE } from "./version.js";
 
 export function arenaReady() {
@@ -161,4 +162,11 @@ export function precontent() {
 			lib.namePrefix.set("至高", { color: "#FF0000", nature: "redmm" });
 
 			registerAllEquipment();
+
+			// 肉鸽模式注册失败不应连带影响角色包与其余扩展功能，故单独兜住
+			try {
+				registerRogueMode();
+			} catch (e) {
+				console.error("[奥特之星] 肉鸽模式注册失败", e);
+			}
 }

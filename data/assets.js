@@ -126,6 +126,7 @@ export default [
 	"assets/audio/jiansuo1.mp3",
 	"assets/audio/jiansuo2.mp3",
 	"assets/audio/mks.mp3",
+	"assets/sundry/rouge.jpg",
 	"assets/camp/shou.png",
 	"assets/camp/yv.png",
 	"assets/audio/chigui1.mp3",

@@ -156,14 +156,12 @@ export const skills = {
 					},
 					respondSha: true,
 					respondShan: true,
-					respondWuxie: true,
 					save: true,
 					skillTagFilter(player, tag, arg) {
 						const cards = player.getExpansions("aplxiongye");
 						let name;
 						if (tag === "respondSha") name = "sha";
 						else if (tag === "respondShan") name = "shan";
-						else if (tag === "respondWuxie") name = "wuxie";
 						else if (tag === "save") name = "tao";
 						else return false;
 						return cards.some(card => card.name === name);

@@ -408,7 +408,7 @@ export const skills = {
 		},
 		hiddenCard(player, name) {
 			if (name === "wuxie") {
-				return player.countCards("h") > 0;
+				return player.countCards("h") > 0 && get.skillCount("djfuhe", player) < 2;
 			}
 			return get.type(name) === "trick";
 		},
@@ -474,13 +474,6 @@ export const skills = {
 			},
 		},
 		ai: {
-			respondWuxie: true,
-			skillTagFilter(player, tag) {
-				if (tag === "respondWuxie") {
-					return player.countCards("h") > 0;
-				}
-				return false;
-			},
 			order: 11,
 			result: {
 				player(player) {
@@ -938,7 +931,6 @@ export const skills = {
 		ai: {
 			respondSha: true,
 			respondShan: true,
-			respondWuxie: true,
 			respondJiu: true,
 			skillTagFilter(player, tag) {
 				const isMyPhase = _status.currentPhase === player;
@@ -946,7 +938,7 @@ export const skills = {
 					if (!isMyPhase) return false;
 					return player.hasCard(card => get.color(card) === "black", "he");
 				}
-				if (tag === "respondShan" || tag === "respondWuxie") {
+				if (tag === "respondShan") {
 					if (isMyPhase) return false;
 					return player.hasCard(card => get.color(card) === "red", "he");
 				}
@@ -1382,6 +1374,10 @@ export const skills = {
 			return player.countCards("he") > 0;
 		},
 		hiddenCard(player, name) {
+			if (get.skillCount("dnshanliang", player) >= 1) return false;
+			if (name === "wuxie") {
+				return player.hasCards("he", card => get.type(card) === "basic");
+			}
 			const type = get.type(name);
 			if (type === "trick") {
 				const info = lib.card[name];
@@ -1408,6 +1404,9 @@ export const skills = {
 			},
 			filter(button, player) {
 				const name = button.link[2];
+				if (name === "wuxie" && !player.hasCards("he", card => get.type(card) === "basic")) {
+					return false;
+				}
 				const evt = _status.event.getParent();
 				if (evt && evt.filterCard) {
 					const vcard = get.autoViewAs({ name: name }, "unsure");
@@ -1463,18 +1462,8 @@ export const skills = {
 			respondShan: true,
 			respondTao: true,
 			respondJiu: true,
-			respondWuxie: true,
 			skillTagFilter(player, tag, arg) {
-				if (tag === "respondWuxie") {
-					const hasBasic = player.hasCards("he", card => get.type(card) === "basic");
-					if (!hasBasic) return false;
-					const evt = _status.event;
-					if (evt && evt.filterCard) {
-						const vcard = get.autoViewAs({ name: "wuxie" }, "unsure");
-						return evt.filterCard(vcard, player, evt);
-					}
-					return true;
-				}
+				if (get.skillCount("dnshanliang", player) >= 1) return false;
 				if (tag === "respondSha" || tag === "respondShan" || tag === "respondTao" || tag === "respondJiu") {
 					const hasNonBasic = player.hasCards("he", card => get.type(card) !== "basic");
 					if (!hasNonBasic) return false;
@@ -1837,7 +1826,7 @@ export const skills = {
 				const leftItem = values[leftIndex];
 				const rightItem = values[actualRightIndex];
 				values = values.filter((_, i) => i !== leftIndex && i !== actualRightIndex);
-				const opList = ["+", "-", "*", "/"];
+				const opList = ["+", "-", "*", "/", "//", "%"];
 				const opResult = await player
 					.chooseControl(opList)
 					.set("prompt", leftItem.value + " ? " + rightItem.value)
@@ -1857,11 +1846,13 @@ export const skills = {
 							"+": leftItem.value + rightItem.value,
 							"-": leftItem.value - rightItem.value,
 							"*": leftItem.value * rightItem.value,
-							"/": rightItem.value !== 0 ? Math.floor(leftItem.value / rightItem.value) : Infinity,
+							"/": rightItem.value !== 0 ? leftItem.value / rightItem.value : Infinity,
+							"//": rightItem.value !== 0 ? Math.floor(leftItem.value / rightItem.value) : Infinity,
+							"%": rightItem.value !== 0 ? leftItem.value % rightItem.value : Infinity,
 						};
 						let bestOp = "+";
 						let minDist = Math.abs(results["+"] - 87);
-						for (const op of ["-", "*", "/"]) {
+						for (const op of ["-", "*", "/", "//", "%"]) {
 							const dist = Math.abs(results[op] - 87);
 							if (dist < minDist) {
 								minDist = dist;
@@ -1885,7 +1876,13 @@ export const skills = {
 						result = leftItem.value * rightItem.value;
 						break;
 					case "/":
+						result = rightItem.value !== 0 ? leftItem.value / rightItem.value : NaN;
+						break;
+					case "//":
 						result = rightItem.value !== 0 ? Math.floor(leftItem.value / rightItem.value) : NaN;
+						break;
+					case "%":
+						result = rightItem.value !== 0 ? leftItem.value % rightItem.value : NaN;
 						break;
 				}
 				if (isNaN(result) || !isFinite(result)) {

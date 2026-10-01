@@ -9,11 +9,17 @@ export const skills = {
 		},
 		filter(event, player) {
 			if (event.getl && !event.getl(player)) return false;
+			if (player._atzfzhenliLock) return false;
 			return player.countCards("h") < player.maxHp;
 		},
 		async content(event, trigger, player) {
 			game.playSkillBgm("atzfzhenli");
-			await player.draw(player.maxHp - player.countCards("h"));
+			player._atzfzhenliLock = true;
+			try {
+				await player.draw(player.maxHp - player.countCards("h"));
+			} finally {
+				delete player._atzfzhenliLock;
+			}
 		},
 		mod: {
 			attackRange(player, num) {

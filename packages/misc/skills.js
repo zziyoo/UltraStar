@@ -1107,6 +1107,9 @@ export const skills = {
 			return (ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes()) && get.inpileVCardList(info => event.filterCard({ name: info[2], nature: info[3], isCard: true }, player, event)).length > 0;
 		},
 		hiddenCard(player, name) {
+			if (get.skillCount("gptdaan", player) >= 1) {
+				return false;
+			}
 			if (!lib.inpile.includes(name)) {
 				return false;
 			}
@@ -1250,7 +1253,7 @@ export const skills = {
 				charlotte: true,
 				forced: true,
 				popup: false,
-				trigger: { player: ["useCardAfter", "respondAfter"] },
+				trigger: { player: ["useCard", "respond"] },
 				filter(event, player) {
 					return event.skill === "gptdaan_backup" && event.gptdaan_guess === true;
 				},
@@ -1264,6 +1267,9 @@ export const skills = {
 			respondSha: true,
 			respondShan: true,
 			skillTagFilter(player) {
+				if (get.skillCount("gptdaan", player) >= 1) {
+					return false;
+				}
 				return ui.cardPile.hasChildNodes() || ui.discardPile.hasChildNodes();
 			},
 			order(item, player) {

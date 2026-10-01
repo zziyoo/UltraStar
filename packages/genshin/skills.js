@@ -1703,11 +1703,10 @@ export const skills = {
 						},
 					},
 					respondShan: true,
-					respondWuxie: true,
 					save: true,
 					skillTagFilter(player, tag, arg) {
 						const records = player.getStorage("qsklingjiang_records", []);
-						const nameMap = { respondShan: "shan", respondWuxie: "wuxie", save: "tao" };
+						const nameMap = { respondShan: "shan", save: "tao" };
 						const name = nameMap[tag];
 						if (!name) return false;
 						if (!records.includes(name)) return false;

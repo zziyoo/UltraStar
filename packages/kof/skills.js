@@ -40,6 +40,7 @@ export const skills = {
 			return cards.slice(0, num);
 		},
 		hiddenCard(player, name) {
+			if (get.skillCount("ignzshenji", player) >= 1) return false;
 			const info = get.info({ name });
 			if (info && info.type === "delay") return false;
 			if (info && info.type === "equip") return false;
@@ -210,9 +211,9 @@ export const skills = {
 			},
 			respondSha: true,
 			respondShan: true,
-			respondWuxie: true,
 			save: true,
 			skillTagFilter(player, tag) {
+				if (get.skillCount("ignzshenji", player) >= 1) return false;
 				return true;
 			},
 		},

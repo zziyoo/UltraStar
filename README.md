@@ -27,6 +27,16 @@ UltraStar/
 │   │   ├── bootstrap.js          # 扩展初始化流程
 │   │   ├── loader.js             # 作品包清单与装备注册入口
 │   │   └── registry.js           # 内容合并与注册
+│   ├── rogue/                   # 游戏模式：奥特之星·肉鸽
+│   │   ├── mode.js               # 模式注册与页面路由、结算编排
+│   │   ├── config.js             # 机制参数集中配置（槽数/技能上限/失败规则…）
+│   │   ├── state.js              # 六槽存档校验与迁移（纯逻辑）
+│   │   ├── shop.js               # 候选随机/购买/替换/升级（纯逻辑）
+│   │   ├── reward.js             # 胜利结算（纯逻辑）
+│   │   ├── penalty.js            # 失败与降级惩罚（纯逻辑）
+│   │   ├── battle.js             # 建局与运行时强化（对接本体事件）
+│   │   ├── data/                 # 作者填写的配置：关卡/敌人组合/技能/属性/奖励
+│   │   └── ui/                   # 存档页/选角色/主界面/商店/替换/结果/惩罚
 │   ├── systems/
 │   │   ├── bgm.js                # 技能 BGM 播放系统
 │   │   ├── changelog.js          # 更新日志界面
@@ -66,10 +76,14 @@ UltraStar/
 │   └── 装备价值列表.txt           # 装备 AI 价值参考表
 └── tools/
     ├── update-manifest.mjs      # 素材清单自动登记（CI 检测到新增素材后自动调用）
-    └── check/                    # 一致性校验脚本
+    ├── check/                    # 一致性校验脚本
         ├── check-imports.mjs     # import 路径校验
         ├── check-assets.mjs      # 素材引用校验
         └── verify-parity.mjs     # 新旧注册结果一致性对比
+    └── test/                     # 逻辑层测试
+        ├── rogue.test.mjs         # 肉鸽数据/逻辑层用例
+        ├── rogue-mode-smoke.mjs   # 肉鸽模式流程冒烟（配 rogue-noname-stub.mjs 桩）
+        └── rogue-noname-stub.mjs  # 本体 API 桩模块
 ```
 
 ## 核心架构
@@ -119,6 +133,33 @@ UltraStar/
 - `config/index.js`：扩展设置项，当前包括 BGM 播放开关、彩蛋系统开关、查看历史更新记录、查看角色强度排行、查看彩蛋图鉴、复制仓库地址与版本号显示。
 
 所有与具体作品无关、需要由用户配置的选项，应优先集中在这里管理。
+
+#### src/rogue/ —— 游戏模式：奥特之星·肉鸽
+
+通过本体 `game.addMode()` 注册的正式模式（模式 id `aozhan_rogue`，显示名「奥特肉鸽」），在无名杀的模式选择界面进入。
+由 `src/core/bootstrap.js` 的 `precontent` 调用 `registerRogueMode()` 完成注册，自带重复注册防护；
+不修改本体源码，也不改动任何现有角色、技能、装备、BGM、彩蛋与评级功能。
+
+| 文件 | 职责 |
+| --- | --- |
+| `mode.js` | 模式配置对象（start / `game.checkResult` / `game.onover` / `element.player.dieAfter` / `get.rawAttitude` / 模式级 skill+translate）、页面路由、存档落盘与战斗编排。`get.rawAttitude` 不能省：本体 `get.attitude` 会无条件 `rawAttitude.apply(...)`，缺了 AI 一出牌评估就抛错 |
+| `config.js` | 机制参数：槽位数、存档版本、技能槽与候选数、价格默认值、失败货币损失率与 fallback、可选角色白名单 |
+| `state.js` | 六槽存档的校验、默认值修复、版本迁移与序列化安全（纯逻辑，不碰 `game`/`lib`/`DOM`） |
+| `shop.js` | 技能候选随机、购买、满槽替换、属性升级校验（纯逻辑） |
+| `reward.js` | 胜利结算：入账与关卡推进（纯逻辑） |
+| `penalty.js` | 失败结算：按比例扣货币、货币不足 fallback、无尽删档判定（纯逻辑） |
+| `battle.js` | 用本体 `prepareArena / gameDraw / phaseLoop` 开一局，并把敌我强化只施加到当前 Player 上。建局时必须 `assignPlayerIds()`：`prepareArena` 走的 `ui.create.players` 不分配 `playerid`，而本体 `addSkill` 只有 `playerid` 存在才登记触发钩子（`player.js:11088`），缺了它所有触发类技能都不会触发（`single.js:605`、`doudizhu.js:89` 都是这么补的） |
+| `data/` | 作者填写的内容配置：`stages.js` `enemyGroups.js` `skills.js` `stats.js` `rewards.js` |
+| `ui/` | 存档页（仿造梦西游的「存档记录」卡片网格，自定义样式在 `ui/styles.js`，只作用于 `.wm-rogue-*`）、选角色、主界面、商店、替换技能、结果、惩罚选择——一律用本体 Dialog 与 `node.listen()`，条目平铺在 `dialog.content` 下（本体 `.content > *` 才有字号与边距）。选角色页直接用本体 `ui.create.characterDialog`，保留其搜索框（支持正则与技能搜索）、拼音/势力/收藏筛选条与分页，仅以 `noclick` 接管点击；说明与返回放在内容最前，窗口按真实武将牌尺寸补内联 `min-height`，并把本体按配置 `showMax_character_number`（这台机器上默认 20）定的每页张数放开到「实测列数 × 行数」——超出当前页的武将牌只是被加上 `.nodisplay`，光加高窗口刷不出多余的行。商店候选走本体按钮（`ui.create.button`）：`武将牌（出处，不可点）+ 技能按钮（点了就买）`一排，价格与「已购买/余额不足/已售罄」写在同一行文字里，出处由 `common.js` 的 `skillOwner()` 扫 `lib.character` 技能表得出 |
+
+设计约束：
+
+- 存档只走本体机制 `game.save("rogueSlots", lib.storage.rogueSlots)`，按模式分键存进本体数据库；写入前经 `toSerializable` 校验，禁止 Player/Card/函数/循环引用进入存档；
+- 一关 = 一次对局会话，结算后用 `directstart + game.reload()` 回主界面（与本体 `brawl.js` 相同做法），不在一次 `phaseLoop` 内串联多局；
+- 开局前先把随机到的 `currentBattle.groupId` 写进存档，因此刷新/崩溃后重打的是同一组敌人，且不重复发奖；
+- 敌人强化只改运行时 Player，绝不回写 `lib.character`；肉鸽技能挂在模式配置的 `skill`/ `translate` 上，只有进入本模式才注册；
+- 属性强化的机制技能（`rogue_stat_*`）带 `popup: false`：本体触发技在 `content.ts:4201` 用它决定是否走 `logSkill`，而 `logSkill` 又调 `trySkillAnimate` → `$damagepop`，十周年UI 的 `$damagepop` 会把整段「技能名+描述」渲染成场地上的大字。要关掉大字只能在这里关，`nopop`（加技能弹窗）与 `logv`（战报行）都管不到；
+- 商店里购买技能与升级属性都是原位更新（`ui/hub.js` 的 `refreshShop`），不重开窗口——重开会丢滚动位置，玩家得重新往下滑。
 
 ## 作品内容包
 
@@ -338,6 +379,31 @@ node tools/check/check-assets.mjs .
 - 通过 `src/core/bootstrap.js` 的初始化流程挂载。
 
 如果只是某个角色的专属技能，不应该放到 `src/systems/`。
+
+## 肉鸽模式：作者待填内容
+
+第一版交付的是可跑通的框架，具体内容留了占位（能进战斗、能买技能、能升级、能结算），数值与文案由作者替换：
+
+| 位置 | 要填什么 | 现在的占位 |
+| --- | --- | --- |
+| `src/rogue/data/stages.js` | 关卡区间 → 敌人组合池、`endlessFallbackPool` | 两个区间，指向占位组合 |
+| `src/rogue/data/enemyGroups.js` | 每个组合的敌方阵容、额外技能、`overrides`（`hp/maxHp/defense/draw/attack`） | 3 个占位组合（佐菲、双巴尔坦、强化赛文） |
+| `src/rogue/data/skills.js` | 肉鸽技能效果、名称描述、单价 | 商店池 = 全部分包顶级技能（自动汇总，统一价 100）+ 3 条肉鸽原创技能（蓄势/解甲/归元，同价 100） |
+| `src/rogue/data/stats.js` | 防御·过牌·攻击每级的数值与升级报价 | 十级效果已按「护甲/摸牌/杀伤与次数交替成长」填好，`price` 为 1~1024 翻倍价 |
+| `src/rogue/data/rewards.js` | 每关金币/经验 | 第 n 关 = √n × 系数（金币 50、经验 20，向下取整） |
+| `src/rogue/config.js` | 技能槽数、候选数、失败货币损失率、总关卡数、模式封面图、可选角色白名单、选将窗口显示几行武将牌 | 3/3/0.5/30；封面指向 `assets/sundry/rouge.jpg`（换图改 `MODE_SPLASH` 一行，并跑 `node tools/update-manifest.mjs <新图>` 登记清单）；选将框太小/太大改 `CHARACTER_PICKER_ROWS` |
+
+属性效果支持的键（`battle.js` 已落地，写别的键不生效）：`armor`（初始护甲，受伤时自动抵伤）、`maxHp`（体力上限增量）、`startHand`（起手手牌增量）、`extraDraw`（摸牌阶段额外摸牌数）、`handLimit`（手牌上限增量）、`shaDamage`（【杀】伤害增量）、`shaLimit`（出【杀】次数增量）、`extraSkills`（额外技能 id 数组）。其中数值型强化由 `skills.js` 里的机制技能（`rogue_stat_*`）承载，数值写在玩家 `storage` 上，商店与奖励池刷不到它们。
+
+自检命令（在本扩展目录执行）：
+
+```text
+node tools/check/check-imports.mjs .
+node tools/check/check-assets.mjs .
+node tools/test/rogue.test.mjs         # 数据/逻辑层用例
+node tools/test/rogue-data.test.mjs    # 内容配置自检（填完 data/ 先跑这个）
+node tools/test/rogue-mode-smoke.mjs   # 模式流程冒烟（本体 API 用桩，不需要开游戏）
+```
 
 ## 项目设计原则
 

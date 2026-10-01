@@ -2,7 +2,7 @@
 // 六维固定为：output输出 / defense防御 / operation运营 / control控制 / support辅助 / development发育
 export const characterAnalysis = {
 	芙宁娜芙卡洛斯: { output: "C", defense: "C", operation: "B", control: "D", support: "B", development: "B" },
-	奥特之王: { output: "B", defense: "C", operation: "S", control: "A", support: "S", development: "C" },
+	奥特之王: { output: "B", defense: "B", operation: "A", control: "A", support: "S", development: "C" },
 	遐蝶: { output: "A", defense: "C", operation: "C", control: "C", support: "A", development: "C" },
 	赛迦: { output: "B", defense: "B", operation: "A", control: "A", support: "A", development: "C" },
 	谋曹丕: { output: "C", defense: "C", operation: "B", control: "S", support: "B", development: "B" },
@@ -51,7 +51,7 @@ export const characterAnalysis = {
 	爱迪: { output: "B", defense: "B", operation: "B", control: "C", support: "B", development: "C" },
 	阿斯特拉: { output: "B", defense: "C", operation: "B", control: "C", support: "B", development: "B" },
 	琪露诺: { output: "C", defense: "C", operation: "S", control: "S", support: "C", development: "A" },
-	ChatGPT娘: { output: "S", defense: "B", operation: "S", control: "S", support: "B", development: "C" },
+	ChatGPT娘: { output: "S", defense: "A", operation: "S", control: "S", support: "A", development: "C" },
 	巴尔坦星人: { output: "C", defense: "B", operation: "C", control: "A", support: "C", development: "C" },
 	麦克斯: { output: "A", defense: "B", operation: "B", control: "B", support: "C", development: "C" },
 	阿古茹: { output: "A", defense: "B", operation: "B", control: "B", support: "C", development: "C" },
