@@ -7,7 +7,7 @@
 // 浮层挂在 document.body 上、样式独立，是仓库里 src/ui/overlay.js 已验证过的做法。
 
 import { ui, get } from "../../../../../noname.js";
-import { CURRENCIES, CHARACTER_PICKER_ROWS, CURRENCY_LABEL, LIBRARY_TEXT, RUN_MODE, RUN_MODE_LABEL, SKILL_SLOTS, SLOT_COUNT, STAT_IDS } from "../config.js";
+import { CURRENCIES, CHARACTER_PICKER_PAGE_SIZE, CURRENCY_LABEL, LIBRARY_TEXT, RUN_MODE, RUN_MODE_LABEL, SKILL_SLOTS, SLOT_COUNT, STAT_IDS } from "../config.js";
 import { stats } from "../data/stats.js";
 import { bindTap } from "../../ui/overlay.js";
 import {
@@ -245,46 +245,34 @@ export function showCharacterChoice(api, roster) {
 	for (const button of dialog.buttons) {
 		button.listen(() => api.pickCharacter(button.link));
 	}
-	fitCharacterRows(dialog, CHARACTER_PICKER_ROWS);
+	fitCharacterPage(dialog, CHARACTER_PICKER_PAGE_SIZE);
 }
 
 /**
- * 让选将框至少显示 rows 行武将，两件事都得做：
- * 1 窗口高度：nova 布局的 .dialog.fullheight 本身就高，换个布局就没这条规则，
- *   所以按真实牌高补一个内联 min-height（本体高度规则带 !important，只能内联 !important 压住）。
- * 2 每页张数：本体按配置 showMax_character_number 分页（这台机器上是 20），超出的一页只是被加上
- *   .nodisplay，光加高窗口刷不出多余的行，必须同时放开每页张数。
+ * 放开选将页每页的武将牌张数。
+ * 本体的分页只认配置 showMax_character_number（这台机器上是 10），一页摊成几行取决于窗口多宽，
+ * 超出当前页的牌只是被加上 .nodisplay——所以光把窗口拉高刷不出多余的行，必须改每页张数。
+ * 页码组件拿不到也要把显隐放开：显隐是玩家看得见的部分，页码条只是数字。
  */
-function fitCharacterRows(dialog, rows) {
-	const card = dialog.buttons[0];
-	const rect = card?.getBoundingClientRect?.();
-	if (!rect?.height) {
+function fitCharacterPage(dialog, pageSize) {
+	const counts = dialog.paginationMaxCount;
+	const perPage = counts?.get?.("character") ?? 0;
+	// 本体没分页（配置为 0）时全部牌本来就可见；它给的张数已够多也不用改
+	if (perPage <= 0 || perPage >= pageSize) {
 		return;
 	}
-	const room = (typeof window === "object" && window.innerHeight ? window.innerHeight : 800) - 40;
-	// 150 是搜索框 + 势力/收藏筛选条 + 说明与返回两行的余量
-	const wanted = Math.min(Math.round(rect.height * rows + 150), room);
-	dialog.style.setProperty("min-height", `${Math.max(240, wanted)}px`, "important");
-
-	const perPage = dialog.paginationMaxCount?.get?.("character") ?? 0;
-	const buttonsNode = perPage ? dialog.content.querySelector(".buttons") : null;
+	const buttonsNode = dialog.content.querySelector(".buttons");
 	const pager = buttonsNode ? dialog.paginationMap?.get?.(buttonsNode) : null;
-	if (!pager?.state?.data) {
-		return;
+	const data = pager?.state?.data?.length ? pager.state.data : dialog.buttons;
+	counts.set("character", pageSize);
+	if (pager) {
+		// setTotalPageCount 只重置页码并重画页码条，卡片显隐要自己按新的一页张数过一遍（当前是第一页）
+		pager.setTotalPageCount(Math.ceil(data.length / pageSize));
+	} else {
+		console.warn("[rogue] 没拿到选将页的分页组件：已放开当前页，页码条数字仍是本体算的");
 	}
-	// 一行的列数：本体在 dialog 里的武将牌是 90px 宽 + 左右各 6px 外边距
-	const pitch = (rect.width || 90) + 12;
-	const columns = Math.max(1, Math.floor(((buttonsNode.getBoundingClientRect()?.width ?? 0) - 8) / pitch));
-	const cap = Math.max(perPage, columns * rows);
-	if (cap === perPage) {
-		return;
-	}
-	const data = pager.state.data;
-	dialog.paginationMaxCount.set("character", cap);
-	pager.setTotalPageCount(Math.ceil(data.length / cap));
-	// setTotalPageCount 只重画页码条，卡片显隐要自己按新的一页张数过一遍（当前是第一页）
 	for (let i = 0; i < data.length; i++) {
-		data[i].classList[i < cap ? "remove" : "add"]("nodisplay");
+		data[i].classList[i < pageSize ? "remove" : "add"]("nodisplay");
 	}
 }
 

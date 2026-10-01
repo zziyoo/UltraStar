@@ -150,7 +150,7 @@ UltraStar/
 | `penalty.js` | 失败结算：按比例扣货币、货币不足 fallback、无尽删档判定（纯逻辑） |
 | `battle.js` | 用本体 `prepareArena / gameDraw / phaseLoop` 开一局，并把敌我强化只施加到当前 Player 上。建局时必须 `assignPlayerIds()`：`prepareArena` 走的 `ui.create.players` 不分配 `playerid`，而本体 `addSkill` 只有 `playerid` 存在才登记触发钩子（`player.js:11088`），缺了它所有触发类技能都不会触发（`single.js:605`、`doudizhu.js:89` 都是这么补的） |
 | `data/` | 作者填写的内容配置：`stages.js` `enemyGroups.js` `skills.js` `stats.js` `rewards.js` |
-| `ui/` | 存档页（仿造梦西游的「存档记录」卡片网格，自定义样式在 `ui/styles.js`，只作用于 `.wm-rogue-*`）、选角色、主界面、商店、替换技能、结果、惩罚选择——一律用本体 Dialog 与 `node.listen()`，条目平铺在 `dialog.content` 下（本体 `.content > *` 才有字号与边距）。选角色页直接用本体 `ui.create.characterDialog`，保留其搜索框（支持正则与技能搜索）、拼音/势力/收藏筛选条与分页，仅以 `noclick` 接管点击；说明与返回放在内容最前，窗口按真实武将牌尺寸补内联 `min-height`，并把本体按配置 `showMax_character_number`（这台机器上默认 20）定的每页张数放开到「实测列数 × 行数」——超出当前页的武将牌只是被加上 `.nodisplay`，光加高窗口刷不出多余的行。商店候选走本体按钮（`ui.create.button`）：`武将牌（出处，不可点）+ 技能按钮（点了就买）`一排，价格与「已购买/余额不足/已售罄」写在同一行文字里，出处由 `common.js` 的 `skillOwner()` 扫 `lib.character` 技能表得出 |
+| `ui/` | 存档页（仿造梦西游的「存档记录」卡片网格，自定义样式在 `ui/styles.js`，只作用于 `.wm-rogue-*`）、选角色、主界面、商店、替换技能、结果、惩罚选择——一律用本体 Dialog 与 `node.listen()`，条目平铺在 `dialog.content` 下（本体 `.content > *` 才有字号与边距）。选角色页直接用本体 `ui.create.characterDialog`，保留其搜索框（支持正则与技能搜索）、拼音/势力/收藏筛选条与分页，仅以 `noclick` 接管点击；说明与返回放在内容最前，并把本体分页的每页张数（配置 `showMax_character_number`，这台机器是 10）放开到 `CHARACTER_PICKER_PAGE_SIZE`（24）——超出当前页的武将牌只是被加上 `.nodisplay`，光加高窗口刷不出多余的行。商店是**自建浮层**（与存档页同一套承载，样式 `wm-rogue-shop-*` / `wm-rogue-stat-*`）：顶部固定「标题 + 三块资源」与右上角返回，中间滚动区放「技能商店」（每张卡＝出处小头像 + 技能名 + 限高描述 + 售价 + 购买按钮，按钮文字即状态：`购买 · 100金币` / `金币不足` / `已购买` / `本次商店已售罄`）与「属性强化」（每张卡＝属性名 + `Lv.x/10` + 逐行累计效果 + 升级价 + 升级按钮）；出处由 `common.js` 的 `skillOwner()` 扫 `lib.character` 技能表得出，头像用本体给任意 div 都挂了的 `setBackground(id,"character")` 画 |
 
 设计约束：
 
@@ -391,7 +391,7 @@ node tools/check/check-assets.mjs .
 | `src/rogue/data/skills.js` | 肉鸽技能效果、名称描述、单价 | 商店池 = 全部分包顶级技能（自动汇总，统一价 100）+ 3 条肉鸽原创技能（蓄势/解甲/归元，同价 100） |
 | `src/rogue/data/stats.js` | 防御·过牌·攻击每级的数值与升级报价 | 十级效果已按「护甲/摸牌/杀伤与次数交替成长」填好，`price` 为 1~1024 翻倍价 |
 | `src/rogue/data/rewards.js` | 每关金币/经验 | 第 n 关 = √n × 系数（金币 50、经验 20，向下取整） |
-| `src/rogue/config.js` | 技能槽数、候选数、失败货币损失率、总关卡数、模式封面图、可选角色白名单、选将窗口显示几行武将牌 | 3/3/0.5/30；封面指向 `assets/sundry/rouge.jpg`（换图改 `MODE_SPLASH` 一行，并跑 `node tools/update-manifest.mjs <新图>` 登记清单）；选将框太小/太大改 `CHARACTER_PICKER_ROWS` |
+| `src/rogue/config.js` | 技能槽数、候选数、失败货币损失率、总关卡数、模式封面图、可选角色白名单、选将页每页几张武将牌 | 3/3/0.5/30；封面指向 `assets/sundry/rouge.jpg`（换图改 `MODE_SPLASH` 一行，并跑 `node tools/update-manifest.mjs <新图>` 登记清单）；选将页想一页多放几张改 `CHARACTER_PICKER_PAGE_SIZE` |
 
 属性效果支持的键（`battle.js` 已落地，写别的键不生效）：`armor`（初始护甲，受伤时自动抵伤）、`maxHp`（体力上限增量）、`startHand`（起手手牌增量）、`extraDraw`（摸牌阶段额外摸牌数）、`handLimit`（手牌上限增量）、`shaDamage`（【杀】伤害增量）、`shaLimit`（出【杀】次数增量）、`extraSkills`（额外技能 id 数组）。其中数值型强化由 `skills.js` 里的机制技能（`rogue_stat_*`）承载，数值写在玩家 `storage` 上，商店与奖励池刷不到它们。
 

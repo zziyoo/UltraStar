@@ -1,9 +1,11 @@
 // 肉鸽 Hub、商店与替换技能页。同样只画界面，一切数据变更走 api 交给 mode.js。
-// 排版：所有条目平铺在 dialog.content 下，见 ui/common.js 顶部的说明。
+// Hub 与替换页是本体 Dialog（条目平铺在 dialog.content 下，见 ui/common.js 顶部说明）；
+// 商店是自建浮层 + wm-rogue-shop-* / wm-rogue-stat-* 样式，与存档页同一套承载方式。
 
 import {
 	CURRENCIES,
 	CURRENCY_LABEL,
+	LIBRARY_TEXT,
 	MODE_TRANSLATE,
 	RUN_MODE,
 	RUN_MODE_LABEL,
@@ -15,7 +17,19 @@ import {
 } from "../config.js";
 import { stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
-import { addGap, addLine, addButton, currentScreenNode, openScreen, skillInfo, skillName, skillOwner, translateCharacter } from "./common.js";
+import {
+	addButton,
+	addGap,
+	addLine,
+	addOverlayButton,
+	currentScreenNode,
+	openOverlay,
+	openScreen,
+	skillInfo,
+	skillName,
+	skillOwner,
+	translateCharacter,
+} from "./common.js";
 
 const moneyName = key => CURRENCY_LABEL[key] ?? key;
 
@@ -26,32 +40,32 @@ function statRow(run) {
 	return STAT_IDS.map(id => `${stats[id].name} Lv.${run.stats[id] ?? 0}`).join("　");
 }
 
-/** 某项属性升到 level 后的累计加成文案 */
-function statBonusText(statId, level) {
+/** 某项属性升到 level 后的累计效果，一行一条。防御的「体力上限」在这里显示，不拆成独立属性 */
+function statEffectLines(statId, level) {
 	const bonus = sumStatEffects({ [statId]: level });
-	const parts = [];
+	const lines = [];
 	if (bonus.armor) {
-		parts.push(`初始护甲${bonus.armor}`);
+		lines.push(`初始护甲 +${bonus.armor}`);
 	}
 	if (bonus.maxHp) {
-		parts.push(`体力上限+${bonus.maxHp}`);
+		lines.push(`体力上限 +${bonus.maxHp}`);
 	}
 	if (bonus.startHand) {
-		parts.push(`起手手牌+${bonus.startHand}`);
+		lines.push(`起手手牌 +${bonus.startHand}`);
 	}
 	if (bonus.extraDraw) {
-		parts.push(`摸牌阶段+${bonus.extraDraw}张`);
+		lines.push(`摸牌阶段 +${bonus.extraDraw} 张`);
 	}
 	if (bonus.handLimit) {
-		parts.push(`手牌上限+${bonus.handLimit}`);
+		lines.push(`手牌上限 +${bonus.handLimit}`);
 	}
 	if (bonus.shaDamage) {
-		parts.push(`杀伤害+${bonus.shaDamage}`);
+		lines.push(`杀伤害 +${bonus.shaDamage}`);
 	}
 	if (bonus.shaLimit) {
-		parts.push(`出杀次数+${bonus.shaLimit}`);
+		lines.push(`出杀次数 +${bonus.shaLimit}`);
 	}
-	return parts.length ? parts.join("，") : "尚无加成";
+	return lines.length ? lines : ["暂无加成"];
 }
 
 export function showHub(api) {
@@ -84,60 +98,97 @@ export function showHub(api) {
 
 export function showShop(api) {
 	const run = api.run;
-	const content = openScreen("商店");
-	const dialog = currentScreenNode();
-	const header = addLine(content, shopHeader(run));
+	// 与存档页同一套自建浮层：标题与资源栏固定、中间滚动，返回固定在标题栏右上角
+	const overlay = openOverlay("wm-rogue-shop-overlay");
+	const shop = ui.create.div(".wm-rogue-shop", overlay);
 
-	const offerRows = [];
-	addLine(content, "点击技能按钮购买");
-	for (const offer of run.shopOffers) {
-		const cardRow = ui.create.div(".buttons", content);
-		const owner = skillOwner(offer.id);
-		if (owner) {
-			// 武将牌是出处展示：noClick 让它不挂本体的 ui.click.button
-			ui.create.button(owner, "character", cardRow, true);
+	const head = ui.create.div(".wm-rogue-shop-head", shop);
+	const titlebar = ui.create.div(".wm-rogue-titlebar", head);
+	ui.create.div(".wm-rogue-title", "商店", titlebar);
+	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.backToHub());
+
+	const res = ui.create.div(".wm-rogue-res", head);
+	const resCells = [
+		{ node: addResCell(res, moneyName(SKILL_CURRENCY)), read: current => current.currency[SKILL_CURRENCY] ?? 0 },
+		{ node: addResCell(res, moneyName(STAT_CURRENCY)), read: current => current.currency[STAT_CURRENCY] ?? 0 },
+		{ node: addResCell(res, "技能"), read: current => `${current.skills.length}/${SKILL_SLOTS}` },
+	];
+
+	const body = ui.create.div(".wm-rogue-shop-body", shop);
+	ui.create.div(".wm-rogue-shop-section-title", "技能商店", body);
+	ui.create.div(".wm-rogue-shop-subtitle", `每次进店最多购买 ${SKILL_PURCHASE_COUNT} 个技能`, body);
+	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
+	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
+
+	ui.create.div(".wm-rogue-shop-section-title", "属性强化", body);
+	const statRow = ui.create.div(".wm-rogue-stat-cards", body);
+	const statCards = STAT_IDS.map(statId => buildStatCard(statRow, statId, api));
+
+	const paint = current => {
+		for (const cell of resCells) {
+			cell.node.innerHTML = `${cell.read(current)}`;
 		}
-		const button = ui.create.button([offer.id, skillName(offer.id)], "tdnodes", cardRow, true);
-		const line = addLine(content, "");
-		addLine(content, skillInfo(offer.id));
-		const row = { id: offer.id, line, button };
-		button.listen(() => {
-			if (paintOffer(row, api.getRun()) === "buy") {
-				api.buySkill(row.id);
-			}
-		});
-		offerRows.push(row);
-		addGap(content);
-	}
-
-	const statRows = [];
-	addLine(content, "属性强化");
-	for (const statId of STAT_IDS) {
-		const line = addLine(content, "");
-		const row = { statId, line, button: null };
-		row.button = addButton("升级", content, () => {
-			if (paintStat(row, api.getRun(), api.checkStatUpgrade).ok) {
-				api.upgradeStat(statId);
-			}
-		});
-		statRows.push(row);
-	}
-
-	addGap(content);
-	addButton("返回", content, () => api.backToHub());
-
-	const paintAll = current => {
 		const soldOut = isSoldOut(current);
-		header.innerHTML = shopHeader(current);
-		for (const row of offerRows) {
+		for (const row of offerCards) {
 			paintOffer(row, current, soldOut);
 		}
-		for (const row of statRows) {
+		for (const row of statCards) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
 	};
-	shopView = { dialog, refresh: paintAll };
-	paintAll(run);
+	shopView = { node: overlay, paint };
+	paint(run);
+}
+
+function addResCell(parent, label) {
+	const cell = ui.create.div(".wm-rogue-res-cell", parent);
+	const num = ui.create.div(".wm-rogue-res-num", "", cell);
+	ui.create.div(".wm-rogue-res-label", label, cell);
+	return num;
+}
+
+/** 一张技能卡：出处头像 + 技能名 + 描述 + 售价 + 购买按钮 */
+function buildOfferCard(parent, offer, api) {
+	const card = ui.create.div(".wm-rogue-shop-card", parent);
+	const top = ui.create.div(".wm-rogue-shop-top", card);
+	const owner = skillOwner(offer.id);
+	if (owner) {
+		// 本体给任意 div 都提供了 setBackground（HTMLDivElement.prototype），直接拿它画头像
+		ui.create.div(".wm-rogue-shop-avatar", top).setBackground(owner, "character");
+	}
+	ui.create.div(".wm-rogue-shop-name", skillName(offer.id), top);
+	ui.create.div(".wm-rogue-shop-owner", owner ? `出自 ${translateCharacter(owner)}` : "肉鸽专属技能", card);
+	const intro = skillInfo(offer.id);
+	const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
+	desc.title = intro;
+
+	const foot = ui.create.div(".wm-rogue-shop-foot", card);
+	const price = ui.create.div(".wm-rogue-shop-price", "", foot);
+	const row = { id: offer.id, card, price, button: null };
+	row.button = addOverlayButton("购买", foot, () => {
+		if (paintOffer(row, api.getRun()) === "buy") {
+			api.buySkill(offer.id);
+		}
+	}, "wm-rogue-shop-buy");
+	return row;
+}
+
+/** 一张属性卡：属性名 + 等级 + 当前累计效果 + 升级价 + 升级按钮 */
+function buildStatCard(parent, statId, api) {
+	const card = ui.create.div(".wm-rogue-stat-card", parent);
+	const head = ui.create.div(".wm-rogue-stat-head", card);
+	ui.create.div(".wm-rogue-stat-name", stats[statId].name, head);
+	const level = ui.create.div(".wm-rogue-stat-level", "", head);
+	const effects = ui.create.div(".wm-rogue-stat-effects", card);
+	const foot = ui.create.div(".wm-rogue-stat-foot", card);
+	const price = ui.create.div(".wm-rogue-stat-price", "", foot);
+	const row = { statId, card, level, effects, price, button: null };
+	row.button = addOverlayButton("升级", foot, () => {
+		if (paintStat(row, api.getRun(), api.checkStatUpgrade).ok) {
+			api.upgradeStat(statId);
+		}
+	}, "wm-rogue-stat-up");
+	return row;
 }
 
 /**
@@ -145,11 +196,11 @@ export function showShop(api) {
  * @returns {boolean} 页面还是当初那个商店、已刷新为 true；否则 false，调用方退回整页重绘
  */
 export function refreshShop(run) {
-	if (!shopView || currentScreenNode() !== shopView.dialog) {
+	if (!shopView || currentScreenNode() !== shopView.node) {
 		shopView = null;
 		return false;
 	}
-	shopView.refresh(run);
+	shopView.paint(run);
 	return true;
 }
 
@@ -158,45 +209,53 @@ function isSoldOut(run) {
 	return SKILL_PURCHASE_COUNT <= 1 && run.shopOffers.some(offer => offer.sold);
 }
 
-function shopHeader(run) {
-	const money = CURRENCIES.map(key => `${moneyName(key)} ${run.currency[key] ?? 0}`).join("　");
-	return `持有：${money}　技能（${run.skills.length}/${SKILL_SLOTS}）`;
-}
-
-/** 画一个技能候选，返回它当前的状态。offer 按 id 从当前存档里取——buySkill 返回的是新对象，握住旧引用会永远读不到 sold */
+/** 画一张技能卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buySkill 返回的是新对象，握住旧引用会永远读不到 sold */
 function paintOffer(row, run, soldOut = isSoldOut(run)) {
 	const offer = run.shopOffers.find(item => item.id === row.id);
 	const held = run.currency[SKILL_CURRENCY] ?? 0;
 	const state = offer.sold ? "sold" : held < offer.price ? "poor" : soldOut ? "soldOut" : "buy";
-	const tags = {
-		sold: "已购买",
-		poor: `余额不足（售价 ${offer.price}，持有 ${held}）`,
-		soldOut: "已售罄（本次商店只能购买一个技能）",
-		buy: "",
-	};
-	row.line.innerHTML = `${moneyName(SKILL_CURRENCY)}：${offer.price}${tags[state] ? `　${tags[state]}` : ""}`;
-	setBuyable(row.button, state === "buy");
+	const money = moneyName(SKILL_CURRENCY);
+	const text = {
+		sold: { price: `${offer.price} ${money}`, button: "已购买" },
+		poor: { price: `${offer.price} ${money}（持有 ${held}）`, button: `${money}不足` },
+		soldOut: { price: `${offer.price} ${money}`, button: "本次商店已售罄" },
+		buy: { price: `${offer.price} ${money}`, button: `购买 · ${offer.price}${money}` },
+	}[state];
+	row.price.innerHTML = text.price;
+	row.button.innerHTML = text.button;
+	setBuyable(row, state === "buy");
 	return state;
 }
 
-/** 画一个属性条目，返回升级检查结果 */
+/** 画一张属性卡，返回升级检查结果 */
 function paintStat(row, run, checkStatUpgrade) {
 	const check = checkStatUpgrade(row.statId);
 	const level = run.stats[row.statId] ?? 0;
 	const cfg = stats[row.statId];
-	const desc = `${cfg.name} Lv.${level}/${cfg.maxLevel}（${statBonusText(row.statId, level)}）`;
+	row.level.innerHTML = `Lv.${level}/${cfg.maxLevel}`;
+	const lines = statEffectLines(row.statId, level);
+	row.effects.innerHTML = lines
+		.map(line => `<div class="wm-rogue-stat-effect${level ? "" : " wm-rogue-none"}">${line}</div>`)
+		.join("");
 	const held = run.currency[STAT_CURRENCY] ?? 0;
-	const tag = Number.isFinite(check.price) ? `${check.error}（需 ${check.price}，持有 ${held}）` : check.error;
-	row.line.innerHTML = check.ok ? desc : `${desc}　${tag}`;
-	row.button.innerHTML = check.ok ? `升级（${moneyName(STAT_CURRENCY)} ${check.price}）` : "升级";
-	setBuyable(row.button, check.ok);
+	const money = moneyName(STAT_CURRENCY);
+	if (check.ok) {
+		row.price.innerHTML = `升级 ${check.price} ${money}`;
+		row.button.innerHTML = "升级";
+	} else if (Number.isFinite(check.price)) {
+		row.price.innerHTML = `升级 ${check.price} ${money}（持有 ${held}）`;
+		row.button.innerHTML = `${money}不足`;
+	} else {
+		row.price.innerHTML = check.error;
+		row.button.innerHTML = "已满级";
+	}
+	setBuyable(row, check.ok);
 	return check;
 }
 
-/** 不可点的条目：本体只有 .menubutton.large.disabled 有灰样式，技能按钮这里补一层透明度 */
-function setBuyable(node, buyable) {
-	node.classList[buyable ? "remove" : "add"]("disabled");
-	node.style.opacity = buyable ? "" : "0.45";
+function setBuyable(row, buyable) {
+	row.button.classList[buyable ? "remove" : "add"]("wm-rogue-disabled");
+	row.card.classList[buyable ? "remove" : "add"]("wm-rogue-off");
 }
 
 /** 技能槽满时的替换页：选一个已有技能让位 */

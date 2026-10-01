@@ -128,6 +128,18 @@ function click(textValue, from) {
 	return node;
 }
 
+/** 直接点某个节点（浮层里的按钮走 bindTap，桩同样记在 __listeners 里） */
+function clickNode(node) {
+	assert(node, "找不到要点击的节点");
+	const handler = (node.__listeners ?? [])[0];
+	assert(handler, "该节点没有绑定点击");
+	handler();
+	return node;
+}
+
+/** 按类名收集当前页面里的节点 */
+const nodesWithClass = className => collect(node => node.classList?.contains?.(className));
+
 /** 全新世界：连“数据库”（lib.storage）一起清空 */
 function freshWorld() {
 	stub.resetState();
@@ -259,7 +271,7 @@ await check("新建：选玩法→选角色→立即保存六槽", async () => {
 	return `槽1 ${run.characterId}`;
 });
 
-await check("选将页：说明与返回在最前，窗口按三行武将给高度", () => {
+await check("选将页：说明与返回排在内容最前", () => {
 	freshWorld();
 	session();
 	click("空存档");
@@ -267,34 +279,30 @@ await check("选将页：说明与返回在最前，窗口按三行武将给高�
 	const dialog = common.currentScreenNode();
 	assert(textOf(dialog.content.children[0]).includes("点击武将即完成选择"), `说明行应在最前面：${textOf(dialog.content.children[0])}`);
 	assertEqual(textOf(dialog.content.children[1]), "返回", "返回紧随其后");
-	assert(dialog.style["min-height"]?.endsWith("px"), `应写入内联最小高度：${dialog.style["min-height"]}`);
 	click("迪迦");
-	return dialog.style["min-height"];
+	return "说明与返回置顶";
 });
 
-await check("选将页：放开本体分页，三行才刷得出来", () => {
+await check("选将页：每页张数放开到配置的 24 张", () => {
 	freshWorld();
 	session();
-	// 这台机器上本体配置 showMax_character_number = 20：一页 20 张，摊成几行取决于窗口多宽
-	lib.config.showMax_character_number = 20;
+	// 这台机器上本体配置 showMax_character_number = 10：一页只给 10 张，多出来的只是被加了 .nodisplay
+	lib.config.showMax_character_number = 10;
 	for (let i = 0; i < 59; i++) {
 		lib.character[`测试将${i}`] = [4, "custom", 0, [], 1];
 	}
-	// 武将牌 90px 宽 + 左右各 6px 外边距 = 102 的间距，容器 730px → 一行 7 张
-	stub.__rect.width = 730;
 	click("空存档");
 	click("闯关模式");
 	const dialog = common.currentScreenNode();
 	assertEqual(dialog.buttons.length, 63, "候选总数（桩里 4 个基础角色 + 59 个测试角色）");
-	assertEqual(dialog.paginationMaxCount.get("character"), 21, "每页张数应放开到 7 列 × 3 行");
-	assertEqual(dialog.buttons.filter(button => !button.classList.contains("nodisplay")).length, 21, "第一页显示 21 张");
+	assertEqual(dialog.paginationMaxCount.get("character"), cfg.CHARACTER_PICKER_PAGE_SIZE, "每页张数应放开");
+	assertEqual(dialog.buttons.filter(button => !button.classList.contains("nodisplay")).length, cfg.CHARACTER_PICKER_PAGE_SIZE, "第一页显示 24 张");
 	const pager = dialog.paginationMap.get(dialog.content.querySelector(".buttons"));
 	assertEqual(pager.state.totalPageCount, 3, `页数应重算：${pager.state.totalPageCount}`);
 	assertEqual(pager.state.pageNumber, 1, "回到第一页");
 	lib.config.showMax_character_number = 0;
-	stub.__rect.width = 300;
 	click("迪迦");
-	return "每页 21 张 / 3 页";
+	return "每页 24 张 / 3 页";
 });
 
 await check("角色候选：真实存在、隐藏 Boss 不进候选", () => {
@@ -488,18 +496,30 @@ await check("取消恢复：返回存档页不删进度并标出未完成战斗"
 	return "进度保留";
 });
 
-await check("商店：进商店随机三候选并立刻保存", async () => {
+await check("商店：浮层骨架——固定标题与资源栏 + 三张技能卡 + 三张属性卡", async () => {
 	putRun(0, { currentBattle: null, shopOffers: [], currency: { gold: 1000, exp: 0 } });
 	session();
 	click("商店");
 	const saved = lib.storage.rogueSlots[0];
 	assertEqual(saved.shopOffers.length, cfg.SKILL_OFFER_COUNT, "候选数");
 	assert(saved.shopOffers.every(offer => typeof offer.id === "string" && Number.isFinite(offer.price)), "候选结构");
-	assertEqual(collect(node => node.classList?.contains?.("tdnodes")).length, cfg.SKILL_OFFER_COUNT, "每个候选一个技能按钮");
+	const overlay = common.currentScreenNode();
+	assertEqual(overlay?.id, "wm-rogue-overlay", "商店走自建浮层，与存档页同一套承载");
+	assertEqual(nodesWithClass("wm-rogue-shop-card").length, cfg.SKILL_OFFER_COUNT, "技能卡数");
+	assertEqual(nodesWithClass("wm-rogue-stat-card").length, cfg.STAT_IDS.length, "属性卡数");
+	assertEqual(nodesWithClass("wm-rogue-res-cell").length, 3, "资源块三块");
+	const text = screenText();
+	assert(text.includes("技能商店") && text.includes("属性强化"), `两个分区标题：${text}`);
+	assertEqual(nodesWithClass("wm-rogue-res-num").map(node => textOf(node)).join(","), "1000,0,0/3", "资源数字");
+	assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验,技能", "资源标签");
+	// 返回固定在标题栏里，不用滚到底找
+	const back = nodesWithClass("wm-rogue-back")[0];
+	assert(back, "应有返回");
+	assertEqual(back.parentNode?.classList?.contains("wm-rogue-titlebar"), true, "返回固定在标题栏");
 	return `候选 ${saved.shopOffers.map(offer => offer.id).join(",")}`;
 });
 
-await check("商店：候选带上出处武将牌，无出处的只有技能按钮", async () => {
+await check("商店：技能卡画出出处头像，没有出处的标成专属", async () => {
 	putRun(0, {
 		currentBattle: null,
 		currency: { gold: 1000, exp: 0 },
@@ -512,25 +532,26 @@ await check("商店：候选带上出处武将牌，无出处的只有技能按�
 	// 本体的 lib.character 第三项是技能表，这里给一个候选造个出处
 	lib.character.出处测试 = [4, "custom", 0, ["owned_skill"], 1];
 	click("商店");
-	const cards = collect(node => node.classList?.contains?.("character") && node.classList?.contains?.("button"));
-	assertEqual(cards.length, 1, "只有有出处的候选配武将牌");
-	assert(cards[0].classList.contains("noclick"), "武将牌只是展示");
-	assert(get.translation(cards[0].link) === "出处测试", `牌面是出处角色：${cards[0].link}`);
-	const buttons = collect(node => node.classList?.contains?.("tdnodes"));
-	assertEqual(buttons.length, 2, "每个候选一个技能按钮");
-	// 技能按钮也走 noClick 建法：不挂本体的 ui.click.button，改由页面自己 listen
-	assertEqual(buttons[0].__listeners.length, 1, "技能按钮绑了自己的点击");
-	return "武将牌 + 技能按钮";
+	const avatars = nodesWithClass("wm-rogue-shop-avatar");
+	assertEqual(avatars.length, 1, "只有有出处的候选画头像");
+	assertEqual(avatars[0].__background?.[0], "出处测试", "头像取自出处角色");
+	assertEqual(avatars[0].__background?.[1], "character", "用本体的 setBackground 画");
+	const text = screenText();
+	assert(text.includes("出自 出处测试"), `写出出处：${text}`);
+	assert(text.includes("肉鸽专属技能"), "没有出处的候选标成专属");
+	const names = nodesWithClass("wm-rogue-shop-name").map(node => textOf(node));
+	assertEqual(names.length, 2, "每张卡一个技能名");
+	return `头像 ${avatars[0].__background[0]} / ${names.join("、")}`;
 });
 
 await check("商店：购买一个后本次不能再买第二个", async () => {
 	session();
 	click("商店");
-	const dialog = common.currentScreenNode();
+	const overlay = common.currentScreenNode();
 	const first = lib.storage.rogueSlots[0].shopOffers[0];
-	click(get.translation(first.id).split("<hr>")[0]);
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
 	await flush();
-	assertEqual(common.currentScreenNode(), dialog, "购买不重开窗口");
+	assertEqual(common.currentScreenNode(), overlay, "购买不重开窗口");
 	assert(screenText().includes("已购买"), `已购买原位显示：${screenText()}`);
 	const after = lib.storage.rogueSlots[0];
 	assertEqual(after.shopOffers.filter(offer => offer.sold).length, 1, "只标记一项已购");
@@ -540,11 +561,11 @@ await check("商店：购买一个后本次不能再买第二个", async () => {
 	session();
 	click("商店");
 	const text = screenText();
-	assert(text.includes("已购买") && text.includes("已售罄"), `其余候选应不可再买：${text}`);
+	assert(text.includes("已购买") && text.includes("本次商店已售罄"), `其余候选应不可再买：${text}`);
 	putRun(0, { currency: { gold: 0, exp: 0 } }, after);
 	session();
 	click("商店");
-	assert(screenText().includes("余额不足（售价"), "余额不足直接写在候选行里");
+	assert(screenText().includes("金币不足"), "余额不足显示在购买按钮上");
 	return `买到 ${first.id}`;
 });
 
@@ -557,7 +578,7 @@ await check("技能上限：满槽购买走替换页，替换后仍不超过 3 �
 	});
 	session();
 	click("商店");
-	click("额外");
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
 	assert(screenText().includes("选择要替换的技能"), "应进入替换页");
 	click("用新技能替换它");
 	const after = lib.storage.rogueSlots[0];
@@ -567,28 +588,47 @@ await check("技能上限：满槽购买走替换页，替换后仍不超过 3 �
 	return after.skills.join(",");
 });
 
+await check("属性卡：三项且防御把体力上限一起算，不得多出「体力」卡", async () => {
+	putRun(0, {
+		stats: { defense: 3, draw: 0, attack: 0 },
+		currency: { gold: 0, exp: 0 },
+		shopOffers: [],
+		currentBattle: null,
+	});
+	session();
+	click("商店");
+	assertEqual(nodesWithClass("wm-rogue-stat-name").map(node => textOf(node)).join(","), "防御,过牌,攻击", "只有三项属性");
+	const text = screenText();
+	assert(text.includes("Lv.3/10"), `防御等级：${text}`);
+	assert(text.includes("初始护甲 +2") && text.includes("体力上限 +2"), "防御的累计效果要一起列出");
+	assert(text.includes("暂无加成"), "其他两项没加成");
+	return "防御含体力上限";
+});
+
 await check("属性升级：受最大等级与价格约束，成功即落盘", async () => {
 	statsData.stats.defense.price = [10];
 	putRun(0, { stats: { defense: 0, draw: 0, attack: 0 }, currency: { gold: 30, exp: 30 }, shopOffers: [], currentBattle: null });
 	session();
 	click("商店");
-	const dialog = common.currentScreenNode();
-	click("升级（经验 10）");
-	assertEqual(common.currentScreenNode(), dialog, "升级不重开窗口");
-	assert(screenText().includes("防御 Lv.1/"), "等级原位更新");
+	const overlay = common.currentScreenNode();
+	clickNode(nodesWithClass("wm-rogue-stat-up")[0]);
+	assertEqual(common.currentScreenNode(), overlay, "升级不重开窗口");
+	assertEqual(textOf(nodesWithClass("wm-rogue-stat-level")[0]), "Lv.1/10", "等级原位更新");
 	assertEqual(lib.storage.rogueSlots[0].stats.defense, 1, "升到 1 级");
 	assertEqual(lib.storage.rogueSlots[0].currency.exp, 20, "扣款");
-	click("升级（经验 10）");
+	clickNode(nodesWithClass("wm-rogue-stat-up")[0]);
 	assertEqual(lib.storage.rogueSlots[0].stats.defense, 2, "再升一级");
 	const maxed = lib.storage.rogueSlots[0];
 	putRun(0, { stats: { ...maxed.stats, defense: statsData.stats.defense.maxLevel } }, maxed);
 	session();
 	click("商店");
 	assert(screenText().includes("已达最高等级"), "满级应说明原因");
+	assert(screenText().includes("已满级"), "满级时按钮也写明");
 	putRun(0, { stats: { defense: 0, draw: 0, attack: 0 }, currency: { gold: 30, exp: 1 } }, maxed);
 	session();
 	click("商店");
-	assert(screenText().includes("经验不足（需 10，持有 1）"), "余额不足写在属性行里");
+	const text = screenText();
+	assert(text.includes("经验不足") && text.includes("（持有 1）"), `余额不足写在价格与按钮上：${text}`);
 	statsData.stats.defense.price = [];
 	return "上限/扣款/提示";
 });

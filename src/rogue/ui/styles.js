@@ -62,6 +62,55 @@ const CSS = `
 .wm-rogue-popup-line { font-size: 16px; color: #fff; line-height: 1.6; margin-bottom: 6px; }
 .wm-rogue-popup-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 
+/* ---- 商店：固定「标题 + 资源栏」，中间滚动，返回固定在标题栏右上角 ---- */
+/* 浮层本身不滚，滚动交给 .wm-rogue-shop-body，这样资源栏与返回始终可见 */
+.wm-rogue-shop-overlay { overflow: hidden; padding: 10px 0; }
+.wm-rogue-shop { display: flex; flex-direction: column; width: min(1100px, calc(100% - 24px));
+	height: 100%; margin: 0 auto; }
+.wm-rogue-shop-head { flex: none; }
+.wm-rogue-shop-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 4px 10px 2px; }
+/* 资源块：数字大、标签小，三块等宽并排 */
+.wm-rogue-res { display: flex; gap: 10px; margin-bottom: 10px; }
+.wm-rogue-res-cell { flex: 1 1 0; min-width: 0; padding: 6px 10px 5px; border-radius: 6px; text-align: center;
+	background: linear-gradient(rgba(255,255,255,0.15), rgba(255,255,255,0.05));
+	border: 1px solid rgba(255,255,255,0.16); }
+.wm-rogue-res-num { font-size: 24px; line-height: 1.1; font-weight: bold; color: #ffd479;
+	text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.wm-rogue-res-label { font-size: 12px; color: rgba(255,255,255,0.62); letter-spacing: 1px; }
+.wm-rogue-shop-section-title { margin: 12px 0 4px; font-size: 19px; font-weight: bold; color: #fff;
+	letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+.wm-rogue-shop-subtitle { margin-bottom: 8px; font-size: 12px; color: rgba(255,255,255,0.55); }
+/* 三张技能卡：一行放得下就横排，窄屏自动换行 */
+.wm-rogue-shop-cards, .wm-rogue-stat-cards { display: flex; flex-wrap: wrap; gap: 10px; }
+.wm-rogue-shop-card, .wm-rogue-stat-card { flex: 1 1 260px; min-width: 0; box-sizing: border-box;
+	padding: 10px 12px; border-radius: 8px; display: flex; flex-direction: column;
+	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
+	border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.wm-rogue-shop-card.wm-rogue-off, .wm-rogue-stat-card.wm-rogue-off { opacity: 0.62; }
+.wm-rogue-shop-top { display: flex; align-items: center; gap: 8px; }
+/* 出处头像只做“这技能来自谁”的提示，比选将页的武将牌小得多 */
+.wm-rogue-shop-avatar { flex: none; width: 42px; height: 56px; border-radius: 4px;
+	border: 1px solid rgba(255,255,255,0.25); background-size: cover; background-position: center; }
+.wm-rogue-shop-name { font-size: 18px; font-weight: bold; color: #fff; line-height: 1.25;
+	text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.wm-rogue-shop-owner { margin-top: 6px; font-size: 12px; color: rgba(255,255,255,0.55); }
+/* 描述限高：超长技能描述不该把整页撑长；完整文本在 title 里，鼠标悬停可看 */
+.wm-rogue-shop-desc { margin-top: 6px; font-size: 13px; line-height: 1.45; color: rgba(255,255,255,0.86);
+	max-height: 5.8em; overflow: hidden; }
+.wm-rogue-shop-foot, .wm-rogue-stat-foot { display: flex; align-items: center; justify-content: space-between;
+	gap: 8px; margin-top: auto; padding-top: 10px; }
+.wm-rogue-shop-price { font-size: 13px; color: #ffd479; }
+.wm-rogue-shop-buy, .wm-rogue-stat-up { flex: none; }
+.wm-rogue-btn.wm-rogue-disabled { opacity: 0.45; cursor: default; border-color: rgba(255,255,255,0.18); }
+.wm-rogue-btn.wm-rogue-disabled:hover { border-color: rgba(255,255,255,0.18); }
+.wm-rogue-stat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.wm-rogue-stat-name { font-size: 17px; font-weight: bold; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.wm-rogue-stat-level { font-size: 13px; color: #ffd479; }
+.wm-rogue-stat-effects { margin-top: 6px; }
+.wm-rogue-stat-effect { font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.86); }
+.wm-rogue-stat-effect.wm-rogue-none { color: rgba(255,255,255,0.5); }
+.wm-rogue-stat-price { font-size: 13px; color: #ffd479; }
+
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
    table/td 的 display 与文本换行；这些都会被浮层里的普通类规则继承或压掉。
@@ -109,6 +158,39 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-panel { display: block !important; }
 #wm-rogue-overlay .wm-rogue-titlebar { display: flex !important; }
 #wm-rogue-overlay .wm-rogue-btn { display: inline-block !important; }
+/* 商店：布局语义同样钉死——主题的裸 div 规则会把它们变成 inline-block 并排，卡片就不再是竖直卡片 */
+#wm-rogue-overlay.wm-rogue-shop-overlay { overflow: hidden !important; }
+#wm-rogue-overlay .wm-rogue-shop,
+#wm-rogue-overlay .wm-rogue-shop-card,
+#wm-rogue-overlay .wm-rogue-stat-card { display: flex !important; flex-direction: column !important; }
+#wm-rogue-overlay .wm-rogue-shop-cards,
+#wm-rogue-overlay .wm-rogue-stat-cards,
+#wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
+#wm-rogue-overlay .wm-rogue-shop-top,
+#wm-rogue-overlay .wm-rogue-shop-foot,
+#wm-rogue-overlay .wm-rogue-stat-head,
+#wm-rogue-overlay .wm-rogue-stat-foot { display: flex !important; flex-wrap: nowrap !important; }
+#wm-rogue-overlay .wm-rogue-shop-head,
+#wm-rogue-overlay .wm-rogue-shop-body,
+#wm-rogue-overlay .wm-rogue-res-cell,
+#wm-rogue-overlay .wm-rogue-shop-avatar,
+#wm-rogue-overlay .wm-rogue-stat-effects { display: block !important; }
+#wm-rogue-overlay .wm-rogue-shop-section-title,
+#wm-rogue-overlay .wm-rogue-shop-subtitle,
+#wm-rogue-overlay .wm-rogue-shop-name,
+#wm-rogue-overlay .wm-rogue-shop-owner,
+#wm-rogue-overlay .wm-rogue-shop-desc,
+#wm-rogue-overlay .wm-rogue-shop-price,
+#wm-rogue-overlay .wm-rogue-stat-name,
+#wm-rogue-overlay .wm-rogue-stat-level,
+#wm-rogue-overlay .wm-rogue-stat-effect,
+#wm-rogue-overlay .wm-rogue-stat-price,
+#wm-rogue-overlay .wm-rogue-res-num,
+#wm-rogue-overlay .wm-rogue-res-label { display: block !important; }
+#wm-rogue-overlay .wm-rogue-shop-desc,
+#wm-rogue-overlay .wm-rogue-shop-owner,
+#wm-rogue-overlay .wm-rogue-shop-subtitle,
+#wm-rogue-overlay .wm-rogue-stat-effect { white-space: normal !important; overflow-wrap: break-word !important; }
 /* 返回按钮：尺寸写死成固定盒子。想继续调大调小，只改这里的 width/height/line-height/font-size 四个数 */
 #wm-rogue-overlay .wm-rogue-back .wm-rogue-btn {
 	display: inline-block !important;

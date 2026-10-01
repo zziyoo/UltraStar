@@ -63,8 +63,12 @@ export const FAILURE_POLICY = {
 /** 玩家可选角色白名单；null 表示按通用规则从 lib.character 里筛 */
 export const ROSTER_WHITE_LIST = null;
 
-/** 选将窗口至少显示几行武将牌（想多显示只改这里：界面按真实牌高换算窗口高度） */
-export const CHARACTER_PICKER_ROWS = 3;
+/**
+ * 选将页每页显示多少张武将牌。
+ * 本体按自己的配置 showMax_character_number 分页（这台机器上是 10），超出当前页的牌只是被
+ * 加上 .nodisplay，所以光把窗口拉高刷不出多余的行——要一行多放几张只能改这个数。
+ */
+export const CHARACTER_PICKER_PAGE_SIZE = 24;
 
 /** 传给 game.addMode 第三参的 mode.config：死亡时本体要读它，必须至少是对象 */
 export const MODE_SETTINGS = {};

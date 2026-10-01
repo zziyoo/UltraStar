@@ -77,10 +77,6 @@ function makeNodeList(node) {
 	};
 }
 
-/** getBoundingClientRect 的统一返回值；用例可改这里的宽高来验布局换算。
- *  武将牌单独一组尺寸：本体在 dialog 里是 90 宽 × 108 高（layout/default/layout.css:1607） */
-export const __rect = { width: 300, height: 104, cardWidth: 90, cardHeight: 108 };
-
 /** 桩只认 “.a.b” 这种纯类名选择器（本体与肉鸽代码用到的就这一种） */
 function matchesSelector(node, selector) {
 	return String(selector).split(".").filter(Boolean).every(cls => node.classList?.contains?.(cls));
@@ -176,6 +172,11 @@ export function makeNode(tag) {
 		node.__listeners.push(func);
 		return node;
 	};
+	/** 本体给任意 div 都挂了 setBackground（HTMLDivElement.prototype，init/polyfill.js:198）；桩只记录调用 */
+	node.setBackground = (link, type) => {
+		node.__background = [link, type];
+		return node;
+	};
 	node.addEventListener = (type, func) => {
 		if (type === "click") {
 			node.__listeners.push(func);
@@ -185,12 +186,7 @@ export function makeNode(tag) {
 	node.querySelectorAll = selector => queryDescendants(node, selector, true);
 	node.setPosition = () => node;
 	node.css = style => Object.assign(node.style, style);
-	node.getBoundingClientRect = () => {
-		const card = node.classList?.contains?.("button") && node.classList?.contains?.("character");
-		const width = card ? __rect.cardWidth : __rect.width;
-		const height = card ? __rect.cardHeight : __rect.height;
-		return { top: 0, left: 0, right: width, bottom: height, width, height };
-	};
+	node.getBoundingClientRect = () => ({ top: 0, left: 0, right: 300, bottom: 104, width: 300, height: 104 });
 	node.update = () => node;
 	node.open = () => {
 		node.__opened = true;
