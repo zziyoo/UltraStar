@@ -619,7 +619,18 @@ globalThis.localStorage = {
 	setItem: (key, value) => storage.set(key, String(value)),
 	removeItem: key => storage.delete(key),
 };
-globalThis.window = { innerWidth: 1175, innerHeight: 800, location: { reload: () => {} }, addEventListener: () => {}, removeEventListener: () => {} };
+globalThis.window = {
+	innerWidth: 1175,
+	innerHeight: 800,
+	location: {
+		/** 真机上 window.location.reload() 与 game.reload() 都会整页重载；桩里统一记成 reload */
+		reload: () => {
+			log({ type: "reload" });
+		},
+	},
+	addEventListener: () => {},
+	removeEventListener: () => {},
+};
 globalThis.document = {
 	createElement: tag => makeNode(tag),
 	getElementById: () => null,

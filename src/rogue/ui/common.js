@@ -209,14 +209,40 @@ export function skillLabel(id) {
 	return lib.translate[id] || `${id}<hr>（无描述）`;
 }
 
-const POPTIP_TAG = /<\/?noname-poptip[^>]*>/gi;
+const POPTIP_TAG = /<noname-poptip\b([^>]*?)(?:\/>|>([\s\S]*?)<\/noname-poptip>)/gi;
+const POPTIP_ID = /poptip\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
 const BR_TAG = /<br\s*\/?>/gi;
 const HTML_TAG = /<\/?[a-z][^>]*>/gi;
 
 /**
+ * 把 `<noname-poptip poptip="id"></noname-poptip>` 换成玩家能读的文字。
+ * 本体这个标签不带名字——`get.poptip()` 输出的是空壳，名字要按 id 去 `lib.poptip` 查
+ * （本体 HTMLPoptipElement.connectedCallback 也是这么做的）。装饰与本体一致：
+ * 技能 〖名〗、卡牌 【名】、其它类型直接写名字。
+ * 查不到 id 时优先用标签里的内部文本，再退回 id——正文一个字都不能丢。
+ */
+function poptipLabel(attrs, inner) {
+	const matched = POPTIP_ID.exec(attrs ?? "");
+	const id = (matched ? matched.slice(1).find(Boolean) : "") ?? "";
+	const trimmed = String(id).trim();
+	const name = trimmed && typeof lib.poptip?.getName === "function" ? `${lib.poptip.getName(trimmed)}` : "";
+	if (!name || name === trimmed) {
+		return (inner ?? "").trim() || name || trimmed;
+	}
+	const type = typeof lib.poptip?.getType === "function" ? lib.poptip.getType(trimmed) : "rule";
+	if (type === "skill") {
+		return `〖${name}〗`;
+	}
+	if (type === "card") {
+		return `【${name}】`;
+	}
+	return name;
+}
+
+/**
  * 技能文本的显示层清洗。
- * 本体的 poptip 标记 `<noname-poptip …>文本</noname-poptip>` 在纯文本弹层里会连标签一起显示，
- * 这里只脱标签、留正文；<br> 换成换行；其它标签兜底剥离（同样只去标签，不删一个字）。
+ * 本体的 poptip 标记在纯文本弹层里会连标签一起显示，这里把它换成可读文字（见 poptipLabel）；
+ * <br> 换成换行；其它标签兜底剥离（同样只去标签，不删一个字）。
  * 只作用于肉鸽界面展示，不改 lib.translate 原文，也不影响本体界面。
  */
 export function sanitizeSkillText(text) {
@@ -226,7 +252,10 @@ export function sanitizeSkillText(text) {
 	if (!text.includes("<")) {
 		return text;
 	}
-	return text.replace(POPTIP_TAG, "").replace(BR_TAG, "\n").replace(HTML_TAG, "");
+	return text
+		.replace(POPTIP_TAG, (match, attrs, inner) => poptipLabel(attrs, inner))
+		.replace(BR_TAG, "\n")
+		.replace(HTML_TAG, "");
 }
 
 /** 技能名 */

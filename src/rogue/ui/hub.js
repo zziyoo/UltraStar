@@ -15,7 +15,7 @@ import {
 	STAT_CURRENCY,
 	STAT_IDS,
 } from "../config.js";
-import { stats, sumStatEffects } from "../data/stats.js";
+import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
 	addButton,
@@ -38,31 +38,9 @@ const moneyName = key => CURRENCY_LABEL[key] ?? key;
 /** 商店页的活节点，供购买/升级后原位刷新 */
 let shopView = null;
 
-/** 某项属性升到 level 后的累计效果，一行一条。防御的「体力上限」在这里显示，不拆成独立属性 */
+/** 某项属性升到 level 后的累计效果，一行一条；文案在 data/stats.js，与战斗中的「强化」标记共用 */
 function statEffectLines(statId, level) {
-	const bonus = sumStatEffects({ [statId]: level });
-	const lines = [];
-	if (bonus.armor) {
-		lines.push(`初始护甲 +${bonus.armor}`);
-	}
-	if (bonus.maxHp) {
-		lines.push(`体力上限 +${bonus.maxHp}`);
-	}
-	if (bonus.startHand) {
-		lines.push(`起手手牌 +${bonus.startHand}`);
-	}
-	if (bonus.extraDraw) {
-		lines.push(`摸牌阶段 +${bonus.extraDraw} 张`);
-	}
-	if (bonus.handLimit) {
-		lines.push(`手牌上限 +${bonus.handLimit}`);
-	}
-	if (bonus.shaDamage) {
-		lines.push(`杀伤害 +${bonus.shaDamage}`);
-	}
-	if (bonus.shaLimit) {
-		lines.push(`出杀次数 +${bonus.shaLimit}`);
-	}
+	const lines = describeStatEffects(sumStatEffects({ [statId]: level }));
 	return lines.length ? lines : ["暂无加成"];
 }
 
@@ -73,14 +51,7 @@ export function showHub(api) {
 	const panel = ui.create.div(".wm-rogue-hub", stage);
 
 	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
-	ui.create.div(".wm-rogue-hub-who", translateCharacter(run.characterId), titlebar);
 	ui.create.div(".wm-rogue-title", MODE_TRANSLATE, titlebar);
-	addOverlayButton(
-		"技能",
-		ui.create.div(".wm-rogue-back", titlebar),
-		() => api.openSkills(),
-		"wm-rogue-small"
-	);
 
 	const body = ui.create.div(".wm-rogue-hub-body", panel);
 	const canFight = run.mode === RUN_MODE.challenge ? run.level <= run.totalLevels : true;
@@ -96,6 +67,7 @@ export function showHub(api) {
 	}
 
 	ui.create.div(".wm-rogue-hub-section-title", "当前成长", body);
+	ui.create.div(".wm-rogue-hub-who", translateCharacter(run.characterId), body);
 	const statRow = ui.create.div(".wm-rogue-stat-cards", body);
 	for (const statId of STAT_IDS) {
 		buildStatSummary(statRow, run, statId);
@@ -120,7 +92,7 @@ export function showSkills(api) {
 
 	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
 	ui.create.div(".wm-rogue-title", `技能（${run.skills.length}/${SKILL_SLOTS}）`, titlebar);
-	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.backToHub());
+	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.back());
 
 	const body = ui.create.div(".wm-rogue-skills-body", panel);
 	if (!run.skills.length) {
@@ -148,10 +120,17 @@ export function showShop(api) {
 	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.backToHub());
 
 	const res = ui.create.div(".wm-rogue-res", head);
+	const goldCell = addResCell(res, moneyName(SKILL_CURRENCY));
+	const expCell = addResCell(res, moneyName(STAT_CURRENCY));
+	const skillNum = addResCell(res, "技能");
+	// 第三块「技能 n/3」本身是入口：点它查看已购买技能（只读，不买卖、不写存档）
+	const skillCell = skillNum.parentNode;
+	skillCell.classList.add("wm-rogue-res-skill");
+	bindOverlayTap(skillCell, () => api.openSkills());
 	const resCells = [
-		{ node: addResCell(res, moneyName(SKILL_CURRENCY)), read: current => current.currency[SKILL_CURRENCY] ?? 0 },
-		{ node: addResCell(res, moneyName(STAT_CURRENCY)), read: current => current.currency[STAT_CURRENCY] ?? 0 },
-		{ node: addResCell(res, "技能"), read: current => `${current.skills.length}/${SKILL_SLOTS}` },
+		{ node: goldCell, read: current => current.currency[SKILL_CURRENCY] ?? 0 },
+		{ node: expCell, read: current => current.currency[STAT_CURRENCY] ?? 0 },
+		{ node: skillNum, read: current => `${current.skills.length}/${SKILL_SLOTS}` },
 	];
 
 	const body = ui.create.div(".wm-rogue-shop-body", shop);
@@ -285,7 +264,8 @@ function paintOffer(row, run, soldOut = isSoldOut(run)) {
 		sold: { price: `${offer.price} ${money}`, button: "已购买" },
 		poor: { price: `${offer.price} ${money}（持有 ${held}）`, button: `${money}不足` },
 		soldOut: { price: `${offer.price} ${money}`, button: "本次商店已售罄" },
-		buy: { price: `${offer.price} ${money}`, button: `购买 · ${offer.price}${money}` },
+		// 价格已经在上一行的价格里，按钮只写动作
+		buy: { price: `${offer.price} ${money}`, button: "购买" },
 	}[state];
 	row.price.innerHTML = text.price;
 	row.button.innerHTML = text.button;

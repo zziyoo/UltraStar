@@ -103,13 +103,12 @@ function openHub() {
 		run: context.run,
 		startBattle,
 		openShop,
-		openSkills,
 		backToSlots: openSlots,
 		leaveMode,
 	});
 }
 
-/** 只读的技能查看页：不买卖、不写存档 */
+/** 只读的技能查看页（入口在商店顶部的「技能 n/3」资源块）：不买卖、不写存档 */
 function openSkills() {
 	if (!context.run) {
 		openSlots();
@@ -117,13 +116,19 @@ function openSkills() {
 	}
 	showSkills({
 		run: context.run,
-		backToHub: openHub,
+		back: openShop,
 	});
+}
+
+/** 当前角色的原生技能（本体角色数据第 3 项）：商店随机时要排除，免得买到角色自带的技能 */
+function characterSkillIds(characterId) {
+	const skills = lib.character?.[characterId]?.[3];
+	return Array.isArray(skills) ? skills.filter(id => typeof id === "string" && id) : [];
 }
 
 function openShop() {
 	if (!context.run.shopOffers.length) {
-		context.run = { ...context.run, shopOffers: rollSkillOffers(context.run) };
+		context.run = { ...context.run, shopOffers: rollSkillOffers(context.run, undefined, characterSkillIds(context.run.characterId)) };
 		if (!commit()) {
 			return;
 		}
@@ -134,6 +139,7 @@ function openShop() {
 		checkStatUpgrade: statId => checkStatUpgrade(context.run, statId),
 		upgradeStat: upgradeStatFlow,
 		buySkill: buySkillFlow,
+		openSkills,
 		backToHub: openHub,
 		backToSlots: openSlots,
 		leaveMode,
@@ -147,11 +153,25 @@ function openSlots() {
 	renderSlots(slotsApi());
 }
 
+/**
+ * 回到游戏初始界面。
+ * 不能直接用 game.reload()：它会顺手写 show_splash_off=true（下次启动不再显示初始界面、直接进本模式），
+ * 而这里要的正是初始界面——所以自己清掉 directstart 与 show_splash_off 再重载。
+ */
+function exitToMainScreen() {
+	if (!persist()) {
+		return;
+	}
+	localStorage.removeItem(`${lib.configprefix}directstart`);
+	localStorage.removeItem("show_splash_off");
+	window.location.reload();
+}
+
 function leaveMode() {
 	context.index = null;
 	context.run = null;
 	closeScreen();
-	reloadNow(true);
+	exitToMainScreen();
 }
 
 // ---------------------------------------------------------------- 战斗

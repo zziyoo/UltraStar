@@ -144,3 +144,29 @@ export function sumStatEffects(statLevels) {
 	}
 	return total;
 }
+
+/** 单条效果的文案；0 值不显示 */
+const EFFECT_TEXT = {
+	armor: value => `初始护甲 +${value}`,
+	maxHp: value => `体力上限 +${value}`,
+	startHand: value => `起手手牌 +${value}`,
+	extraDraw: value => `摸牌阶段 +${value} 张`,
+	handLimit: value => `手牌上限 +${value}`,
+	shaDamage: value => `【杀】伤害 +${value}`,
+	shaLimit: value => `出【杀】次数 +${value}`,
+};
+
+/**
+ * 把 getStatEffect / sumStatEffects 的结果格式化成一行一条的说明。
+ * 商店与营地的属性卡、以及战斗里的「强化」标记说明共用这一份文案。
+ */
+export function describeStatEffects(effects) {
+	const lines = [];
+	for (const key of Object.keys(EFFECT_TEXT)) {
+		const value = Math.floor(toNumber(effects?.[key]));
+		if (value > 0) {
+			lines.push(EFFECT_TEXT[key](value));
+		}
+	}
+	return lines;
+}

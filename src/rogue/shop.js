@@ -59,14 +59,43 @@ export function getPricingLevel(run) {
 	return Math.max(1, (Number(run?.level) || 1) - 1);
 }
 
-/** 每次进商店随机 SKILL_OFFER_COUNT 个候选；默认排除已拥有的技能 */
-export function rollSkillOffers(run, rng = Math.random) {
+/**
+ * 随机时要排除的技能 id：当前角色原生技能 + 当前持有的购买技能。
+ * 只按“当前状态”算，不做永久购买历史——被替换/删掉的技能下次商店还能再出现。
+ * @param {object} run 存档
+ * @param {string[]} [characterSkills] 角色原生技能（由 mode.js 从 lib.character 取出后传入，保持本文件纯逻辑）
+ */
+export function getExcludedSkillIds(run, characterSkills = []) {
+	const excluded = new Set();
+	for (const list of [run?.skills, characterSkills]) {
+		for (const id of Array.isArray(list) ? list : []) {
+			if (typeof id === "string" && id) {
+				excluded.add(id);
+			}
+		}
+	}
+	return excluded;
+}
+
+/**
+ * 每次进商店随机 SKILL_OFFER_COUNT 个候选。
+ * 排除当前持有与角色原生技能；池子被排空时返回更少的候选（不重复填充、不死循环）。
+ * @param {object} run 存档
+ * @param {() => number} [rng] 可注入的随机源
+ * @param {string[]} [characterSkills] 角色原生技能（见 getExcludedSkillIds）
+ */
+export function rollSkillOffers(run, rng = Math.random, characterSkills = []) {
+	const excluded = getExcludedSkillIds(run, characterSkills);
 	const owned = new Set(run?.skills ?? []);
 	const candidates = pool.filter(entry => {
 		if (!entry || typeof entry.id !== "string" || !entry.id) {
 			return false;
 		}
-		return ALLOW_DUPLICATE_SKILLS || !owned.has(entry.id);
+		if (!excluded.has(entry.id)) {
+			return true;
+		}
+		// 已排除的只在开了“允许重复购买”时放回，且仅限“当前持有”那一条（角色原生技能永不上架）
+		return ALLOW_DUPLICATE_SKILLS && owned.has(entry.id);
 	});
 	// 售价在生成候选时随机定死并写进存档：重载、重进商店、刷新 UI 都不再重掷
 	const level = getPricingLevel(run);

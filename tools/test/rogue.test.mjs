@@ -56,6 +56,9 @@ const stages = await load("src/rogue/data/stages.js");
 const groups = await load("src/rogue/data/enemyGroups.js");
 const statsData = await load("src/rogue/data/stats.js");
 const skillsData = await load("src/rogue/data/skills.js");
+const rewardsData = await load("src/rogue/data/rewards.js");
+/** 桩里的 lib：与各模块拿到的是同一个对象，用来临时塞 lib.poptip 之类的桩数据 */
+const { lib } = await import(MOCK_URL);
 
 let passed = 0;
 const failures = [];
@@ -467,14 +470,109 @@ check("无尽最高记录：只记成功通关过的最高一关，且与存档�
 	return `最高第 ${best.level} 关`;
 });
 
-check("技能文本清洗：poptip 标签不泄漏，正文一个字不丢", () => {
-	const raw = "锁定技，<noname-poptip poptip = alqn123>光之巨人</noname-poptip>造成的伤害+1。";
-	assertEqual(common.sanitizeSkillText(raw), "锁定技，光之巨人造成的伤害+1。", "脱壳保留正文");
+check("胜利奖励：floor(√n × 系数)，系数与初始资源一致（金币 5 / 经验 2）", () => {
+	for (const [level, gold, exp] of [[1, 5, 2], [2, 7, 2], [3, 8, 3], [4, 10, 4]]) {
+		const gained = rewardsData.getRewardForLevel(level, cfg.CURRENCIES);
+		assertEqual(gained.gold, gold, `第${level}关金币`);
+		assertEqual(gained.exp, exp, `第${level}关经验`);
+	}
+	return "1:5/2 2:7/2 3:8/3 4:10/4";
+});
+
+check("技能文本清洗：poptip 转成可读名字，正文一个字不丢", () => {
+	lib.poptip = {
+		getName: id => ({ hadjanrong: "暗融", sha: "杀", zhinan: "指南针" }[id] ?? id),
+		getType: id => (id === "hadjanrong" ? "skill" : id === "sha" ? "card" : "rule"),
+	};
+	assertEqual(
+		common.sanitizeSkillText('锁定技，当你因<noname-poptip poptip="hadjanrong"></noname-poptip>获得技能。'),
+		"锁定技，当你因〖暗融〗获得技能。",
+		"技能 poptip → 〖名〗"
+	);
+	assertEqual(
+		common.sanitizeSkillText("<noname-poptip poptip = sha></noname-poptip>"),
+		"【杀】",
+		"卡牌 poptip → 【名】（兼容 get.poptip 输出的 `poptip = id` 写法）"
+	);
+	assertEqual(common.sanitizeSkillText("<noname-poptip poptip='zhinan'></noname-poptip>"), "指南针", "rule poptip → 名字");
+	assertEqual(
+		common.sanitizeSkillText('<noname-poptip poptip="unknownid">兜底文本</noname-poptip>'),
+		"兜底文本",
+		"查不到 id 时用标签内文本，且不重复显示"
+	);
+	assertEqual(
+		common.sanitizeSkillText('<noname-poptip poptip="unknownid"></noname-poptip>'),
+		"unknownid",
+		"连内部文本都没有时退回 id，不删正文"
+	);
 	assertEqual(common.sanitizeSkillText("第一行<br>第二行"), "第一行\n第二行", "<br> 转换行");
 	assertEqual(common.sanitizeSkillText("纯中文，无标签"), "纯中文，无标签", "无标签原样返回");
 	assertEqual(common.sanitizeSkillText(undefined), "", "非字符串安全");
-	assert(!common.sanitizeSkillText(raw).includes("noname-poptip"), "不残留标签名");
-	return "poptip 清洗";
+	assert(!common.sanitizeSkillText('a<noname-poptip poptip="hadjanrong"></noname-poptip>b').includes("noname-poptip"), "不残留标签名");
+	return "poptip 转名";
+});
+
+check("属性强化合并成一个技能：四种效果都还在，标记说明列全部加成", () => {
+	const stat = skillsData.helpers.rogue_stat;
+	const player = { storage: { rogue_stat: { extraDraw: 2, handLimit: 1, shaDamage: 2, shaLimit: 1 } } };
+
+	// 摸牌阶段
+	const draw = { name: "phaseDrawBegin2", num: 2 };
+	assert(stat.filter(draw, player, "phaseDrawBegin2"), "有摸牌加成时应通过 filter");
+	stat.content({}, draw, player);
+	assertEqual(draw.num, 4, "摸牌 +2");
+	assert(!stat.filter({ name: "phaseDrawBegin2", num: 2, numFixed: true }, player, "phaseDrawBegin2"), "numFixed 时不触发");
+
+	// 【杀】伤害
+	const dmg = { name: "damageBegin1", num: 1, card: { name: "sha" } };
+	assert(stat.filter(dmg, player, "damageBegin1"), "用杀造成伤害时应通过 filter");
+	stat.content({}, dmg, player);
+	assertEqual(dmg.num, 3, "杀伤害 +2");
+	assert(!stat.filter({ name: "damageBegin1", card: { name: "juedou" } }, player, "damageBegin1"), "不是杀就不触发");
+
+	// 手牌上限 / 出杀次数
+	assertEqual(stat.mod.maxHandcard(player, 4), 5, "手牌上限 +1");
+	assertEqual(stat.mod.cardUsable({ name: "sha" }, player, 1), 2, "出杀次数 +1");
+	assertEqual(stat.mod.cardUsable({ name: "shan" }, player, 1), undefined, "非杀不改次数");
+
+	// 数值全 0 时不触发
+	const bare = { storage: { rogue_stat: { extraDraw: 0, handLimit: 0, shaDamage: 0, shaLimit: 0 } } };
+	assert(!stat.filter({ name: "phaseDrawBegin2", num: 2 }, bare, "phaseDrawBegin2"), "无加成不触发");
+	assert(!stat.filter({ name: "damageBegin1", card: { name: "sha" } }, bare, "damageBegin1"), "无加成不触发（伤害）");
+
+	// 唯一标记：说明里列出四项实时数值
+	const html = stat.intro.mark(player.storage.rogue_stat, player);
+	for (const token of ["摸牌阶段 +2 张", "手牌上限 +1", "【杀】伤害 +2", "出【杀】次数 +1"]) {
+		assert(html.includes(token), `标记说明应包含「${token}」：${html}`);
+	}
+	assert(!html.includes("[object Object]"), "不能出现 [object Object]");
+	assertEqual(stat.intro.nocount, true, "对象型 storage 不该让本体去数标记数量");
+	return "四效果 + 单标记";
+});
+
+check("商店排除：角色原生技能与当前持有不上架，替换掉的可以再出现", () => {
+	const poolIds = skillsData.pool.map(item => item.id);
+	const run = { ...freshRun(), characterId: "迪迦", skills: ["rogue_jiema"], level: 1 };
+	const characterSkills = poolIds.filter(id => id !== "rogue_xushui");
+
+	const excluded = shop.getExcludedSkillIds(run, characterSkills);
+	assert(excluded.has("rogue_jiema"), "当前持有应被排除");
+	assert(excluded.has(characterSkills[0]), "角色原生技能应被排除");
+	assert(!excluded.has("rogue_xushui"), "既非持有也非原生时不该被排除");
+
+	// 池子被排到只剩一个：不死循环、不重复、不返回被排除项
+	const offers = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(3), characterSkills);
+	assertEqual(offers.length, 1, "候选不足时按实际数量返回");
+	assertEqual(offers[0].id, "rogue_xushui", "只能是没被排除的那个");
+
+	// 曾经买过但已不在 run.skills 里的技能可以重新出现
+	const replaced = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(5), poolIds.filter(id => id !== "rogue_jiema"));
+	assertEqual(replaced.length, 1, "只剩 jiema 一个候选");
+	assertEqual(replaced[0].id, "rogue_jiema", "被替换掉的技能可以再出现");
+
+	// 全被排除：返回空候选而不是报错/死循环
+	assertEqual(shop.rollSkillOffers({ ...run, skills: [] }, makeRng(1), poolIds).length, 0, "全被排除时返回空候选");
+	return "原生/持有/替换/边界";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

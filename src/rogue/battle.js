@@ -80,13 +80,13 @@ export function rollGroupId(level, rng = Math.random) {
 	return valid[Math.floor(rng() * valid.length) % valid.length];
 }
 
-/** 数值型强化（摸牌/手牌上限/杀伤害/出杀次数）由机制技能承载：数值存 storage，技能读 storage 生效 */
-const STAT_BUFF_SKILLS = {
-	extraDraw: "rogue_stat_draw",
-	handLimit: "rogue_stat_hand",
-	shaDamage: "rogue_stat_sha",
-	shaLimit: "rogue_stat_usable",
-};
+/**
+ * 数值型强化（摸牌/手牌上限/杀伤害/出杀次数）统一由一个机制技能承载：
+ * 四项数值一次性写进 player.storage.rogue_stat，只 addSkill 一次——
+ * 玩家旁边因此只有一个「强化」标记，也不会因为重复调用而叠加。
+ */
+const STAT_BUFF_SKILL = "rogue_stat";
+const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "shaDamage", "shaLimit"];
 
 /** 把属性表算出的效果施加到具体 Player 上 */
 function applyEffects(player, effects) {
@@ -108,16 +108,22 @@ function applyEffects(player, effects) {
 			console.warn(`[rogue] 属性效果引用的技能不存在：${id}`);
 		}
 	}
-	for (const [key, skillId] of Object.entries(STAT_BUFF_SKILLS)) {
+	const statStorage = {};
+	let hasStat = false;
+	for (const key of STAT_BUFF_KEYS) {
 		const value = Math.floor(effects[key] ?? 0);
-		if (value <= 0) {
-			continue;
+		statStorage[key] = value > 0 ? value : 0;
+		if (value > 0) {
+			hasStat = true;
 		}
-		if (lib.skill[skillId]) {
-			player.storage[skillId] = (player.storage[skillId] || 0) + value;
-			player.addSkill(skillId);
+	}
+	if (hasStat) {
+		if (lib.skill[STAT_BUFF_SKILL]) {
+			// 赋值而不是累加：同一场战斗里重复调用也只保留这一份最终结果
+			player.storage[STAT_BUFF_SKILL] = statStorage;
+			player.addSkill(STAT_BUFF_SKILL);
 		} else {
-			console.warn(`[rogue] 属性强化技能未注册：${skillId}`);
+			console.warn(`[rogue] 属性强化技能未注册：${STAT_BUFF_SKILL}`);
 		}
 	}
 	player.update();

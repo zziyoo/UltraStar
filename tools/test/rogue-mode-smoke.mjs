@@ -229,9 +229,12 @@ await check("模式配置：肉鸽技能挂在模式上，dieAfter/checkResult �
 	const config = modeModule.createModeConfig();
 	assertEqual(config.name, cfg.MODE_ID);
 	assertEqual(config.splash, cfg.MODE_SPLASH);
-	for (const id of ["rogue_xushui", "rogue_jiema", "rogue_guiyuan", "rogue_stat_draw", "rogue_stat_hand", "rogue_stat_sha", "rogue_stat_usable"]) {
+	for (const id of ["rogue_xushui", "rogue_jiema", "rogue_guiyuan", "rogue_stat"]) {
 		assert(config.skill[id], `${id} 应在模式 skill 表里`);
 		assert(config.translate[id], `${id} 应有翻译`);
+	}
+	for (const old of ["rogue_stat_draw", "rogue_stat_hand", "rogue_stat_sha", "rogue_stat_usable"]) {
+		assert(!config.skill[old], `${old} 应已合并进 rogue_stat`);
 	}
 	assertEqual(lib.character["死龙"].isHiddenBoss, true, "不应改动角色库");
 	assert(typeof config.element.player.dieAfter === "function", "应提供 element.player.dieAfter");
@@ -319,7 +322,7 @@ await check("角色候选：真实存在、隐藏 Boss 不进候选", () => {
 	return `候选 ${roster.length}`;
 });
 
-await check("Hub：角色/关卡/货币/属性/技能入口与四个按钮", async () => {
+await check("Hub：角色/关卡/货币/属性与四个按钮（不再有技能入口）", async () => {
 	freshWorld();
 	session();
 	await newRunByUi("闯关模式");
@@ -334,7 +337,6 @@ await check("Hub：角色/关卡/货币/属性/技能入口与四个按钮", asy
 		"防御",
 		"Lv.0/10",
 		"暂无加成",
-		"技能",
 		"开始下一关",
 		"商店",
 		"返回存档",
@@ -342,12 +344,21 @@ await check("Hub：角色/关卡/货币/属性/技能入口与四个按钮", asy
 	]) {
 		assert(text.includes(token), `Hub 应显示「${token}」，实际：${text}`);
 	}
-	// 营地也是自建浮层：标题栏里左侧角色名、右侧技能入口
+	// 营地也是自建浮层：技能入口已移到商店顶部的资源块，营地标题栏里不再有按钮
 	const overlay = common.currentScreenNode();
 	assertEqual(overlay?.id, "wm-rogue-overlay", "营地走自建浮层");
-	const skillsBtn = nodesWithClass("wm-rogue-back")[0];
-	assertEqual(skillsBtn?.parentNode?.classList?.contains("wm-rogue-titlebar"), true, "技能入口在标题栏右上角");
+	assertEqual(nodesWithClass("wm-rogue-back").length, 0, "营地不再有技能入口");
 	assertEqual(screenText().includes("当前成长"), true, "应有当前成长分区");
+	// 角色名挪到正文里、紧跟「当前成长」标题
+	const body = nodesWithClass("wm-rogue-hub-body")[0];
+	const who = nodesWithClass("wm-rogue-hub-who")[0];
+	assert(who, "应显示角色名");
+	assertEqual(who.parentNode, body, "角色名应在正文里而不是标题栏");
+	assertEqual(
+		body.children.indexOf(who),
+		body.children.findIndex(node => node.classList?.contains?.("wm-rogue-hub-section-title")) + 1,
+		"角色名应紧跟「当前成长」标题"
+	);
 	return "营地信息齐备";
 });
 
@@ -434,9 +445,41 @@ await check("玩家属性与技能在开局时按存档重建", async () => {
 	bare.addSkill("rogue_xushui");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "无 playerid 的新座位不应影响已登记的钩子");
 	assertEqual(game.me.maxHp, 4, "占位属性无数值，体力上限不该被凭空改动");
+	assertEqual(game.me.hasSkill("rogue_stat"), false, "只有护甲时不该加数值强化技能");
 	const draw = log.find(item => item.type === "gameDraw");
 	assertEqual(draw.counts[0], 4, "起手牌仍为基础 4 张（startHand 占位为 0）");
 	return `me ${game.me.__char} skills ${game.me.__skills.join(",")}`;
+});
+
+await check("属性强化合并：只加一个 rogue_stat，四项数值一次写入", async () => {
+	putRun(4, {
+		mode: "challenge",
+		level: 1,
+		skills: [],
+		stats: { defense: 6, draw: 6, attack: 6 },
+		currentBattle: { groupId: "group_zofer", status: "battle" },
+		currency: { gold: 0, exp: 0 },
+	}, stateModule.createRun("challenge", "迪迦", 1));
+	session();
+	click("重新挑战这一关");
+	await flush();
+	const expected = statsData.sumStatEffects({ defense: 6, draw: 6, attack: 6 });
+	assert(game.me.hasSkill("rogue_stat"), "应有合并后的强化技能");
+	for (const old of ["rogue_stat_draw", "rogue_stat_hand", "rogue_stat_sha", "rogue_stat_usable"]) {
+		assertEqual(game.me.hasSkill(old), false, `不该再有 ${old}`);
+	}
+	assertEqual(
+		JSON.stringify(game.me.storage.rogue_stat),
+		JSON.stringify({
+			extraDraw: expected.extraDraw,
+			handLimit: expected.handLimit,
+			shaDamage: expected.shaDamage,
+			shaLimit: expected.shaLimit,
+		}),
+		"storage 应是一次性写入的四项最终值"
+	);
+	assertEqual(game.me.__skills.filter(id => id.startsWith("rogue_stat")).length, 1, "只应有一个强化技能");
+	return `rogue_stat ${JSON.stringify(game.me.storage.rogue_stat)}`;
 });
 
 await check("敌人强化：额外技能与体力上限只加在该 Player 上", async () => {
@@ -551,54 +594,73 @@ await check("无尽最高记录：通关才更新，闯关不更新，失败删�
 	return "记录独立于存档";
 });
 
-await check("选择玩法页：显示无尽历史最高记录", async () => {
+await check("选择玩法页：自建浮层 + 两张玩法卡 + 无尽历史最高记录", async () => {
 	lib.storage.rogueBestEndless = { level: 27, characterId: "迪迦", updatedAt: 1 };
 	session();
 	click("空存档");
 	let text = screenText();
-	assert(text.includes("无尽模式最高记录：第 27 关（迪迦）"), `应显示最高记录：${text}`);
+	const stage = nodesWithClass("wm-rogue-modes")[0];
+	assert(stage, "选择玩法也是自建浮层");
+	assertEqual(nodesWithClass("wm-rogue-mode-card").length, 2, "两张玩法卡");
+	for (const token of ["闯关模式", `固定总关卡数：${cfg.CHALLENGE_TOTAL_LEVELS} 关`, "失败：损失部分货币", "无尽模式", "关卡无限", "失败：整档删除"]) {
+		assert(text.includes(token), `玩法卡应显示「${token}」：${text}`);
+	}
+	assert(text.includes("最高记录：第 27 关（迪迦）"), `应显示最高记录：${text}`);
 	click("返回");
 	lib.storage.rogueBestEndless = null;
 	session();
 	click("空存档");
 	text = screenText();
-	assert(text.includes("无尽模式最高记录：暂无"), `无记录时应显示暂无：${text}`);
+	assert(text.includes("最高记录：暂无"), `无记录时应显示暂无：${text}`);
+	// 点整张卡即选中：点无尽卡进入选将
+	click("无尽模式");
+	assert(screenText().includes("点击武将即完成选择"), "点卡片应进入选将页");
 	click("返回");
-	return "最高记录展示";
+	return "玩法卡 + 最高记录";
 });
 
-await check("技能查看页：右上角入口进入、只读、可看完整描述", async () => {
+await check("技能查看页：商店顶部技能资源块进入、只读、poptip 转成技能名", async () => {
 	freshWorld();
 	session();
 	await newRunByUi("闯关模式");
-	click("技能");
+	click("商店");
+	const skillCell = nodesWithClass("wm-rogue-res-skill")[0];
+	assert(skillCell, "商店顶部应有可点击的技能资源块");
+	clickNode(skillCell);
 	let text = screenText();
 	assert(text.includes("技能（0/3）"), `空态标题：${text}`);
 	assert(text.includes("当前没有已购买技能"), `空态说明：${text}`);
 	click("返回");
+	assert(screenText().includes("技能商店"), "返回应回到商店");
 
+	// 只读：进出技能页不该动存档
 	const before = JSON.stringify(lib.storage.rogueSlots);
-	click("技能");
+	clickNode(nodesWithClass("wm-rogue-res-skill")[0]);
 	click("返回");
 	assertEqual(JSON.stringify(lib.storage.rogueSlots), before, "查看技能不写存档");
 
-	// 买一个技能（含 poptip 描述）后应能查看完整描述，且不泄漏原始标签
+	// 有技能（描述里带 poptip）时：显示清洗并转名后的完整描述
 	putRun(0, {
 		currency: { gold: 9999, exp: 0 },
 		skills: ["rogue_poptip"],
-		shopOffers: [],
+		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
 	});
 	session();
-	// 会话会把 lib.translate 重置成模式自带的那些，所以这条要在 session() 之后再塞
-	lib.translate.rogue_poptip = "光test<hr>锁定技，<noname-poptip poptip = alqn123>光之巨人</noname-poptip>造成的伤害+1。";
-	click("技能");
+	// 会话会把 lib.translate / lib.poptip 重置掉，这两处要在 session() 之后再塞
+	lib.translate.rogue_poptip = '光test<hr>锁定技，<noname-poptip poptip="hadjanrong"></noname-poptip>造成的伤害+1。';
+	lib.poptip = {
+		getName: id => ({ hadjanrong: "暗融" }[id] ?? id),
+		getType: id => (id === "hadjanrong" ? "skill" : "rule"),
+	};
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-res-skill")[0]);
 	text = screenText();
 	assert(text.includes("光test"), `应列出已购技能：${text}`);
-	assert(text.includes("光之巨人造成的伤害+1"), `应显示清洗后的完整描述：${text}`);
+	assert(text.includes("〖暗融〗造成的伤害+1"), `poptip 应转成〖技能名〗：${text}`);
 	assert(!text.includes("noname-poptip"), `不得泄漏原始标签：${text}`);
 	click("返回");
-	assert(screenText().includes("开始下一关"), "返回应回到营地");
-	return "只读技能页 + poptip 清洗";
+	assert(screenText().includes("技能商店"), "返回应回到商店");
+	return "商店技能块入口 + poptip 转名";
 });
 
 await check("异常退出恢复：重打同一组敌人，不判胜、不补奖、不跳关", async () => {
@@ -644,6 +706,9 @@ await check("商店：浮层骨架——固定标题与资源栏 + 三张技能�
 	assert(text.includes("技能商店") && text.includes("属性强化"), `两个分区标题：${text}`);
 	assertEqual(nodesWithClass("wm-rogue-res-num").map(node => textOf(node)).join(","), "1000,0,0/3", "资源数字");
 	assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验,技能", "资源标签");
+	// 买得起的候选：按钮只写动作，价格只写在价格行
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-buy")[0]), "购买", "购买按钮只写「购买」");
+	assert(/^\d+ 金币$/.test(textOf(nodesWithClass("wm-rogue-shop-price")[0])), `价格行应是「N 金币」：${textOf(nodesWithClass("wm-rogue-shop-price")[0])}`);
 	// 返回固定在标题栏里，不用滚到底找
 	const back = nodesWithClass("wm-rogue-back")[0];
 	assert(back, "应有返回");
@@ -704,6 +769,37 @@ await check("商店：点技能卡弹完整描述，点购买按钮不会顺带�
 	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "购买按钮不应连带打开描述");
 	assert(lib.storage.rogueSlots[0].skills.includes("rogue_extra"), "技能已买到");
 	return "描述弹层 + 按钮不冒泡";
+});
+
+await check("商店：不随机到角色原生技能，替换掉的技能可以再出现", async () => {
+	const skillsData = await load("src/rogue/data/skills.js");
+	const poolIds = skillsData.pool.map(item => item.id);
+	putRun(0, {
+		characterId: "导航测试",
+		level: 1,
+		currentBattle: null,
+		shopOffers: [],
+		currency: { gold: 100, exp: 0 },
+		skills: [],
+	});
+	session();
+	// 把角色的原生技能设成「除 rogue_jiema 外的整个池子」：候选只剩一个，结果才可断言
+	lib.character["导航测试"] = [4, "custom", 0, poolIds.filter(id => id !== "rogue_jiema"), 1];
+	click("商店");
+	const offers = lib.storage.rogueSlots[0].shopOffers;
+	assertEqual(offers.length, 1, "排除角色原生技能后只剩一个候选");
+	assertEqual(offers[0].id, "rogue_jiema", "不在当前持有里的技能可以正常出现");
+	assert(!offers.some(offer => offer.id !== "rogue_jiema"), "不得随机到角色原生技能");
+	// 当前持有的会被排除，角色原生技能也继续排除，其余池子照常给满候选
+	putRun(0, { shopOffers: [], skills: ["rogue_jiema"] });
+	session();
+	lib.character["导航测试"] = [4, "custom", 0, ["rogue_xushui"], 1];
+	click("商店");
+	const again = lib.storage.rogueSlots[0].shopOffers;
+	assert(!again.some(offer => offer.id === "rogue_jiema"), "当前持有的技能不该上架");
+	assert(!again.some(offer => offer.id === "rogue_xushui"), "角色原生技能不该上架");
+	assertEqual(again.length, cfg.SKILL_OFFER_COUNT, "其余池子照常给满候选");
+	return `只剩 ${offers[0].id} / 持有与原生都排除`;
 });
 
 await check("商店：购买一个后本次不能再买第二个", async () => {
@@ -933,16 +1029,37 @@ await check("脏存档：修复并提示，而不是崩溃", async () => {
 	return "提示 + 渲染 6 槽";
 });
 
-await check("退出肉鸽模式：不落 directstart，存档保留", async () => {
+await check("退出肉鸽模式：不落 directstart，回到游戏初始界面，存档保留", async () => {
 	freshWorld();
 	session();
 	await newRunByUi("无尽模式");
+	// 本体 game.reload() 会顺手写上的标记：退出时必须清掉，否则下次启动不会显示初始界面
+	globalThis.localStorage.setItem("show_splash_off", "true");
 	click("退出肉鸽模式");
 	assert(log.some(item => item.type === "reload"), "应重载");
 	assertEqual(globalThis.localStorage.getItem(`${lib.configprefix}directstart`), null, "退出不应直开本模式");
+	assertEqual(globalThis.localStorage.getItem("show_splash_off"), null, "退出应清掉 show_splash_off（回初始界面）");
 	assertEqual(lib.storage.rogueActive, -1, "退出应清除当前槽位");
 	assert(lib.storage.rogueSlots[0] !== null, "退出不得删除进行中的存档");
-	return "存档保留";
+	return "存档保留 + 回初始界面";
+});
+
+await check("存档页返回：同样回到游戏初始界面", async () => {
+	freshWorld();
+	lib.storage.rogueSlots = [stateModule.createRun("challenge", "迪迦", 1), null, null, null, null, null];
+	lib.storage.rogueActive = -1;
+	session();
+	assert(screenText().includes("存档记录"), "应停在存档页");
+	globalThis.localStorage.setItem(`${lib.configprefix}directstart`, "true");
+	globalThis.localStorage.setItem("show_splash_off", "true");
+	const before = log.length;
+	click("返回");
+	assert(log.slice(before).some(item => item.type === "reload"), "应重载");
+	assertEqual(globalThis.localStorage.getItem(`${lib.configprefix}directstart`), null, "初始界面不该直开本模式");
+	assertEqual(globalThis.localStorage.getItem("show_splash_off"), null, "应清掉 show_splash_off");
+	assertEqual(lib.storage.rogueActive, -1, "应清除当前槽位");
+	assert(lib.storage.rogueSlots[0] !== null, "存档保留");
+	return "存档页返回 = 回初始界面";
 });
 
 await check("敌人配置缺失：给出提示而不是崩溃或空局", async () => {

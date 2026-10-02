@@ -18,6 +18,7 @@
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验上面的每一条约束，不用开游戏）
 
 import { packages } from "../../core/loader.js";
+import { describeStatEffects } from "./stats.js";
 
 // ---------------------------------------------------------------- 分包技能汇总
 //
@@ -99,74 +100,64 @@ export const translate = {
 // battle.js 建局时按存档算好总数，写进 player.storage[技能名] 并 addSkill；
 // 技能本体只读 storage，不在 lib 里登记任何针对具体存档的内容。
 
+// 属性强化（data/stats.js）的数值加成载体，不进商店、不进奖励池。
+// battle.js 建局时按存档一次性算好总数，写进 player.storage.rogue_stat 并 addSkill 一次：
+// 一个技能同时承担四种效果，玩家旁边因此只有一个「强化」标记，点开能看到全部当前效果。
+// 技能本体只读 storage，不在 lib 里登记任何针对具体存档的内容。
+
 export const helpers = {
-	// 过牌强化：摸牌阶段额外多摸 N 张
-	rogue_stat_draw: {
-		trigger: { player: "phaseDrawBegin2" },
+	rogue_stat: {
+		// 一个技能可以同时挂多个时机与 mod
+		trigger: { player: "phaseDrawBegin2", source: "damageBegin1" },
+		mod: {
+			maxHandcard(player, num) {
+				return num + (player.storage.rogue_stat?.handLimit || 0);
+			},
+			cardUsable(card, player, num) {
+				if (card.name == "sha") {
+					return num + (player.storage.rogue_stat?.shaLimit || 0);
+				}
+			},
+		},
 		forced: true,
 		mark: true,
-		marktext: "摸",
+		marktext: "强化",
 		nopop: true,
 		// popup:false 让本体跳过 logSkill 整条链路（content.ts 触发技路径），
 		// 既不写战斗日志也不弹十周年UI的「技能名+描述」大字
 		popup: false,
-		intro: { name: "过牌强化", content: "摸牌阶段额外摸#张" },
-		filter(event) {
-			return !event.numFixed;
-		},
-		content(event, trigger, player) {
-			trigger.num += player.storage.rogue_stat_draw || 0;
-		},
-	},
-	// 过牌强化：手牌上限 +N
-	rogue_stat_hand: {
-		mod: {
-			maxHandcard(player, num) {
-				return num + (player.storage.rogue_stat_hand || 0);
+		intro: {
+			name: "属性强化",
+			// storage 是对象，别让本体去猜标记数量
+			nocount: true,
+			// intro.mark 是函数时由本体调用并原样插入（get/index.js 的 mark 节点介绍），
+			// 所以这里能列出四项的实时数值
+			mark(storage) {
+				const lines = describeStatEffects(storage);
+				return `<div class="text">当前属性强化：<br>${lines.length ? lines.join("<br>") : "暂无加成"}</div>`;
 			},
 		},
-		mark: true,
-		marktext: "限",
-		nopop: true,
-		popup: false,
-		intro: { name: "手牌强化", content: "手牌上限+#" },
-	},
-	// 攻击强化：【杀】伤害 +N
-	rogue_stat_sha: {
-		trigger: { source: "damageBegin1" },
-		forced: true,
-		mark: true,
-		marktext: "伤",
-		nopop: true,
-		popup: false,
-		intro: { name: "攻击强化", content: "使用【杀】造成的伤害+#" },
-		filter(event, player) {
-			return event.card?.name == "sha" && (player.storage.rogue_stat_sha || 0) > 0;
+		filter(event, player, triggername) {
+			const storage = player.storage.rogue_stat ?? {};
+			if (triggername === "phaseDrawBegin2") {
+				return !event.numFixed && (storage.extraDraw || 0) > 0;
+			}
+			if (triggername === "damageBegin1") {
+				return event.card?.name == "sha" && (storage.shaDamage || 0) > 0;
+			}
+			return false;
 		},
 		content(event, trigger, player) {
-			trigger.num += player.storage.rogue_stat_sha || 0;
+			const storage = player.storage.rogue_stat ?? {};
+			if (trigger.name === "phaseDrawBegin2") {
+				trigger.num += storage.extraDraw || 0;
+			} else if (trigger.name === "damageBegin1") {
+				trigger.num += storage.shaDamage || 0;
+			}
 		},
-	},
-	// 攻击强化：出【杀】次数 +N
-	rogue_stat_usable: {
-		mod: {
-			cardUsable(card, player, num) {
-				if (card.name == "sha") {
-					return num + (player.storage.rogue_stat_usable || 0);
-				}
-			},
-		},
-		mark: true,
-		marktext: "杀",
-		nopop: true,
-		popup: false,
-		intro: { name: "出杀强化", content: "出牌阶段使用【杀】次数+#" },
 	},
 };
 
 export const helperTranslate = {
-	rogue_stat_draw: "强化·过牌<hr>锁定技，你的摸牌阶段额外多摸若干张牌，数量等于过牌强化的摸牌加成。",
-	rogue_stat_hand: "强化·手牌<hr>锁定技，你的手牌上限+若干，数值等于过牌强化的手牌上限加成。",
-	rogue_stat_sha: "强化·攻击<hr>锁定技，你使用【杀】造成的伤害+若干，数值等于攻击强化的伤害加成。",
-	rogue_stat_usable: "强化·连杀<hr>锁定技，你出牌阶段使用【杀】的次数上限+若干，数值等于攻击强化的次数加成。",
+	rogue_stat: "属性强化<hr>锁定技，你购买的防御/过牌/攻击强化都在这个技能上生效：摸牌阶段额外摸牌、手牌上限提升、【杀】的伤害与出杀次数提升。点标记可以查看当前全部加成。",
 };

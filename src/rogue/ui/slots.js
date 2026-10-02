@@ -7,7 +7,7 @@
 // 浮层挂在 document.body 上、样式独立，是仓库里 src/ui/overlay.js 已验证过的做法。
 
 import { ui, get } from "../../../../../noname.js";
-import { CURRENCIES, CHARACTER_PICKER_PAGE_SIZE, CURRENCY_LABEL, LIBRARY_TEXT, RUN_MODE, RUN_MODE_LABEL, SKILL_SLOTS, SLOT_COUNT, STAT_IDS } from "../config.js";
+import { CURRENCIES, CHARACTER_PICKER_PAGE_SIZE, CHALLENGE_TOTAL_LEVELS, CURRENCY_LABEL, LIBRARY_TEXT, RUN_MODE, RUN_MODE_LABEL, SKILL_SLOTS, SLOT_COUNT, STAT_IDS } from "../config.js";
 import { stats } from "../data/stats.js";
 import { bindTap } from "../../ui/overlay.js";
 import {
@@ -195,20 +195,47 @@ function renderSlots(api) {
 	panel.appendChild(buildSlotTable(api, layout));
 }
 
-/** 新建：先选玩法 */
+/**
+ * 新建：先选玩法。与营地/商店/结算同一套自建浮层——两张玩法卡，点整张卡即选中，
+ * 卡里的「选择」只是视觉提示（点击会冒泡到卡片，所以只挂一次事件）。
+ */
 export function showRunModeChoice(api) {
-	const content = openScreen("选择玩法");
-	for (const mode of [RUN_MODE.challenge, RUN_MODE.endless]) {
-		addButton(RUN_MODE_LABEL[mode], content, () => api.pickMode(mode));
-	}
-	// 无尽历史最高记录：独立存储，删档不清，所以这里始终能看到最好成绩
+	const stage = openOverlay("wm-rogue-modes-overlay");
+	const panel = ui.create.div(".wm-rogue-modes", stage);
+
+	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
+	ui.create.div(".wm-rogue-title", "选择玩法", titlebar);
+	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.cancel());
+
+	const cards = ui.create.div(".wm-rogue-mode-cards", panel);
+	buildModeCard(cards, {
+		name: RUN_MODE_LABEL[RUN_MODE.challenge],
+		lines: [`固定总关卡数：${CHALLENGE_TOTAL_LEVELS} 关`, "失败：损失部分货币"],
+		onPick: () => api.pickMode(RUN_MODE.challenge),
+	});
+	// 无尽历史最高记录：独立存储、删档不清，所以这里始终能看到最好成绩
 	const best = api.best;
-	addLine(content, best
-		? `无尽模式最高记录：第 ${best.level} 关（${translateCharacter(best.characterId)}）`
-		: "无尽模式最高记录：暂无");
-	addLine(content, "闯关：固定关卡数，失败损失一半货币。无尽：关卡无上限，失败即整档删除。");
-	addGap(content);
-	addButton(LIBRARY_TEXT.back, content, () => api.cancel());
+	buildModeCard(cards, {
+		name: RUN_MODE_LABEL[RUN_MODE.endless],
+		lines: ["关卡无限，没有终点", "失败：整档删除"],
+		extra: best ? `最高记录：第 ${best.level} 关（${translateCharacter(best.characterId)}）` : "最高记录：暂无",
+		onPick: () => api.pickMode(RUN_MODE.endless),
+	});
+}
+
+/** 玩法卡：整张卡可点 */
+function buildModeCard(parent, info) {
+	const card = ui.create.div(".wm-rogue-mode-card", parent);
+	ui.create.div(".wm-rogue-mode-name", info.name, card);
+	for (const line of info.lines) {
+		ui.create.div(".wm-rogue-mode-line", line, card);
+	}
+	if (info.extra) {
+		ui.create.div(".wm-rogue-mode-best", info.extra, card);
+	}
+	ui.create.div(".wm-rogue-mode-go", "选择", card);
+	bindOverlayTap(card, () => info.onPick());
+	return card;
 }
 
 /**
