@@ -38,10 +38,6 @@ const moneyName = key => CURRENCY_LABEL[key] ?? key;
 /** 商店页的活节点，供购买/升级后原位刷新 */
 let shopView = null;
 
-function statRow(run) {
-	return STAT_IDS.map(id => `${stats[id].name} Lv.${run.stats[id] ?? 0}`).join("　");
-}
-
 /** 某项属性升到 level 后的累计效果，一行一条。防御的「体力上限」在这里显示，不拆成独立属性 */
 function statEffectLines(statId, level) {
 	const bonus = sumStatEffects({ [statId]: level });
@@ -72,29 +68,71 @@ function statEffectLines(statId, level) {
 
 export function showHub(api) {
 	const run = api.run;
-	const content = openScreen(MODE_TRANSLATE);
+	// 肉鸽营地：与商店、技能页同一套自建浮层视觉语言
+	const stage = openOverlay("wm-rogue-hub-overlay");
+	const panel = ui.create.div(".wm-rogue-hub", stage);
 
-	addLine(content, `<b>${translateCharacter(run.characterId)}</b>`);
+	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
+	ui.create.div(".wm-rogue-hub-who", translateCharacter(run.characterId), titlebar);
+	ui.create.div(".wm-rogue-title", MODE_TRANSLATE, titlebar);
+	addOverlayButton(
+		"技能",
+		ui.create.div(".wm-rogue-back", titlebar),
+		() => api.openSkills(),
+		"wm-rogue-small"
+	);
+
+	const body = ui.create.div(".wm-rogue-hub-body", panel);
+	const canFight = run.mode === RUN_MODE.challenge ? run.level <= run.totalLevels : true;
 	const levelText = run.mode === RUN_MODE.endless
 		? `第 ${run.level} 关 / 无尽`
 		: `第 ${run.level} / ${run.totalLevels} 关${run.cleared ? "（已通关）" : ""}`;
-	addLine(content, `${RUN_MODE_LABEL[run.mode]}　${levelText}`);
-	addLine(content, CURRENCIES.map(key => `${moneyName(key)}：${run.currency[key] ?? 0}`).join("　"));
-	addLine(content, statRow(run));
-	addLine(content, `技能（${run.skills.length}/${SKILL_SLOTS}）：${run.skills.length ? run.skills.map(skillName).join("、") : "无"}`);
-	addGap(content);
+	ui.create.div(".wm-rogue-hub-level", levelText, body);
+	ui.create.div(".wm-rogue-hub-mode", RUN_MODE_LABEL[run.mode], body);
 
-	const canFight = run.mode === RUN_MODE.challenge ? run.level <= run.totalLevels : true;
-	if (run.mode === RUN_MODE.challenge && run.cleared) {
-		addButton("重复挑战", content, () => api.startBattle());
-	} else {
-		addButton(canFight ? "开始下一关" : "开始战斗", content, () => api.startBattle());
+	const res = ui.create.div(".wm-rogue-res", body);
+	for (const key of CURRENCIES) {
+		addResCell(res, moneyName(key)).innerHTML = `${run.currency[key] ?? 0}`;
 	}
-	addButton("商店", content, () => api.openShop());
-	addButton("存档", content, () => api.backToSlots());
-	addButton("退出肉鸽模式", content, () => api.leaveMode());
+
+	ui.create.div(".wm-rogue-hub-section-title", "当前成长", body);
+	const statRow = ui.create.div(".wm-rogue-stat-cards", body);
+	for (const statId of STAT_IDS) {
+		buildStatSummary(statRow, run, statId);
+	}
+
+	const actions = ui.create.div(".wm-rogue-hub-actions", body);
+	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
+	addOverlayButton(fightLabel, actions, () => api.startBattle(), "wm-rogue-hub-primary");
+	addOverlayButton("商店", actions, () => api.openShop(), "wm-rogue-hub-shop");
+	addOverlayButton("返回存档", actions, () => api.backToSlots(), "wm-rogue-small");
+	addOverlayButton("退出肉鸽模式", actions, () => api.leaveMode(), "wm-rogue-small");
 	if (!canFight) {
-		addLine(content, "关卡数已超过配置的总关卡数，请检查 data/stages.js 与 config.js。");
+		ui.create.div(".wm-rogue-hub-hint", "关卡数已超过配置的总关卡数，请检查 data/stages.js 与 config.js。", body);
+	}
+}
+
+/** 只读的技能查看页：只展示已购买技能，不买卖、不写存档 */
+export function showSkills(api) {
+	const run = api.run;
+	const stage = openOverlay("wm-rogue-skills-overlay");
+	const panel = ui.create.div(".wm-rogue-skills", stage);
+
+	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
+	ui.create.div(".wm-rogue-title", `技能（${run.skills.length}/${SKILL_SLOTS}）`, titlebar);
+	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.backToHub());
+
+	const body = ui.create.div(".wm-rogue-skills-body", panel);
+	if (!run.skills.length) {
+		ui.create.div(".wm-rogue-skills-empty", "当前没有已购买技能", body);
+		ui.create.div(".wm-rogue-skills-hint", "回到营地后可以进商店购买。", body);
+		return;
+	}
+	const cardRow = ui.create.div(".wm-rogue-shop-cards", body);
+	for (const id of run.skills) {
+		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-shop-card-read", cardRow);
+		addSkillHead(card, id);
+		ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(id), card);
 	}
 }
 
@@ -150,17 +188,40 @@ function addResCell(parent, label) {
 	return num;
 }
 
-/** 一张技能卡：出处头像 + 技能名 + 描述 + 售价 + 购买按钮 */
-function buildOfferCard(parent, offer, api) {
-	const card = ui.create.div(".wm-rogue-shop-card", parent);
+/** 技能卡的「头」：出处小头像 + 技能名 + 出自行；商店与技能查看页共用同一视觉语言 */
+function addSkillHead(card, id) {
 	const top = ui.create.div(".wm-rogue-shop-top", card);
-	const owner = skillOwner(offer.id);
+	const owner = skillOwner(id);
 	if (owner) {
 		// 本体给任意 div 都提供了 setBackground（HTMLDivElement.prototype），直接拿它画头像
 		ui.create.div(".wm-rogue-shop-avatar", top).setBackground(owner, "character");
 	}
-	ui.create.div(".wm-rogue-shop-name", skillName(offer.id), top);
+	ui.create.div(".wm-rogue-shop-name", skillName(id), top);
 	ui.create.div(".wm-rogue-shop-owner", owner ? `出自 ${translateCharacter(owner)}` : "肉鸽专属技能", card);
+}
+
+/** 等级 + 逐行累计效果；商店与主界面共用 */
+function paintStatBody(levelNode, effectsNode, statId, level) {
+	levelNode.innerHTML = `Lv.${level}/${stats[statId].maxLevel}`;
+	effectsNode.innerHTML = statEffectLines(statId, level)
+		.map(line => `<div class="wm-rogue-stat-effect${level ? "" : " wm-rogue-none"}">${line}</div>`)
+		.join("");
+}
+
+/** 主界面的只读属性卡：没有升级价与按钮 */
+function buildStatSummary(parent, run, statId) {
+	const card = ui.create.div(".wm-rogue-stat-card.wm-rogue-stat-read", parent);
+	const head = ui.create.div(".wm-rogue-stat-head", card);
+	ui.create.div(".wm-rogue-stat-name", stats[statId].name, head);
+	const level = ui.create.div(".wm-rogue-stat-level", "", head);
+	const effects = ui.create.div(".wm-rogue-stat-effects", card);
+	paintStatBody(level, effects, statId, run.stats[statId] ?? 0);
+}
+
+/** 一张技能卡：出处头像 + 技能名 + 描述 + 售价 + 购买按钮 */
+function buildOfferCard(parent, offer, api) {
+	const card = ui.create.div(".wm-rogue-shop-card", parent);
+	addSkillHead(card, offer.id);
 	const intro = skillInfo(offer.id);
 	const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
 	desc.title = intro;
@@ -236,12 +297,7 @@ function paintOffer(row, run, soldOut = isSoldOut(run)) {
 function paintStat(row, run, checkStatUpgrade) {
 	const check = checkStatUpgrade(row.statId);
 	const level = run.stats[row.statId] ?? 0;
-	const cfg = stats[row.statId];
-	row.level.innerHTML = `Lv.${level}/${cfg.maxLevel}`;
-	const lines = statEffectLines(row.statId, level);
-	row.effects.innerHTML = lines
-		.map(line => `<div class="wm-rogue-stat-effect${level ? "" : " wm-rogue-none"}">${line}</div>`)
-		.join("");
+	paintStatBody(row.level, row.effects, row.statId, level);
 	const held = run.currency[STAT_CURRENCY] ?? 0;
 	const money = moneyName(STAT_CURRENCY);
 	if (check.ok) {

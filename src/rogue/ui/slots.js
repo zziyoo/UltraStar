@@ -201,6 +201,11 @@ export function showRunModeChoice(api) {
 	for (const mode of [RUN_MODE.challenge, RUN_MODE.endless]) {
 		addButton(RUN_MODE_LABEL[mode], content, () => api.pickMode(mode));
 	}
+	// 无尽历史最高记录：独立存储，删档不清，所以这里始终能看到最好成绩
+	const best = api.best;
+	addLine(content, best
+		? `无尽模式最高记录：第 ${best.level} 关（${translateCharacter(best.characterId)}）`
+		: "无尽模式最高记录：暂无");
 	addLine(content, "闯关：固定关卡数，失败损失一半货币。无尽：关卡无上限，失败即整档删除。");
 	addGap(content);
 	addButton(LIBRARY_TEXT.back, content, () => api.cancel());

@@ -4,14 +4,15 @@
 import {
 	ALLOW_DUPLICATE_SKILLS,
 	CURRENCY_LABEL,
-	DEFAULT_SKILL_PRICE,
 	SKILL_CURRENCY,
 	SKILL_OFFER_COUNT,
+	SKILL_PRICE_PER_LEVEL,
+	SKILL_PRICE_SPREAD,
 	SKILL_SLOTS,
 	STAT_CURRENCY,
 	STAT_IDS,
 } from "./config.js";
-import { getSkillPrice, pool } from "./data/skills.js";
+import { pool } from "./data/skills.js";
 import { getStatPrice, stats } from "./data/stats.js";
 
 const SKILL_CURRENCY_NAME = CURRENCY_LABEL[SKILL_CURRENCY] ?? SKILL_CURRENCY;
@@ -36,6 +37,28 @@ function spend(run, currency, amount) {
 	run.currency[currency] = Math.max(0, (run.currency?.[currency] ?? 0) - amount);
 }
 
+/** 技能基准价：第 level 局 = round(5 × sqrt(level)) */
+export function getSkillBasePrice(level) {
+	const n = Math.max(1, Math.floor(Number(level) || 1));
+	return Math.round(SKILL_PRICE_PER_LEVEL * Math.sqrt(n));
+}
+
+/** 实际售价：基准价 ±25% 内随机，至少 1。rng 可注入，方便测试 */
+export function getRandomSkillPrice(level, rng = Math.random) {
+	const base = getSkillBasePrice(level);
+	const min = base * (1 - SKILL_PRICE_SPREAD);
+	const max = base * (1 + SKILL_PRICE_SPREAD);
+	return Math.max(1, Math.round(min + rng() * (max - min)));
+}
+
+/**
+ * 定价用的“本局编号”。胜利结算会把 run.level 推进到下一关（第 2 局打完 level 已经是 3），
+ * 而价格要按已经打过的第 2 局算，所以取 level-1；新建后还没打过任何一关时至少按第 1 局。
+ */
+export function getPricingLevel(run) {
+	return Math.max(1, (Number(run?.level) || 1) - 1);
+}
+
 /** 每次进商店随机 SKILL_OFFER_COUNT 个候选；默认排除已拥有的技能 */
 export function rollSkillOffers(run, rng = Math.random) {
 	const owned = new Set(run?.skills ?? []);
@@ -45,8 +68,10 @@ export function rollSkillOffers(run, rng = Math.random) {
 		}
 		return ALLOW_DUPLICATE_SKILLS || !owned.has(entry.id);
 	});
+	// 售价在生成候选时随机定死并写进存档：重载、重进商店、刷新 UI 都不再重掷
+	const level = getPricingLevel(run);
 	const picked = shuffle(candidates, rng).slice(0, Math.max(0, SKILL_OFFER_COUNT));
-	return picked.map(entry => ({ id: entry.id, price: getSkillPrice(entry.id, DEFAULT_SKILL_PRICE), sold: false }));
+	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(level, rng), sold: false }));
 }
 
 /** 商店里是否还有买得起的候选 */

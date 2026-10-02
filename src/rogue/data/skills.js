@@ -1,7 +1,9 @@
 // 肉鸽技能：商店里卖的东西。作者填的是「技能效果、名称描述、价格」。
 //
 // 填什么
-//   pool[]        上架清单，每项 { id, price }；price 省略则用 config.js 的 DEFAULT_SKILL_PRICE
+//   pool[]        上架清单，每项 { id, price }；price 只是留给作者标注“基础价”的位子，
+//                 当前版本的实际售价由 shop.js 按本局编号动态生成（round(5×sqrt(n)) 上下浮动 25%），
+//                 所以这里写多少都不会成为最终售价，省略也行
 //                 扩展各分包的全部顶级技能会自动汇总进 pool（统一价 100），新增分包技能无需来这里登记
 //   skill{}       肉鸽原创技能本体，写法同本体 lib.skill（trigger / enable / mod / content…）
 //   translate{}   肉鸽原创技能翻译，格式必须是「技能名<hr>描述」；分包技能沿用分包的 id / id_info 双键翻译
@@ -90,12 +92,6 @@ export const translate = {
 	rogue_jiema: "解甲<hr>锁定技，你受到的伤害-1。",
 	rogue_guiyuan: "归元<hr>锁定技，你的结束阶段，若你已受伤，你回复1点体力。",
 };
-
-/** 取技能标价；未单独标价时用 DEFAULT_SKILL_PRICE（由调用方注入，保持本文件纯数据） */
-export function getSkillPrice(id, fallback) {
-	const item = pool.find(entry => entry.id === id);
-	return item && Number.isFinite(item.price) ? item.price : fallback;
-}
 
 // ---------------------------------------------------------------- 机制技能
 //

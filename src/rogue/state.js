@@ -5,6 +5,7 @@ import {
 	BATTLE_STATUS,
 	CHALLENGE_TOTAL_LEVELS,
 	CURRENCIES,
+	INITIAL_CURRENCY,
 	RUN_MODE,
 	RUN_VERSION,
 	SKILL_SLOTS,
@@ -109,7 +110,7 @@ export function normalizeRun(raw) {
 	};
 }
 
-/** 新档：闯关与无尽共用同一结构，只靠 mode 与 totalLevels 区分 */
+/** 新档：闯关与无尽共用同一结构，只靠 mode 与 totalLevels 区分。初始资源只看 INITIAL_CURRENCY（旧档不会被补发） */
 export function createRun(mode, characterId, now) {
 	const run = normalizeRun({
 		version: RUN_VERSION,
@@ -117,10 +118,40 @@ export function createRun(mode, characterId, now) {
 		characterId,
 		level: 1,
 		totalLevels: mode === RUN_MODE.endless ? 0 : CHALLENGE_TOTAL_LEVELS,
+		currency: { ...INITIAL_CURRENCY },
 	});
 	run.createdAt = now;
 	run.updatedAt = now;
 	return run;
+}
+
+/**
+ * 无尽模式历史最高记录：独立于六个存档槽（无尽失败删档不清它）。
+ * 只记录“已经成功通关过的最高一关”，返回 null 表示暂无记录。
+ */
+export function normalizeBest(raw) {
+	if (!isPlainObject(raw)) {
+		return null;
+	}
+	const level = clampInt(raw.level, 0, Number.MAX_SAFE_INTEGER, 0);
+	if (level <= 0) {
+		return null;
+	}
+	return {
+		level,
+		characterId: sanitizeString(raw.characterId),
+		updatedAt: Math.max(0, toInt(raw.updatedAt, 0)),
+	};
+}
+
+/** 只在真的通关了某一关时调用：level 是刚刚打赢的那一关，低于纪录时原样返回 */
+export function updateBest(best, level, characterId, now) {
+	const current = normalizeBest(best);
+	const won = Math.floor(Number(level) || 0);
+	if (won <= 0 || (current && current.level >= won)) {
+		return current;
+	}
+	return { level: won, characterId: sanitizeString(characterId), updatedAt: now };
 }
 
 /**

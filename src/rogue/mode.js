@@ -5,16 +5,18 @@ import { lib, game, ui } from "../../../../noname.js";
 
 import {
 	BATTLE_STATUS,
+	BEST_ENDLESS_KEY,
 	EXTENSION_NAME,
 	MODE_ID,
 	MODE_SETTINGS,
 	MODE_SPLASH,
 	MODE_TRANSLATE,
+	RUN_MODE,
 	SKILL_SLOTS,
 	SLOT_COUNT,
 	STORAGE_KEY,
 } from "./config.js";
-import { cloneRun, createRun, migrateSlots, setSlot, toSerializable } from "./state.js";
+import { cloneRun, createRun, migrateSlots, normalizeBest, setSlot, toSerializable, updateBest } from "./state.js";
 import { buySkill, checkStatUpgrade, rollSkillOffers, upgradeStat } from "./shop.js";
 import { settleVictory } from "./reward.js";
 import { loseSkill, lowerStat, settleDefeat } from "./penalty.js";
@@ -22,13 +24,15 @@ import { beginBattle, checkResult, getRoster, rawAttitude, resolveBattle, rollGr
 import { skill as rogueSkills, translate as rogueTranslate, helpers as rogueHelpers, helperTranslate as rogueHelperTranslate } from "./data/skills.js";
 import { closeScreen, showChoice, showNotice } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
-import { refreshShop, showHub, showReplace, showShop } from "./ui/hub.js";
-import { describeCurrencyChange, showPenaltyChoice, showResult } from "./ui/result.js";
+import { refreshShop, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
+import { showPenaltyChoice, showResult } from "./ui/result.js";
 
 const context = {
 	slots: [],
 	index: null,
 	run: null,
+	/** 无尽模式历史最高记录（独立存储键，删档不清） */
+	best: null,
 	settled: true,
 	battleLive: false,
 };
@@ -64,7 +68,14 @@ function commit() {
 function loadSlots() {
 	const migrated = migrateSlots(lib.storage?.[STORAGE_KEY]);
 	context.slots = migrated.slots;
+	context.best = normalizeBest(lib.storage?.[BEST_ENDLESS_KEY]);
 	return migrated.errors;
+}
+
+/** 历史最高记录存在独立键上：无尽失败整档删除时不会碰它 */
+function saveBest(next) {
+	context.best = next;
+	game.save(BEST_ENDLESS_KEY, next);
 }
 
 /** 重载回本模式：directstart 让本体跳过模式选择界面，直接跑我们的 start() */
@@ -92,8 +103,21 @@ function openHub() {
 		run: context.run,
 		startBattle,
 		openShop,
+		openSkills,
 		backToSlots: openSlots,
 		leaveMode,
+	});
+}
+
+/** 只读的技能查看页：不买卖、不写存档 */
+function openSkills() {
+	if (!context.run) {
+		openSlots();
+		return;
+	}
+	showSkills({
+		run: context.run,
+		backToHub: openHub,
 	});
 }
 
@@ -232,6 +256,8 @@ function slotsApi() {
 
 function draftApi(index) {
 	return {
+		/** 无尽历史最高记录（独立存储，删档不清） */
+		best: context.best,
 		pickMode(mode) {
 			showCharacterChoice({
 				pickCharacter(characterId) {
@@ -336,20 +362,32 @@ function onover(resultbool) {
 }
 
 function settleVictoryFlow() {
+	// 刚打赢的那一关要先记下来：胜利结算会把 level 推进到下一关
+	const wonLevel = context.run.level;
 	const result = settleVictory(context.run, now());
 	context.run = result.run;
-	const lines = ["战斗胜利。", `获得：${describeCurrencyChange({}, result.gained)}`];
-	if (result.run.cleared) {
-		lines.push(`已通关全部 ${result.run.totalLevels} 关，之后可以重复挑战。`);
-	} else {
-		lines.push(`下一关：第 ${result.run.level} 关。`);
+	if (context.run.mode === RUN_MODE.endless) {
+		// 只有真的通关了某一关（不是失败进入的下一关）才更新历史最高
+		const best = updateBest(context.best, wonLevel, context.run.characterId, now());
+		if (best !== context.best) {
+			saveBest(best);
+		}
 	}
-	lines.push("回到营地后可以进商店消费。");
 	commit();
-	showResult({ title: "战斗胜利", lines, onDone: () => reloadNow(false) });
+	showResult({
+		kind: "victory",
+		title: "战斗胜利",
+		level: wonLevel,
+		reward: result.gained,
+		nextLevel: result.run.level,
+		cleared: !!result.run.cleared,
+		totalLevels: result.run.totalLevels,
+		onDone: () => reloadNow(false),
+	});
 }
 
 function settleDefeatFlow() {
+	const level = context.run.level;
 	const result = settleDefeat(context.run, now());
 
 	if (result.kind === "delete") {
@@ -363,8 +401,11 @@ function settleDefeatFlow() {
 			return;
 		}
 		showResult({
+			kind: "endless",
 			title: "无尽模式失败",
-			lines: [`存档${(index ?? 0) + 1} 已整个删除，该槽位恢复为空。`, "无尽模式失败不保留任何进度。"],
+			level,
+			lines: [`存档${(index ?? 0) + 1} 已整个删除，该槽位恢复为空。`, "无尽模式失败不保留任何进度。", "无尽历史最高记录不受影响。"],
+			buttonLabel: "返回存档页",
 			onDone: () => reloadNow(true),
 		});
 		return;
@@ -380,13 +421,14 @@ function settleDefeatFlow() {
 		return;
 	}
 
-	const lines = ["战斗失败。", "关卡保持不变，可以重新挑战本关。"];
-	if (result.kind === "currency") {
-		lines.splice(1, 0, `损失：${describeCurrencyChange(result.lost, {})}`);
-	} else {
-		lines.splice(1, 0, "没有可损失的货币与强化，本次不额外扣除。");
-	}
-	showResult({ title: "战斗失败", lines, onDone: () => reloadNow(false) });
+	showResult({
+		kind: "defeat",
+		title: "战斗失败",
+		level,
+		loss: result.kind === "currency" ? result.lost : null,
+		lines: [result.kind === "currency" ? "已按规则扣除上表货币。" : "没有可损失的货币与强化，本次不额外扣除。"],
+		onDone: () => reloadNow(false),
+	});
 }
 
 function penaltyApi() {
@@ -400,8 +442,10 @@ function penaltyApi() {
 			context.run = result.run;
 			commit();
 			showResult({
+				kind: "defeat",
 				title: "战斗失败",
-				lines: ["战斗失败。", `已失去技能：${describeSkill(skillId)}。`, "关卡保持不变，可以重新挑战本关。"],
+				level: context.run.level,
+				lines: [`已失去技能：${describeSkill(skillId)}。`],
 				onDone: () => reloadNow(false),
 			});
 		},
@@ -414,8 +458,10 @@ function penaltyApi() {
 			context.run = result.run;
 			commit();
 			showResult({
+				kind: "defeat",
 				title: "战斗失败",
-				lines: ["战斗失败。", `${describeStat(result.statId)} 由 Lv.${result.from} 降到 Lv.${result.to}。`, "关卡保持不变，可以重新挑战本关。"],
+				level: context.run.level,
+				lines: [`${describeStat(result.statId)} 由 Lv.${result.from} 降到 Lv.${result.to}。`],
 				onDone: () => reloadNow(false),
 			});
 		},

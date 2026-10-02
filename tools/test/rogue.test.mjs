@@ -51,6 +51,7 @@ const state = await load("src/rogue/state.js");
 const shop = await load("src/rogue/shop.js");
 const reward = await load("src/rogue/reward.js");
 const penalty = await load("src/rogue/penalty.js");
+const common = await load("src/rogue/ui/common.js");
 const stages = await load("src/rogue/data/stages.js");
 const groups = await load("src/rogue/data/enemyGroups.js");
 const statsData = await load("src/rogue/data/stats.js");
@@ -311,8 +312,11 @@ check("货币不足 fallback：清零后给出可选惩罚，全 0 时不惩罚"
 	assert(res.fallback.canLoseSkill && res.fallback.canLowerStat, "两个惩罚都可选");
 
 	const nothing = freshRun();
+	for (const key of cfg.CURRENCIES) {
+		nothing.currency[key] = 0;
+	}
 	const none = penalty.settleDefeat(nothing, NOW);
-	assertEqual(none.kind, "none", "无技能且属性全 0 时不再惩罚");
+	assertEqual(none.kind, "none", "无技能、属性全 0、货币也清空时不再惩罚");
 
 	const lost = penalty.loseSkill({ ...res.run }, SKILL_A, NOW);
 	assert(lost.ok && !lost.run.skills.includes(SKILL_A), "失去技能");
@@ -329,7 +333,8 @@ check("闯关胜利：奖励入账、关卡推进、通关后不越界", () => {
 	const expected = first.gained.gold;
 	assert(Number.isFinite(expected) && expected > 0, "应有奖励数值");
 	assertEqual(first.run.level, 2, "推进到第2关");
-	assertEqual(first.run.currency.gold, expected, "金币入账");
+	assertEqual(first.run.currency.gold, cfg.INITIAL_CURRENCY.gold + expected, "金币入账（新局自带初始金币）");
+	assertEqual(first.run.currency.exp, cfg.INITIAL_CURRENCY.exp + first.gained.exp, "经验入账");
 	assertEqual(first.run.currentBattle, null, "战斗标记清除");
 
 	const last = { ...run, level: cfg.CHALLENGE_TOTAL_LEVELS };
@@ -396,6 +401,80 @@ check("currentBattle 恢复：只保留 groupId，重开同一组而不重掷", 
 	const wrongStatus = state.normalizeRun({ ...freshRun(), currentBattle: { groupId: "group_baltan", status: "shop" } });
 	assertEqual(wrongStatus.currentBattle, null, "未知状态视为无未完成战斗");
 	return "重启后沿用同一组合";
+});
+
+check("新局初始资源：金币 5 / 经验 2，旧存档不会被补发", () => {
+	for (const mode of [cfg.RUN_MODE.challenge, cfg.RUN_MODE.endless]) {
+		const run = freshRun(mode);
+		assertEqual(run.currency.gold, cfg.INITIAL_CURRENCY.gold, `${mode} 初始金币`);
+		assertEqual(run.currency.exp, cfg.INITIAL_CURRENCY.exp, `${mode} 初始经验`);
+	}
+	// 旧档（没有 currency 字段）按 0 处理；明确记 0 的也保持 0
+	const old = state.normalizeRun({ version: 1, mode: "challenge", characterId: "迪迦", level: 3 });
+	assertEqual(old.currency.gold, 0, "旧档不补发金币");
+	assertEqual(old.currency.exp, 0, "旧档不补发经验");
+	const zero = state.normalizeRun({ ...freshRun(), currency: { gold: 0, exp: 0 } });
+	assertEqual(zero.currency.gold, 0, "明确记 0 的存档保持 0");
+	return `${cfg.INITIAL_CURRENCY.gold}/${cfg.INITIAL_CURRENCY.exp}`;
+});
+
+check("技能价格：基准价 = round(5×√n)，售价在 ±25% 内取整", () => {
+	assertEqual(shop.getSkillBasePrice(1), 5, "第1局基准价");
+	assertEqual(shop.getSkillBasePrice(2), 7, "第2局基准价");
+	assertEqual(shop.getSkillBasePrice(4), 10, "第4局基准价");
+	// 第2局：基准 7 → 5.25 ~ 8.75
+	assertEqual(shop.getRandomSkillPrice(2, () => 0), 5, "第2局下界");
+	assertEqual(shop.getRandomSkillPrice(2, () => 0.999999), 9, "第2局上界");
+	assertEqual(shop.getRandomSkillPrice(2, () => 0.5), 7, "第2局中值");
+	// 第1局：基准 5 → 3.75 ~ 6.25
+	assertEqual(shop.getRandomSkillPrice(1, () => 0), 4, "第1局下界");
+	assertEqual(shop.getRandomSkillPrice(1, () => 0.999999), 6, "第1局上界");
+	assert(shop.getRandomSkillPrice(1, () => 0) >= 1, "售价至少为 1");
+	return "5/7/10";
+});
+
+check("技能定价按本局编号：胜利推进后仍按刚打完的那一局算，且价格写死", () => {
+	const run = freshRun(cfg.RUN_MODE.endless);
+	assertEqual(shop.getPricingLevel(run), 1, "新档没打过也按第 1 局");
+	const afterTwo = { ...run, level: 3 };
+	assertEqual(shop.getPricingLevel(afterTwo), 2, "打完第 2 局（level=3）按第 2 局定价");
+	const offers = shop.rollSkillOffers(afterTwo, makeRng(7));
+	assert(offers.length > 0, "应有候选");
+	assert(offers.every(offer => offer.price >= 5 && offer.price <= 9), `第2局价格应落在 5~9：${offers.map(o => o.price).join(",")}`);
+	const before = offers.map(offer => offer.price).join(",");
+	const bought = shop.buySkill(
+		{ ...afterTwo, shopOffers: offers, currency: { gold: 9999, exp: 0 } },
+		offers[0].id,
+		null
+	);
+	assertEqual(bought.run.shopOffers.map(offer => offer.price).join(","), before, "购买后剩余候选价格不变");
+	assertEqual(shop.rollSkillOffers(afterTwo, makeRng(7)).map(o => o.price).join(","), before, "同一 rng 可复现");
+	return `第2局价格 ${before}`;
+});
+
+check("无尽最高记录：只记成功通关过的最高一关，且与存档无关", () => {
+	assertEqual(state.normalizeBest(undefined), null, "初始没有记录");
+	let best = state.updateBest(null, 1, "迪迦", NOW);
+	assertEqual(best.level, 1, "通关第1关 → 1");
+	best = state.updateBest(best, 5, "迪迦", NOW);
+	assertEqual(best.level, 5, "通关第5关 → 5");
+	best = state.updateBest(best, 3, "迪迦", NOW);
+	assertEqual(best.level, 5, "更低的通关不改写记录");
+	assertEqual(best.characterId, "迪迦", "记录角色");
+	assertEqual(state.normalizeBest({ level: 0 }), null, "0 关视为无记录");
+	assertEqual(state.normalizeBest({ level: "12", characterId: " 迪迦 " }).level, 12, "脏数据可修复");
+	assertEqual(state.updateBest(best, 0, "迪迦", NOW).level, 5, "非法关卡不改记录");
+	return `最高第 ${best.level} 关`;
+});
+
+check("技能文本清洗：poptip 标签不泄漏，正文一个字不丢", () => {
+	const raw = "锁定技，<noname-poptip poptip = alqn123>光之巨人</noname-poptip>造成的伤害+1。";
+	assertEqual(common.sanitizeSkillText(raw), "锁定技，光之巨人造成的伤害+1。", "脱壳保留正文");
+	assertEqual(common.sanitizeSkillText("第一行<br>第二行"), "第一行\n第二行", "<br> 转换行");
+	assertEqual(common.sanitizeSkillText("纯中文，无标签"), "纯中文，无标签", "无标签原样返回");
+	assertEqual(common.sanitizeSkillText(undefined), "", "非字符串安全");
+	assert(!common.sanitizeSkillText(raw).includes("noname-poptip"), "不残留标签名");
+	return "poptip 清洗";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

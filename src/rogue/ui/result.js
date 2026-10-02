@@ -1,20 +1,82 @@
-// 战斗结果页（奖励/惩罚说明）与失败惩罚的 fallback 选择页。
-// 排版：所有条目平铺在 dialog.content 下，见 ui/common.js 顶部的说明。
+// 战斗结算页（胜利 / 失败 / 无尽删档）与失败惩罚的 fallback 选择页。
+// 结算页是自建浮层：大标题 + 标记 + 奖励/损失分行 + 下一步 + 显著返回按钮；
+// 惩罚选择页是本体 Dialog 列表（条目平铺在 dialog.content 下，见 ui/common.js 顶部说明）。
 
-import { CURRENCY_LABEL, STAT_IDS } from "../config.js";
+import { CURRENCIES, CURRENCY_LABEL, STAT_IDS } from "../config.js";
+import { ui } from "../../../../../noname.js";
 import { stats } from "../data/stats.js";
-import { addGap, addLine, addButton, addDisabledButton, openScreen, skillName } from "./common.js";
+import {
+	addButton,
+	addDisabledButton,
+	addGap,
+	addLine,
+	addOverlayButton,
+	openOverlay,
+	openScreen,
+	skillName,
+} from "./common.js";
+
+const currencyRows = (money, sign) =>
+	CURRENCIES.filter(key => Number.isFinite(money?.[key]) && money[key]).map(
+		key => `${CURRENCY_LABEL[key] ?? key} ${sign}${money[key]}`
+	);
 
 /**
- * @param {{ title: string, lines: string[], buttonLabel?: string, onDone: Function }} info
+ * 肉鸽结算页。
+ * @param {{
+ *   kind: "victory" | "defeat" | "endless",
+ *   title: string,
+ *   level?: number,
+ *   reward?: Record<string, number>,
+ *   loss?: Record<string, number>,
+ *   nextLevel?: number | null,
+ *   cleared?: boolean,
+ *   totalLevels?: number,
+ *   lines?: string[],
+ *   buttonLabel?: string,
+ *   onDone: Function,
+ * }} info
  */
 export function showResult(info) {
-	const content = openScreen(info.title);
-	for (const line of info.lines) {
-		addLine(content, line);
+	const stage = openOverlay("wm-rogue-result-overlay");
+	const win = info.kind === "victory";
+	const panel = ui.create.div(win ? ".wm-rogue-result.wm-rogue-win" : ".wm-rogue-result.wm-rogue-lose", stage);
+
+	ui.create.div(".wm-rogue-result-mark", win ? "✓" : "✕", panel);
+	ui.create.div(".wm-rogue-result-title", info.title, panel);
+	if (Number.isFinite(info.level)) {
+		ui.create.div(".wm-rogue-result-sub", win ? `已通关第 ${info.level} 关` : `第 ${info.level} 关`, panel);
 	}
-	addGap(content);
-	addButton(info.buttonLabel ?? "返回营地", content, () => info.onDone());
+
+	addResultSection(panel, "本关奖励", currencyRows(info.reward, "+"));
+	addResultSection(panel, "本次损失", currencyRows(info.loss, "-"));
+	for (const line of info.lines ?? []) {
+		ui.create.div(".wm-rogue-result-line", line, panel);
+	}
+
+	const next = win
+		? info.cleared
+			? `已通关全部 ${info.totalLevels} 关，可以重复挑战`
+			: `下一关：第 ${info.nextLevel} 关`
+		: info.kind === "defeat"
+			? "关卡保持不变，可以重新挑战本关"
+			: "";
+	if (next) {
+		ui.create.div(".wm-rogue-result-next", next, panel);
+	}
+
+	const actions = ui.create.div(".wm-rogue-result-actions", panel);
+	addOverlayButton(info.buttonLabel ?? "返回营地", actions, () => info.onDone(), "wm-rogue-result-btn");
+}
+
+function addResultSection(panel, label, rows) {
+	if (!rows.length) {
+		return;
+	}
+	ui.create.div(".wm-rogue-result-section", label, panel);
+	for (const row of rows) {
+		ui.create.div(".wm-rogue-result-row", row, panel);
+	}
 }
 
 /** 货币不足时，玩家在“失去一个技能 / 一项属性 -1”之间自选 */
@@ -47,21 +109,4 @@ export function showPenaltyChoice(run, fallback, api) {
 	} else {
 		addDisabledButton("属性等级 -1", content, "所有属性都已是最低等级");
 	}
-}
-
-export function describeCurrencyChange(lost, gained) {
-	const keys = new Set([...Object.keys(lost ?? {}), ...Object.keys(gained ?? {})]);
-	const parts = [];
-	for (const key of keys) {
-		const label = CURRENCY_LABEL[key] ?? key;
-		const up = gained?.[key] ?? 0;
-		const down = lost?.[key] ?? 0;
-		if (up) {
-			parts.push(`${label} +${up}`);
-		}
-		if (down) {
-			parts.push(`${label} -${down}`);
-		}
-	}
-	return parts.length ? parts.join("　") : "货币无变化";
 }

@@ -38,16 +38,16 @@ const CSS = `
 	text-shadow: 0 2px 3px rgba(0,0,0,0.9); }
 /* 编号与正文由卡片内的两格表格分列（见 slots.js 的 buildCardContent），不用 float/flex */
 .wm-rogue-body { min-width: 0; }
-.wm-rogue-name { font-size: 20px; font-weight: bold; color: #fff;
+.wm-rogue-name { font-size: 21px; font-weight: bold; color: #fff;
 	text-shadow: 0 1px 2px rgba(0,0,0,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wm-rogue-time { font-size: 13px; color: rgba(255,255,255,0.6); margin-top: 3px; }
-.wm-rogue-meta { font-size: 13px; color: rgba(255,255,255,0.85); margin-top: 3px;
+.wm-rogue-time { font-size: 14px; color: rgba(255,255,255,0.62); margin-top: 4px; }
+.wm-rogue-meta { font-size: 15px; color: rgba(255,255,255,0.86); margin-top: 4px;
 	white-space: normal; overflow-wrap: anywhere; }
-.wm-rogue-flag { font-size: 13px; color: #ffb347; margin-top: 3px; }
-.wm-rogue-hint { font-size: 13px; color: #ffd08a; margin-top: 6px; }
-.wm-rogue-tag { position: absolute; right: 10px; top: 8px; font-size: 12px; color: rgba(255,255,255,0.45); }
+.wm-rogue-flag { font-size: 14px; color: #ffb347; margin-top: 4px; }
+.wm-rogue-hint { font-size: 15px; color: #ffd08a; margin-top: 7px; }
+.wm-rogue-tag { position: absolute; right: 10px; top: 8px; font-size: 13px; color: rgba(255,255,255,0.45); }
 /* 删除做成卡内文字链接：不再有按钮盒，也就不会被卡片边缘压住 */
-.wm-rogue-link { position: absolute; right: 10px; bottom: 8px; font-size: 13px; cursor: pointer;
+.wm-rogue-link { position: absolute; right: 10px; bottom: 8px; font-size: 15px; cursor: pointer;
 	color: rgba(255,150,140,0.9); text-decoration: underline; user-select: none; }
 .wm-rogue-link:hover { color: #ff6b57; }
 .wm-rogue-btn { display: inline-block; padding: 6px 18px; border-radius: 4px; cursor: pointer;
@@ -123,6 +123,54 @@ const CSS = `
 .wm-rogue-stat-effect.wm-rogue-none { color: rgba(255,255,255,0.5); }
 .wm-rogue-stat-price { font-size: 18px; color: #ffd479; }
 
+/* ---- 肉鸽营地（主界面）：同一条视觉语言，居中一张营地卡 ---- */
+/* margin:auto 让它在居中层里真正居中（flex 的 align-items:stretch 会把它拉满高、顶到最上面） */
+.wm-rogue-hub { display: flex; flex-direction: column; margin: auto; width: min(760px, calc(100% - 24px)); }
+.wm-rogue-hub-who { position: absolute; left: 12px; top: 9px; font-size: 18px; color: #ffd479; }
+.wm-rogue-hub-level { margin-top: 8px; font-size: 30px; font-weight: bold; color: #fff; text-align: center;
+	letter-spacing: 2px; text-shadow: 0 2px 5px rgba(0,0,0,0.9); }
+.wm-rogue-hub-mode { margin-top: 5px; font-size: 15px; color: rgba(255,255,255,0.62); text-align: center;
+	letter-spacing: 4px; }
+.wm-rogue-hub-section-title { margin: 18px 0 8px; font-size: 20px; font-weight: bold; color: #fff;
+	letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+.wm-rogue-hub-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 20px; }
+.wm-rogue-btn.wm-rogue-hub-primary { padding: 12px 44px; font-size: 22px; border-color: rgba(255,200,120,0.8);
+	background: linear-gradient(rgba(160,110,40,0.95), rgba(110,70,20,0.95)); }
+.wm-rogue-btn.wm-rogue-hub-shop { padding: 12px 34px; font-size: 20px; }
+.wm-rogue-hub-hint { margin-top: 10px; font-size: 14px; color: #ffb347; text-align: center; }
+/* 营地窄一些，属性卡三张要排成一行 */
+.wm-rogue-hub .wm-rogue-stat-card { flex: 1 1 200px; }
+/* 营地的属性卡是只读的：去掉底部操作行后整体更矮 */
+.wm-rogue-stat-card.wm-rogue-stat-read { padding-bottom: 12px; }
+
+/* ---- 技能查看页（只读）：复用商店卡片 ---- */
+.wm-rogue-skills { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
+.wm-rogue-skills-empty { margin: 34px 0 0; font-size: 20px; color: rgba(255,255,255,0.72); text-align: center; }
+.wm-rogue-skills-hint { margin-top: 10px; font-size: 15px; color: rgba(255,255,255,0.5); text-align: center; }
+/* 查看页显示完整描述，不再限 5 行 */
+.wm-rogue-shop-desc.wm-rogue-desc-full { max-height: none; }
+.wm-rogue-shop-card.wm-rogue-shop-card-read { cursor: default; }
+
+/* ---- 战斗结算页：大标题 + 奖励分行 ---- */
+.wm-rogue-result { margin: auto; width: min(620px, calc(100% - 24px)); padding: 30px 34px 26px; border-radius: 10px;
+	text-align: center; box-sizing: border-box;
+	background: linear-gradient(rgba(24,24,24,0.92), rgba(8,8,8,0.95));
+	border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 6px 26px rgba(0,0,0,0.65); }
+.wm-rogue-result-mark { font-size: 56px; line-height: 1; font-weight: bold; }
+.wm-rogue-result.wm-rogue-win .wm-rogue-result-mark { color: #7ee08a; text-shadow: 0 0 18px rgba(120,240,140,0.5); }
+.wm-rogue-result.wm-rogue-lose .wm-rogue-result-mark { color: #ff7a6b; text-shadow: 0 0 18px rgba(255,110,90,0.45); }
+.wm-rogue-result-title { margin-top: 10px; font-size: 34px; font-weight: bold; color: #fff;
+	letter-spacing: 6px; text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
+.wm-rogue-result-sub { margin-top: 8px; font-size: 17px; color: rgba(255,255,255,0.72); }
+.wm-rogue-result-section { margin-top: 22px; font-size: 15px; color: rgba(255,255,255,0.55); letter-spacing: 4px; }
+.wm-rogue-result-row { margin-top: 8px; font-size: 26px; font-weight: bold; color: #ffd479;
+	text-shadow: 0 1px 4px rgba(0,0,0,0.9); }
+.wm-rogue-result-line { margin-top: 10px; font-size: 16px; color: rgba(255,255,255,0.82); }
+.wm-rogue-result-next { margin-top: 20px; font-size: 19px; color: #fff; letter-spacing: 2px; }
+.wm-rogue-result-actions { display: flex; justify-content: center; margin-top: 24px; }
+.wm-rogue-btn.wm-rogue-result-btn { padding: 12px 46px; font-size: 21px; border-color: rgba(255,200,120,0.75);
+	background: linear-gradient(rgba(150,105,40,0.95), rgba(100,65,20,0.95)); }
+
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
    table/td 的 display 与文本换行；这些都会被浮层里的普通类规则继承或压掉。
@@ -176,16 +224,22 @@ const CSS = `
 #wm-rogue-overlay.wm-rogue-shop-overlay { overflow: hidden !important; }
 #wm-rogue-overlay .wm-rogue-shop,
 #wm-rogue-overlay .wm-rogue-shop-card,
-#wm-rogue-overlay .wm-rogue-stat-card { display: flex !important; flex-direction: column !important; }
+#wm-rogue-overlay .wm-rogue-stat-card,
+#wm-rogue-overlay .wm-rogue-hub,
+#wm-rogue-overlay .wm-rogue-skills { display: flex !important; flex-direction: column !important; }
 #wm-rogue-overlay .wm-rogue-shop-cards,
 #wm-rogue-overlay .wm-rogue-stat-cards,
+#wm-rogue-overlay .wm-rogue-hub-actions,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
 #wm-rogue-overlay .wm-rogue-shop-top,
 #wm-rogue-overlay .wm-rogue-shop-foot,
 #wm-rogue-overlay .wm-rogue-stat-head,
-#wm-rogue-overlay .wm-rogue-stat-foot { display: flex !important; flex-wrap: nowrap !important; }
+#wm-rogue-overlay .wm-rogue-stat-foot,
+#wm-rogue-overlay .wm-rogue-result-actions { display: flex !important; flex-wrap: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-shop-head,
 #wm-rogue-overlay .wm-rogue-shop-body,
+#wm-rogue-overlay .wm-rogue-hub-body,
+#wm-rogue-overlay .wm-rogue-skills-body,
 #wm-rogue-overlay .wm-rogue-res-cell,
 #wm-rogue-overlay .wm-rogue-shop-avatar,
 #wm-rogue-overlay .wm-rogue-stat-effects { display: block !important; }
@@ -200,11 +254,30 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-stat-effect,
 #wm-rogue-overlay .wm-rogue-stat-price,
 #wm-rogue-overlay .wm-rogue-res-num,
-#wm-rogue-overlay .wm-rogue-res-label { display: block !important; }
+#wm-rogue-overlay .wm-rogue-res-label,
+#wm-rogue-overlay .wm-rogue-hub-level,
+#wm-rogue-overlay .wm-rogue-hub-mode,
+#wm-rogue-overlay .wm-rogue-hub-section-title,
+#wm-rogue-overlay .wm-rogue-hub-hint,
+#wm-rogue-overlay .wm-rogue-skills-empty,
+#wm-rogue-overlay .wm-rogue-skills-hint,
+#wm-rogue-overlay .wm-rogue-result,
+#wm-rogue-overlay .wm-rogue-result-mark,
+#wm-rogue-overlay .wm-rogue-result-title,
+#wm-rogue-overlay .wm-rogue-result-sub,
+#wm-rogue-overlay .wm-rogue-result-section,
+#wm-rogue-overlay .wm-rogue-result-row,
+#wm-rogue-overlay .wm-rogue-result-line,
+#wm-rogue-overlay .wm-rogue-result-next { display: block !important; }
+#wm-rogue-overlay .wm-rogue-hub-who { position: absolute !important; }
 #wm-rogue-overlay .wm-rogue-shop-desc,
 #wm-rogue-overlay .wm-rogue-shop-owner,
 #wm-rogue-overlay .wm-rogue-shop-subtitle,
-#wm-rogue-overlay .wm-rogue-stat-effect { white-space: normal !important; overflow-wrap: break-word !important; }
+#wm-rogue-overlay .wm-rogue-stat-effect,
+#wm-rogue-overlay .wm-rogue-hub-hint,
+#wm-rogue-overlay .wm-rogue-skills-empty,
+#wm-rogue-overlay .wm-rogue-skills-hint,
+#wm-rogue-overlay .wm-rogue-result-line { white-space: normal !important; overflow-wrap: break-word !important; }
 /* 返回按钮：尺寸写死成固定盒子。想继续调大调小，只改这里的 width/height/line-height/font-size 四个数 */
 #wm-rogue-overlay .wm-rogue-back .wm-rogue-btn {
 	display: inline-block !important;

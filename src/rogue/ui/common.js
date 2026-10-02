@@ -209,16 +209,36 @@ export function skillLabel(id) {
 	return lib.translate[id] || `${id}<hr>（无描述）`;
 }
 
+const POPTIP_TAG = /<\/?noname-poptip[^>]*>/gi;
+const BR_TAG = /<br\s*\/?>/gi;
+const HTML_TAG = /<\/?[a-z][^>]*>/gi;
+
+/**
+ * 技能文本的显示层清洗。
+ * 本体的 poptip 标记 `<noname-poptip …>文本</noname-poptip>` 在纯文本弹层里会连标签一起显示，
+ * 这里只脱标签、留正文；<br> 换成换行；其它标签兜底剥离（同样只去标签，不删一个字）。
+ * 只作用于肉鸽界面展示，不改 lib.translate 原文，也不影响本体界面。
+ */
+export function sanitizeSkillText(text) {
+	if (typeof text !== "string") {
+		return "";
+	}
+	if (!text.includes("<")) {
+		return text;
+	}
+	return text.replace(POPTIP_TAG, "").replace(BR_TAG, "\n").replace(HTML_TAG, "");
+}
+
 /** 技能名 */
 export function skillName(id) {
 	const full = lib.translate[id];
-	return typeof full === "string" ? full.split("<hr>")[0] || id : id;
+	return typeof full === "string" ? sanitizeSkillText(full.split("<hr>")[0]) || id : id;
 }
 
 /** 技能描述：兼容两种翻译格式——肉鸽技能的「名<hr>描述」单键，与分包技能的 id_info 双键 */
 export function skillInfo(id) {
 	const intro = skillLabel(id).split("<hr>")[1];
-	return intro || lib.translate[`${id}_info`] || "";
+	return sanitizeSkillText(intro || lib.translate[`${id}_info`] || "");
 }
 
 /**

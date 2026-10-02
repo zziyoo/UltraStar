@@ -227,12 +227,12 @@ check("肉鸽技能池：id 规范、定义与翻译齐备", () => {
 			}
 		}
 		if (item.price !== undefined && !(Number.isFinite(item.price) && item.price > 0)) {
-			problems.push(`${item.id}: price 应为正数（省略则用默认价 ${cfg.DEFAULT_SKILL_PRICE}）`);
+			problems.push(`${item.id}: price 应为正数（这一项只是作者标注的基础价，实际售价由 shop.js 按本局编号动态生成）`);
 		}
 	}
 	assert(!problems.length, problems.join("；"));
 	const priced = skillsData.pool.filter(item => Number.isFinite(item.price)).length;
-	return `${skillsData.pool.length} 条技能（其中 ${priced} 条标价 100）`;
+	return `${skillsData.pool.length} 条技能（${priced} 条标了基础价，实际售价按关卡动态生成）`;
 });
 
 check("技能池：不在池里的 rogue_ 技能定义会被漏掉", () => {

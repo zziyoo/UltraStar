@@ -10,9 +10,14 @@ export const MODE_SPLASH = "ext:奥特之星/assets/sundry/rouge.jpg";
 
 /** lib.storage 中存放六槽存档的键名 */
 export const STORAGE_KEY = "rogueSlots";
+/** 无尽模式历史最高记录：独立于六个存档槽，无尽失败删档也不清它 */
+export const BEST_ENDLESS_KEY = "rogueBestEndless";
 /** 存档 schema 版本，只做单调递增迁移 */
 export const RUN_VERSION = 1;
 export const SLOT_COUNT = 6;
+
+/** 新建一局时的初始资源（只对新档生效，旧存档不会被补发） */
+export const INITIAL_CURRENCY = { gold: 5, exp: 2 };
 
 export const RUN_MODE = {
 	challenge: "challenge",
@@ -43,8 +48,12 @@ export const SKILL_PURCHASE_COUNT = 1;
 /** false 时已拥有的技能不再进入随机候选池 */
 export const ALLOW_DUPLICATE_SKILLS = false;
 
-/** 技能在商店的默认价，data/skills.js 未单独标价时用它 */
-export const DEFAULT_SKILL_PRICE = 100;
+/**
+ * 技能动态定价：第 n 局基准价 = round(SKILL_PRICE_PER_LEVEL × sqrt(n))，实际售价在基准价
+ * ±SKILL_PRICE_SPREAD 内随机（第 1 局 ≈4~6、第 2 局 ≈5~9）。价格在生成商店候选时定死。
+ */
+export const SKILL_PRICE_PER_LEVEL = 5;
+export const SKILL_PRICE_SPREAD = 0.25;
 /** 商店里购买技能用哪种货币 */
 export const SKILL_CURRENCY = "gold";
 /** 属性升级用哪种货币 */

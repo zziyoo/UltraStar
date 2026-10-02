@@ -319,15 +319,36 @@ await check("角色候选：真实存在、隐藏 Boss 不进候选", () => {
 	return `候选 ${roster.length}`;
 });
 
-await check("Hub：角色/关卡/货币/属性/技能与四个按钮", async () => {
+await check("Hub：角色/关卡/货币/属性/技能入口与四个按钮", async () => {
 	freshWorld();
 	session();
 	await newRunByUi("闯关模式");
 	const text = screenText();
-	for (const token of ["迪迦", `第 1 / ${cfg.CHALLENGE_TOTAL_LEVELS} 关`, "金币", "防御 Lv.0", "开始下一关", "商店", "存档", "退出肉鸽模式"]) {
+	for (const token of [
+		"迪迦",
+		"奥特肉鸽",
+		`第 1 / ${cfg.CHALLENGE_TOTAL_LEVELS} 关`,
+		"闯关模式",
+		"金币",
+		"经验",
+		"防御",
+		"Lv.0/10",
+		"暂无加成",
+		"技能",
+		"开始下一关",
+		"商店",
+		"返回存档",
+		"退出肉鸽模式",
+	]) {
 		assert(text.includes(token), `Hub 应显示「${token}」，实际：${text}`);
 	}
-	return "按钮与信息齐备";
+	// 营地也是自建浮层：标题栏里左侧角色名、右侧技能入口
+	const overlay = common.currentScreenNode();
+	assertEqual(overlay?.id, "wm-rogue-overlay", "营地走自建浮层");
+	const skillsBtn = nodesWithClass("wm-rogue-back")[0];
+	assertEqual(skillsBtn?.parentNode?.classList?.contains("wm-rogue-titlebar"), true, "技能入口在标题栏右上角");
+	assertEqual(screenText().includes("当前成长"), true, "应有当前成长分区");
+	return "营地信息齐备";
 });
 
 await check("开局：先落盘 groupId 再建局，本体事件调用顺序正确", async () => {
@@ -461,7 +482,10 @@ await check("胜利结算：奖励入账、关卡推进、清除标记且不重�
 	}
 	assertEqual(lib.storage.rogueSlots[0].currency.gold, gold, "不得重复结算");
 	assertEqual(log.filter(item => item.type === "over").length, 1, "game.over 只应发生一次");
-	assert(screenText().includes("战斗胜利"), "应显示胜利页");
+	const text = screenText();
+	assert(text.includes("战斗胜利"), "应显示胜利页");
+	assert(text.includes("本关奖励") && text.includes(`金币 +${gold - beforeGold}`), `奖励应分行突出：${text}`);
+	assert(text.includes(`下一关：第 ${run.level} 关`), `应写明下一关：${text}`);
 	return `第${beforeLevel}关 → 第${run.level}关，+${gold - beforeGold} 金币`;
 });
 
@@ -474,6 +498,107 @@ await check("返回营地：directstart + reload，重启后落到 Hub", async (
 	assert(text.includes("开始下一关"), `重启后应回到 Hub：${text}`);
 	assert(!text.includes("没有正常结算"), "已正常结算时不该提示恢复");
 	return "Hub 复原";
+});
+
+await check("无尽最高记录：通关才更新，闯关不更新，失败删档也不清", async () => {
+	freshWorld();
+	session();
+	// 无尽：打赢第 1 关 → 记录第 1 关
+	await newRunByUi("无尽模式");
+	click("开始下一关");
+	await flush();
+	for (const player of game.players.slice(1)) {
+		player.__alive = false;
+	}
+	lib.element.player.dieAfter.call(game.players[1]);
+	assert(lib.storage.rogueBestEndless, "应写历史最高");
+	assertEqual(lib.storage.rogueBestEndless.level, 1, "通关第1关记 1");
+	assertEqual(lib.storage.rogueBestEndless.characterId, "迪迦", "记角色");
+	click("返回营地");
+	session();
+	// 存档里 level 已推进到 2（失败进入第 2 关不会把记录写成 2）
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.level, 2, "胜利后推进到第2关");
+	assertEqual(lib.storage.rogueBestEndless.level, 1, "记录仍是最高的成功通关关卡");
+
+	// 闯关模式胜利不更新无尽记录
+	lib.storage.rogueSlots = [stateModule.createRun("challenge", "赛文", 1), null, null, null, null, null];
+	lib.storage.rogueActive = 0;
+	session();
+	click("开始下一关");
+	await flush();
+	for (const player of game.players.slice(1)) {
+		player.__alive = false;
+	}
+	lib.element.player.dieAfter.call(game.players[1]);
+	assertEqual(lib.storage.rogueBestEndless.level, 1, "闯关模式不影响无尽记录");
+
+	// 无尽失败删档：槽位清空但记录仍在
+	lib.storage.rogueSlots = [
+		stateModule.createRun("challenge", "赛文", 1),
+		{ ...stateModule.createRun("endless", "迪迦", 1), level: 12, currentBattle: { groupId: "group_seven", status: "battle" } },
+		null, null, null, null,
+	];
+	lib.storage.rogueActive = 1;
+	session();
+	click("重新挑战这一关");
+	await flush();
+	game.me.__alive = false;
+	game.me.hp = 0;
+	lib.element.player.dieAfter.call(game.me);
+	assertEqual(lib.storage.rogueSlots[1], null, "无尽存档被删除");
+	assertEqual(lib.storage.rogueBestEndless.level, 1, "删档不清历史最高");
+	return "记录独立于存档";
+});
+
+await check("选择玩法页：显示无尽历史最高记录", async () => {
+	lib.storage.rogueBestEndless = { level: 27, characterId: "迪迦", updatedAt: 1 };
+	session();
+	click("空存档");
+	let text = screenText();
+	assert(text.includes("无尽模式最高记录：第 27 关（迪迦）"), `应显示最高记录：${text}`);
+	click("返回");
+	lib.storage.rogueBestEndless = null;
+	session();
+	click("空存档");
+	text = screenText();
+	assert(text.includes("无尽模式最高记录：暂无"), `无记录时应显示暂无：${text}`);
+	click("返回");
+	return "最高记录展示";
+});
+
+await check("技能查看页：右上角入口进入、只读、可看完整描述", async () => {
+	freshWorld();
+	session();
+	await newRunByUi("闯关模式");
+	click("技能");
+	let text = screenText();
+	assert(text.includes("技能（0/3）"), `空态标题：${text}`);
+	assert(text.includes("当前没有已购买技能"), `空态说明：${text}`);
+	click("返回");
+
+	const before = JSON.stringify(lib.storage.rogueSlots);
+	click("技能");
+	click("返回");
+	assertEqual(JSON.stringify(lib.storage.rogueSlots), before, "查看技能不写存档");
+
+	// 买一个技能（含 poptip 描述）后应能查看完整描述，且不泄漏原始标签
+	putRun(0, {
+		currency: { gold: 9999, exp: 0 },
+		skills: ["rogue_poptip"],
+		shopOffers: [],
+	});
+	session();
+	// 会话会把 lib.translate 重置成模式自带的那些，所以这条要在 session() 之后再塞
+	lib.translate.rogue_poptip = "光test<hr>锁定技，<noname-poptip poptip = alqn123>光之巨人</noname-poptip>造成的伤害+1。";
+	click("技能");
+	text = screenText();
+	assert(text.includes("光test"), `应列出已购技能：${text}`);
+	assert(text.includes("光之巨人造成的伤害+1"), `应显示清洗后的完整描述：${text}`);
+	assert(!text.includes("noname-poptip"), `不得泄漏原始标签：${text}`);
+	click("返回");
+	assert(screenText().includes("开始下一关"), "返回应回到营地");
+	return "只读技能页 + poptip 清洗";
 });
 
 await check("异常退出恢复：重打同一组敌人，不判胜、不补奖、不跳关", async () => {
@@ -503,7 +628,7 @@ await check("取消恢复：返回存档页不删进度并标出未完成战斗"
 });
 
 await check("商店：浮层骨架——固定标题与资源栏 + 三张技能卡 + 三张属性卡", async () => {
-	putRun(0, { currentBattle: null, shopOffers: [], currency: { gold: 1000, exp: 0 } });
+	putRun(0, { currentBattle: null, level: 1, shopOffers: [], currency: { gold: 1000, exp: 0 } });
 	session();
 	click("商店");
 	const saved = lib.storage.rogueSlots[0];
@@ -523,7 +648,17 @@ await check("商店：浮层骨架——固定标题与资源栏 + 三张技能�
 	const back = nodesWithClass("wm-rogue-back")[0];
 	assert(back, "应有返回");
 	assertEqual(back.parentNode?.classList?.contains("wm-rogue-titlebar"), true, "返回固定在标题栏");
-	return `候选 ${saved.shopOffers.map(offer => offer.id).join(",")}`;
+	// 价格在生成候选时定死：第 1 局基准 5（4~6），重进商店 / 刷新 UI 都不会重掷
+	const prices = saved.shopOffers.map(offer => offer.price);
+	assert(prices.every(price => price >= 4 && price <= 6), `第1局售价应在 4~6：${prices.join(",")}`);
+	click("返回");
+	click("商店");
+	assertEqual(
+		lib.storage.rogueSlots[0].shopOffers.map(offer => offer.price).join(","),
+		prices.join(","),
+		"重进商店不重新随机价格"
+	);
+	return `候选 ${saved.shopOffers.map(offer => offer.id).join(",")} 价格 ${prices.join(",")}`;
 });
 
 await check("商店：技能卡画出出处头像，没有出处的标成专属", async () => {
@@ -760,7 +895,8 @@ await check("无尽失败：整个存档删除且槽位恢复为空", async () =
 	assertEqual(lib.storage.rogueSlots[1], null, "整槽清空");
 	assertEqual(lib.storage.rogueActive, -1, "不再记住该槽位");
 	assert(screenText().includes("已整个删除"), "应说明删档");
-	click("返回营地");
+	assert(screenText().includes("无尽历史最高记录不受影响"), "应说明最高记录仍在");
+	click("返回存档页");
 	assert(log.some(item => item.type === "reload"), "应重载");
 	assertEqual(globalThis.localStorage.getItem(`${lib.configprefix}directstart`), null, "删档后不该直开本模式");
 	return "删档 + 回存档页";
