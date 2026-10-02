@@ -352,7 +352,7 @@ function makePlayer() {
 export const lib = {
 	version: "stub",
 	configprefix: "noname_stub_",
-	config: { all: { mode: [] }, forbidai: [], mode: "identity" },
+	config: { all: { mode: [] }, forbidai: [], mode: "identity", volumn_background: 8 },
 	mode: {},
 	skill: {},
 	skills: {},
@@ -369,6 +369,14 @@ export const lib = {
 	filter: {
 		characterDisabled2: id => !(lib.character[id] && !lib.character[id].isHiddenBoss),
 		characterDisabled: () => false,
+		/** 对齐 library/index.js 的 skillDisabled：缺翻译或带内部技标签的技能都不可选用 */
+		skillDisabled(skill) {
+			if (!lib.translate[skill] || !lib.translate[`${skill}_info`]) {
+				return true;
+			}
+			const info = lib.skill[skill];
+			return Boolean(!info || info.unique || info.temp || info.sub || info.fixed || info.vanish);
+		},
 	},
 	characterSubstitute: {},
 	characterReplace: {},
@@ -499,6 +507,26 @@ export const game = {
 
 const GAME_OWN_KEYS = Object.keys(game);
 
+/** 建出来的 audio 元素：大厅 BGM 用例要读它的 paused/currentTime/loop 状态 */
+export const createdAudios = [];
+
+/** 桩只实现 bgm.js 真正碰到的那几个成员，状态放在节点上供断言（不进 __log，免得打乱 API 顺序断言） */
+function makeAudio() {
+	const node = makeNode("audio");
+	node.paused = true;
+	node.currentTime = 0;
+	node.volume = 1;
+	node.play = () => {
+		node.paused = false;
+		return Promise.resolve();
+	};
+	node.pause = () => {
+		node.paused = true;
+	};
+	createdAudios.push(node);
+	return node;
+}
+
 export const ui = {
 	arena: makeNode("div"),
 	window: makeNode("div"),
@@ -602,6 +630,12 @@ export const ui = {
 	setPopped: () => {},
 };
 
+/** 本体自己的背景音乐（真机是 create/index.js 建的 ui.backgroundMusic）：大厅期间要被静音、进战斗还原音量 */
+ui.backgroundMusic = makeAudio();
+ui.backgroundMusic.src = "audio/background/engine.mp3";
+ui.backgroundMusic.loop = true;
+ui.backgroundMusic.paused = false;
+
 export const get = {
 	poptip: s => s,
 	translation: id => lib.translate[id] ?? id,
@@ -632,7 +666,7 @@ globalThis.window = {
 	removeEventListener: () => {},
 };
 globalThis.document = {
-	createElement: tag => makeNode(tag),
+	createElement: tag => (tag === "audio" ? makeAudio() : makeNode(tag)),
 	getElementById: () => null,
 	head: makeNode("head"),
 	body: makeNode("body"),

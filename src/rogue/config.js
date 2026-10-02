@@ -7,6 +7,8 @@ export const MODE_TRANSLATE = "奥特肉鸽";
 export const EXTENSION_NAME = "奥特之星";
 // 模式选择界面的封面图；换图只改这一行
 export const MODE_SPLASH = "ext:奥特之星/assets/sundry/rouge.jpg";
+/** 大厅背景音乐（存档页与营地循环播放，进战斗停止）；换曲子只改这一行，路径要与 data/assets.js 清单一致 */
+export const LOBBY_BGM = "extension/奥特之星/assets/audio/rogue/start.mp3";
 
 /** lib.storage 中存放六槽存档的键名 */
 export const STORAGE_KEY = "rogueSlots";

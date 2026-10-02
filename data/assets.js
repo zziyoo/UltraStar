@@ -128,6 +128,7 @@ export default [
 	"assets/audio/mks.mp3",
 	"assets/sundry/rouge.jpg",
 	"assets/camp/shou.png",
+	"assets/audio/rogue/start.mp3",
 	"assets/camp/yv.png",
 	"assets/audio/chigui1.mp3",
 	"assets/audio/chigui2.mp3",

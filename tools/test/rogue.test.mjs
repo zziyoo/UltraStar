@@ -56,6 +56,7 @@ const stages = await load("src/rogue/data/stages.js");
 const groups = await load("src/rogue/data/enemyGroups.js");
 const statsData = await load("src/rogue/data/stats.js");
 const skillsData = await load("src/rogue/data/skills.js");
+const skillPool = await load("src/rogue/skillPool.js");
 const rewardsData = await load("src/rogue/data/rewards.js");
 /** 桩里的 lib：与各模块拿到的是同一个对象，用来临时塞 lib.poptip 之类的桩数据 */
 const { lib } = await import(MOCK_URL);
@@ -244,7 +245,7 @@ check("技能替换：非法替换目标被拒绝且不扣钱", () => {
 
 check("技能候选随机：数量受配置控制且写入存档后可复现", () => {
 	const run = freshRun();
-	const offers = shop.rollSkillOffers(run, makeRng(7));
+	const offers = shop.rollSkillOffers(run, makeRng(7), [], skillsData.pool);
 	assertEqual(offers.length, Math.min(cfg.SKILL_OFFER_COUNT, skillsData.pool.length), "候选数");
 	assertEqual(offers.length, cfg.SKILL_OFFER_COUNT, "候选数应等于配置");
 	assert(offers.every(offer => typeof offer.id === "string" && Number.isFinite(offer.price) && offer.sold === false), "候选结构");
@@ -257,7 +258,7 @@ check("重复技能过滤：已拥有的技能不进入候选池", () => {
 	const run = freshRun();
 	// 拥有整个池（含分包技能）时才应一个候选都刷不出
 	run.skills = skillsData.pool.map(item => item.id);
-	const offers = shop.rollSkillOffers(run, makeRng(3));
+	const offers = shop.rollSkillOffers(run, makeRng(3), [], skillsData.pool);
 	assertEqual(offers.length, 0, "全拥有时候选为空");
 	const repeat = shop.buySkill({ ...run, shopOffers: [{ id: SKILL_A, price: 1, sold: false }] }, SKILL_A, SKILL_C);
 	assert(!repeat.ok, "已拥有的技能不应可重复购买");
@@ -441,7 +442,7 @@ check("技能定价按本局编号：胜利推进后仍按刚打完的那一局�
 	assertEqual(shop.getPricingLevel(run), 1, "新档没打过也按第 1 局");
 	const afterTwo = { ...run, level: 3 };
 	assertEqual(shop.getPricingLevel(afterTwo), 2, "打完第 2 局（level=3）按第 2 局定价");
-	const offers = shop.rollSkillOffers(afterTwo, makeRng(7));
+	const offers = shop.rollSkillOffers(afterTwo, makeRng(7), [], skillsData.pool);
 	assert(offers.length > 0, "应有候选");
 	assert(offers.every(offer => offer.price >= 5 && offer.price <= 9), `第2局价格应落在 5~9：${offers.map(o => o.price).join(",")}`);
 	const before = offers.map(offer => offer.price).join(",");
@@ -451,7 +452,7 @@ check("技能定价按本局编号：胜利推进后仍按刚打完的那一局�
 		null
 	);
 	assertEqual(bought.run.shopOffers.map(offer => offer.price).join(","), before, "购买后剩余候选价格不变");
-	assertEqual(shop.rollSkillOffers(afterTwo, makeRng(7)).map(o => o.price).join(","), before, "同一 rng 可复现");
+	assertEqual(shop.rollSkillOffers(afterTwo, makeRng(7), [], skillsData.pool).map(o => o.price).join(","), before, "同一 rng 可复现");
 	return `第2局价格 ${before}`;
 });
 
@@ -561,18 +562,71 @@ check("商店排除：角色原生技能与当前持有不上架，替换掉的�
 	assert(!excluded.has("rogue_xushui"), "既非持有也非原生时不该被排除");
 
 	// 池子被排到只剩一个：不死循环、不重复、不返回被排除项
-	const offers = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(3), characterSkills);
+	const offers = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(3), characterSkills, skillsData.pool);
 	assertEqual(offers.length, 1, "候选不足时按实际数量返回");
 	assertEqual(offers[0].id, "rogue_xushui", "只能是没被排除的那个");
 
 	// 曾经买过但已不在 run.skills 里的技能可以重新出现
-	const replaced = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(5), poolIds.filter(id => id !== "rogue_jiema"));
+	const replaced = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(5), poolIds.filter(id => id !== "rogue_jiema"), skillsData.pool);
 	assertEqual(replaced.length, 1, "只剩 jiema 一个候选");
 	assertEqual(replaced[0].id, "rogue_jiema", "被替换掉的技能可以再出现");
 
 	// 全被排除：返回空候选而不是报错/死循环
-	assertEqual(shop.rollSkillOffers({ ...run, skills: [] }, makeRng(1), poolIds).length, 0, "全被排除时返回空候选");
+	assertEqual(shop.rollSkillOffers({ ...run, skills: [] }, makeRng(1), poolIds, skillsData.pool).length, 0, "全被排除时返回空候选");
 	return "原生/持有/替换/边界";
+});
+
+check("候选池：并上全体武将技能，禁用武将的技能与其衍生技不上架", () => {
+	const curated = skillsData.pool.map(item => item.id);
+	// 桩里的 lib.character/lib.skill 本来是空的：作者清单要先当成「已注册」
+	for (const id of curated) {
+		lib.skill[id] ??= {};
+	}
+	// 临时塞四类角色：正常/禁用/Boss/技能不合法
+	Object.assign(lib.skill, {
+		pool_a: {},
+		pool_shared: {},
+		pool_banned: { derivation: ["pool_derived"] },
+		pool_derived: {},
+		pool_boss: {},
+		pool_internal: {},
+	});
+	Object.assign(lib.character, {
+		池甲: [4, "male", "shu", ["pool_a", "pool_shared", "pool_internal"], 1],
+		池乙: [4, "male", "shu", ["pool_boss"], 1],
+		池丙: [4, "male", "shu", ["pool_banned", "pool_shared"], 1],
+	});
+	lib.character["池乙"].isBoss = true;
+	// 禁将名单按模式分开存：这里只禁在 identity 下，别的模式禁用过也算禁用
+	lib.config.all = { mode: ["identity", "versus"] };
+	lib.config.identity_banned = ["池丙"];
+	lib.config.versus_banned = [];
+	// 本体用 skillDisabled 筛掉没有描述的内部技
+	const skillDisabled = lib.filter.skillDisabled;
+	lib.filter.skillDisabled = id => id === "pool_internal";
+	let ids;
+	try {
+		ids = new Set(skillPool.getShopPool().map(item => item.id));
+	} finally {
+		lib.filter.skillDisabled = skillDisabled;
+		for (const key of ["池甲", "池乙", "池丙"]) {
+			delete lib.character[key];
+		}
+		for (const key of ["pool_a", "pool_shared", "pool_banned", "pool_derived", "pool_boss", "pool_internal", ...curated]) {
+			delete lib.skill[key];
+		}
+		delete lib.config.all;
+		delete lib.config.identity_banned;
+		delete lib.config.versus_banned;
+	}
+	assert(ids.has("pool_a"), "未禁用武将的技能应进池");
+	assert(ids.has("pool_shared"), "还有别的未禁用武将拥有时不该被排除");
+	assert(!ids.has("pool_banned"), "禁用武将的技能不该进池");
+	assert(!ids.has("pool_derived"), "禁用武将技能的衍生技不该进池");
+	assert(!ids.has("pool_boss"), "玩家选不到的 Boss 技能不该进池");
+	assert(!ids.has("pool_internal"), "本体判为不可选用的内部技能不该进池");
+	assert(curated.every(id => ids.has(id)), `作者上架清单 ${curated.length} 条要全数保留`);
+	return `池 ${ids.size} 条 / 作者清单 ${curated.length} 条`;
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

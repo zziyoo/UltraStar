@@ -14,7 +14,8 @@ function characterExists(id) {
 	return typeof id === "string" && !!id && !!lib.character[id];
 }
 
-function isPlayerUsable(id) {
+/** 玩家侧能否用这个角色：选将页与商店候选池（skillPool.js）共用同一套判断 */
+export function isPlayerUsable(id) {
 	if (!characterExists(id)) {
 		return false;
 	}

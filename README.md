@@ -32,9 +32,11 @@ UltraStar/
 │   │   ├── config.js             # 机制参数集中配置（槽数/技能上限/失败规则…）
 │   │   ├── state.js              # 六槽存档校验与迁移（纯逻辑）
 │   │   ├── shop.js               # 候选随机/购买/替换/升级（纯逻辑）
+│   │   ├── skillPool.js          # 商店候选池：作者清单 + 全体武将技能（剔禁用武将）
 │   │   ├── reward.js             # 胜利结算（纯逻辑）
 │   │   ├── penalty.js            # 失败与降级惩罚（纯逻辑）
 │   │   ├── battle.js             # 建局与运行时强化（对接本体事件）
+│   │   ├── bgm.js                # 大厅 BGM（存档页/营地循环播放，进战斗停止）
 │   │   ├── data/                 # 作者填写的配置：关卡/敌人组合/技能/属性/奖励
 │   │   └── ui/                   # 存档页/选角色/主界面/商店/替换/结果/惩罚
 │   ├── systems/
@@ -143,12 +145,14 @@ UltraStar/
 | 文件 | 职责 |
 | --- | --- |
 | `mode.js` | 模式配置对象（start / `game.checkResult` / `game.onover` / `element.player.dieAfter` / `get.rawAttitude` / 模式级 skill+translate）、页面路由、存档落盘与战斗编排。`get.rawAttitude` 不能省：本体 `get.attitude` 会无条件 `rawAttitude.apply(...)`，缺了 AI 一出牌评估就抛错 |
-| `config.js` | 机制参数：槽位数、存档版本、新档初始资源（`INITIAL_CURRENCY` 金币 5 / 经验 2）、技能槽与候选数、动态定价系数（`SKILL_PRICE_PER_LEVEL` 5、`SKILL_PRICE_SPREAD` 0.25）、失败货币损失率与 fallback、可选角色白名单、无尽最高记录键（`BEST_ENDLESS_KEY`，独立于六个存档槽） |
+| `config.js` | 机制参数：槽位数、存档版本、新档初始资源（`INITIAL_CURRENCY` 金币 5 / 经验 2）、技能槽与候选数、动态定价系数（`SKILL_PRICE_PER_LEVEL` 5、`SKILL_PRICE_SPREAD` 0.25）、失败货币损失率与 fallback、可选角色白名单、无尽最高记录键（`BEST_ENDLESS_KEY`，独立于六个存档槽）、模式封面与大厅 BGM 的路径（`MODE_SPLASH`、`LOBBY_BGM`，换曲子只改后者一行） |
 | `state.js` | 六槽存档的校验、默认值修复、版本迁移与序列化安全；无尽最高记录的 `normalizeBest` / `updateBest`（纯逻辑，不碰 `game`/`lib`/`DOM`） |
-| `shop.js` | 技能候选随机、动态定价（`getSkillBasePrice` / `getRandomSkillPrice` / `getPricingLevel`）、购买、满槽替换、属性升级校验（纯逻辑）。**售价在生成候选时定死并写进 `shopOffers`**，重进商店/刷新/重载都不重掷；定价按「已经打过的那一局」算（`max(1, run.level-1)`），所以第 2 局打完 level 已是 3 时仍按第 2 局算。随机时会排除「当前角色原生技能 + 当前持有的购买技能」（`getExcludedSkillIds`，角色技能由 `mode.js` 从 `lib.character` 取好传入），但不做永久购买历史——被替换掉的技能还能再出现 |
+| `shop.js` | 技能候选随机、动态定价（`getSkillBasePrice` / `getRandomSkillPrice` / `getPricingLevel`）、购买、满槽替换、属性升级校验（纯逻辑）。**售价在生成候选时定死并写进 `shopOffers`**，重进商店/刷新/重载都不重掷；定价按「已经打过的那一局」算（`max(1, run.level-1)`），所以第 2 局打完 level 已是 3 时仍按第 2 局算。候选池由调用方作第 4 参传进来（`rollSkillOffers(run, rng, characterSkills, candidates)`），本文件不读 `lib`。**随机时会排除「当前角色原生技能 + 当前持有的购买技能」**（`getExcludedSkillIds`，角色技能由 `mode.js` 从 `lib.character` 取好传入），但不做永久购买历史——被替换掉的技能还能再出现 |
+| `skillPool.js` | 商店候选池：`getShopPool()` = `data/skills.js` 的作者清单 ∪ **全体可选武将的技能**（`Object.keys(lib.character)` 逐条走 `battle.js` 的 `isPlayerUsable`，与选将页同一口径，所以 Boss/隐藏 Boss/未开放角色不会进池）。**玩家禁用过的武将，其技能与这些技能声明的 `derivation` 衍生技一并剔除**；同一技能若还有别的未禁用武将拥有则继续上架。禁将名单读的是本体那套按模式分开存的 `lib.config[模式 + "_banned"]`（遍历 `lib.config.all.mode`，再加 `lib.config.banned`），与本体禁将页「禁将」分组的跨模式合并显示同一口径——即**任一模式里禁用过就算禁用**，不只认肉鸽模式。武将技能进池前还要过本体 `lib.filter.skillDisabled`（缺翻译、`unique/temp/sub/fixed/vanish` 的内部技不上架）；作者清单不重筛，`rogue-data.test.mjs` 已逐条验过定义与翻译 |
 | `reward.js` | 胜利结算：入账与关卡推进（纯逻辑） |
 | `penalty.js` | 失败结算：按比例扣货币、货币不足 fallback、无尽删档判定（纯逻辑） |
 | `battle.js` | 用本体 `prepareArena / gameDraw / phaseLoop` 开一局，并把敌我强化只施加到当前 Player 上。建局时必须 `assignPlayerIds()`：`prepareArena` 走的 `ui.create.players` 不分配 `playerid`，而本体 `addSkill` 只有 `playerid` 存在才登记触发钩子（`player.js:11088`），缺了它所有触发类技能都不会触发（`single.js:605`、`doudizhu.js:89` 都是这么补的） |
+| `bgm.js` | 大厅背景音乐：`playLobbyBgm()` 循环播 `LOBBY_BGM`，`stopLobbyBgm()` 进战斗时停止。整个会话只建一个 `<audio>` 元素，音量跟随本体「音乐音量」（`lib.config.volumn_background / 8`，与 `ui.backgroundMusic` 同一套刻度）。**还在放就绝不打断**：删档、营地↔存档页↔商店互相切都是原地重绘，不重头也不换轨；只有停下来过的（页面重载后是全新元素）才从头播。**大厅期间把本体自己的背景音乐按成静音**（`ui.backgroundMusic.volume = 0`，否则两首叠放），进战斗只还原音量——用音量而不是 `pause()`：本体那份在页面加载时往往还没开始放（还在缓冲），那时 `pause()` 会漏掉它稍后的自动播放；`lobbyOn` 闸门挡住 `play()` 延迟兑现的 `then`，避免人已进战斗又被静音 |
 | `data/` | 作者填写的内容配置：`stages.js` `enemyGroups.js` `skills.js` `stats.js` `rewards.js` |
 | `ui/` | 存档页（仿造梦西游的「存档记录」卡片网格，自定义样式在 `ui/styles.js`，只作用于 `.wm-rogue-*`）、选角色、营地（主界面）、商店、技能查看页、替换技能、结算、惩罚选择。除选角色与替换/惩罚列表用本体 Dialog 外，其余都是自建浮层。选角色页直接用本体 `ui.create.characterDialog`，保留其搜索框（支持正则与技能搜索）、拼音/势力/收藏筛选条与分页，仅以 `noclick` 接管点击；说明与返回放在内容最前，并把本体分页的每页张数（配置 `showMax_character_number`，这台机器是 10）放开到 `CHARACTER_PICKER_PAGE_SIZE`（24）——超出当前页的武将牌只是被加上 `.nodisplay`，光加高窗口刷不出多余的行。**自建浮层分两层**：`#wm-rogue-overlay` 只负责遮罩与滚动，里面的 `.wm-rogue-stage`（`min-height:100%` + 子元素 `margin:auto`）负责居中——内容矮时居中、内容高时 auto 外边距归零从顶部开始滚，不用固定 `top`/`transform`，也不用 JS 算像素边距。**营地**（主界面）：标题栏只有居中的「奥特肉鸽」，**没有技能入口**；正文是「第 N 关 + 玩法 + 两块资源 + 当前成长（标题下面是角色名，再接三张只读属性卡）+ 开始/商店/返回存档/退出」；**选择玩法**是同风格的两张卡（点整张卡即选中，无尽卡显示历史最高）。**商店**：顶部固定「标题 + 三块资源」与右上角返回，其中第三块「技能 n/3」**本身是查看已购买技能的入口**（有 hover/active 反馈）；中间滚动区放「技能商店」（每张卡＝出处小头像 + 技能名 + 限高描述 + 售价 + 购买按钮，按钮文字即状态：`购买` / `金币不足` / `已购买` / `本次商店已售罄`，价格只在价格行里写一次）与「属性强化」（属性名 + `Lv.x/10` + 逐行累计效果 + 升级价 + 升级按钮）。**技能查看页**复用商店卡片但只读（完整描述不再限行，空态提示「当前没有已购买技能」，返回回商店）。**结算页**是大标题 + ✓/✕ + 奖励/损失分行 + 下一关信息 + 显著返回按钮。所有浮层按钮统一 `display:inline-flex + align-items/justify-content:center`（`inline-block + line-height` 在主题环境里做不到真正的文字居中）。出处由 `common.js` 的 `skillOwner()` 扫 `lib.character` 技能表得出，头像用本体给任意 div 都挂了的 `setBackground(id,"character")` 画；技能文本一律过 `sanitizeSkillText()`：把 `<noname-poptip poptip="id">` 按 `lib.poptip.getType/getName` 转成可读文字（技能〖名〗、卡牌【名】、其它直接名字），查不到就退回标签内文本、再退回 id，`<br>` 转换行，其余标签兜底剥离——卡片与完整描述弹层共用同一套转换。字号层级（都在 `ui/styles.js`，改字只动这几处）：商店标题 30 → 资源数值 26 → 区域标题 24 → 技能名 22 / 属性名 21 → 等级与价格 18 → 按钮 18 → 描述 17（限高 5 行，点卡片看完整说明）→ 属性效果 16 → 出处与说明 14；存档页小字 14~15、角色名 21、编号 32 不再放大 |
 
@@ -160,11 +164,13 @@ UltraStar/
 - 开局前先把随机到的 `currentBattle.groupId` 写进存档，因此刷新/崩溃后重打的是同一组敌人，且不重复发奖；
 - 敌人强化只改运行时 Player，绝不回写 `lib.character`；肉鸽技能挂在模式配置的 `skill`/ `translate` 上，只有进入本模式才注册；
 - 属性强化的机制技能（`rogue_stat`，四种数值强化合并成一个）带 `popup: false`：本体触发技在 `content.ts:4201` 用它决定是否走 `logSkill`，而 `logSkill` 又调 `trySkillAnimate` → `$damagepop`，十周年UI 的 `$damagepop` 会把整段「技能名+描述」渲染成场地上的大字。要关掉大字只能在这里关，`nopop`（加技能弹窗）与 `logv`（战报行）都管不到；一个技能同时挂 `trigger`（摸牌/杀伤害）与 `mod`（手牌上限/出杀次数），玩家身上只会有一个「强化」标记，点开由 `intro.mark`（函数形式，本体 `get/index.js` 的 mark 节点介绍会原样插入）列出四项实时数值，`intro.nocount` 防止本体拿对象去数数量；
-- 商店随机只排除「当前角色原生技能（`lib.character[run.characterId][3]`，由 `mode.js` 取好再传进 `shop.js`，保持逻辑层纯函数）」与「当前 `run.skills`」；**不做永久购买历史**——被替换/删掉的技能下一次商店还能再出现。候选被排空时返回更少的候选，不重复填充也不死循环；
+- 商店候选池 = 作者清单 + 全体可选武将的技能（`skillPool.js` 每次进店现算），随机时再排除「当前角色原生技能（`lib.character[run.characterId][3]`，由 `mode.js` 取好再传进 `shop.js`，保持逻辑层纯函数）」与「当前 `run.skills`」；**玩家禁用过的武将不进池**（跨模式合并的 `*_banned` 名单，含其 `derivation` 衍生技）；**不做永久购买历史**——被替换/删掉的技能下一次商店还能再出现。候选被排空时返回更少的候选，不重复填充也不死循环；
 - 商店里购买技能与升级属性都是原位更新（`ui/hub.js` 的 `refreshShop`），不重开窗口——重开会丢滚动位置，玩家得重新往下滑；
 - 技能售价 = `round(5 × sqrt(已经打过的那一局))` 再上下浮动 25%（至少 1），在 `rollSkillOffers()` 生成候选时随机定死写进存档；奖励是另一套：`floor(√n × 系数)`，系数与初始资源同为金币 5 / 经验 2——两者都用了 √n 但函数分开维护，别混用；
 - 新档初始资源只由 `INITIAL_CURRENCY`（金币 5 / 经验 2）决定，且只作用于 `createRun()`；旧存档走 `normalizeRun()` 原样读回，不会被补发；
 - 无尽最高记录存在 `lib.storage.rogueBestEndless`（`{ level, characterId, updatedAt }`），只记录「已经成功通关过的最高一关」：胜利结算时用刚打赢的那一关去比，失败进入的下一关不会写进去；无尽失败整档删除时也只删槽位，记录不动。闯关模式不写这条记录。
+- 大厅 BGM（`bgm.js`）只在进战斗时停：存档页↔营地↔商店↔结算之间来回切、删档、选玩法/选将都是同一条音轨继续播，**不重头**；「从头开始」只发生在页面重载后（全新元素）与首次进模式；音量走本体「音乐音量」，玩家把音乐音量调到 0 就等于静音；
+- 大厅 BGM 与本体 BGM 不共存：进存档页/营地时把 `ui.backgroundMusic` 的音量按成 0（只在我们的真的播起来之后才按，被浏览器拦下就听本体的），进战斗还原成本体刻度——本体 BGM 全程没停过，所以进战斗自然接在原进度上；
 
 ## 作品内容包
 
@@ -258,7 +264,8 @@ packages/ultraman/
 assets/
 ├── audio/                # 音频（BGM 与语音 .mp3）
 │   ├── dieaudio/         # 角色死亡语音
-│   └── easteregg/        # 彩蛋音频
+│   ├── easteregg/        # 彩蛋音频
+│   └── rogue/            # 奥特肉鸽的界面音频
 └── image/                # 图片（角色立绘 .jpg、装备卡牌图 .png）
     ├── camp/             # 势力（阵营）图标
     └── tierlist/         # 角色评级图
@@ -266,6 +273,7 @@ assets/
 
 - **`assets/audio/dieaudio/`**：角色死亡语音（各包 `characters.js` 的 `dieAudios` 字段引用；个别特殊死亡语音由技能在死亡时机直接播放）。
 - **`assets/audio/easteregg/`**：彩蛋音频（供 `src/systems/easterEgg.js` 使用）。
+- **`assets/audio/rogue/`**：奥特肉鸽模式的界面音频（`src/rogue/bgm.js` 用 `start.mp3` 做存档页与营地的循环 BGM）。
 - **`assets/image/camp/`**：扩展自定义势力的图标（由 `src/core/bootstrap.js` 在初始化时注册）。
 - **`assets/image/tierlist/`**：角色评级相关图片（供 `src/systems/tierlist.js` 展示）。
 
@@ -393,7 +401,7 @@ node tools/check/check-assets.mjs .
 | --- | --- | --- |
 | `src/rogue/data/stages.js` | 关卡区间 → 敌人组合池、`endlessFallbackPool` | 两个区间，指向占位组合 |
 | `src/rogue/data/enemyGroups.js` | 每个组合的敌方阵容、额外技能、`overrides`（`hp/maxHp/defense/draw/attack`） | 3 个占位组合（佐菲、双巴尔坦、强化赛文） |
-| `src/rogue/data/skills.js` | 肉鸽技能效果、名称描述（`price` 只是留给作者标注基础价的位子） | 商店池 = 全部分包顶级技能（自动汇总）+ 3 条肉鸽原创技能（蓄势/解甲/归元）；**实际售价由 `shop.js` 按本局编号动态生成**（第 1 局 4~6、第 2 局 5~9…），这里写多少都不会成为最终售价 |
+| `src/rogue/data/skills.js` | 肉鸽技能效果、名称描述（`price` 只是留给作者标注基础价的位子） | 这里填的是**作者上架底线清单**：全部分包顶级技能（自动汇总）+ 3 条肉鸽原创技能（蓄势/解甲/归元）。商店真正的候选池还要并上全体武将的技能，并剔掉玩家禁用过的武将——见 `src/rogue/skillPool.js`；**实际售价由 `shop.js` 按本局编号动态生成**（第 1 局 4~6、第 2 局 5~9…），这里写多少都不会成为最终售价 |
 | `src/rogue/data/stats.js` | 防御·过牌·攻击每级的数值与升级报价 | 十级效果已按「护甲/摸牌/杀伤与次数交替成长」填好，`price` 为 1~1024 翻倍价 |
 | `src/rogue/data/rewards.js` | 每关金币/经验 | 第 n 关 = floor(√n × 系数)，系数与初始资源一致：金币 5、经验 2（第 1 关 5/2、第 2 关 7/2、第 3 关 8/3、第 4 关 10/4） |
 | `src/rogue/config.js` | 技能槽数、候选数、新档初始资源、技能定价系数、失败货币损失率、总关卡数、模式封面图、可选角色白名单、选将页每页几张武将牌 | 3/3；初始金币 5 / 经验 2（`INITIAL_CURRENCY`）；定价 `SKILL_PRICE_PER_LEVEL=5`、`SKILL_PRICE_SPREAD=0.25`；失败损失 0.5；总关卡 30；封面指向 `assets/sundry/rouge.jpg`（换图改 `MODE_SPLASH` 一行，并跑 `node tools/update-manifest.mjs <新图>` 登记清单）；选将页想一页多放几张改 `CHARACTER_PICKER_PAGE_SIZE` |

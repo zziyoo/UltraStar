@@ -1,5 +1,5 @@
 // 商店逻辑：技能候选随机、购买、满槽替换、属性升级。纯函数，可在 Node 里直接测。
-// 候选结果由调用方写进存档（shopOffers），本文件不碰 game。
+// 候选结果由调用方写进存档（shopOffers），本文件不碰 game；候选池本身见 skillPool.js。
 
 import {
 	ALLOW_DUPLICATE_SKILLS,
@@ -12,7 +12,6 @@ import {
 	STAT_CURRENCY,
 	STAT_IDS,
 } from "./config.js";
-import { pool } from "./data/skills.js";
 import { getStatPrice, stats } from "./data/stats.js";
 
 const SKILL_CURRENCY_NAME = CURRENCY_LABEL[SKILL_CURRENCY] ?? SKILL_CURRENCY;
@@ -83,11 +82,13 @@ export function getExcludedSkillIds(run, characterSkills = []) {
  * @param {object} run 存档
  * @param {() => number} [rng] 可注入的随机源
  * @param {string[]} [characterSkills] 角色原生技能（见 getExcludedSkillIds）
+ * @param {{ id: string }[]} candidates 候选池，由调用方用 skillPool.getShopPool() 现算——
+ *        本文件保持纯逻辑，不去读本体的 lib.character
  */
-export function rollSkillOffers(run, rng = Math.random, characterSkills = []) {
+export function rollSkillOffers(run, rng = Math.random, characterSkills = [], candidates = []) {
 	const excluded = getExcludedSkillIds(run, characterSkills);
 	const owned = new Set(run?.skills ?? []);
-	const candidates = pool.filter(entry => {
+	const pickedFrom = (Array.isArray(candidates) ? candidates : []).filter(entry => {
 		if (!entry || typeof entry.id !== "string" || !entry.id) {
 			return false;
 		}
@@ -99,7 +100,7 @@ export function rollSkillOffers(run, rng = Math.random, characterSkills = []) {
 	});
 	// 售价在生成候选时随机定死并写进存档：重载、重进商店、刷新 UI 都不再重掷
 	const level = getPricingLevel(run);
-	const picked = shuffle(candidates, rng).slice(0, Math.max(0, SKILL_OFFER_COUNT));
+	const picked = shuffle(pickedFrom, rng).slice(0, Math.max(0, SKILL_OFFER_COUNT));
 	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(level, rng), sold: false }));
 }
 

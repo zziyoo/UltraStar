@@ -18,11 +18,13 @@ import {
 } from "./config.js";
 import { cloneRun, createRun, migrateSlots, normalizeBest, setSlot, toSerializable, updateBest } from "./state.js";
 import { buySkill, checkStatUpgrade, rollSkillOffers, upgradeStat } from "./shop.js";
+import { getShopPool } from "./skillPool.js";
 import { settleVictory } from "./reward.js";
 import { loseSkill, lowerStat, settleDefeat } from "./penalty.js";
 import { beginBattle, checkResult, getRoster, rawAttitude, resolveBattle, rollGroupId } from "./battle.js";
+import { playLobbyBgm, stopLobbyBgm } from "./bgm.js";
 import { skill as rogueSkills, translate as rogueTranslate, helpers as rogueHelpers, helperTranslate as rogueHelperTranslate } from "./data/skills.js";
-import { closeScreen, showChoice, showNotice } from "./ui/common.js";
+import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
 import { refreshShop, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
 import { showPenaltyChoice, showResult } from "./ui/result.js";
@@ -99,6 +101,8 @@ function openHub() {
 		openSlots();
 		return;
 	}
+	// 营地接着存档页的 BGM 放，不重头来
+	playLobbyBgm();
 	showHub({
 		run: context.run,
 		startBattle,
@@ -128,7 +132,9 @@ function characterSkillIds(characterId) {
 
 function openShop() {
 	if (!context.run.shopOffers.length) {
-		context.run = { ...context.run, shopOffers: rollSkillOffers(context.run, undefined, characterSkillIds(context.run.characterId)) };
+		// 候选池每次进店现算：全体武将的技能，玩家禁用过的武将不会进来
+		const characterSkills = characterSkillIds(context.run.characterId);
+		context.run = { ...context.run, shopOffers: rollSkillOffers(context.run, undefined, characterSkills, getShopPool()) };
 		if (!commit()) {
 			return;
 		}
@@ -150,6 +156,8 @@ function openSlots() {
 	context.index = null;
 	context.run = null;
 	closeScreen();
+	// 还放着就继续放（删档、从营地返回都是原地重绘，不能把曲子掐回开头）
+	playLobbyBgm();
 	renderSlots(slotsApi());
 }
 
@@ -219,6 +227,7 @@ function launch(resolved) {
 	if (context.battleLive) {
 		return;
 	}
+	stopLobbyBgm();
 	closeScreen();
 	context.settled = false;
 	context.battleLive = true;
@@ -352,11 +361,6 @@ function upgradeStatFlow(statId) {
 	}
 }
 
-function describeSkill(id) {
-	const text = rogueTranslate[id];
-	return typeof text === "string" ? text.split("<hr>")[0] : id;
-}
-
 function describeStat(statId) {
 	const names = { defense: "防御", draw: "过牌", attack: "攻击" };
 	return names[statId] ?? statId;
@@ -465,7 +469,7 @@ function penaltyApi() {
 				kind: "defeat",
 				title: "战斗失败",
 				level: context.run.level,
-				lines: [`已失去技能：${describeSkill(skillId)}。`],
+				lines: [`已失去技能：${skillName(skillId)}。`],
 				onDone: () => reloadNow(false),
 			});
 		},

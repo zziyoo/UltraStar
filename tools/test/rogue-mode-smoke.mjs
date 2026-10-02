@@ -791,7 +791,8 @@ await check("商店：不随机到角色原生技能，替换掉的技能可以�
 	assertEqual(offers[0].id, "rogue_jiema", "不在当前持有里的技能可以正常出现");
 	assert(!offers.some(offer => offer.id !== "rogue_jiema"), "不得随机到角色原生技能");
 	// 当前持有的会被排除，角色原生技能也继续排除，其余池子照常给满候选
-	putRun(0, { shopOffers: [], skills: ["rogue_jiema"] });
+	// characterId 要显式带上：putRun 不带 extra 时是从零新建，漏了就会退回默认的「迪迦」，原生技能那条断言就成了摆设
+	putRun(0, { characterId: "导航测试", shopOffers: [], skills: ["rogue_jiema"] });
 	session();
 	lib.character["导航测试"] = [4, "custom", 0, ["rogue_xushui"], 1];
 	click("商店");
@@ -800,6 +801,47 @@ await check("商店：不随机到角色原生技能，替换掉的技能可以�
 	assert(!again.some(offer => offer.id === "rogue_xushui"), "角色原生技能不该上架");
 	assertEqual(again.length, cfg.SKILL_OFFER_COUNT, "其余池子照常给满候选");
 	return `只剩 ${offers[0].id} / 持有与原生都排除`;
+});
+
+await check("商店：候选池并上全体武将技能，禁用过的武将不上架", async () => {
+	const skillsData = await load("src/rogue/data/skills.js");
+	const poolIds = skillsData.pool.map(item => item.id);
+	putRun(0, {
+		characterId: "导航测试",
+		level: 1,
+		currentBattle: null,
+		shopOffers: [],
+		currency: { gold: 100, exp: 0 },
+		skills: [],
+	});
+	session();
+	// 让当前角色自带整个作者清单：候选只剩「武将技能」这一路，才能把接线本身断言死
+	lib.character["导航测试"] = [4, "custom", 0, poolIds, 1];
+	// 池甲没被禁用、池乙被玩家禁在身份局下（本体的禁将名单按模式分开存）
+	lib.skill.pool_wai = {};
+	lib.translate.pool_wai = "外来";
+	lib.translate.pool_wai_info = "作者清单之外的武将技能。";
+	lib.skill.pool_jin = {};
+	lib.translate.pool_jin = "禁用";
+	lib.translate.pool_jin_info = "被禁用武将的技能。";
+	lib.character["池甲"] = [4, "male", "shu", ["pool_wai"], 1];
+	lib.character["池乙"] = [4, "male", "shu", ["pool_jin"], 1];
+	// 真机上 lib.config.all.mode 里本来就有各官方模式，禁将名单就按模式分开存在它们名下
+	lib.config.all.mode.push("identity");
+	lib.config.identity_banned = ["池乙"];
+	try {
+		click("商店");
+		const offers = lib.storage.rogueSlots[0].shopOffers;
+		assertEqual(offers.map(offer => offer.id).join(","), "pool_wai", "清单外武将的技能进池，禁用武将的技能不进池");
+		const text = screenText();
+		assert(text.includes("外来"), `技能名要按本体翻译显示：${text}`);
+		assert(text.includes("出自 池甲"), "卡片要标出武将出处");
+		assert(!text.includes("禁用"), "禁用武将的技能不该出现在商店里");
+		return "外来 进池 / 池乙 被排除";
+	} finally {
+		lib.config.all.mode = lib.config.all.mode.filter(mode => mode !== "identity");
+		delete lib.config.identity_banned;
+	}
 });
 
 await check("商店：购买一个后本次不能再买第二个", async () => {
@@ -1070,6 +1112,47 @@ await check("敌人配置缺失：给出提示而不是崩溃或空局", async (
 	assert(text.includes("不存在") || text.includes("没有可用"), `应报出配置问题：${text}`);
 	assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "应清除无效的战斗标记");
 	return "配置错误可见";
+});
+
+await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、进战斗停止并静音/还原本体 BGM", async () => {
+	freshWorld();
+	putRun(0, {});
+	putRun(1, {});
+	lib.storage.rogueActive = 0;
+	// 页面加载时本体自己的 BGM 通常在放
+	ui.backgroundMusic.paused = false;
+	ui.backgroundMusic.currentTime = 7;
+	ui.backgroundMusic.volume = 1;
+	session();
+	const audio = stub.createdAudios.filter(node => node !== ui.backgroundMusic).at(-1);
+	assert(audio, "进营地应建出本模式的 BGM 元素");
+	assertEqual(audio.src, cfg.LOBBY_BGM, "BGM 文件");
+	assertEqual(audio.loop, true, "要循环播放");
+	assert(!audio.paused, "营地应在播放");
+	await flush();
+	assertEqual(ui.backgroundMusic.volume, 0, "大厅期间要把本体 BGM 静音，避免两首曲子叠放");
+	// 营地 → 存档页：接着放，不重头
+	audio.currentTime = 42;
+	click("返回存档");
+	assertEqual(audio.currentTime, 42, "从营地回存档页不该把曲子掐回开头");
+	assert(!audio.paused, "回存档页后仍在播放");
+	// 删档：原地重绘，同样不打断（曾把曲子掐回开头）
+	click("删除");
+	click("确认删除");
+	assertEqual(lib.storage.rogueSlots[0], null, "应真的删掉存档");
+	assertEqual(audio.currentTime, 42, "删档不该把曲子掐回开头");
+	assert(!audio.paused, "删档后仍在播放");
+	// 再进营地：还是接着放
+	click("存档2");
+	assertEqual(audio.currentTime, 42, "进营地不该把曲子掐回开头");
+	// 进战斗：我们的停止，本体的放回音量（曲子本来就没停，自然接着原进度）
+	click("开始下一关");
+	await flush();
+	assert(audio.paused, "进战斗应停止 BGM");
+	assertEqual(ui.backgroundMusic.volume, 1, "进战斗应把本体 BGM 音量放回去");
+	assert(!ui.backgroundMusic.paused, "本体 BGM 不该被停掉：大厅期间只是静音");
+	assertEqual(ui.backgroundMusic.currentTime, 7, "本体 BGM 保持原进度");
+	return audio.src;
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);
