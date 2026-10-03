@@ -18,6 +18,16 @@ import { stats } from "./data/stats.js";
 
 const RUN_MODE_KEYS = Object.keys(RUN_MODE);
 
+/**
+ * 已下架的肉鸽专属原创技能（v2.2.0 移除，商店不再出现，定义也不再注册）。
+ * 读档时从 skills / shopOffers / 敌方阵容里清掉，把技能槽与候选位原样腾出来。
+ */
+const DEPRECATED_SKILLS = new Set(["rogue_xushui", "rogue_jiema", "rogue_guiyuan"]);
+
+function isDeprecatedSkill(id) {
+	return DEPRECATED_SKILLS.has(id);
+}
+
 function isPlainObject(value) {
 	return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -53,13 +63,13 @@ function normalizeBattleEnemy(entry) {
 		const maxLevel = Number.isFinite(stats[key]?.maxLevel) ? Math.max(0, Math.floor(stats[key].maxLevel)) : 0;
 		statLevels[key] = clampInt(entry.stats?.[key], 0, maxLevel, 0);
 	}
-	const skills = [];
-	for (const id of Array.isArray(entry.skills) ? entry.skills : []) {
-		const skillId = sanitizeString(id);
-		if (skillId) {
-			skills.push(skillId);
+		const skills = [];
+		for (const id of Array.isArray(entry.skills) ? entry.skills : []) {
+			const skillId = sanitizeString(id);
+			if (skillId && !isDeprecatedSkill(skillId)) {
+				skills.push(skillId);
+			}
 		}
-	}
 	return {
 		characterId,
 		stats: statLevels,
@@ -131,19 +141,19 @@ export function normalizeRun(raw) {
 		currency[key] = clampInt(raw.currency?.[key], 0, Number.MAX_SAFE_INTEGER, 0);
 	}
 
-	const seen = new Set();
-	const skills = [];
-	for (const id of Array.isArray(raw.skills) ? raw.skills : []) {
-		const skillId = sanitizeString(id);
-		if (!skillId || seen.has(skillId)) {
-			continue;
+		const seen = new Set();
+		const skills = [];
+		for (const id of Array.isArray(raw.skills) ? raw.skills : []) {
+			const skillId = sanitizeString(id);
+			if (!skillId || seen.has(skillId) || isDeprecatedSkill(skillId)) {
+				continue;
+			}
+			seen.add(skillId);
+			skills.push(skillId);
+			if (skills.length >= SKILL_SLOTS) {
+				break;
+			}
 		}
-		seen.add(skillId);
-		skills.push(skillId);
-		if (skills.length >= SKILL_SLOTS) {
-			break;
-		}
-	}
 
 	const statLevels = {};
 	for (const key of STAT_IDS) {
@@ -153,14 +163,14 @@ export function normalizeRun(raw) {
 
 	const currentBattle = normalizeCurrentBattle(raw.currentBattle);
 
-	const shopOffers = [];
-	for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
-		const id = sanitizeString(offer?.id);
-		if (!id) {
-			continue;
+		const shopOffers = [];
+		for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
+			const id = sanitizeString(offer?.id);
+			if (!id || isDeprecatedSkill(id)) {
+				continue;
+			}
+			shopOffers.push({ id, price: clampInt(offer?.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer?.sold });
 		}
-		shopOffers.push({ id, price: clampInt(offer?.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer?.sold });
-	}
 
 	const totalLevels = mode === RUN_MODE.endless
 		? 0

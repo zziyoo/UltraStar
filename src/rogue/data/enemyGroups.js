@@ -45,8 +45,7 @@ export const enemyGroups = {
 		enemies: [
 			{
 				characterId: "赛文",
-				// 演示“敌人也能带额外技能”：rogue_ 技能只在肉鸽模式注册，见 data/skills.js
-				skills: ["rogue_xushui"],
+				skills: [],
 				overrides: { hp: 0, maxHp: 2, defense: 1, draw: 1, attack: 1 },
 			},
 		],

@@ -574,7 +574,7 @@ export function createModeConfig() {
 				},
 			},
 		},
-		// 肉鸽原创技能与机制技能随本模式注册；分包技能本体已在扩展层全局注册，这里随池引用一并并入
+		// 机制技能（属性强化载体）随本模式注册；商店候选只来自分包技能与武将技能，分包技能本体已在扩展层全局注册
 		skill: { ...rogueSkills, ...rogueHelpers },
 		translate: { ...rogueTranslate, ...rogueHelperTranslate },
 	};

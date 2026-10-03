@@ -2,7 +2,7 @@
 //
 // 作者填完 data/ 下的配置文件后跑这个脚本即可，不需要开游戏：
 //   - 旧档迁移用的敌人组合配置是否完整（角色 id 是否真的存在于本扩展的角色包）
-//   - 敌人额外技能、肉鸽技能池的 id 是否有定义
+//   - 敌人额外技能、商店技能池的 id 是否有定义
 //   - 属性等级表 / 价格表 / 奖励金额是否与配置规模一致
 //   - 模式封面图是否存在且登记进素材清单
 //
@@ -147,7 +147,7 @@ check("敌人组合：角色存在于本扩展，额外技能有定义", () => {
 			}
 			for (const skillId of enemy.skills ?? []) {
 				if (!rogueSkillIds.has(skillId) && !packSkills.has(skillId)) {
-					problems.push(`${key}: 技能「${skillId}」既不在肉鸽技能池也不在扩展技能里`);
+					problems.push(`${key}: 技能「${skillId}」既不在商店技能池也不在扩展技能里`);
 				}
 			}
 		}
@@ -156,7 +156,7 @@ check("敌人组合：角色存在于本扩展，额外技能有定义", () => {
 	return `覆盖 ${Object.values(groupsData.enemyGroups).reduce((sum, group) => sum + (group.enemies?.length ?? 0), 0)} 个敌人位`;
 });
 
-check("肉鸽技能池：id 规范、定义与翻译齐备", () => {
+check("商店技能池：id 规范、定义与翻译齐备", () => {
 	assert(Array.isArray(skillsData.pool) && skillsData.pool.length > 0, "pool 不能为空");
 	const problems = [];
 	const seen = new Set();

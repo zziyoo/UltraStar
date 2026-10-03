@@ -196,7 +196,8 @@ function addResCell(parent, label) {
 	return num;
 }
 
-/** 技能卡的「头」：出处小头像 + 技能名 + 出自行；商店与技能查看页共用同一视觉语言 */
+/** 技能卡的「头」：出处小头像 + 技能名 + 出自行；商店与技能查看页共用同一视觉语言。
+ * 没有出处的技能（变身/阶段技等）不画头像也不标来源，商店只卖真实技能。 */
 function addSkillHead(card, id) {
 	const top = ui.create.div(".wm-rogue-shop-top", card);
 	const owner = skillOwner(id);
@@ -205,7 +206,9 @@ function addSkillHead(card, id) {
 		ui.create.div(".wm-rogue-shop-avatar", top).setBackground(owner, "character");
 	}
 	ui.create.div(".wm-rogue-shop-name", skillName(id), top);
-	ui.create.div(".wm-rogue-shop-owner", owner ? `出自 ${translateCharacter(owner)}` : "肉鸽专属技能", card);
+	if (owner) {
+		ui.create.div(".wm-rogue-shop-owner", `出自 ${translateCharacter(owner)}`, card);
+	}
 }
 
 /** 等级 + 逐行累计效果；商店与主界面共用 */

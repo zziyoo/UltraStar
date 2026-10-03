@@ -1,4 +1,4 @@
-// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
+﻿// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
 //
 // 用 loader hooks 把各模块顶部的 noname.js 换成桩，从而在 Node 里真实执行
 // registerRogueMode / start / 页面路由 / 商店 / 结算，并记录本体 API 的调用顺序。
@@ -156,8 +156,8 @@ function session() {
 		/* 首次尚无页面 */
 	}
 	stub.resetState();
-	// 部分用例需要一个“池子之外”的技能 id，这里当作作者新增的技能
-	lib.skill.rogue_extra = { forced: true };
+	// 部分用例需要一个「池子之外」的测试技能：带触发时机，用来验证 hookmap 登记
+	lib.skill.rogue_extra = { forced: true, trigger: { player: "phaseDrawBegin2" } };
 	lib.translate.rogue_extra = "额外<hr>测试用技能。";
 	const config = modeModule.createModeConfig();
 	for (const [key, value] of Object.entries(config.game)) {
@@ -224,14 +224,18 @@ await check("注册：game.addMode 收到模式 id、封面与显示名，且防
 	return entry.name;
 });
 
-await check("模式配置：肉鸽技能挂在模式上，dieAfter/checkResult 齐备", () => {
+await check("模式配置：机制技能挂在模式上，肉鸽原创技能已不再注册", () => {
 	freshWorld();
 	const config = modeModule.createModeConfig();
 	assertEqual(config.name, cfg.MODE_ID);
 	assertEqual(config.splash, cfg.MODE_SPLASH);
-	for (const id of ["rogue_xushui", "rogue_jiema", "rogue_guiyuan", "rogue_stat"]) {
-		assert(config.skill[id], `${id} 应在模式 skill 表里`);
-		assert(config.translate[id], `${id} 应有翻译`);
+	assert(config.skill.rogue_stat, "rogue_stat 应在模式 skill 表里");
+	assert(config.translate.rogue_stat, "rogue_stat 应有翻译");
+	assert(Object.keys(config.skill).length > 100, "分包技能应一并并入模式 skill 表");
+	// 肉鸽专属原创技能已下架：定义与翻译都不再随模式注册
+	for (const id of ["rogue_xushui", "rogue_jiema", "rogue_guiyuan"]) {
+		assertEqual(config.skill[id], undefined, `${id} 不应再注册`);
+		assertEqual(config.translate[id], undefined, `${id} 不应再有翻译`);
 	}
 	for (const old of ["rogue_stat_draw", "rogue_stat_hand", "rogue_stat_sha", "rogue_stat_usable"]) {
 		assert(!config.skill[old], `${old} 应已合并进 rogue_stat`);
@@ -240,7 +244,7 @@ await check("模式配置：肉鸽技能挂在模式上，dieAfter/checkResult �
 	assert(typeof config.element.player.dieAfter === "function", "应提供 element.player.dieAfter");
 	assert(typeof config.game.checkResult === "function", "应提供 game.checkResult");
 	assert(typeof config.game.onover === "function", "应提供 game.onover（本体自动推进 lib.onover）");
-	return Object.keys(config.skill).join(",");
+	return `${Object.keys(config.skill).length} 项技能定义（全部为分包技能 + rogue_stat）`;
 });
 
 await check("启动：空存档直接进入六槽页", () => {
@@ -431,7 +435,7 @@ await check("玩家属性与技能在开局时按存档重建；旧档 groupId �
 	putRun(2, {
 		mode: "challenge",
 		level: 1,
-		skills: ["rogue_xushui"],
+		skills: ["rogue_extra"],
 		stats: { defense: 1, draw: 0, attack: 0 },
 		// v2 旧档只记 groupId：读档时应自动还原为完整敌方阵容（佐菲），恢复时按原敌人重打
 		currentBattle: { groupId: "group_zofer", status: "battle" },
@@ -442,7 +446,7 @@ await check("玩家属性与技能在开局时按存档重建；旧档 groupId �
 	click("重新挑战这一关");
 	await flush();
 	assertEqual(game.me.__char, "迪迦", "玩家角色来自存档");
-	assert(game.me.hasSkill("rogue_xushui"), "存档技能应重新赋予");
+	assert(game.me.hasSkill("rogue_extra"), "存档技能应重新赋予");
 	assertEqual(game.players[1].__char, "佐菲", "旧档 groupId 应还原成原组合的敌人");
 	assertEqual(lib.storage.rogueSlots[2].currentBattle.enemies[0].characterId, "佐菲", "存档里的阵容已具体化");
 	// 触发类技能能否触发，取决于建局时是否分配了 playerid（本体 addSkill 的钩子注册条件）
@@ -450,7 +454,7 @@ await check("玩家属性与技能在开局时按存档重建；旧档 groupId �
 	assert(game.players.every(player => player.playerid), "每个座位都应有 playerid");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "该技能的触发时机应已登记进 hookmap");
 	const bare = stub.ui.create.player();
-	bare.addSkill("rogue_xushui");
+	bare.addSkill("rogue_extra");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "无 playerid 的新座位不应影响已登记的钩子");
 	assertEqual(game.me.maxHp, 4, "占位属性无数值，体力上限不该被凭空改动");
 	assertEqual(game.me.hasSkill("rogue_stat"), false, "只有护甲时不该加数值强化技能");
@@ -498,7 +502,7 @@ await check("敌人强化：属性等级复用玩家效果表，额外技能与�
 		characterId: "赛文",
 		currentBattle: {
 			status: "battle",
-			enemies: [{ characterId: "赛文", stats: { defense: 1, draw: 1, attack: 1 }, skills: ["rogue_xushui"], maxHp: 2, hp: 0 }],
+			enemies: [{ characterId: "赛文", stats: { defense: 1, draw: 1, attack: 1 }, skills: ["rogue_extra"], maxHp: 2, hp: 0 }],
 		},
 	}, stateModule.createRun("challenge", "赛文", 1));
 	session();
@@ -506,8 +510,8 @@ await check("敌人强化：属性等级复用玩家效果表，额外技能与�
 	await flush();
 	const enemy = game.players[1];
 	assertEqual(enemy.__char, "赛文", "敌人角色来自存档阵容");
-	assert(enemy.hasSkill("rogue_xushui"), "敌人额外技能应施加到该 Player");
-	assertEqual(game.me.hasSkill("rogue_xushui"), false, "不该串到玩家身上");
+	assert(enemy.hasSkill("rogue_extra"), "敌人额外技能应施加到该 Player");
+	assertEqual(game.me.hasSkill("rogue_extra"), false, "不该串到玩家身上");
 	// 敌人的 Roguelike 属性走玩家的同一张效果表（data/stats.js）：防御 1 级 = 护甲 1 + 体力上限 1
 	assertEqual(enemy.hujia, 1, "防御等级给敌人上护甲");
 	// 过牌/攻击的数值加成同样走 rogue_stat 这个统一载体
@@ -858,7 +862,7 @@ await check("商店：浮层骨架——固定标题与资源栏 + 三张技能�
 	return `候选 ${saved.shopOffers.map(offer => offer.id).join(",")} 价格 ${prices.join(",")}`;
 });
 
-await check("商店：技能卡画出出处头像，没有出处的标成专属", async () => {
+await check("商店：技能卡画出出处头像，无出处的技能不标来源", async () => {
 	putRun(0, {
 		currentBattle: null,
 		currency: { gold: 1000, exp: 0 },
@@ -877,7 +881,9 @@ await check("商店：技能卡画出出处头像，没有出处的标成专属"
 	assertEqual(avatars[0].__background?.[1], "character", "用本体的 setBackground 画");
 	const text = screenText();
 	assert(text.includes("出自 出处测试"), `写出出处：${text}`);
-	assert(text.includes("肉鸽专属技能"), "没有出处的候选标成专属");
+	assert(!text.includes("肉鸽专属技能"), "「肉鸽专属技能」标注已删除");
+	const ownerLines = nodesWithClass("wm-rogue-shop-owner").map(node => textOf(node));
+	assertEqual(ownerLines.length, 1, "无出处候选不画出处行");
 	const names = nodesWithClass("wm-rogue-shop-name").map(node => textOf(node));
 	assertEqual(names.length, 2, "每张卡一个技能名");
 	return `头像 ${avatars[0].__background[0]} / ${names.join("、")}`;
@@ -906,6 +912,9 @@ await check("商店：点技能卡弹完整描述，点购买按钮不会顺带�
 await check("商店：不随机到角色原生技能，替换掉的技能可以再出现", async () => {
 	const skillsData = await load("src/rogue/data/skills.js");
 	const poolIds = skillsData.pool.map(item => item.id);
+	const onlyCandidate = poolIds[poolIds.length - 1];
+	const owned = poolIds[0];
+	const native = poolIds[1];
 	putRun(0, {
 		characterId: "导航测试",
 		level: 1,
@@ -915,22 +924,22 @@ await check("商店：不随机到角色原生技能，替换掉的技能可以�
 		skills: [],
 	});
 	session();
-	// 把角色的原生技能设成「除 rogue_jiema 外的整个池子」：候选只剩一个，结果才可断言
-	lib.character["导航测试"] = [4, "custom", 0, poolIds.filter(id => id !== "rogue_jiema"), 1];
+	// 把角色的原生技能设成「除最后一个池子技能外的全部」：候选只剩一个，结果才可断言
+	lib.character["导航测试"] = [4, "custom", 0, poolIds.filter(id => id !== onlyCandidate), 1];
 	click("商店");
 	const offers = lib.storage.rogueSlots[0].shopOffers;
 	assertEqual(offers.length, 1, "排除角色原生技能后只剩一个候选");
-	assertEqual(offers[0].id, "rogue_jiema", "不在当前持有里的技能可以正常出现");
-	assert(!offers.some(offer => offer.id !== "rogue_jiema"), "不得随机到角色原生技能");
+	assertEqual(offers[0].id, onlyCandidate, "不在当前持有里的技能可以正常出现");
+	assert(!offers.some(offer => offer.id !== onlyCandidate), "不得随机到角色原生技能");
 	// 当前持有的会被排除，角色原生技能也继续排除，其余池子照常给满候选
 	// characterId 要显式带上：putRun 不带 extra 时是从零新建，漏了就会退回默认的「迪迦」，原生技能那条断言就成了摆设
-	putRun(0, { characterId: "导航测试", shopOffers: [], skills: ["rogue_jiema"] });
+	putRun(0, { characterId: "导航测试", shopOffers: [], skills: [owned] });
 	session();
-	lib.character["导航测试"] = [4, "custom", 0, ["rogue_xushui"], 1];
+	lib.character["导航测试"] = [4, "custom", 0, [native], 1];
 	click("商店");
 	const again = lib.storage.rogueSlots[0].shopOffers;
-	assert(!again.some(offer => offer.id === "rogue_jiema"), "当前持有的技能不该上架");
-	assert(!again.some(offer => offer.id === "rogue_xushui"), "角色原生技能不该上架");
+	assert(!again.some(offer => offer.id === owned), "当前持有的技能不该上架");
+	assert(!again.some(offer => offer.id === native), "角色原生技能不该上架");
 	assertEqual(again.length, cfg.SKILL_OFFER_COUNT, "其余池子照常给满候选");
 	return `只剩 ${offers[0].id} / 持有与原生都排除`;
 });
@@ -982,8 +991,8 @@ await check("商店：购买一个后本次不能再买第二个", async () => {
 		currency: { gold: 1000, exp: 0 },
 		shopOffers: [
 			{ id: "rogue_extra", price: 10, sold: false },
-			{ id: "rogue_xushui", price: 10, sold: false },
-			{ id: "rogue_jiema", price: 10, sold: false },
+			{ id: "own_one", price: 10, sold: false },
+			{ id: "own_two", price: 10, sold: false },
 		],
 	});
 	session();
@@ -1016,9 +1025,9 @@ await check("商店刷新：标题右侧按钮，点一次重掷技能与价格�
 		skills: [],
 		currency: { gold: 9999, exp: 0 },
 		shopOffers: [
-			{ id: "rogue_xushui", price: 4, sold: false },
-			{ id: "rogue_jiema", price: 5, sold: false },
-			{ id: "rogue_guiyuan", price: 6, sold: false },
+			{ id: "own_one", price: 4, sold: false },
+			{ id: "own_two", price: 5, sold: false },
+			{ id: "own_three", price: 6, sold: false },
 		],
 		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
 	});
@@ -1039,7 +1048,7 @@ await check("商店刷新：标题右侧按钮，点一次重掷技能与价格�
 	assertEqual(common.currentScreenNode(), overlay, "原位刷新，不重开商店（重开会丢滚动位置）");
 	const rolled = after.shopOffers.map(offer => `${offer.id}:${offer.price}`).join(",");
 	assert(rolled !== before, `候选与价格应整体重掷：${before} → ${rolled}`);
-	assert(!after.shopOffers.some(offer => ["rogue_xushui", "rogue_jiema", "rogue_guiyuan"].includes(offer.id)), "池子够时不该原样抽到旧候选");
+	assert(!after.shopOffers.some(offer => ["own_one", "own_two", "own_three"].includes(offer.id)), "池子够时不该原样抽到旧候选");
 	assertEqual(after.shopOffers.length, cfg.SKILL_OFFER_COUNT, "仍给满三项");
 	assertEqual(nodesWithClass("wm-rogue-shop-card").length, cfg.SKILL_OFFER_COUNT, "卡片跟着候选重建");
 	assertEqual(nodesWithClass("wm-rogue-shop-name").length, cfg.SKILL_OFFER_COUNT, "每张卡一个技能名");
@@ -1072,9 +1081,9 @@ await check("商店刷新：买过技能后按钮变「本局已购买」，点�
 		skills: [],
 		currency: { gold: 9999, exp: 0 },
 		shopOffers: [
-			{ id: "rogue_xushui", price: 10, sold: false },
-			{ id: "rogue_jiema", price: 10, sold: false },
-			{ id: "rogue_guiyuan", price: 10, sold: false },
+			{ id: "rogue_extra", price: 10, sold: false },
+			{ id: "own_one", price: 10, sold: false },
+			{ id: "own_two", price: 10, sold: false },
 		],
 		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
 	});
@@ -1154,7 +1163,7 @@ await check("商店刷新次数：战斗恢复与失败都不补，通关进下�
 
 await check("技能上限：满槽购买走替换页，替换后仍不超过 3 个", async () => {
 	putRun(0, {
-		skills: ["rogue_xushui", "rogue_jiema", "rogue_guiyuan"],
+		skills: ["own_one", "own_two", "own_three"],
 		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
 		currency: { gold: 500, exp: 0 },
 		currentBattle: null,
@@ -1166,7 +1175,7 @@ await check("技能上限：满槽购买走替换页，替换后仍不超过 3 �
 	click("用新技能替换它");
 	const after = lib.storage.rogueSlots[0];
 	assertEqual(after.skills.length, cfg.SKILL_SLOTS, "槽位数不超过上限");
-	assert(!after.skills.includes("rogue_xushui"), "被选中的旧技能已移除");
+	assert(!after.skills.includes("own_one"), "被选中的旧技能已移除");
 	assert(after.skills.includes("rogue_extra"), "新技能已加入");
 	return after.skills.join(",");
 });
@@ -1295,7 +1304,7 @@ await check("无尽失败：整个存档删除且槽位恢复为空", async () =
 		level: 12,
 		totalLevels: 0,
 		currency: { gold: 900, exp: 900 },
-		skills: ["rogue_xushui"],
+		skills: ["rogue_extra"],
 		stats: { defense: 2, draw: 2, attack: 2 },
 		currentBattle: { groupId: "group_zofer", status: "battle" },
 	}, stateModule.createRun("endless", "迪迦", 1));

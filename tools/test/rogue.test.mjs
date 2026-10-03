@@ -89,9 +89,10 @@ function assertEqual(actual, expected, msg) {
 }
 
 const NOW = 1700000000000;
-const SKILL_A = "rogue_xushui";
-const SKILL_B = "rogue_jiema";
-const SKILL_C = "rogue_guiyuan";
+// 普通夹具技能 id：购买/存档等纯逻辑测试用，不需要真实技能定义，也避开已下架的 rogue_ 原创技能
+const SKILL_A = "test_skill_a";
+const SKILL_B = "test_skill_b";
+const SKILL_C = "test_skill_c";
 
 function freshRun(mode = cfg.RUN_MODE.challenge) {
 	return state.createRun(mode, "迪迦", NOW);
@@ -540,7 +541,7 @@ check("敌方阵容生成：数量按关卡、属性总和恰为关卡数、每�
 check("currentBattle 恢复：保存完整敌方阵容，重载原样读回而不重掷", () => {
 	const enemies = [
 		{ characterId: "巴尔坦星人", stats: { defense: 3, draw: 5, attack: 2 }, skills: [], maxHp: 0, hp: 0 },
-		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, skills: ["rogue_xushui"], maxHp: 2, hp: 0 },
+		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, skills: ["test_enemy_skill"], maxHp: 2, hp: 0 },
 	];
 	const run = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies, extra: "junk" } });
 	assertEqual(run.currentBattle.status, "battle", "状态保留");
@@ -572,12 +573,33 @@ check("旧档迁移：v2 只存 groupId 的进行中战斗按原组合还原阵�
 	assertEqual(legacy.currentBattle.enemies[0].characterId, expected[0].characterId, "角色一致");
 	assertEqual(legacy.currentBattle.enemies[0].stats.defense, expected[0].overrides.defense, "属性等级一致");
 	assertEqual(legacy.currentBattle.enemies[0].maxHp, expected[0].overrides.maxHp, "体力上限覆盖保留");
-	assert(legacy.currentBattle.enemies[0].skills.includes("rogue_xushui"), "额外技能保留");
+	assertEqual(legacy.currentBattle.enemies[0].skills.length, 0, "组合没配额外技能时阵容技能为空");
 	const again = state.normalizeRun(legacy);
 	assertEqual(JSON.stringify(again.currentBattle.enemies), JSON.stringify(legacy.currentBattle.enemies), "迁移结果稳定（第二次读档不变化）");
 	const gone = state.normalizeRun({ ...freshRun(), currentBattle: { groupId: "group_not_exists", status: "battle" } });
 	assertEqual(gone.currentBattle, null, "组合配置已删除时按无未完成战斗处理");
 	return `还原 ${legacy.currentBattle.enemies.length} 个敌人`;
+});
+
+check("废弃技能清理：已下架的肉鸽专属技能在读档时从存档各处清除", () => {
+	const run = state.normalizeRun({
+		...freshRun(),
+		skills: ["rogue_xushui", SKILL_A, "rogue_guiyuan", SKILL_B, "rogue_jiema"],
+		shopOffers: [
+			{ id: "rogue_jiema", price: 9, sold: false },
+			{ id: SKILL_C, price: 10, sold: true },
+		],
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: ["rogue_xushui"], maxHp: 0, hp: 0 }],
+		},
+	});
+	assertEqual(run.skills.join(","), `${SKILL_A},${SKILL_B}`, "三个下架技能全部清除，其余保留且不占槽");
+	assertEqual(run.shopOffers.length, 1, "下架技能的候选剔除");
+	assertEqual(run.shopOffers[0].id, SKILL_C, "正常候选原样保留（含已购标记）");
+	assertEqual(run.currentBattle.enemies[0].skills.length, 0, "敌方阵容里的下架技能清除");
+	assertEqual(JSON.stringify(state.normalizeRun(run).skills), JSON.stringify(run.skills), "清理幂等（再读一遍不变化）");
+	return "skills / shopOffers / 敌方阵容 三处清理";
 });
 
 check("新局初始资源：金币 50（=技能基准价，第一关即可购买）/ 经验 2，旧存档不会被补发", () => {
@@ -720,23 +742,25 @@ check("属性强化合并成一个技能：四种效果都还在，标记说明�
 
 check("商店排除：角色原生技能与当前持有不上架，替换掉的可以再出现", () => {
 	const poolIds = skillsData.pool.map(item => item.id);
-	const run = { ...freshRun(), characterId: "迪迦", skills: ["rogue_jiema"], level: 1 };
-	const characterSkills = poolIds.filter(id => id !== "rogue_xushui");
+	const free = poolIds[poolIds.length - 1]; // 既非持有也非原生的「自由」技能
+	const run = { ...freshRun(), characterId: "迪迦", skills: [SKILL_B], level: 1 };
+	const characterSkills = poolIds.filter(id => id !== free);
 
 	const excluded = shop.getExcludedSkillIds(run, characterSkills);
-	assert(excluded.has("rogue_jiema"), "当前持有应被排除");
+	assert(excluded.has(SKILL_B), "当前持有应被排除");
 	assert(excluded.has(characterSkills[0]), "角色原生技能应被排除");
-	assert(!excluded.has("rogue_xushui"), "既非持有也非原生时不该被排除");
+	assert(!excluded.has(free), "既非持有也非原生时不该被排除");
 
 	// 池子被排到只剩一个：不死循环、不重复、不返回被排除项
 	const offers = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(3), characterSkills, skillsData.pool);
 	assertEqual(offers.length, 1, "候选不足时按实际数量返回");
-	assertEqual(offers[0].id, "rogue_xushui", "只能是没被排除的那个");
+	assertEqual(offers[0].id, free, "只能是没被排除的那个");
 
-	// 曾经买过但已不在 run.skills 里的技能可以重新出现
-	const replaced = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(5), poolIds.filter(id => id !== "rogue_jiema"), skillsData.pool);
-	assertEqual(replaced.length, 1, "只剩 jiema 一个候选");
-	assertEqual(replaced[0].id, "rogue_jiema", "被替换掉的技能可以再出现");
+	// 曾经买过但已不在 run.skills 里的技能可以重新出现（用池内技能验证这条）
+	const poolOwned = poolIds[0];
+	const replaced = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(5), poolIds.filter(id => id !== poolOwned), skillsData.pool);
+	assertEqual(replaced.length, 1, "只剩原持有那一个候选");
+	assertEqual(replaced[0].id, poolOwned, "被替换掉的技能可以再出现");
 
 	// 全被排除：返回空候选而不是报错/死循环
 	assertEqual(shop.rollSkillOffers({ ...run, skills: [] }, makeRng(1), poolIds, skillsData.pool).length, 0, "全被排除时返回空候选");
@@ -855,23 +879,24 @@ check("刷新不得绕过一局限买一个：买过之后刷新直接被拒且�
 
 check("刷新后排除规则不变：原生/持有仍排除，被替换掉的仍可回来", () => {
 	const poolIds = skillsData.pool.map(item => item.id);
-	const base = { ...freshRun(), characterId: "迪迦", level: 1, skills: ["rogue_jiema"] };
+	const [p0, p1, p2] = poolIds;
+	const base = { ...freshRun(), characterId: "迪迦", level: 1, skills: [p1] };
 	const run = { ...base, shopOffers: shop.rollSkillOffers(base, makeRng(2), [], skillsData.pool) };
-	const characterSkills = poolIds.filter(id => id !== "rogue_xushui" && id !== "rogue_jiema");
+	const characterSkills = poolIds.filter(id => id !== p0 && id !== p1);
 	const next = shop.refreshSkillOffers(run, makeRng(8), characterSkills, skillsData.pool);
 	assert(next.ok, next.error ?? "刷新应成功");
 	assert(next.offers.every(offer => !characterSkills.includes(offer.id)), "刷新后仍不得出现角色原生技能");
-	assert(next.offers.every(offer => offer.id !== "rogue_jiema"), "刷新后仍不得出现当前持有技能");
+	assert(next.offers.every(offer => offer.id !== p1), "刷新后仍不得出现当前持有技能");
 	// 池子只够旧候选时：允许旧候选重新出现，但不死循环、不塞进当前持有、不重复填充
-	const narrow = ["rogue_xushui", "rogue_jiema", "rogue_guiyuan"].map(id => ({ id, price: 100 }));
+	const narrow = [p0, p1, p2].map(id => ({ id, price: 100 }));
 	const stuck = { ...base, shopOffers: narrow.map(entry => ({ id: entry.id, price: 5, sold: false })) };
 	const reuse = shop.refreshSkillOffers(stuck, makeRng(3), [], narrow);
 	assert(reuse.ok, reuse.error ?? "池子不足时也应成功");
 	assertEqual(reuse.offers.length, narrow.length - 1, "只把当前持有的那条排掉，其余旧候选允许重新出现");
-	assert(reuse.offers.every(offer => offer.id !== "rogue_jiema"), "池子再窄也不能给当前持有的技能");
+	assert(reuse.offers.every(offer => offer.id !== p1), "池子再窄也不能给当前持有的技能");
 	assertEqual(new Set(reuse.offers.map(offer => offer.id)).size, reuse.offers.length, "不得重复填充凑数");
-	// 以前买过、后来被替换掉的（rogue_guiyuan 已不在 run.skills 里），刷新池里照样能再出现
-	assert(reuse.offers.some(offer => offer.id === "rogue_guiyuan"), "被替换掉的技能可以重新出现");
+	// 以前买过、后来被替换掉的（p2 已不在 run.skills 里），刷新池里照样能再出现
+	assert(reuse.offers.some(offer => offer.id === p2), "被替换掉的技能可以重新出现");
 	return "原生/持有排除不变 + 窄池不卡死";
 });
 
@@ -883,10 +908,10 @@ check("旧存档补字段：v1 缺刷新次数时补满且其它字段不动，�
 		level: 5,
 		totalLevels: 30,
 		currency: { gold: 17, exp: 3 },
-		skills: ["rogue_jiema"],
+		skills: [SKILL_B],
 		stats: { defense: 2, draw: 1, attack: 0 },
 		currentBattle: null,
-		shopOffers: [{ id: "rogue_xushui", price: 9, sold: false }],
+		shopOffers: [{ id: SKILL_A, price: 9, sold: false }],
 		cleared: false,
 		createdAt: NOW,
 		updatedAt: NOW,
@@ -897,7 +922,7 @@ check("旧存档补字段：v1 缺刷新次数时补满且其它字段不动，�
 	assertEqual(run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "旧档补满次数");
 	assertEqual(run.level, 5, "当前关卡不变");
 	assertEqual(JSON.stringify(run.currency), JSON.stringify({ gold: 17, exp: 3 }), "金币经验不变");
-	assertEqual(run.skills.join(","), "rogue_jiema", "已学技能不变");
+	assertEqual(run.skills.join(","), SKILL_B, "已学技能不变");
 	assertEqual(run.stats.defense, 2, "属性等级不变");
 	assertEqual(run.shopOffers[0].price, 9, "上次的候选与定死的价格不变");
 	assert(migrated.errors.some(error => error.includes("迁移")), "要提示做过版本迁移");
@@ -913,7 +938,7 @@ check("刷新次数只在通关时恢复：胜利进下一局补满，失败与�
 		level: 4,
 		shopRefreshesRemaining: 1,
 		currency: { gold: 20, exp: 5 },
-		shopOffers: [{ id: "rogue_jiema", price: 5, sold: false }],
+		shopOffers: [{ id: SKILL_A, price: 5, sold: false }],
 	};
 	const won = reward.settleVictory(run, NOW);
 	assertEqual(won.run.level, 5, "进入第 5 局");

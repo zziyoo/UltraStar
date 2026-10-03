@@ -1,4 +1,4 @@
-// 肉鸽技能：商店里卖的东西。作者填的是「技能效果、名称描述、价格」。
+// 技能池：商店里卖的东西。作者填的是「技能效果、名称描述、价格」。
 //
 // 填什么
 //   pool[]        作者手写的上架底线，每项 { id, price }；price 只是留给作者标注“基础价”的位子，
@@ -6,15 +6,16 @@
 //                 所以这里写多少都不会成为最终售价，省略也行
 //                 扩展各分包的全部顶级技能会自动汇总进 pool（统一价 100），新增分包技能无需来这里登记
 //                 商店真正的候选池还要并上「全体武将的技能」，并剔掉玩家禁用过的武将——见 skillPool.js
-//   skill{}       肉鸽原创技能本体，写法同本体 lib.skill（trigger / enable / mod / content…）
-//   translate{}   肉鸽原创技能翻译，格式必须是「技能名<hr>描述」；分包技能沿用分包的 id / id_info 双键翻译
+//   skill{}       补充技能本体，写法同本体 lib.skill（trigger / enable / mod / content…）；
+//                 目前为空——商店只卖分包技能与武将技能，肉鸽不再有原创技能
+//   translate{}   上述技能的翻译，格式必须是「技能名<hr>描述」；分包技能沿用分包的 id / id_info 双键翻译
 //   helpers{}     属性强化的机制技能（见文件末尾），不进商店
 //
 // 自检会查
 //   pool 里每条都有 skill 定义（且含 trigger/enable/mod/group 之一）和齐备的翻译；
 //   price 若填写必须为正数；有定义但不在 pool 里的 rogue_ 技能会被提示（商店永远刷不到）。
 //
-// 注意：rogue_ 技能 id 一旦发布就不要改（存档只存 id）。
+// 注意：技能 id 一旦发布就不要改（存档只存 id）；已下架技能（旧存档还持有的）由 state.js 读档时清除。
 //
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验上面的每一条约束，不用开游戏）
 
@@ -37,62 +38,17 @@ for (const pkg of packages) {
 // 不可上架的内部技能：只对特定角色/专属机制生效（如死龙的换人控制技），买来无意义也无翻译
 const NON_SELLABLE = new Set(["slcontrol"]);
 
-/** 商店上架清单：扩展全部技能 + 肉鸽原创技能，价格统一 100 */
-export const pool = [
-	...Object.keys(packSkill)
-		.filter(id => !NON_SELLABLE.has(id))
-		.map(id => ({ id, price: 100 })),
-	{ id: "rogue_xushui", price: 100 },
-	{ id: "rogue_jiema", price: 100 },
-	{ id: "rogue_guiyuan", price: 100 },
-];
+/** 商店上架清单：扩展全部分包技能，价格统一 100 */
+export const pool = Object.keys(packSkill)
+	.filter(id => !NON_SELLABLE.has(id))
+	.map(id => ({ id, price: 100 }));
 
 export const skill = {
 	...packSkill,
-	rogue_xushui: {
-		trigger: { player: "phaseDrawBegin2" },
-		forced: true,
-		nopop: true,
-		logv: false,
-		filter(event) {
-			return !event.numFixed;
-		},
-		content(event, trigger) {
-			trigger.num++;
-		},
-		ai: { threaten: 1.2 },
-	},
-	rogue_jiema: {
-		trigger: { player: "damageBegin3" },
-		forced: true,
-		nopop: true,
-		logv: false,
-		content(event, trigger) {
-			if (trigger.num > 1) {
-				trigger.num--;
-			}
-		},
-		ai: { threaten: 1.3 },
-	},
-	rogue_guiyuan: {
-		trigger: { player: "phaseJieshu" },
-		forced: true,
-		nopop: true,
-		logv: false,
-		filter(event, player) {
-			return player.isDamaged();
-		},
-		async content(event, trigger, player) {
-			await player.recover();
-		},
-	},
 };
 
 export const translate = {
 	...packSkillTranslate,
-	rogue_xushui: "蓄势<hr>锁定技，你的摸牌阶段额外多摸一张牌。",
-	rogue_jiema: "解甲<hr>锁定技，你受到的伤害-1。",
-	rogue_guiyuan: "归元<hr>锁定技，你的结束阶段，若你已受伤，你回复1点体力。",
 };
 
 // ---------------------------------------------------------------- 机制技能
