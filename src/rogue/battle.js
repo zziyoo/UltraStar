@@ -6,10 +6,16 @@ import { lib, game, _status } from "../../../../noname.js";
 import { ROSTER_WHITE_LIST } from "./config.js";
 import { sumStatEffects } from "./data/stats.js";
 import { isEnemyUsable } from "./enemy.js";
+import { showBattleStats } from "./ui/common.js";
 
 export { isEnemyUsable };
 
 const BASE_START_HAND = 4;
+let rogueBattleEnemies = [];
+
+export function clearBattleState() {
+	rogueBattleEnemies = [];
+}
 
 function characterExists(id) {
 	return typeof id === "string" && !!id && !!lib.character[id];
@@ -56,7 +62,7 @@ export function getRoster() {
  * 玩家旁边因此只有一个「强化」标记，也不会因为重复调用而叠加。
  */
 const STAT_BUFF_SKILL = "rogue_stat";
-const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "shaDamage", "shaLimit"];
+const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "shaDamageChance", "shaLimit"];
 
 /**
  * 运行时给一个 Player 发技能：先过本体 `game.expandSkills` 把 `group` 伙伴补齐再挂上。
@@ -95,7 +101,7 @@ export function grantSkills(player, skillIds, missingLabel) {
 }
 
 /** 把属性表算出的效果施加到具体 Player 上 */
-function applyEffects(player, effects) {
+function applyEffects(player, effects, showStatEntry = false) {
 	if (effects.maxHp) {
 		player.maxHp += effects.maxHp;
 		if (effects.maxHp > 0) {
@@ -117,7 +123,7 @@ function applyEffects(player, effects) {
 			hasStat = true;
 		}
 	}
-	if (hasStat) {
+	if (hasStat || showStatEntry) {
 		if (lib.skill[STAT_BUFF_SKILL]) {
 			// 赋值而不是累加：同一场战斗里重复调用也只保留这一份最终结果
 			player.storage[STAT_BUFF_SKILL] = statStorage;
@@ -184,10 +190,21 @@ export async function beginBattle(event, run, enemies) {
 	// 缺了它所有触发类技能都不会触发。
 	assignPlayerIds();
 	game.me.init(run.characterId);
+	game.me.rogueStatRun = { openPanel: () => showBattleStats(run) };
 	// 买来的技能在这里展开 group 伙伴；存档与技能槽统计始终只看 run.skills 本身
 	grantSkills(game.me, run.skills, "存档里的技能未注册");
 	const bonuses = sumStatEffects(run.stats);
-	applyEffects(game.me, bonuses);
+	applyEffects(game.me, bonuses, true);
+	const statMark = game.me.marks?.rogue_stat;
+	if (statMark?.addEventListener) {
+		const openPanel = event => {
+			event.stopImmediatePropagation?.();
+			event.stopPropagation?.();
+			game.me.rogueStatRun.openPanel();
+		};
+		const eventName = lib.config.touchscreen ? "touchend" : "click";
+		statMark.addEventListener(eventName, openPanel, true);
+	}
 	game.zhu = game.me;
 	markSides(game.me, game.players.slice(1));
 
@@ -199,6 +216,7 @@ export async function beginBattle(event, run, enemies) {
 		player.init(enemies[i].characterId);
 		applyEnemyModifiers(player, enemies[i]);
 	}
+	rogueBattleEnemies = game.players.slice(1, 1 + enemies.length).filter(Boolean);
 	game.me.update();
 
 	const startHand = BASE_START_HAND + bonuses.startHand;
@@ -264,13 +282,15 @@ export function checkResult() {
 	if (_status.over || !game.me) {
 		return;
 	}
-	// 死亡者会从 game.players 移入 game.dead，两侧都要看，否则全灭时反而判不出胜利
-	const foes = game.players.concat(game.dead).filter(player => player !== game.me);
 	if (!game.me.isAlive()) {
+		clearBattleState();
+		delete game.me.rogueStatRun;
 		game.over(false);
 		return;
 	}
-	if (foes.length && foes.every(player => !player.isAlive())) {
+	if (rogueBattleEnemies.length && rogueBattleEnemies.every(player => !player.isAlive())) {
+		clearBattleState();
+		delete game.me.rogueStatRun;
 		game.over(true);
 	}
 }

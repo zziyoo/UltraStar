@@ -457,7 +457,7 @@ await check("玩家属性与技能在开局时按存档重建；旧档 groupId �
 	bare.addSkill("rogue_extra");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "无 playerid 的新座位不应影响已登记的钩子");
 	assertEqual(game.me.maxHp, 4, "占位属性无数值，体力上限不该被凭空改动");
-	assertEqual(game.me.hasSkill("rogue_stat"), false, "只有护甲时不该加数值强化技能");
+	assertEqual(game.me.hasSkill("rogue_stat"), true, "玩家应始终拥有紧凑属性强化入口");
 	const draw = log.find(item => item.type === "gameDraw");
 	assertEqual(draw.counts[0], 4, "起手牌仍为基础 4 张（startHand 占位为 0）");
 	return `me ${game.me.__char} skills ${game.me.__skills.join(",")}`;
@@ -485,7 +485,7 @@ await check("属性强化合并：只加一个 rogue_stat，四项数值一次�
 		JSON.stringify({
 			extraDraw: expected.extraDraw,
 			handLimit: expected.handLimit,
-			shaDamage: expected.shaDamage,
+			shaDamageChance: expected.shaDamageChance,
 			shaLimit: expected.shaLimit,
 		}),
 		"storage 应是一次性写入的四项最终值"
@@ -518,10 +518,10 @@ await check("敌人强化：属性等级复用玩家效果表，额外技能与�
 	assert(enemy.hasSkill("rogue_stat"), "摸牌/杀伤害加成应由同一强化技能承载");
 	assertEqual(
 		JSON.stringify(enemy.storage.rogue_stat),
-		JSON.stringify({ extraDraw: 1, handLimit: 0, shaDamage: 1, shaLimit: 0 }),
+		JSON.stringify({ extraDraw: 1, handLimit: 0, shaDamageChance: 10, shaLimit: 0 }),
 	 "敌人 storage 四项数值与玩家同一套"
 	);
-	assertEqual(game.me.hasSkill("rogue_stat"), false, "强化技能不该串到玩家身上");
+	assertEqual(game.me.hasSkill("rogue_stat"), true, "玩家应保留紧凑属性强化入口");
 	// 体力上限 = 角色原生 5 + maxHp 覆盖 2（防御 1 级只加护甲，不加体力上限）
 	assertEqual(enemy.maxHp, lib.character["赛文"].maxHp + 2, "应叠加 maxHp 覆盖");
 	assertEqual(JSON.stringify(lib.character["赛文"]), JSON.stringify({ hp: 5, maxHp: 5, skills: [] }), "角色库不被改写");
@@ -566,7 +566,7 @@ await check("运行时发技能：按本体 expandSkills 补齐 group 伙伴（�
 	await flush();
 	// session() 会把 game.me 清掉，运行时的技能列表要先记下来
 	const liveSkills = game.me.__skills.join(",");
-	assertEqual(liveSkills, "grp_buy,grp_buy_locked", "玩家身上应是主技能 + group 伙伴");
+	assert(liveSkills.includes("grp_buy") && liveSkills.includes("grp_buy_locked"), "玩家身上应有主技能与 group 伙伴");
 	assert(game.me.hasSkill("grp_buy_locked"), "group 伙伴应随主技能一起挂上");
 	const saved = lib.storage.rogueSlots[5];
 	assertEqual(saved.skills.length, 1, "存档里只有主技能");
@@ -624,7 +624,7 @@ await check("开局：属性 extraSkills 的带 group 技能也展开", async ()
 		assert(game.me.hasSkill("grp_stat_part"), "extraSkills 的 group 伙伴也应挂上");
 		// 防御 1 级只有初始护甲，四项数值全 0 时不该多出 rogue_stat 标记
 		assertEqual(game.me.hujia, 1, "同一份 extraSkills 之外的属性效果不受影响");
-		assertEqual(game.me.hasSkill("rogue_stat"), false, "无数值加成时不该加强化技能");
+		assertEqual(game.me.hasSkill("rogue_stat"), true, "玩家应始终拥有紧凑属性强化入口");
 		return game.me.__skills.join(",");
 	} finally {
 		if (had) {
@@ -664,6 +664,46 @@ await check("开局：属性 extraSkills 的带 group 技能也展开", async ()
 		assert(text.includes(`下一关：第 ${run.level} 关`), `应写明下一关：${text}`);
 		return `第${beforeLevel}关 → 第${run.level}关，+50 金币`;
 	});
+
+await check("多敌人胜利：遐蝶阵容必须全部死亡，复活不能提前结算", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "challenge",
+		level: 1,
+		characterId: "迪迦",
+		stats: { defense: 0, draw: 0, attack: 0 },
+		currentBattle: {
+			status: "battle",
+			enemies: [
+				{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "遐蝶", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+			],
+		},
+	}, stateModule.createRun("challenge", "迪迦", 1));
+	session();
+	lib.character["遐蝶"] = { hp: 4, maxHp: 4, skills: [] };
+	lib.translate["遐蝶"] = "遐蝶";
+	lib.filter.characterDisabled = () => false;
+	click("重新挑战这一关");
+	await flush();
+	assertEqual(game.players.length, 4, "遐蝶阵容应实际建出 3 名敌人");
+	const [first, butterfly, third] = game.players.slice(1);
+	first.__alive = false;
+	lib.element.player.dieAfter.call(first);
+	assertEqual(log.filter(item => item.type === "over").length, 0, "死亡一个敌人不能胜利");
+	first.__alive = true;
+	lib.element.player.dieAfter.call(first);
+	assertEqual(log.filter(item => item.type === "over").length, 0, "复活敌人不能提前结算");
+	butterfly.__alive = false;
+	lib.element.player.dieAfter.call(butterfly);
+	assertEqual(log.filter(item => item.type === "over").length, 0, "仍有敌人存活时不能胜利");
+	first.__alive = false;
+	third.__alive = false;
+	lib.element.player.dieAfter.call(third);
+	assertEqual(log.filter(item => item.type === "over").length, 1, "全部敌人死亡后才胜利");
+	return "佐菲 / 遐蝶 / 赛文 全灭后结算";
+});
 
 await check("返回营地：directstart + reload，重启后落到 Hub", async () => {
 	click("返回营地");

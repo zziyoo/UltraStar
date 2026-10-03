@@ -85,13 +85,10 @@ export const helpers = {
 		popup: false,
 		intro: {
 			name: "属性强化",
-			// storage 是对象，别让本体去猜标记数量
 			nocount: true,
-			// intro.mark 是函数时由本体调用并原样插入（get/index.js 的 mark 节点介绍），
-			// 所以这里能列出四项的实时数值
-			mark(storage) {
+			mark(uiintro, storage) {
 				const lines = describeStatEffects(storage);
-				return `<div class="text">当前属性强化：<br>${lines.length ? lines.join("<br>") : "暂无加成"}</div>`;
+				return `<div class="text">${lines.length ? lines.join("<br>") : "未强化"}</div>`;
 			},
 		},
 		filter(event, player, triggername) {
@@ -100,7 +97,7 @@ export const helpers = {
 				return !event.numFixed && (storage.extraDraw || 0) > 0;
 			}
 			if (triggername === "damageBegin1") {
-				return event.card?.name == "sha" && (storage.shaDamage || 0) > 0;
+				return event.card?.name == "sha" && (storage.shaDamageChance || 0) > 0;
 			}
 			return false;
 		},
@@ -109,12 +106,14 @@ export const helpers = {
 			if (trigger.name === "phaseDrawBegin2") {
 				trigger.num += storage.extraDraw || 0;
 			} else if (trigger.name === "damageBegin1") {
-				trigger.num += storage.shaDamage || 0;
+				if (Math.random() * 100 < Math.min(50, storage.shaDamageChance || 0)) {
+					trigger.num += 1;
+				}
 			}
 		},
 	},
 };
 
 export const helperTranslate = {
-	rogue_stat: "属性强化<hr>锁定技，你购买的防御/过牌/攻击强化都在这个技能上生效：摸牌阶段额外摸牌、手牌上限提升、【杀】的伤害与出杀次数提升。点标记可以查看当前全部加成。",
+	rogue_stat: "属性强化<hr>点击查看当前强化",
 };

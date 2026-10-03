@@ -13,6 +13,8 @@
 import { lib, ui, get } from "../../../../../noname.js";
 import { bindTap, isolateOverlayTouch } from "../../ui/overlay.js";
 import { ensureRogueStyles } from "./styles.js";
+import { STAT_IDS } from "../config.js";
+import { describeStat } from "../data/stats.js";
 
 /** @type {{ node: any, kind: "dialog" | "overlay", page: string } | null} */
 let currentScreen = null;
@@ -125,6 +127,39 @@ export function addLine(parent, html) {
 /** 分组之间的空行 */
 export function addGap(parent) {
 	return ui.create.div(".placeholder", parent);
+}
+
+export function showBattleStats(run) {
+	const stage = openOverlay("wm-rogue-stat-overlay");
+	const panel = document.createElement("div");
+	panel.className = "wm-rogue-panel wm-rogue-stat-panel";
+	stage.appendChild(panel);
+	const title = document.createElement("div");
+	title.className = "wm-rogue-title";
+	title.textContent = "属性强化";
+	panel.appendChild(title);
+	for (const statId of STAT_IDS) {
+		const info = describeStat(statId, run?.stats?.[statId]);
+		const section = document.createElement("div");
+		section.className = "wm-rogue-stat-detail";
+		const heading = document.createElement("div");
+		heading.className = "wm-rogue-stat-detail-name";
+		heading.textContent = `${info.name} Lv.${info.level}`;
+		section.appendChild(heading);
+		for (const line of info.lines) {
+			const effect = document.createElement("div");
+			effect.className = "wm-rogue-stat-detail-effect";
+			effect.textContent = line;
+			section.appendChild(effect);
+		}
+		panel.appendChild(section);
+	}
+	const close = document.createElement("div");
+	close.className = "wm-rogue-btn wm-rogue-small";
+	close.textContent = "关闭";
+	panel.appendChild(close);
+	bindTap(close, () => closeScreen());
+	return stage;
 }
 
 /**

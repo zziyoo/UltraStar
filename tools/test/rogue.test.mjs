@@ -702,9 +702,23 @@ check("技能文本清洗：poptip 转成可读名字，正文一个字不丢", 
 	return "poptip 转名";
 });
 
+check("属性规则：攻击概率按等级递增且展示接口复用真实效果", () => {
+	assertEqual(statsData.describeStat("attack", 0).lines[0], "未强化", "0 级明确显示未强化");
+	assertEqual(statsData.getStatSummary("attack", 1).shaDamageChance, 10, "攻击 Lv.1 概率");
+	assertEqual(statsData.getStatSummary("attack", 2).shaDamageChance, 10, "攻击 Lv.2 概率");
+	assertEqual(statsData.getStatSummary("attack", 3).shaDamageChance, 20, "攻击 Lv.3 概率");
+	assertEqual(statsData.getStatSummary("attack", 10).shaDamageChance, 50, "攻击 Lv.10 概率封顶");
+	assertEqual(statsData.getStatSummary("attack", 1).shaLimit, 0, "攻击 Lv.1 不增加出杀");
+	assertEqual(statsData.getStatSummary("attack", 2).shaLimit, 1, "攻击 Lv.2 出杀 +1");
+	assertEqual(statsData.getStatSummary("attack", 3).shaLimit, 1, "攻击 Lv.3 出杀 +1");
+	const all = statsData.describeStat("attack", 4);
+	assert(all.lines.some(line => line.includes("20%") && line.includes("+1")), "面板说明应来自攻击真实效果");
+	return "Lv.1/2/3/10 = 10%/10%/20%/50%";
+});
+
 check("属性强化合并成一个技能：四种效果都还在，标记说明列全部加成", () => {
 	const stat = skillsData.helpers.rogue_stat;
-	const player = { storage: { rogue_stat: { extraDraw: 2, handLimit: 1, shaDamage: 2, shaLimit: 1 } } };
+	const player = { storage: { rogue_stat: { extraDraw: 2, handLimit: 1, shaDamageChance: 20, shaLimit: 1 } } };
 
 	// 摸牌阶段
 	const draw = { name: "phaseDrawBegin2", num: 2 };
@@ -713,12 +727,23 @@ check("属性强化合并成一个技能：四种效果都还在，标记说明�
 	assertEqual(draw.num, 4, "摸牌 +2");
 	assert(!stat.filter({ name: "phaseDrawBegin2", num: 2, numFixed: true }, player, "phaseDrawBegin2"), "numFixed 时不触发");
 
-	// 【杀】伤害
-	const dmg = { name: "damageBegin1", num: 1, card: { name: "sha" } };
-	assert(stat.filter(dmg, player, "damageBegin1"), "用杀造成伤害时应通过 filter");
-	stat.content({}, dmg, player);
-	assertEqual(dmg.num, 3, "杀伤害 +2");
-	assert(!stat.filter({ name: "damageBegin1", card: { name: "juedou" } }, player, "damageBegin1"), "不是杀就不触发");
+	// 【杀】伤害：命中时只额外 +1，未命中与非【杀】不变
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.1;
+		const hit = { name: "damageBegin1", num: 1, card: { name: "sha" } };
+		assert(stat.filter(hit, player, "damageBegin1"), "用杀造成伤害时应通过 filter");
+		stat.content({}, hit, player);
+		assertEqual(hit.num, 2, "概率命中时杀伤害只 +1");
+		Math.random = () => 0.2;
+		const miss = { name: "damageBegin1", num: 1, card: { name: "sha" } };
+		stat.content({}, miss, player);
+		assertEqual(miss.num, 1, "概率未命中时伤害不变");
+		const nonSha = { name: "damageBegin1", num: 1, card: { name: "juedou" } };
+		assert(!stat.filter(nonSha, player, "damageBegin1"), "不是杀就不触发");
+	} finally {
+		Math.random = originalRandom;
+	}
 
 	// 手牌上限 / 出杀次数
 	assertEqual(stat.mod.maxHandcard(player, 4), 5, "手牌上限 +1");
@@ -726,13 +751,13 @@ check("属性强化合并成一个技能：四种效果都还在，标记说明�
 	assertEqual(stat.mod.cardUsable({ name: "shan" }, player, 1), undefined, "非杀不改次数");
 
 	// 数值全 0 时不触发
-	const bare = { storage: { rogue_stat: { extraDraw: 0, handLimit: 0, shaDamage: 0, shaLimit: 0 } } };
+	const bare = { storage: { rogue_stat: { extraDraw: 0, handLimit: 0, shaDamageChance: 0, shaLimit: 0 } } };
 	assert(!stat.filter({ name: "phaseDrawBegin2", num: 2 }, bare, "phaseDrawBegin2"), "无加成不触发");
 	assert(!stat.filter({ name: "damageBegin1", card: { name: "sha" } }, bare, "damageBegin1"), "无加成不触发（伤害）");
 
 	// 唯一标记：说明里列出四项实时数值
-	const html = stat.intro.mark(player.storage.rogue_stat, player);
-	for (const token of ["摸牌阶段 +2 张", "手牌上限 +1", "【杀】伤害 +2", "出【杀】次数 +1"]) {
+	const html = stat.intro.mark(null, player.storage.rogue_stat, player);
+	for (const token of ["摸牌阶段 +2 张", "手牌上限 +1", "使用【杀】时 20% 概率额外造成 +1 伤害", "出【杀】次数 +1"]) {
 		assert(html.includes(token), `标记说明应包含「${token}」：${html}`);
 	}
 	assert(!html.includes("[object Object]"), "不能出现 [object Object]");

@@ -85,7 +85,7 @@ function assert(cond, msg) {
 }
 
 const OVERRIDE_KEYS = ["hp", "maxHp", "defense", "draw", "attack"];
-const EFFECT_KEYS = ["armor", "maxHp", "startHand", "extraDraw", "handLimit", "shaDamage", "shaLimit", "extraSkills"];
+const EFFECT_KEYS = ["armor", "maxHp", "startHand", "extraDraw", "handLimit", "shaDamageChance", "shaLimit", "extraSkills"];
 const NUMBER_EFFECT_KEYS = EFFECT_KEYS.filter(key => key !== "extraSkills");
 
 console.log("奥特之星·肉鸽 内容配置自检\n");
