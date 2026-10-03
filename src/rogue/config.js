@@ -53,8 +53,10 @@ export const SKILL_REFRESH_PER_LEVEL = 2;
 export const ALLOW_DUPLICATE_SKILLS = false;
 
 /**
- * 技能定价：基准价永远固定为 SKILL_BASE_PRICE，不随关卡/胜场/等级增长；
- * 实际售价在基准价 ±SKILL_PRICE_SPREAD 内随机取整（50 → 约 38~63）。价格在生成商店候选时定死。
+ * 技能定价：SKILL_BASE_PRICE 是两种模式共用的基准价系数。
+ * 闯关基准价永远固定为它，不随关卡/胜场/等级增长；
+ * 无尽基准价为 floor(SKILL_BASE_PRICE × √当前关卡)——第 1 关即 50，之后随 √n 增长。
+ * 实际售价在基准价 ±SKILL_PRICE_SPREAD 内随机后向下取整（第 1 关 50 → 37~62），并在生成商店候选时定死。
  */
 export const SKILL_BASE_PRICE = 50;
 export const SKILL_PRICE_SPREAD = 0.25;

@@ -614,29 +614,59 @@ check("新局初始资源：金币 50（=技能基准价，第一关即可购买
 	assertEqual(old.currency.exp, 0, "旧档不补发经验");
 	const zero = state.normalizeRun({ ...freshRun(), currency: { gold: 0, exp: 0 } });
 	assertEqual(zero.currency.gold, 0, "明确记 0 的存档保持 0");
-	// 初始金币必须保证第一关进商店就买得起技能：不低于基准价 ±25% 的下界（38）
-	assert(cfg.INITIAL_CURRENCY.gold >= shop.getRandomSkillPrice(() => 0), `初始金币 ${cfg.INITIAL_CURRENCY.gold} 应 ≥ 售价下界`);
+	// 初始金币必须保证第一关进商店就买得起技能：不低于基准价 ±25% 的下界（floor(37.5)=37）
+	assert(cfg.INITIAL_CURRENCY.gold >= shop.getRandomSkillPrice(freshRun(), () => 0), `初始金币 ${cfg.INITIAL_CURRENCY.gold} 应 ≥ 售价下界`);
 	return `${cfg.INITIAL_CURRENCY.gold}/${cfg.INITIAL_CURRENCY.exp}`;
 });
 
-check("技能价格：基准价固定 50，售价在 ±25% 内取整，与关卡彻底无关", () => {
-	assertEqual(shop.getSkillBasePrice(), 50, "基准价固定 50");
-	// 50 × 0.75 ~ 50 × 1.25 = 37.5 ~ 62.5，Math.round 下实际落在 38~63
-	assertEqual(shop.getRandomSkillPrice(() => 0), 38, "下界");
-	assertEqual(shop.getRandomSkillPrice(() => 0.999999), 62, "接近上界");
-	assertEqual(shop.getRandomSkillPrice(() => 0.5), 50, "中值");
-	// 同一 rng 序列下，无论第 1、10、30、100、1000 关，价格序列完全一致
-	const prices = level => {
-		const run = { ...freshRun(), level };
-		return shop.rollSkillOffers(run, makeRng(7), [], skillsData.pool).map(offer => offer.price).join(",");
-	};
-	assertEqual(prices(1), prices(10), "第 1 关与第 10 关价格一致");
-	assertEqual(prices(1), prices(30), "第 1 关与第 30 关价格一致");
-	assertEqual(prices(1), prices(100), "第 1 关与第 100 关价格一致");
-	assertEqual(prices(1), prices(1000), "第 1 关与第 1000 关价格一致");
-	const rolled = prices(1).split(",").map(Number);
-	assert(rolled.every(price => price >= 38 && price <= 63), `售价应落在 38~63：${rolled.join(",")}`);
-	return "38 ~ 63";
+check("技能基准价：闯关恒为 50（与关卡彻底无关），无尽 floor(50×√n) 从第 1 关起随关卡增长", () => {
+	// 闯关：第 1、10、30 关与不传 run 的调用全部固定 50
+	for (const level of [1, 10, 30]) {
+		assertEqual(shop.getSkillBasePrice({ ...freshRun(), level }), 50, `闯关第${level}关基准价`);
+	}
+	assertEqual(shop.getSkillBasePrice(), 50, "不传 run 按闯关处理");
+	// 无尽：floor(50 × √n)——n=1 就从 50 起步（不是旧规则的 5），n=2 也不再是 50
+	const expected = [[1, 50], [2, 70], [3, 86], [4, 100], [5, 111], [9, 150], [10, 158], [100, 500]];
+	for (const [level, price] of expected) {
+		assertEqual(shop.getSkillBasePrice({ mode: cfg.RUN_MODE.endless, level }), price, `无尽第${level}关基准价`);
+	}
+	assertEqual(shop.getSkillBasePrice({ mode: cfg.RUN_MODE.endless }), 50, "无尽 level 缺失按第 1 关");
+	return `无尽 1/2/3/4/5/9/10 关 → ${expected.slice(0, 7).map(([, price]) => price).join(",")}`;
+});
+
+check("技能售价：基准价 ±25% 内随机后向下取整（至少 1），floor 统一替换旧 round", () => {
+	// 闯关第 1 关基准 50：floor(37.5)=37 ~ floor(62.5)=62（旧 round 规则是 38~63）
+	const ch1 = { ...freshRun(), level: 1 };
+	assertEqual(shop.getRandomSkillPrice(ch1, () => 0), 37, "下界（floor 37.5）");
+	assertEqual(shop.getRandomSkillPrice(ch1, () => 0.5), 50, "中值");
+	assertEqual(shop.getRandomSkillPrice(ch1, () => 0.999999), 62, "接近上界");
+	// 无尽第 2 关基准 70：floor(52.5)=52 ~ floor(87.5)=87 —— 候选不再永远按 50 定价
+	const en2 = { mode: cfg.RUN_MODE.endless, level: 2 };
+	assertEqual(shop.getRandomSkillPrice(en2, () => 0), 52, "无尽第2关下界");
+	assertEqual(shop.getRandomSkillPrice(en2, () => 0.999999), 87, "无尽第2关接近上界");
+	// 无尽第 10 关基准 158：floor(118.5)=118 ~ floor(197.5)=197
+	const en10 = { mode: cfg.RUN_MODE.endless, level: 10 };
+	assertEqual(shop.getRandomSkillPrice(en10, () => 0), 118, "无尽第10关下界");
+	assertEqual(shop.getRandomSkillPrice(en10, () => 0.999999), 197, "无尽第10关接近上界");
+	// 连续随机采样必须整体落在闭区间内，且全是整数
+	for (let i = 0; i < 200; i++) {
+		const price = shop.getRandomSkillPrice(en10);
+		assert(Number.isInteger(price) && price >= 118 && price <= 197, `售价 ${price} 越界`);
+	}
+	return "闯关 37~62 / 无尽按基准价同步浮动";
+});
+
+check("技能候选售价：同一 rng 下闯关任意关卡价格序列一致，无尽随关卡整体抬升", () => {
+	const prices = run => shop.rollSkillOffers(run, makeRng(7), [], skillsData.pool).map(offer => offer.price).join(",");
+	// 闯关：价格与关卡彻底无关，同一 rng 序列下第 1 / 10 / 1000 关完全一致
+	assertEqual(prices({ ...freshRun(), level: 1 }), prices({ ...freshRun(), level: 10 }), "闯关第 1 关与第 10 关价格一致");
+	assertEqual(prices({ ...freshRun(), level: 1 }), prices({ ...freshRun(), level: 1000 }), "闯关第 1 关与第 1000 关价格一致");
+	// 无尽：同一 rng 序列下基准价随 √n 增长，价格逐档整体抬升
+	const seq = level => prices({ ...freshRun(cfg.RUN_MODE.endless), level }).split(",").map(Number);
+	const first = seq(1), second = seq(2), tenth = seq(10);
+	assert(second.every((price, i) => price > first[i]), `第 2 关售价应整体高于第 1 关：${first} → ${second}`);
+	assert(tenth.every((price, i) => price > second[i]), `第 10 关售价应整体高于第 2 关：${second} → ${tenth}`);
+	return "闯关与关卡无关 / 无尽随 √n 抬升";
 });
 
 check("无尽最高记录：只记成功通关过的最高一关，且与存档无关", () => {
@@ -654,8 +684,9 @@ check("无尽最高记录：只记成功通关过的最高一关，且与存档�
 	return `最高第 ${best.level} 关`;
 });
 
-check("无尽奖励：floor(√n × 系数)（金币 5 / 经验 2），按刚完成的关卡编号结算", () => {
-	for (const [level, gold, exp] of [[1, 5, 2], [2, 7, 2], [3, 8, 3], [4, 10, 4], [100, 50, 20]]) {
+check("无尽奖励：floor(√n × 系数)（金币 50 / 经验 2），按刚完成的关卡编号结算", () => {
+	// 金币从第 1 关起以 50 为基准：1→50、2→70、3→86、4→100、9→150、10→158；经验公式不变
+	for (const [level, gold, exp] of [[1, 50, 2], [2, 70, 2], [3, 86, 3], [4, 100, 4], [9, 150, 6], [10, 158, 6], [100, 500, 20]]) {
 		const gained = rewardsData.getEndlessReward(level, cfg.CURRENCIES);
 		assertEqual(gained.gold, gold, `第${level}关金币`);
 		assertEqual(gained.exp, exp, `第${level}关经验`);
@@ -663,10 +694,10 @@ check("无尽奖励：floor(√n × 系数)（金币 5 / 经验 2），按刚完
 	// 结算用刚完成的关卡编号：level=2 的存档打赢后按 n=2 发奖，然后才推进到 3
 	const run = { ...freshRun(cfg.RUN_MODE.endless), level: 2 };
 	const won = reward.settleVictory(run, NOW);
-	assertEqual(won.gained.gold, 7, "按刚完成的第 2 关发金币");
+	assertEqual(won.gained.gold, 70, "按刚完成的第 2 关发金币");
 	assertEqual(won.gained.exp, 2, "按刚完成的第 2 关发经验");
 	assertEqual(won.run.level, 3, "发完奖再推进到第 3 关");
-	return "1:5/2 2:7/2 3:8/3 100:50/20";
+	return "1:50/2 2:70/2 3:86/3 10:158/6 100:500/20";
 });
 
 check("技能文本清洗：poptip 转成可读名字，正文一个字不丢", () => {
@@ -907,7 +938,7 @@ check("刷新会重掷技能与价格，价格定死后写进存档不再变", (
 	assert(next.offers.every(offer => !oldIds.has(offer.id)), `池子够时不该原样抽到旧候选：${next.offers.map(o => o.id).join(",")}`);
 	assert(next.offers.every(offer => offer.sold === false), "新候选都未售出");
 	assertEqual(next.run.shopOffers, next.offers, "run 里写的是同一份新候选");
-	assert(next.offers.every(offer => offer.price >= 38 && offer.price <= 63), `刷新价格仍按固定基准价 50 ±25% 生成（38~63）：${next.offers.map(o => o.price).join(",")}`);
+	assert(next.offers.every(offer => offer.price >= 37 && offer.price <= 62), `刷新价格仍按闯关基准价 50 ±25% floor 生成（37~62）：${next.offers.map(o => o.price).join(",")}`);
 	const stored = state.normalizeRun(next.run);
 	assertEqual(JSON.stringify(stored.shopOffers), JSON.stringify(next.run.shopOffers), "刷新结果可原样持久化");
 	assertEqual(JSON.stringify(state.normalizeRun(stored).shopOffers), JSON.stringify(stored.shopOffers), "再次读档不重掷");

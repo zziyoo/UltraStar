@@ -896,9 +896,9 @@ await check("商店：浮层骨架——固定标题与资源栏 + 三张技能�
 	const back = nodesWithClass("wm-rogue-back")[0];
 	assert(back, "应有返回");
 	assertEqual(back.parentNode?.classList?.contains("wm-rogue-titlebar"), true, "返回固定在标题栏");
-	// 价格在生成候选时定死：基准价固定 50 ±25%（38~63），与关卡无关，重进商店 / 刷新 UI 都不会重掷
+	// 价格在生成候选时定死：基准价 50 ±25% 后 floor（37~62），闯关与关卡无关，重进商店 / 刷新 UI 都不会重掷
 	const prices = saved.shopOffers.map(offer => offer.price);
-	assert(prices.every(price => price >= 38 && price <= 63), `售价应在 38~63：${prices.join(",")}`);
+	assert(prices.every(price => price >= 37 && price <= 62), `售价应在 37~62：${prices.join(",")}`);
 	click("返回");
 	click("商店");
 	assertEqual(

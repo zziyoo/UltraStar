@@ -4,6 +4,7 @@
 import {
 	ALLOW_DUPLICATE_SKILLS,
 	CURRENCY_LABEL,
+	RUN_MODE,
 	SKILL_BASE_PRICE,
 	SKILL_CURRENCY,
 	SKILL_OFFER_COUNT,
@@ -38,19 +39,25 @@ function spend(run, currency, amount) {
 }
 
 /**
- * 技能基准价：永远固定为 SKILL_BASE_PRICE（50）。
- * 与关卡、胜场、等级完全无关——不接受任何关卡参数，从签名上杜绝旧价回归。
+ * 技能基准价：
+ *   闯关——永远固定 SKILL_BASE_PRICE（50），与关卡彻底无关；
+ *   无尽——floor(SKILL_BASE_PRICE × √当前关卡)，第 1 关即 50，之后随 √n 增长。
+ * level 缺失或非法按第 1 关算；不认识的模式一律按闯关处理（固定 50）。
  */
-export function getSkillBasePrice() {
-	return SKILL_BASE_PRICE;
+export function getSkillBasePrice(run = null) {
+	if ((run?.mode ?? RUN_MODE.challenge) !== RUN_MODE.endless) {
+		return SKILL_BASE_PRICE;
+	}
+	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
+	return Math.floor(SKILL_BASE_PRICE * Math.sqrt(level));
 }
 
-/** 实际售价：固定基准价 ±25% 内随机取整（50 × 0.75~1.25 → 约 38~63）。rng 可注入，方便测试 */
-export function getRandomSkillPrice(rng = Math.random) {
-	const base = getSkillBasePrice();
+/** 实际售价：基准价 ±25% 内随机后向下取整（至少 1）。rng 可注入，方便测试 */
+export function getRandomSkillPrice(run = null, rng = Math.random) {
+	const base = getSkillBasePrice(run);
 	const min = base * (1 - SKILL_PRICE_SPREAD);
 	const max = base * (1 + SKILL_PRICE_SPREAD);
-	return Math.max(1, Math.round(min + rng() * (max - min)));
+	return Math.max(1, Math.floor(min + rng() * (max - min)));
 }
 
 /**
@@ -94,9 +101,9 @@ export function rollSkillOffers(run, rng = Math.random, characterSkills = [], ca
 		return ALLOW_DUPLICATE_SKILLS && owned.has(entry.id);
 	});
 	// 售价在生成候选时随机定死并写进存档：重载、重进商店、刷新 UI 都不再重掷。
-	// 基准价固定 50、只带 ±25% 浮动，与关卡/胜场/等级无关
+	// 基准价按模式取（闯关固定 50，无尽 floor(50×√当前关)），只带 ±25% 浮动
 	const picked = shuffle(pickedFrom, rng).slice(0, Math.max(0, SKILL_OFFER_COUNT));
-	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(rng), sold: false }));
+	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(run, rng), sold: false }));
 }
 
 /** 剩余免费刷新次数：缺字段（旧档没这一项）按每局满额算，已经刷成 0 的原样返回 */

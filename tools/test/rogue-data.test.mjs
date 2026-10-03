@@ -192,12 +192,12 @@ check("商店技能池：id 规范、定义与翻译齐备", () => {
 			}
 		}
 		if (item.price !== undefined && !(Number.isFinite(item.price) && item.price > 0)) {
-			problems.push(`${item.id}: price 应为正数（这一项只是作者标注的基础价，实际售价由 shop.js 按固定基准价 50 ±25% 随机生成）`);
+			problems.push(`${item.id}: price 应为正数（这一项只是作者标注的基础价，实际售价由 shop.js 按模式基准价 ±25% 随机生成）`);
 		}
 	}
 	assert(!problems.length, problems.join("；"));
 	const priced = skillsData.pool.filter(item => Number.isFinite(item.price)).length;
-	return `${skillsData.pool.length} 条技能（${priced} 条标了基础价，实际售价按固定基准价随机浮动）`;
+	return `${skillsData.pool.length} 条技能（${priced} 条标了基础价，实际售价按模式基准价随机浮动）`;
 });
 
 check("技能池：不在池里的 rogue_ 技能定义会被漏掉", () => {
@@ -274,8 +274,10 @@ check("属性强化：extraSkills 引用的技能有定义", () => {
 	return "引用完整";
 });
 
-check("奖励配置：闯关固定 50 金币 + 经验表；无尽系数非负；29 关累计 330", () => {
+check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50 / 经验系数 2；29 关累计 330", () => {
 	assert(rewardsData.CHALLENGE_GOLD_PER_LEVEL === 50, "闯关每关金币应固定 50");
+	assert(rewardsData.endlessReward.gold === 50, "无尽金币系数应为 50（金币 = floor(50×√n)，第 1 关即 50）");
+	assert(rewardsData.endlessReward.exp === 2, "无尽经验系数应为 2（经验 = floor(2×√n)）");
 	const problems = [];
 	for (const [key, value] of Object.entries(rewardsData.endlessReward)) {
 		if (!cfg.CURRENCIES.includes(key)) {
@@ -285,6 +287,9 @@ check("奖励配置：闯关固定 50 金币 + 经验表；无尽系数非负；
 		}
 	}
 	assert(!problems.length, problems.join("；"));
+	// 无尽金币抽值对账：n=2 → 70、n=10 → 158（floor，不用 round）
+	assert(rewardsData.getEndlessReward(2, cfg.CURRENCIES).gold === 70, "无尽第2关金币 floor(50×√2)");
+	assert(rewardsData.getEndlessReward(10, cfg.CURRENCIES).gold === 158, "无尽第10关金币 floor(50×√10)");
 	// 闯关经验表覆盖 1~30；前 29 关累计 +328，加初始 2 点第 29 关结算后正好 330
 	let sum = 0;
 	for (let level = 1; level <= 30; level++) {

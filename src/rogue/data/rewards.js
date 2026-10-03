@@ -59,9 +59,9 @@ export function getChallengeReward(level) {
 	};
 }
 
-/** 无尽模式的 √关数系数：金币 5 / 经验 2（只乘 √n，与初始资源无关） */
+/** 无尽模式的 √关数系数：金币 50（第 1 关即 50，与技能基准价同源）/ 经验 2（只乘 √n，与初始资源无关） */
 export const endlessReward = {
-	gold: 5,
+	gold: 50,
 	exp: 2,
 };
 
