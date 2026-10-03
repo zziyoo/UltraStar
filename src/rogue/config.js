@@ -19,6 +19,7 @@ export const BATTLE_BGM_LIST = [
 	"extension/奥特之星/assets/audio/djsj2.mp3",
 	"extension/奥特之星/assets/audio/haiyang.mp3",
 	"extension/奥特之星/assets/audio/heiandijia.mp3",
+	"extension/奥特之星/assets/audio/igniz.mp3",
 	"extension/奥特之星/assets/audio/jsts.mp3",
 	"extension/奥特之星/assets/audio/mks.mp3",
 	"extension/奥特之星/assets/audio/guaishou1.mp3",

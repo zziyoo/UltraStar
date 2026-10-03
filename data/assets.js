@@ -122,6 +122,7 @@ export default [
 	"assets/audio/fenxi1.mp3",
 	"assets/audio/fenxi2.mp3",
 	"assets/audio/haiyang.mp3",
+	"assets/audio/igniz.mp3",
 	"assets/camp/ji.png",
 	"assets/audio/jiansuo1.mp3",
 	"assets/audio/jiansuo2.mp3",
