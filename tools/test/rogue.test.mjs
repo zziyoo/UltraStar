@@ -370,7 +370,7 @@ check("闯关 29 连胜：经验累计恰好 330（属性三项可全部升满�
 		run = result.run;
 	}
 	assertEqual(run.currency.exp, 330, "初始 2 + 前 29 关 328 = 330");
-	assertEqual(run.currency.gold, cfg.INITIAL_CURRENCY.gold + 29 * 50, "金币 = 5 + 1450");
+	assertEqual(run.currency.gold, cfg.INITIAL_CURRENCY.gold + 29 * 50, `金币 = 初始${cfg.INITIAL_CURRENCY.gold} + 1450`);
 	// 与属性价格表对账：三项各 2+4+…+20 = 110，330 正好够全部升满
 	const perStat = statsData.stats.defense.price.reduce((sum, price) => sum + price, 0);
 	assertEqual(perStat, 110, "单个属性 0→10 花费");
@@ -580,7 +580,7 @@ check("旧档迁移：v2 只存 groupId 的进行中战斗按原组合还原阵�
 	return `还原 ${legacy.currentBattle.enemies.length} 个敌人`;
 });
 
-check("新局初始资源：金币 5 / 经验 2，旧存档不会被补发", () => {
+check("新局初始资源：金币 50（=技能基准价，第一关即可购买）/ 经验 2，旧存档不会被补发", () => {
 	for (const mode of [cfg.RUN_MODE.challenge, cfg.RUN_MODE.endless]) {
 		const run = freshRun(mode);
 		assertEqual(run.currency.gold, cfg.INITIAL_CURRENCY.gold, `${mode} 初始金币`);
@@ -592,6 +592,8 @@ check("新局初始资源：金币 5 / 经验 2，旧存档不会被补发", () 
 	assertEqual(old.currency.exp, 0, "旧档不补发经验");
 	const zero = state.normalizeRun({ ...freshRun(), currency: { gold: 0, exp: 0 } });
 	assertEqual(zero.currency.gold, 0, "明确记 0 的存档保持 0");
+	// 初始金币必须保证第一关进商店就买得起技能：不低于基准价 ±25% 的下界（38）
+	assert(cfg.INITIAL_CURRENCY.gold >= shop.getRandomSkillPrice(() => 0), `初始金币 ${cfg.INITIAL_CURRENCY.gold} 应 ≥ 售价下界`);
 	return `${cfg.INITIAL_CURRENCY.gold}/${cfg.INITIAL_CURRENCY.exp}`;
 });
 

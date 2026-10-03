@@ -59,7 +59,7 @@ export function getChallengeReward(level) {
 	};
 }
 
-/** 无尽模式的 √关数系数：与新建存档的初始资源一致（金币 5 / 经验 2） */
+/** 无尽模式的 √关数系数：金币 5 / 经验 2（只乘 √n，与初始资源无关） */
 export const endlessReward = {
 	gold: 5,
 	exp: 2,
