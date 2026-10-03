@@ -115,5 +115,5 @@ export const helpers = {
 };
 
 export const helperTranslate = {
-	rogue_stat: "属性强化<hr>点击查看当前强化",
+	rogue_stat: "属性强化",
 };

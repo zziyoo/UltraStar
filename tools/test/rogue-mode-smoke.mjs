@@ -1,4 +1,4 @@
-﻿﻿// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
+﻿﻿﻿﻿// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
 //
 // 用 loader hooks 把各模块顶部的 noname.js 换成桩，从而在 Node 里真实执行
 // registerRogueMode / start / 页面路由 / 商店 / 结算，并记录本体 API 的调用顺序。
