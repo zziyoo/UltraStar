@@ -538,6 +538,7 @@ export const createdAudios = [];
 function makeAudio() {
 	const node = makeNode("audio");
 	node.paused = true;
+	node.ended = false;
 	node.currentTime = 0;
 	node.volume = 1;
 	node.play = () => {
@@ -661,6 +662,8 @@ ui.backgroundMusic.loop = true;
 ui.backgroundMusic.paused = false;
 
 export const get = {
+	/** 对齐本体 get/index.js 的 mode()：lib[联机 ? configOL : config].mode；桩只有单机 config */
+	mode: () => lib.config.mode,
 	poptip: s => s,
 	translation: id => lib.translate[id] ?? id,
 	config: key => lib.config[`${lib.config.mode}_${key}`] ?? lib.config[key],
@@ -696,6 +699,13 @@ globalThis.document = {
 	body: makeNode("body"),
 	querySelector: selector => globalThis.document.body.querySelector(selector),
 	querySelectorAll: selector => globalThis.document.body.querySelectorAll(selector),
+};
+
+/** 技能 BGM（src/systems/bgm.js）用 new Audio(src) 建音轨：对齐真机 HTMLAudioElement 的起手式 */
+globalThis.Audio = function (src) {
+	const node = makeAudio();
+	node.src = src;
+	return node;
 };
 
 export function dumpStorage() {

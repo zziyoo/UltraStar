@@ -1,6 +1,7 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import bgmList from "../../data/bgmList.js";
+import { MODE_ID } from "../rogue/config.js";
 
 // 初始化全局 BGM 播放系统（arenaReady 时调用）
 export function initBgmSystem() {
@@ -20,6 +21,9 @@ export function initBgmSystem() {
 		};
 	};
 	game.playSkillBgm = function (key) {
+		// 肉鸽模式自带大厅/战斗 BGM 独占声场，技能 BGM 叠上去会糊成一团：肉鸽会话里一律拦下。
+		// 判据用本体现成的 get.mode()（lib.config.mode），directstart 重载续玩后依然有效，无需安装/恢复钩子
+		if (get.mode() === MODE_ID) return;
 		const files = bgmList[key];
 		if (!files?.length) return;
 		const audioKey = `${key}_audio`;

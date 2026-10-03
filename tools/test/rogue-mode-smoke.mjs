@@ -33,6 +33,7 @@ const enemyModule = await load("src/rogue/enemy.js");
 const stateModule = await load("src/rogue/state.js");
 const statsData = await load("src/rogue/data/stats.js");
 const common = await load("src/rogue/ui/common.js");
+const bgmSystem = await load("src/systems/bgm.js");
 
 /**
  * 当前最上层页面：优先取本体对话框栈顶（提示框/确认框都走这条路），
@@ -1610,6 +1611,75 @@ await check("战斗 BGM：进战斗随机抽一首单曲循环、压住本体 BG
 	assert(!ui.backgroundMusic.paused, "本体 BGM 不该被停掉：只是静音");
 	assertEqual(ui.backgroundMusic.currentTime, 7, "本体 BGM 保持原进度");
 	return battleAudio.src;
+});
+
+await check("技能 BGM：肉鸽营地/战斗中一律拦截，不建新音轨、不打断现有 BGM", async () => {
+	// 真机默认开着技能 BGM（config 的 bgm_enabled，init: true）：打开开关，才能证明「没播」是守卫拦下的
+	const prevEnabled = lib.config.extension_奥特之星_bgm_enabled;
+	const prevMode = lib.config.mode;
+	lib.config.extension_奥特之星_bgm_enabled = true;
+	// 对齐真机：肉鸽会话里 lib.config.mode 就是模式 id，directstart 重载续玩后仍是它
+	lib.config.mode = cfg.MODE_ID;
+	try {
+		freshWorld();
+		putRun(0, {});
+		session();
+		// arenaReady 时挂的技能 BGM 系统（桩里手动初始化）
+		bgmSystem.initBgmSystem();
+		// 肉鸽的大厅音轨是模块级单例，跨用例复用同一个元素，按曲目定位而不是取最后一个
+		const lobbyAudio = stub.createdAudios.find(node => node !== ui.backgroundMusic && node.src === cfg.LOBBY_BGM);
+		assert(lobbyAudio && !lobbyAudio.paused, "营地 BGM 应在播放");
+		const inLobby = stub.createdAudios.length;
+		game.playSkillBgm("xikali");
+		assertEqual(stub.createdAudios.length, inLobby, "营地里不该建出技能音轨");
+		assert(!lobbyAudio.paused, "营地 BGM 不该被打断");
+		assertEqual(game.customBgmList.length, 0, "技能音轨不得登记进互斥列表");
+		// 进战斗：战斗 BGM 接手，技能 BGM 同样不许出声
+		click("开始下一关");
+		await flush();
+		const battleAudio = stub.createdAudios.filter(node => node !== ui.backgroundMusic && node !== lobbyAudio).at(-1);
+		assert(battleAudio && !battleAudio.paused, "战斗 BGM 应在播放");
+		assertEqual(ui.backgroundMusic.volume, 0, "本体 BGM 应被战斗 BGM 压住");
+		const inBattle = stub.createdAudios.length;
+		game.playSkillBgm("xikali");
+		assertEqual(stub.createdAudios.length, inBattle, "战斗中不该建出技能音轨");
+		assert(!battleAudio.paused, "战斗 BGM 不该被打断");
+		assertEqual(game.customBgmList.length, 0, "战斗中技能音轨也不得入列");
+		assertEqual(ui.backgroundMusic.volume, 0, "本体 BGM 音量不该被守卫路径还原");
+		return "营地与战斗都拦下";
+	} finally {
+		lib.config.extension_奥特之星_bgm_enabled = prevEnabled;
+		lib.config.mode = prevMode;
+	}
+});
+
+await check("技能 BGM：非肉鸽模式照常播放，原有互斥逻辑不变", () => {
+	const prevEnabled = lib.config.extension_奥特之星_bgm_enabled;
+	const prevMode = lib.config.mode;
+	lib.config.extension_奥特之星_bgm_enabled = true;
+	lib.config.mode = "identity";
+	try {
+		freshWorld();
+		bgmSystem.initBgmSystem();
+		const before = stub.createdAudios.length;
+		game.playSkillBgm("xikali");
+		assertEqual(stub.createdAudios.length, before + 1, "普通模式应正常建出技能音轨");
+		const audio = stub.createdAudios.at(-1);
+		assertEqual(audio.src, "extension/奥特之星/assets/audio/xikali.mp3", "音轨文件");
+		assert(!audio.paused, "技能 BGM 应在播放");
+		assert(game.customBgmList.includes(audio), "应登记进互斥列表");
+		// 原逻辑保留：已有我方 BGM 在放时第二个不叠上去；前一首结束后能再播
+		game.playSkillBgm("mks");
+		assertEqual(stub.createdAudios.length, before + 1, "已有 BGM 在放时不得叠第二首");
+		assertEqual(game.customBgmList.length, 1, "互斥列表不新增");
+		audio.onended?.();
+		game.playSkillBgm("mks");
+		assertEqual(stub.createdAudios.length, before + 2, "前一轨结束后新技能 BGM 可再播");
+		return "xikali 正常播放，互斥逻辑保留";
+	} finally {
+		lib.config.extension_奥特之星_bgm_enabled = prevEnabled;
+		lib.config.mode = prevMode;
+	}
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);
