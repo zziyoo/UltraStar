@@ -23,7 +23,7 @@
 import { STAT_IDS } from "../config.js";
 
 export const stats = {
-	// 防御：等级为增量；累计效果 = 护甲 1,1,2,2,3,3,4,4,5,5，体力上限 0,1,2,3,4,5,6,7,8,9
+	// 防御：等级为增量；累计效果 = 护甲 1,1,2,2,3,3,4,4,5,5，体力上限 0,1,1,2,2,3,3,4,4,5
 	defense: {
 		name: "防御",
 		maxLevel: 10,
@@ -31,13 +31,13 @@ export const stats = {
 		levels: [
 			{ armor: 1 },
 			{ maxHp: 1 },
-			{ armor: 1, maxHp: 1 },
+			{ armor: 1 },
 			{ maxHp: 1 },
-			{ armor: 1, maxHp: 1 },
+			{ armor: 1 },
 			{ maxHp: 1 },
-			{ armor: 1, maxHp: 1 },
+			{ armor: 1 },
 			{ maxHp: 1 },
-			{ armor: 1, maxHp: 1 },
+			{ armor: 1 },
 			{ maxHp: 1 },
 		],
 	},
@@ -59,22 +59,22 @@ export const stats = {
 			{ handLimit: 1 },
 		],
 	},
-	// 攻击：每两级提高 10% 的【杀】额外 +1 伤害概率，出杀次数沿用原有 0,1,1,2,2,3,3,4,4,5
+	// 攻击：每级提高 10% 的【杀】额外 +1 伤害概率，出杀次数为 floor(level / 2)
 	attack: {
 		name: "攻击",
 		maxLevel: 10,
 		price: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
 		levels: [
 			{ shaDamageChance: 10 },
-			{ shaLimit: 1 },
+			{ shaDamageChance: 10, shaLimit: 1 },
 			{ shaDamageChance: 10 },
-			{ shaLimit: 1 },
+			{ shaDamageChance: 10, shaLimit: 1 },
 			{ shaDamageChance: 10 },
-			{ shaLimit: 1 },
+			{ shaDamageChance: 10, shaLimit: 1 },
 			{ shaDamageChance: 10 },
-			{ shaLimit: 1 },
+			{ shaDamageChance: 10, shaLimit: 1 },
 			{ shaDamageChance: 10 },
-			{ shaLimit: 1 },
+			{ shaDamageChance: 10, shaLimit: 1 },
 		],
 	},
 };
@@ -136,7 +136,7 @@ export function sumStatEffects(statLevels) {
 			total.startHand += effect.startHand;
 			total.extraDraw += effect.extraDraw;
 			total.handLimit += effect.handLimit;
-			total.shaDamageChance = Math.min(50, total.shaDamageChance + effect.shaDamageChance);
+			total.shaDamageChance += effect.shaDamageChance;
 			total.shaLimit += effect.shaLimit;
 			for (const id of effect.extraSkills) {
 				total.extraSkills.push(id);

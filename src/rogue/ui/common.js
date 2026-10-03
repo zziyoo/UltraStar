@@ -135,9 +135,12 @@ export function showBattleStats(run) {
 	panel.className = "wm-rogue-panel wm-rogue-stat-panel";
 	stage.appendChild(panel);
 	const title = document.createElement("div");
-	title.className = "wm-rogue-title";
+	title.className = "wm-rogue-stat-title";
 	title.textContent = "属性强化";
 	panel.appendChild(title);
+	const divider = document.createElement("div");
+	divider.className = "wm-rogue-stat-divider";
+	panel.appendChild(divider);
 	for (const statId of STAT_IDS) {
 		const info = describeStat(statId, run?.stats?.[statId]);
 		const section = document.createElement("div");

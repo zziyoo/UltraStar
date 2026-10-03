@@ -453,6 +453,7 @@ await check("玩家属性与技能在开局时按存档重建；旧档 groupId �
 	assert(game.me.playerid, "玩家应有 playerid");
 	assert(game.players.every(player => player.playerid), "每个座位都应有 playerid");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "该技能的触发时机应已登记进 hookmap");
+	assertEqual(lib.hookmap.damageBegin1, true, "属性强化的杀伤害触发时机应已登记进 hookmap");
 	const bare = stub.ui.create.player();
 	bare.addSkill("rogue_extra");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "无 playerid 的新座位不应影响已登记的钩子");
@@ -1301,9 +1302,25 @@ await check("属性卡：三项且防御把体力上限一起算，不得多出�
 	assertEqual(nodesWithClass("wm-rogue-stat-name").map(node => textOf(node)).join(","), "防御,过牌,攻击", "只有三项属性");
 	const text = screenText();
 	assert(text.includes("Lv.3/10"), `防御等级：${text}`);
-	assert(text.includes("初始护甲 +2") && text.includes("体力上限 +2"), "防御的累计效果要一起列出");
+	assert(text.includes("初始护甲 +2") && text.includes("体力上限 +1"), "防御的累计效果要一起列出");
 	assert(text.includes("暂无加成"), "其他两项没加成");
 	return "防御含体力上限";
+});
+
+await check("局内属性弹层：标题独立置顶且使用真实 Lv.10 效果", async () => {
+	common.showBattleStats({ stats: { defense: 10, draw: 8, attack: 10 } });
+	const overlay = common.currentScreenNode();
+	const panel = nodesWithClass("wm-rogue-stat-panel")[0];
+	assert(overlay?.classList.contains("wm-rogue-stat-overlay"), "属性详情应使用 Rogue 专属浮层");
+	assert(panel, "应存在属性详情面板");
+	assertEqual(panel.children[0].classList.contains("wm-rogue-stat-title"), true, "标题必须是面板第一项");
+	assertEqual(panel.children[1].classList.contains("wm-rogue-stat-divider"), true, "标题后应有独立分隔线");
+	assertEqual(panel.children[2].classList.contains("wm-rogue-stat-detail"), true, "第一个属性不能与标题同行");
+	const text = screenText();
+	assert(text.includes("攻击 Lv.10") && text.includes("100%") && text.includes("出【杀】次数 +5"), "攻击 Lv.10 文案应真实显示");
+	assert(text.includes("防御 Lv.10") && text.includes("体力上限 +5") && !text.includes("体力上限 +9"), "防御 Lv.10 文案应真实显示");
+	click("关闭");
+	return "标题/分隔线/属性区层级正确";
 });
 
 await check("属性升级：受最大等级与价格约束，成功即落盘", async () => {

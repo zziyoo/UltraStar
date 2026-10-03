@@ -702,18 +702,23 @@ check("技能文本清洗：poptip 转成可读名字，正文一个字不丢", 
 	return "poptip 转名";
 });
 
-check("属性规则：攻击概率按等级递增且展示接口复用真实效果", () => {
+check("属性规则：防御与攻击逐级累计并复用展示接口", () => {
 	assertEqual(statsData.describeStat("attack", 0).lines[0], "未强化", "0 级明确显示未强化");
-	assertEqual(statsData.getStatSummary("attack", 1).shaDamageChance, 10, "攻击 Lv.1 概率");
-	assertEqual(statsData.getStatSummary("attack", 2).shaDamageChance, 10, "攻击 Lv.2 概率");
-	assertEqual(statsData.getStatSummary("attack", 3).shaDamageChance, 20, "攻击 Lv.3 概率");
-	assertEqual(statsData.getStatSummary("attack", 10).shaDamageChance, 50, "攻击 Lv.10 概率封顶");
-	assertEqual(statsData.getStatSummary("attack", 1).shaLimit, 0, "攻击 Lv.1 不增加出杀");
-	assertEqual(statsData.getStatSummary("attack", 2).shaLimit, 1, "攻击 Lv.2 出杀 +1");
-	assertEqual(statsData.getStatSummary("attack", 3).shaLimit, 1, "攻击 Lv.3 出杀 +1");
-	const all = statsData.describeStat("attack", 4);
-	assert(all.lines.some(line => line.includes("20%") && line.includes("+1")), "面板说明应来自攻击真实效果");
-	return "Lv.1/2/3/10 = 10%/10%/20%/50%";
+	const defenseExpected = [[1, 0], [1, 1], [2, 1], [2, 2], [3, 2], [3, 3], [4, 3], [4, 4], [5, 4], [5, 5]];
+	const attackExpected = [[10, 0], [20, 1], [30, 1], [40, 2], [50, 2], [60, 3], [70, 3], [80, 4], [90, 4], [100, 5]];
+	for (let level = 1; level <= 10; level++) {
+		const defense = statsData.getStatSummary("defense", level);
+		assertEqual(defense.armor, defenseExpected[level - 1][0], `防御 Lv.${level} 护甲`);
+		assertEqual(defense.maxHp, defenseExpected[level - 1][1], `防御 Lv.${level} 体力上限`);
+		const attack = statsData.getStatSummary("attack", level);
+		assertEqual(attack.shaDamageChance, attackExpected[level - 1][0], `攻击 Lv.${level} 概率`);
+		assertEqual(attack.shaLimit, attackExpected[level - 1][1], `攻击 Lv.${level} 出杀次数`);
+	}
+	const defenseText = statsData.describeStat("defense", 10).lines.join("|");
+	const attackText = statsData.describeStat("attack", 10).lines.join("|");
+	assert(defenseText.includes("体力上限 +5") && !defenseText.includes("+9"), "防御 Lv.10 文案应为 +5");
+	assert(attackText.includes("100%") && attackText.includes("出【杀】次数 +5"), "攻击 Lv.10 文案应为 100%/+5");
+	return "防御与攻击 Lv.1~10 全等级通过";
 });
 
 check("属性强化合并成一个技能：四种效果都还在，标记说明列全部加成", () => {
@@ -762,7 +767,30 @@ check("属性强化合并成一个技能：四种效果都还在，标记说明�
 	}
 	assert(!html.includes("[object Object]"), "不能出现 [object Object]");
 	assertEqual(stat.intro.nocount, true, "对象型 storage 不该让本体去数标记数量");
-	return "四效果 + 单标记";
+	const guaranteed = { storage: { rogue_stat: { shaDamageChance: 100 } } };
+	const guaranteedDamage = { name: "damageBegin1", num: 1, card: { name: "sha" } };
+	assert(stat.filter(guaranteedDamage, guaranteed, "damageBegin1"), "Lv.10 杀应触发概率加伤");
+	stat.content({}, guaranteedDamage, guaranteed);
+	assertEqual(guaranteedDamage.num, 2, "Lv.10 杀应必定只额外 +1");
+	return "四效果 + 概率命中/未命中 + Lv.10 必定命中";
+});
+
+check("闯关经验：第28关结算后 310，第29关结算后 330", () => {
+	let run = freshRun();
+	for (let level = 1; level <= 29; level++) {
+		const result = reward.settleVictory(run, NOW);
+		run = result.run;
+		if (level === 28) {
+			assertEqual(result.gained.exp, 20, "第28关经验");
+			assertEqual(run.currency.exp, 310, "第28关结算后经验");
+		}
+		if (level === 29) {
+			assertEqual(result.gained.exp, 20, "第29关经验");
+			assertEqual(run.currency.exp, 330, "第29关结算后经验");
+			assertEqual(run.level, 30, "第29关后进入第30关");
+		}
+	}
+	return "进入第29关前 310，完成第29关后 330";
 });
 
 check("商店排除：角色原生技能与当前持有不上架，替换掉的可以再出现", () => {

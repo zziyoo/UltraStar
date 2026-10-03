@@ -106,7 +106,7 @@ export const helpers = {
 			if (trigger.name === "phaseDrawBegin2") {
 				trigger.num += storage.extraDraw || 0;
 			} else if (trigger.name === "damageBegin1") {
-				if (Math.random() * 100 < Math.min(50, storage.shaDamageChance || 0)) {
+				if (Math.random() * 100 < Math.max(0, Math.min(100, storage.shaDamageChance || 0))) {
 					trigger.num += 1;
 				}
 			}

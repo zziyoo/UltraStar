@@ -61,7 +61,10 @@ const CSS = `
 .wm-rogue-btn.wm-rogue-danger { background: linear-gradient(rgba(150,60,50,0.92), rgba(90,30,25,0.95)); }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stage { padding: 20px 12px; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-panel { width: min(520px, calc(100% - 24px)); padding: 20px; border-radius: 8px; background: linear-gradient(rgba(28,28,28,0.96), rgba(12,12,12,0.98)); border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 24px rgba(0,0,0,0.6); }
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail { margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.14); }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-title { display: block !important; margin: 0; text-align: center; font-size: 26px; line-height: 1.3; font-weight: bold; letter-spacing: 5px; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.85); }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-divider { display: block !important; height: 1px; margin: 14px 0 18px; background: rgba(255,255,255,0.22); }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail { display: block !important; margin-top: 16px; padding-top: 0; border-top: 0; }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { display: block !important; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { font-size: 19px; font-weight: bold; color: #ffd479; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-effect { margin-top: 4px; font-size: 16px; color: rgba(255,255,255,0.88); }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-btn { display: flex !important; width: fit-content; margin: 18px auto 0; }
