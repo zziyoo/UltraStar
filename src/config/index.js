@@ -1,6 +1,7 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
 import { openChangelog } from "../systems/changelog.js";
+import { refreshRogueBgmVolume } from "../rogue/bgm.js";
 import { openTierlist } from "../systems/tierlist.js";
 import { VERSION } from "../core/version.js";
 import easterEggs from "../systems/easterEgg.js";
@@ -56,6 +57,28 @@ export default {
 		name: "彩蛋系统",
 		intro: "开启后，特定条件下会触发角色台词和音效",
 		init: true,
+	},
+	rogue_bgm_volume: {
+		name: "肉鸽BGM音量",
+		intro: "肉鸽模式（营地/战斗）背景音乐的独立音量，与本体「音乐音量」无关；0% 即静音",
+		init: 100,
+		item: {
+			0: "0%",
+			10: "10%",
+			20: "20%",
+			30: "30%",
+			40: "40%",
+			50: "50%",
+			60: "60%",
+			70: "70%",
+			80: "80%",
+			90: "90%",
+			100: "100%",
+		},
+		onclick(volume) {
+			game.saveConfig("extension_奥特之星_rogue_bgm_volume", parseInt(volume));
+			refreshRogueBgmVolume();
+		},
 	},
 	copyRepoUrl: {
 		name: `<ins style="color: #5CADFF;">点击复制仓库地址</ins>`,

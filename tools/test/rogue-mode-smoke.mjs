@@ -34,6 +34,7 @@ const stateModule = await load("src/rogue/state.js");
 const statsData = await load("src/rogue/data/stats.js");
 const common = await load("src/rogue/ui/common.js");
 const bgmSystem = await load("src/systems/bgm.js");
+const rogueBgm = await load("src/rogue/bgm.js");
 
 /**
  * 当前最上层页面：优先取本体对话框栈顶（提示框/确认框都走这条路），
@@ -1308,7 +1309,7 @@ await check("属性卡：三项且防御把体力上限一起算，不得多出�
 	return "防御含体力上限";
 });
 
-await check("局内属性弹层：标题独立置顶且使用真实 Lv.10 效果", async () => {
+await check("局内属性弹层：标题独立置顶、真实 Lv.10 效果，点框外退出（无关闭按钮）", async () => {
 	common.showBattleStats({ stats: { defense: 10, draw: 8, attack: 10 } });
 	const overlay = common.currentScreenNode();
 	const panel = nodesWithClass("wm-rogue-stat-panel")[0];
@@ -1320,8 +1321,14 @@ await check("局内属性弹层：标题独立置顶且使用真实 Lv.10 效果
 	const text = screenText();
 	assert(text.includes("攻击 Lv.10") && text.includes("100%") && text.includes("出【杀】次数 +5"), "攻击 Lv.10 文案应真实显示");
 	assert(text.includes("防御 Lv.10") && text.includes("体力上限 +5") && !text.includes("体力上限 +9"), "防御 Lv.10 文案应真实显示");
-	click("关闭");
-	return "标题/分隔线/属性区层级正确";
+	// 没有「关闭」按钮：点面板内不关、点框外的遮罩空白处直接退出
+	assert(!text.includes("关闭"), "不再依赖「关闭」按钮");
+	const tapOverlay = target => overlay.__listeners[0]({ target });
+	tapOverlay(panel);
+	assertEqual(common.currentScreenNode(), overlay, "点面板内不应关闭");
+	tapOverlay(overlay);
+	assertEqual(common.currentScreenNode(), null, "点框外应直接退出");
+	return "无关闭按钮，点框外退出";
 });
 
 await check("属性升级：受最大等级与价格约束，成功即落盘", async () => {
@@ -1580,7 +1587,7 @@ await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、
 	return audio.src;
 });
 
-await check("战斗 BGM：进战斗随机抽一首单曲循环、压住本体 BGM，战斗结束停止并还原音量", async () => {
+await check("战斗 BGM：进战斗随机起播、放完随机接下一首，胜利不切断、失败停止并还原音量", async () => {
 	freshWorld();
 	putRun(0, {});
 	// 页面加载时本体自己的 BGM 通常在放
@@ -1597,19 +1604,26 @@ await check("战斗 BGM：进战斗随机抽一首单曲循环、压住本体 BG
 	const battleAudio = stub.createdAudios.filter(node => node !== ui.backgroundMusic && node !== lobbyAudio).at(-1);
 	assert(battleAudio, "进战斗应有战斗 BGM 元素");
 	assert(cfg.BATTLE_BGM_LIST.includes(battleAudio.src), `战斗 BGM 必须从 BATTLE_BGM_LIST 随机抽取：${battleAudio.src}`);
-	assertEqual(battleAudio.loop, true, "战斗 BGM 要单曲循环");
+	assertEqual(battleAudio.loop, false, "不再单曲循环：一首放完随机接下一首");
 	assert(!battleAudio.paused, "战斗 BGM 应在播放");
-	assertEqual(battleAudio.volume, 1, "战斗 BGM 音量跟随本体刻度（volumn_background 8 → 8/8）");
+	assertEqual(battleAudio.volume, 1, "战斗 BGM 音量走独立设置（缺省 100%）");
 	assertEqual(ui.backgroundMusic.volume, 0, "战斗期间本体 BGM 保持静音");
-	// 战斗结束：最后一个敌人倒下触发 game.over → onover
+	// 连播：一首放完随机抽下一首，不与刚放完的重复
+	const firstFile = battleAudio.src;
+	battleAudio.onended?.();
+	assert(cfg.BATTLE_BGM_LIST.includes(battleAudio.src), `放完应随机接一首列表里的曲目：${battleAudio.src}`);
+	assert(battleAudio.src !== firstFile, `连播不得与刚放完的重复：${firstFile} → ${battleAudio.src}`);
+	assert(!battleAudio.paused, "接上的下一首应在播放");
+	battleAudio.onended?.();
+	assert(!battleAudio.paused, "连播持续进行");
+	// 胜利结算：BGM 不切断，一路响过结算页；本体 BGM 仍被压住（等返回营地时的整页重载才收）
 	for (const player of game.players.slice(1)) {
 		player.__alive = false;
 	}
 	lib.element.player.dieAfter.call(game.players[1]);
-	assert(battleAudio.paused, "战斗结束应停止战斗 BGM");
-	assertEqual(ui.backgroundMusic.volume, 1, "战斗结束应把本体 BGM 音量放回去");
+	assert(!battleAudio.paused, "胜利结算不切断战斗 BGM");
+	assertEqual(ui.backgroundMusic.volume, 0, "结算期间本体 BGM 仍被压住");
 	assert(!ui.backgroundMusic.paused, "本体 BGM 不该被停掉：只是静音");
-	assertEqual(ui.backgroundMusic.currentTime, 7, "本体 BGM 保持原进度");
 	return battleAudio.src;
 });
 
@@ -1679,6 +1693,54 @@ await check("技能 BGM：非肉鸽模式照常播放，原有互斥逻辑不变
 	} finally {
 		lib.config.extension_奥特之星_bgm_enabled = prevEnabled;
 		lib.config.mode = prevMode;
+	}
+});
+
+await check("肉鸽 BGM 独立音量：本体调最低不影响、肉鸽 0% 即时静音、与本体互不污染", async () => {
+	const prevVolume = lib.config.volumn_background;
+	const prevRogue = lib.config.extension_奥特之星_rogue_bgm_volume;
+	try {
+		// 测试1：本体音乐音量调到最低 0，肉鸽 100% —— 肉鸽照常全量出声
+		freshWorld();
+		putRun(0, {});
+		lib.config.volumn_background = 0;
+		lib.config.extension_奥特之星_rogue_bgm_volume = 100;
+		session();
+		const lobbyAudio = stub.createdAudios.find(node => node !== ui.backgroundMusic && node.src === cfg.LOBBY_BGM);
+		assert(lobbyAudio && !lobbyAudio.paused, "营地 BGM 应在播放");
+		assertEqual(lobbyAudio.volume, 1, "本体最低（0）时肉鸽仍按自己的 100% 播放");
+		click("开始下一关");
+		await flush();
+		// 战斗音轨是模块级单例、跨用例复用：按曲目定位（技能 BGM 用例也建过音轨，取最后一个会拿错）
+		const battleAudio = stub.createdAudios.find(node => cfg.BATTLE_BGM_LIST.includes(node.src));
+		assert(battleAudio && !battleAudio.paused, "战斗 BGM 应在播放");
+		assertEqual(battleAudio.volume, 1, "战斗 BGM 同样不理会本体音量");
+		// 测试2：肉鸽 0% —— 正在放的音轨即时静音，不用等下一首
+		lib.config.extension_奥特之星_rogue_bgm_volume = 0;
+		rogueBgm.refreshRogueBgmVolume();
+		assertEqual(battleAudio.volume, 0, "肉鸽 0% 应把战斗音轨清零");
+		assertEqual(lobbyAudio.volume, 0, "大厅音轨同样清零");
+		// 测试3：互不污染——本体设置 2（25%）、肉鸽回 100%：肉鸽音轨只认自己的值；
+		// 战斗结束停播时本体 BGM 还原成本体设置（0.25）而不是肉鸽值
+		lib.config.volumn_background = 2;
+		lib.config.extension_奥特之星_rogue_bgm_volume = 100;
+		rogueBgm.refreshRogueBgmVolume();
+		assertEqual(battleAudio.volume, 1, "肉鸽音轨不取本体的 0.25");
+		// 失败结算：战斗 BGM 停掉并还原本体音量（胜利不切是另一条用例，见「战斗 BGM」）
+		game.me.__alive = false;
+		game.me.hp = 0;
+		lib.element.player.dieAfter.call(game.me);
+		assert(battleAudio.paused, "失败结算停止战斗 BGM");
+		assertEqual(ui.backgroundMusic.volume, 0.25, "本体 BGM 还原成本体设置（2/8），不是肉鸽值");
+		assertEqual(lobbyAudio.volume, 1, "大厅音轨仍是肉鸽自己的音量");
+		return "本体 0 不影响 / 肉鸽 0 即时静音 / 失败还原本体 0.25、肉鸽 1.0 各归各";
+	} finally {
+		lib.config.volumn_background = prevVolume;
+		if (prevRogue === undefined) {
+			delete lib.config.extension_奥特之星_rogue_bgm_volume;
+		} else {
+			lib.config.extension_奥特之星_rogue_bgm_volume = prevRogue;
+		}
 	}
 });
 

@@ -117,9 +117,15 @@ export const skills = {
 						.set("prompt", `分身：是否防止对你造成的${get.cnNumber(trigger.num)}点伤害？`)
 						.set("ai", () => {
 							const source = trigger.source;
-							if (trigger.num === 1 && get.attitude(source, player) > 0) return choices.length - 1;
-							if (player.hp > 0) return choices.indexOf("失去一点体力");
-							return 0;
+							const num = trigger.num;
+							if (num === 1 && get.attitude(source, player) > 0) return choices.length - 1;
+							if (!trigger.nohujia && player.hujia >= num) return choices.length - 1;
+							const canDiscard = choices.includes("弃置两张牌");
+							const canLose = choices.includes("失去一点体力");
+							if (!canLose) return canDiscard ? choices.indexOf("弃置两张牌") : choices.length - 1;
+							if (!canDiscard) return choices.indexOf("失去一点体力");
+							if (num >= player.hp || player.hp <= 2 || player.countCards("he") >= 4) return choices.indexOf("弃置两张牌");
+							return choices.indexOf("失去一点体力");
 						})
 						.forResult();
 					if (!result || result.control === "cancel2" || result.index === choices.length - 1) return;

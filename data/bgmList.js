@@ -27,4 +27,5 @@ export default {
 	mks: ["mks.mp3"],
 	agr: ["haiyang.mp3"],
 	gy: ["dadi.mp3"],
+	igniz: ["igniz.mp3"],
 };

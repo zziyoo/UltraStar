@@ -402,7 +402,11 @@ function onover(resultbool) {
 	}
 	context.settled = true;
 	context.battleLive = false;
-	stopBattleBgm();
+	// 胜利结算不切战斗 BGM：让它一路响过结算页，返回营地/下一关时整页重载自然收掉；
+	// 失败与无结果仍按原样停止，并还原本体 BGM 音量
+	if (resultbool !== true) {
+		stopBattleBgm();
+	}
 	if (!context.run || !context.run.currentBattle) {
 		return;
 	}

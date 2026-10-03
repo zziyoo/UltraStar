@@ -10,8 +10,8 @@ export const MODE_SPLASH = "ext:奥特之星/assets/sundry/rouge.jpg";
 /** 大厅背景音乐（存档页与营地循环播放，进战斗停止）；换曲子只改这一行，路径要与 data/assets.js 清单一致 */
 export const LOBBY_BGM = "extension/奥特之星/assets/audio/rogue/start.mp3";
 /**
- * 战斗背景音乐池：进战斗时随机抽一首单曲循环，战斗结束停止。
- * 改动曲目只改这个数组；每首的路径同样要与 data/assets.js 清单一致。
+ * 战斗背景音乐池：进战斗时随机起一首，一首放完随机接下一首（不与刚放完的重复）连播，
+ * 失败结算与页面重载才收掉。改动曲目只改这个数组；每首的路径同样要与 data/assets.js 清单一致。
  */
 export const BATTLE_BGM_LIST = [
 	"extension/奥特之星/assets/audio/atm.mp3",
@@ -81,6 +81,12 @@ export const SKILL_PRICE_SPREAD = 0.25;
 export const SKILL_CURRENCY = "gold";
 /** 属性升级用哪种货币 */
 export const STAT_CURRENCY = "exp";
+/**
+ * 无尽模式的属性升级经验 √ 系数：升到 N 级花 floor(系数 × √N)（N=1..10：20,28,34,40,44,48,52,56,60,63，
+ * 单属性 0→10 共 445、三项 1335）。只有无尽用它；闯关仍走 data/stats.js 的固定价格表（三项 330 与 29 关累计经验对平）。
+ * 改这个数即整体缩放无尽曲线的陡峭度。
+ */
+export const ENDLESS_STAT_UPGRADE_BASE = 20;
 
 /**
  * 闯关失败的损失规则。

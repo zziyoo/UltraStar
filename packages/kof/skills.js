@@ -187,6 +187,7 @@ export const skills = {
 							event.getParent().goto(0);
 							return;
 						}
+						game.playSkillBgm("igniz");
 					},
 				};
 			},

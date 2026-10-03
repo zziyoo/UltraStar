@@ -4,6 +4,7 @@
 import {
 	ALLOW_DUPLICATE_SKILLS,
 	CURRENCY_LABEL,
+	ENDLESS_STAT_UPGRADE_BASE,
 	RUN_MODE,
 	SKILL_BASE_PRICE,
 	SKILL_CURRENCY,
@@ -58,6 +59,23 @@ export function getRandomSkillPrice(run = null, rng = Math.random) {
 	const min = base * (1 - SKILL_PRICE_SPREAD);
 	const max = base * (1 + SKILL_PRICE_SPREAD);
 	return Math.max(1, Math.floor(min + rng() * (max - min)));
+}
+
+/**
+ * 属性升级经验：按模式分离，只从 run.mode + run.stats 现算，两模式互不共享。
+ *   闯关——data/stats.js 的固定价格表（2,4,…,20，三项 330 与 29 关累计经验对平）；
+ *   无尽——自己的 √ 曲线 floor(ENDLESS_STAT_UPGRADE_BASE × √目标等级)，随属性等级递增、可持续成长。
+ * 不认识的模式按闯关处理（与 getSkillBasePrice 同一口径）；闯关表里没配价的等级返回 null。
+ */
+export function getStatUpgradePrice(run, statId, level) {
+	const target = Math.floor(Number(level));
+	if (!Number.isFinite(target) || target <= 0) {
+		return null;
+	}
+	if ((run?.mode ?? RUN_MODE.challenge) === RUN_MODE.endless) {
+		return Math.floor(ENDLESS_STAT_UPGRADE_BASE * Math.sqrt(target));
+	}
+	return getStatPrice(statId, target);
 }
 
 /**
@@ -204,7 +222,7 @@ export function checkStatUpgrade(run, statId) {
 	if (level >= cfg.maxLevel) {
 		return { ok: false, error: "已达最高等级", level, maxLevel: cfg.maxLevel };
 	}
-	const price = getStatPrice(statId, level + 1);
+	const price = getStatUpgradePrice(run, statId, level + 1);
 	if (!Number.isFinite(price)) {
 		return { ok: false, error: "该属性尚未配置升级价格", level, maxLevel: cfg.maxLevel };
 	}

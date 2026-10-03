@@ -12,7 +12,9 @@
 //                   shaLimit    出【杀】次数上限 +N
 //                   extraSkills 额外获得的技能 id 数组（扩展技能或肉鸽技能）
 //   price[i]      从第 i 级升到第 i+1 级的花费（2,4,6,…,20：单个属性 0→10 共 110，三项满级 330）；
-//                 留空数组表示暂不出售（商店按钮会说明「尚未配置升级价格」）
+//                 留空数组表示暂不出售（商店按钮会说明「尚未配置升级价格」）。
+//                 这张表**只服务闯关模式**：无尽模式走自己的 √ 曲线，不吃这里
+//                 （config.js 的 ENDLESS_STAT_UPGRADE_BASE，计算在 shop.js:getStatUpgradePrice）
 //
 // 自检会查
 //   maxLevel 非负整数、levels 项数与 maxLevel 一致、只出现上面这些效果键、

@@ -58,6 +58,7 @@ const skillsData = await load("src/rogue/data/skills.js");
 const skillPool = await load("src/rogue/skillPool.js");
 const rewardsData = await load("src/rogue/data/rewards.js");
 const enemy = await load("src/rogue/enemy.js");
+const rogueBgm = await load("src/rogue/bgm.js");
 /** 桩里的 lib：与各模块拿到的是同一个对象，用来临时塞 lib.poptip 之类的桩数据 */
 const { lib } = await import(MOCK_URL);
 
@@ -292,6 +293,107 @@ check("属性最大等级：不可超过配置上限，且必须配置价格", (
 		statsData.stats[statId].price = originalPrice;
 	}
 	return `${statId} 上限 ${maxed.maxLevel}`;
+});
+
+check("属性升级·无尽：按 floor(20×√目标等级) 的 √ 曲线递增，0→10 共 445", () => {
+	const statId = cfg.STAT_IDS[0];
+	const expected = [[1, 20], [2, 28], [3, 34], [4, 40], [5, 44], [6, 48], [7, 52], [8, 56], [9, 60], [10, 63]];
+	const run = freshRun(cfg.RUN_MODE.endless);
+	run.currency[cfg.STAT_CURRENCY] = 10000;
+	let current = run;
+	const paid = [];
+	for (const [level, price] of expected) {
+		const res = shop.upgradeStat(current, statId);
+		assert(res.ok, res.error ?? `升到 ${level} 级应成功`);
+		assertEqual(res.price, price, `升到 ${level} 级的经验`);
+		assertEqual(res.run.stats[statId], level, `等级推进到 ${level}`);
+		paid.push(res.price);
+		current = res.run;
+	}
+	for (let i = 1; i < paid.length; i++) {
+		assert(paid[i] >= paid[i - 1], `√ 曲线不得随等级回落：${paid.join(",")}`);
+	}
+	assertEqual(paid.reduce((sum, value) => sum + value, 0), 445, "单属性 0→10 总经验");
+	assert(!shop.checkStatUpgrade(current, statId).ok, "满级后不再可升级");
+	// 与闯关表彻底分离：同一目标等级两边报价不同
+	assertEqual(shop.checkStatUpgrade(freshRun(cfg.RUN_MODE.endless), statId).price, 20, "无尽第 1 级 20 经验");
+	assertEqual(shop.checkStatUpgrade(freshRun(), statId).price, 2, "闯关第 1 级仍是 2 经验");
+	return `无尽 ${paid.join("→")} 共 445`;
+});
+
+check("属性升级·闯关：29 关的 330 经验能把三项全部升满（现有平衡不动）", () => {
+	const run = freshRun();
+	run.currency[cfg.STAT_CURRENCY] = 330; // 初始 2 + 前 29 关 328
+	let current = run;
+	for (const statId of cfg.STAT_IDS) {
+		for (let level = 1; level <= statsData.stats[statId].maxLevel; level++) {
+			const res = shop.upgradeStat(current, statId);
+			assert(res.ok, res.error ?? `${statId} 升到 ${level} 级应成功`);
+			current = res.run;
+		}
+		assertEqual(current.stats[statId], statsData.stats[statId].maxLevel, `${statId} 满级`);
+	}
+	assertEqual(current.currency[cfg.STAT_CURRENCY], 0, "330 经验恰好花完");
+	return "三项满级，余额 0";
+});
+
+check("两模式升级经验互不共享：同一等级两边报价不同，交替读取不串档", () => {
+	const statId = cfg.STAT_IDS[0];
+	const challenge = freshRun();
+	const endless = freshRun(cfg.RUN_MODE.endless);
+	for (const run of [challenge, endless]) {
+		run.stats[statId] = 3;
+	}
+	// 交替查询：闯关 3→4 级 8（表 [2,4,6,8]）→ 无尽 3→4 级 40（floor(20×2)）→ 再回闯关仍是 8
+	assertEqual(shop.checkStatUpgrade(challenge, statId).price, 8, "闯关 3→4 级 8 经验");
+	assertEqual(shop.checkStatUpgrade(endless, statId).price, 40, "无尽 3→4 级 40 经验");
+	assertEqual(shop.checkStatUpgrade(challenge, statId).price, 8, "再查闯关不变（无缓存串档）");
+	// 价格只认 run.mode 现算：同一份数据换个模式字段就换曲线
+	assertEqual(shop.checkStatUpgrade({ ...endless, mode: cfg.RUN_MODE.challenge }, statId).price, 8, "无尽存档标成闯关时按闯关表算");
+	// 扣款也各自按自己的曲线
+	const rich = amount => ({ currency: { gold: 0, [cfg.STAT_CURRENCY]: amount } });
+	const paidChallenge = shop.upgradeStat({ ...challenge, ...rich(100) }, statId);
+	assertEqual(paidChallenge.price, 8, "闯关扣 8");
+	assertEqual(paidChallenge.run.currency[cfg.STAT_CURRENCY], 92, "闯关余额");
+	const paidEndless = shop.upgradeStat({ ...endless, ...rich(100) }, statId);
+	assertEqual(paidEndless.price, 40, "无尽扣 40");
+	assertEqual(paidEndless.run.currency[cfg.STAT_CURRENCY], 60, "无尽余额");
+	return "闯关 8 / 无尽 40，互不影响";
+});
+
+check("肉鸽 BGM 独立音量：只认扩展设置（缺省 100、夹 0~100），本体音乐音量任意取值都不影响", () => {
+	const key = "extension_奥特之星_rogue_bgm_volume";
+	const prevMaster = lib.config.volumn_background;
+	const prevRogue = lib.config[key];
+	try {
+		for (const master of [0, 2, 8]) {
+			lib.config.volumn_background = master;
+			lib.config[key] = 100;
+			assertEqual(rogueBgm.getRogueBgmVolume(), 1, `本体 ${master} 时肉鸽 100% 应为 1`);
+			lib.config[key] = 40;
+			assertEqual(rogueBgm.getRogueBgmVolume(), 0.4, `本体 ${master} 时肉鸽 40% 应为 0.4`);
+			lib.config[key] = 0;
+			assertEqual(rogueBgm.getRogueBgmVolume(), 0, "肉鸽 0% 应为 0（完全静音）");
+		}
+		delete lib.config[key];
+		assertEqual(rogueBgm.getRogueBgmVolume(), 1, "旧配置缺这个键时按默认 100");
+		lib.config[key] = 250;
+		assertEqual(rogueBgm.getRogueBgmVolume(), 1, "超过 100 夹到 1");
+		lib.config[key] = -5;
+		assertEqual(rogueBgm.getRogueBgmVolume(), 0, "负值夹到 0");
+		return "本体 0/2/8 均不影响";
+	} finally {
+		if (prevMaster === undefined) {
+			delete lib.config.volumn_background;
+		} else {
+			lib.config.volumn_background = prevMaster;
+		}
+		if (prevRogue === undefined) {
+			delete lib.config[key];
+		} else {
+			lib.config[key] = prevRogue;
+		}
+	}
 });
 
 check("货币扣除：余额不足时拒绝购买且不产生负数", () => {

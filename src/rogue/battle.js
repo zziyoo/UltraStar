@@ -198,6 +198,9 @@ export async function beginBattle(event, run, enemies) {
 	const statMark = game.me.marks?.rogue_stat;
 	if (statMark?.addEventListener) {
 		const openPanel = event => {
+			// preventDefault 掐掉轻触后浏览器补发的合成 click——否则它会落进刚挂出的浮层，
+			// 被「点框外关闭」当成一次外部点击，面板一点开就自己关掉
+			event.preventDefault?.();
 			event.stopImmediatePropagation?.();
 			event.stopPropagation?.();
 			game.me.rogueStatRun.openPanel();

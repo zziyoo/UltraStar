@@ -3028,6 +3028,7 @@ export const skills = {
 			result: {
 				player(player) {
 					if (player.getHp() <= 1) return -10;
+					if (!player.hasUsableCard("sha")) return -1;
 					return 1;
 				},
 			},
@@ -3091,7 +3092,7 @@ export const skills = {
 		},
 		selectTarget: 1,
 		check(card) {
-			return 7 - get.value(card);
+			return 6 - get.value(card);
 		},
 		async content(event, trigger, player) {
 			const costCard = event.cards?.[0];
@@ -3118,7 +3119,7 @@ export const skills = {
 		},
 		subSkill: {
 			reset: {
-				trigger: { player: "phaseUseEnd" },
+				trigger: { player: "phaseBegin" },
 				forced: true,
 				silent: true,
 				popup: false,

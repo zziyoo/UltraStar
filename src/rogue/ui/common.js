@@ -157,11 +157,17 @@ export function showBattleStats(run) {
 		}
 		panel.appendChild(section);
 	}
-	const close = document.createElement("div");
-	close.className = "wm-rogue-btn wm-rogue-small";
-	close.textContent = "关闭";
-	panel.appendChild(close);
-	bindTap(close, () => closeScreen());
+	// 没有「关闭」按钮：点面板以外的遮罩区域直接退出（轻触/点击都走 bindTap）。
+	// 目标是否在面板内按父链判断，不依赖 DOM contains；事件缺失（测试桩直接调监听）按框外处理
+	const overlay = stage.parentNode;
+	bindTap(overlay, event => {
+		for (let node = event?.target; node; node = node.parentNode) {
+			if (node === panel) {
+				return;
+			}
+		}
+		closeScreen();
+	});
 	return stage;
 }
 

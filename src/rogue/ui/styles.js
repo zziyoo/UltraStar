@@ -67,7 +67,6 @@ const CSS = `
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { display: block !important; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { font-size: 19px; font-weight: bold; color: #ffd479; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-effect { margin-top: 4px; font-size: 16px; color: rgba(255,255,255,0.88); }
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-btn { display: flex !important; width: fit-content; margin: 18px auto 0; }
 
 /* 浮层内的自建弹层：本体对话框会被浮层（z-index 9998）压住，所以浮层当前时改用自建弹层 */
 .wm-rogue-popup { position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9999;
