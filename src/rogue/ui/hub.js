@@ -75,8 +75,8 @@ export function showHub(api) {
 	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
 	addOverlayButton(fightLabel, actions, () => api.startBattle(), "wm-rogue-hub-primary");
 	addOverlayButton("商店", actions, () => api.openShop(), "wm-rogue-hub-shop");
-	addOverlayButton("返回存档", actions, () => api.backToSlots(), "wm-rogue-small");
-	addOverlayButton("退出肉鸽模式", actions, () => api.leaveMode(), "wm-rogue-small");
+	addOverlayButton("返回存档", actions, () => api.backToSlots(), "wm-rogue-hub-secondary");
+	addOverlayButton("退出肉鸽模式", actions, () => api.leaveMode(), "wm-rogue-hub-secondary");
 	if (!canFight) {
 		ui.create.div(".wm-rogue-hub-hint", "关卡数已超过配置的总关卡数，请检查 config.js 的 CHALLENGE_TOTAL_LEVELS。", body);
 	}

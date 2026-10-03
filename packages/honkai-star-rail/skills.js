@@ -434,8 +434,7 @@ export const skills = {
 					if (!cards.length) return false;
 					const source = player.getStorage("dlhchizhuo_source", null);
 					if (!source?.isIn()) return false;
-					const cardId = player.getStorage("dlhchizhuo_cardId", null);
-					return event.card?.cardid === cardId;
+					return true;
 				},
 				async content(event, trigger, player) {
 					const cards = player.getExpansions("dlhchizhuo");

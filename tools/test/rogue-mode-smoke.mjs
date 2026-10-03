@@ -1,4 +1,4 @@
-﻿﻿﻿﻿// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
+﻿﻿﻿﻿﻿﻿﻿﻿// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
 //
 // 用 loader hooks 把各模块顶部的 noname.js 换成桩，从而在 Node 里真实执行
 // registerRogueMode / start / 页面路由 / 商店 / 结算，并记录本体 API 的调用顺序。
@@ -1533,7 +1533,7 @@ await check("敌人配置缺失：给出提示而不是崩溃或空局", async (
 	return "阵容错误可见";
 });
 
-await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、进战斗停止并静音/还原本体 BGM", async () => {
+await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、进战斗停止并由战斗 BGM 接手覆盖", async () => {
 	freshWorld();
 	putRun(0, {});
 	putRun(1, {});
@@ -1543,7 +1543,8 @@ await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、
 	ui.backgroundMusic.currentTime = 7;
 	ui.backgroundMusic.volume = 1;
 	session();
-	const audio = stub.createdAudios.filter(node => node !== ui.backgroundMusic).at(-1);
+	// 战斗 BGM 也是 audio（此前的用例已建过），按曲目定位大厅这一份，不能只取最后一个
+	const audio = stub.createdAudios.find(node => node !== ui.backgroundMusic && node.src === cfg.LOBBY_BGM);
 	assert(audio, "进营地应建出本模式的 BGM 元素");
 	assertEqual(audio.src, cfg.LOBBY_BGM, "BGM 文件");
 	assertEqual(audio.loop, true, "要循环播放");
@@ -1564,14 +1565,51 @@ await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、
 	// 再进营地：还是接着放
 	click("存档2");
 	assertEqual(audio.currentTime, 42, "进营地不该把曲子掐回开头");
-	// 进战斗：我们的停止，本体的放回音量（曲子本来就没停，自然接着原进度）
+	// 进战斗：大厅的停止、战斗 BGM 上场（细节见下一个用例），本体 BGM 继续被压住
 	click("开始下一关");
 	await flush();
-	assert(audio.paused, "进战斗应停止 BGM");
-	assertEqual(ui.backgroundMusic.volume, 1, "进战斗应把本体 BGM 音量放回去");
-	assert(!ui.backgroundMusic.paused, "本体 BGM 不该被停掉：大厅期间只是静音");
+	assert(audio.paused, "进战斗应停止大厅 BGM");
+	const battleAudio = stub.createdAudios.filter(node => node !== ui.backgroundMusic && node !== audio).at(-1);
+	assert(battleAudio, "进战斗应有战斗 BGM 元素");
+	assert(cfg.BATTLE_BGM_LIST.includes(battleAudio.src), `战斗 BGM 应从候选表随机抽取：${battleAudio.src}`);
+	assert(!battleAudio.paused, "战斗 BGM 应在播放");
+	assertEqual(ui.backgroundMusic.volume, 0, "战斗期间本体 BGM 继续被压住（由战斗 BGM 覆盖）");
+	assert(!ui.backgroundMusic.paused, "本体 BGM 不该被停掉：只是静音");
 	assertEqual(ui.backgroundMusic.currentTime, 7, "本体 BGM 保持原进度");
 	return audio.src;
+});
+
+await check("战斗 BGM：进战斗随机抽一首单曲循环、压住本体 BGM，战斗结束停止并还原音量", async () => {
+	freshWorld();
+	putRun(0, {});
+	// 页面加载时本体自己的 BGM 通常在放
+	ui.backgroundMusic.paused = false;
+	ui.backgroundMusic.currentTime = 7;
+	ui.backgroundMusic.volume = 1;
+	session();
+	const lobbyAudio = stub.createdAudios.find(node => node !== ui.backgroundMusic && node.src === cfg.LOBBY_BGM);
+	assert(lobbyAudio, "进营地应先建出大厅 BGM");
+	assert(!lobbyAudio.paused, "大厅 BGM 应在播放");
+	click("开始下一关");
+	await flush();
+	assert(lobbyAudio.paused, "进战斗应停止大厅 BGM");
+	const battleAudio = stub.createdAudios.filter(node => node !== ui.backgroundMusic && node !== lobbyAudio).at(-1);
+	assert(battleAudio, "进战斗应有战斗 BGM 元素");
+	assert(cfg.BATTLE_BGM_LIST.includes(battleAudio.src), `战斗 BGM 必须从 BATTLE_BGM_LIST 随机抽取：${battleAudio.src}`);
+	assertEqual(battleAudio.loop, true, "战斗 BGM 要单曲循环");
+	assert(!battleAudio.paused, "战斗 BGM 应在播放");
+	assertEqual(battleAudio.volume, 1, "战斗 BGM 音量跟随本体刻度（volumn_background 8 → 8/8）");
+	assertEqual(ui.backgroundMusic.volume, 0, "战斗期间本体 BGM 保持静音");
+	// 战斗结束：最后一个敌人倒下触发 game.over → onover
+	for (const player of game.players.slice(1)) {
+		player.__alive = false;
+	}
+	lib.element.player.dieAfter.call(game.players[1]);
+	assert(battleAudio.paused, "战斗结束应停止战斗 BGM");
+	assertEqual(ui.backgroundMusic.volume, 1, "战斗结束应把本体 BGM 音量放回去");
+	assert(!ui.backgroundMusic.paused, "本体 BGM 不该被停掉：只是静音");
+	assertEqual(ui.backgroundMusic.currentTime, 7, "本体 BGM 保持原进度");
+	return battleAudio.src;
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

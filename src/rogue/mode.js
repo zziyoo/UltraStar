@@ -23,7 +23,7 @@ import { settleVictory } from "./reward.js";
 import { loseSkill, lowerStat, settleDefeat } from "./penalty.js";
 import { beginBattle, checkResult, getRoster, rawAttitude, resolveBattle } from "./battle.js";
 import { createEnemyConfigs } from "./enemy.js";
-import { playLobbyBgm, stopLobbyBgm } from "./bgm.js";
+import { playBattleBgm, playLobbyBgm, stopBattleBgm, stopLobbyBgm } from "./bgm.js";
 import { skill as rogueSkills, translate as rogueTranslate, helpers as rogueHelpers, helperTranslate as rogueHelperTranslate } from "./data/skills.js";
 import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
@@ -255,6 +255,7 @@ function launch(resolved) {
 		return;
 	}
 	stopLobbyBgm();
+	playBattleBgm();
 	closeScreen();
 	context.settled = false;
 	context.battleLive = true;
@@ -401,6 +402,7 @@ function onover(resultbool) {
 	}
 	context.settled = true;
 	context.battleLive = false;
+	stopBattleBgm();
 	if (!context.run || !context.run.currentBattle) {
 		return;
 	}

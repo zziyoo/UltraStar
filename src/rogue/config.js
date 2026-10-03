@@ -9,6 +9,23 @@ export const EXTENSION_NAME = "奥特之星";
 export const MODE_SPLASH = "ext:奥特之星/assets/sundry/rouge.jpg";
 /** 大厅背景音乐（存档页与营地循环播放，进战斗停止）；换曲子只改这一行，路径要与 data/assets.js 清单一致 */
 export const LOBBY_BGM = "extension/奥特之星/assets/audio/rogue/start.mp3";
+/**
+ * 战斗背景音乐池：进战斗时随机抽一首单曲循环，战斗结束停止。
+ * 改动曲目只改这个数组；每首的路径同样要与 data/assets.js 清单一致。
+ */
+export const BATTLE_BGM_LIST = [
+	"extension/奥特之星/assets/audio/atm.mp3",
+	"extension/奥特之星/assets/audio/djsj1.mp3",
+	"extension/奥特之星/assets/audio/djsj2.mp3",
+	"extension/奥特之星/assets/audio/haiyang.mp3",
+	"extension/奥特之星/assets/audio/heiandijia.mp3",
+	"extension/奥特之星/assets/audio/jsts.mp3",
+	"extension/奥特之星/assets/audio/mks.mp3",
+	"extension/奥特之星/assets/audio/guaishou1.mp3",
+	"extension/奥特之星/assets/audio/guaishou2.mp3",
+	"extension/奥特之星/assets/audio/guaishou3.mp3",
+	"extension/奥特之星/assets/audio/guaishou4.mp3",
+];
 
 /** lib.storage 中存放六槽存档的键名 */
 export const STORAGE_KEY = "rogueSlots";

@@ -176,7 +176,11 @@ const CSS = `
 .wm-rogue-hub-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 20px; }
 .wm-rogue-btn.wm-rogue-hub-primary { padding: 12px 44px; font-size: 22px; border-color: rgba(255,200,120,0.8);
 	background: linear-gradient(rgba(160,110,40,0.95), rgba(110,70,20,0.95)); }
-.wm-rogue-btn.wm-rogue-hub-shop { padding: 12px 34px; font-size: 20px; }
+/* 商店用蓝：与金色的「开始下一关」分开，也不再和灰色次级按钮混在一起 */
+.wm-rogue-btn.wm-rogue-hub-shop { padding: 12px 34px; font-size: 20px; border-color: rgba(150,205,255,0.75);
+	background: linear-gradient(rgba(62,116,168,0.95), rgba(30,64,104,0.95)); }
+/* 营地两个次级按钮：比 wm-rogue-small 更长，字号比商店（20）小两号，尺寸旋钮就这一行（padding 的左右值管长度，font-size 一起管字与高） */
+.wm-rogue-btn.wm-rogue-hub-secondary { padding: 8px 40px; font-size: 18px; }
 .wm-rogue-hub-hint { margin-top: 10px; font-size: 14px; color: #ffb347; text-align: center; }
 /* 营地窄一些，属性卡三张要排成一行 */
 .wm-rogue-hub .wm-rogue-stat-card { flex: 1 1 200px; }
