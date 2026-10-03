@@ -274,10 +274,10 @@ check("属性强化：extraSkills 引用的技能有定义", () => {
 	return "引用完整";
 });
 
-check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50 / 经验系数 2；29 关累计 330", () => {
+check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50 / 经验系数 20；29 关累计 330", () => {
 	assert(rewardsData.CHALLENGE_GOLD_PER_LEVEL === 50, "闯关每关金币应固定 50");
 	assert(rewardsData.endlessReward.gold === 50, "无尽金币系数应为 50（金币 = floor(50×√n)，第 1 关即 50）");
-	assert(rewardsData.endlessReward.exp === 2, "无尽经验系数应为 2（经验 = floor(2×√n)）");
+	assert(rewardsData.endlessReward.exp === 20, "无尽经验系数应为 20（经验 = floor(20×√n)，与属性升级价同系数）");
 	const problems = [];
 	for (const [key, value] of Object.entries(rewardsData.endlessReward)) {
 		if (!cfg.CURRENCIES.includes(key)) {
@@ -290,6 +290,7 @@ check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50
 	// 无尽金币抽值对账：n=2 → 70、n=10 → 158（floor，不用 round）
 	assert(rewardsData.getEndlessReward(2, cfg.CURRENCIES).gold === 70, "无尽第2关金币 floor(50×√2)");
 	assert(rewardsData.getEndlessReward(10, cfg.CURRENCIES).gold === 158, "无尽第10关金币 floor(50×√10)");
+	assert(rewardsData.getEndlessReward(10, cfg.CURRENCIES).exp === 63, "无尽第10关经验 floor(20×√10)");
 	// 闯关经验表覆盖 1~30；前 29 关累计 +328，加初始 2 点第 29 关结算后正好 330
 	let sum = 0;
 	for (let level = 1; level <= 30; level++) {

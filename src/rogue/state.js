@@ -5,6 +5,7 @@ import {
 	BATTLE_STATUS,
 	CHALLENGE_TOTAL_LEVELS,
 	CURRENCIES,
+	ENDLESS_STAT_UPGRADE_BASE,
 	INITIAL_CURRENCY,
 	RUN_MODE,
 	RUN_VERSION,
@@ -206,7 +207,9 @@ export function createRun(mode, characterId, now) {
 		characterId,
 		level: 1,
 		totalLevels: mode === RUN_MODE.endless ? 0 : CHALLENGE_TOTAL_LEVELS,
-		currency: { ...INITIAL_CURRENCY },
+		// 无尽的首级升级价是 20（floor(ENDLESS_STAT_UPGRADE_BASE×√1)），初始经验跟着对平——
+		// 与闯关「初始 2 = 首级 2」同一个道理，新档开局即可升一次属性
+		currency: { ...INITIAL_CURRENCY, exp: mode === RUN_MODE.endless ? ENDLESS_STAT_UPGRADE_BASE : INITIAL_CURRENCY.exp },
 		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL,
 	});
 	run.createdAt = now;

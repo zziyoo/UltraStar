@@ -704,11 +704,13 @@ check("废弃技能清理：已下架的肉鸽专属技能在读档时从存档�
 	return "skills / shopOffers / 敌方阵容 三处清理";
 });
 
-check("新局初始资源：金币 50（=技能基准价，第一关即可购买）/ 经验 2，旧存档不会被补发", () => {
-	for (const mode of [cfg.RUN_MODE.challenge, cfg.RUN_MODE.endless]) {
+check("新局初始资源：金币 50（=技能基准价）；初始经验与首级升级价对平（闯关 2 / 无尽 20），旧存档不会被补发", () => {
+	for (const [mode, firstLevel] of [[cfg.RUN_MODE.challenge, 2], [cfg.RUN_MODE.endless, 20]]) {
 		const run = freshRun(mode);
 		assertEqual(run.currency.gold, cfg.INITIAL_CURRENCY.gold, `${mode} 初始金币`);
-		assertEqual(run.currency.exp, cfg.INITIAL_CURRENCY.exp, `${mode} 初始经验`);
+		assertEqual(run.currency.exp, firstLevel, `${mode} 初始经验`);
+		// 与 shop 的首级价对账：初始经验必须恰好够第一次属性升级（防两处数字各自漂移）
+		assertEqual(shop.checkStatUpgrade(run, cfg.STAT_IDS[0]).price, firstLevel, `${mode} 首级升级价`);
 	}
 	// 旧档（没有 currency 字段）按 0 处理；明确记 0 的也保持 0
 	const old = state.normalizeRun({ version: 1, mode: "challenge", characterId: "迪迦", level: 3 });
@@ -718,7 +720,7 @@ check("新局初始资源：金币 50（=技能基准价，第一关即可购买
 	assertEqual(zero.currency.gold, 0, "明确记 0 的存档保持 0");
 	// 初始金币必须保证第一关进商店就买得起技能：不低于基准价 ±25% 的下界（floor(37.5)=37）
 	assert(cfg.INITIAL_CURRENCY.gold >= shop.getRandomSkillPrice(freshRun(), () => 0), `初始金币 ${cfg.INITIAL_CURRENCY.gold} 应 ≥ 售价下界`);
-	return `${cfg.INITIAL_CURRENCY.gold}/${cfg.INITIAL_CURRENCY.exp}`;
+	return "闯关 2 / 无尽 20 经验";
 });
 
 check("技能基准价：闯关恒为 50（与关卡彻底无关），无尽 floor(50×√n) 从第 1 关起随关卡增长", () => {
@@ -786,20 +788,29 @@ check("无尽最高记录：只记成功通关过的最高一关，且与存档�
 	return `最高第 ${best.level} 关`;
 });
 
-check("无尽奖励：floor(√n × 系数)（金币 50 / 经验 2），按刚完成的关卡编号结算", () => {
-	// 金币从第 1 关起以 50 为基准：1→50、2→70、3→86、4→100、9→150、10→158；经验公式不变
-	for (const [level, gold, exp] of [[1, 50, 2], [2, 70, 2], [3, 86, 3], [4, 100, 4], [9, 150, 6], [10, 158, 6], [100, 500, 20]]) {
+check("无尽奖励：floor(√n × 系数)（金币 50 / 经验 20），按刚完成的关卡编号结算", () => {
+	// 金币从第 1 关起以 50 为基准：1→50、2→70、3→86、4→100、9→150、10→158；
+	// 经验与属性升级价同系数（20）：1→20、2→28、3→34、4→40、9→60、10→63
+	for (const [level, gold, exp] of [[1, 50, 20], [2, 70, 28], [3, 86, 34], [4, 100, 40], [9, 150, 60], [10, 158, 63], [100, 500, 200]]) {
 		const gained = rewardsData.getEndlessReward(level, cfg.CURRENCIES);
 		assertEqual(gained.gold, gold, `第${level}关金币`);
 		assertEqual(gained.exp, exp, `第${level}关经验`);
+	}
+	// 对平：第 1~10 关每胜给的经验 = 升到该级的价钱（同一条 floor(20×√n) 曲线）
+	for (let level = 1; level <= 10; level++) {
+		assertEqual(
+			rewardsData.getEndlessReward(level, cfg.CURRENCIES).exp,
+			shop.getStatUpgradePrice({ mode: cfg.RUN_MODE.endless }, cfg.STAT_IDS[0], level),
+			`第${level}关经验应等于升到 ${level} 级的价钱`
+		);
 	}
 	// 结算用刚完成的关卡编号：level=2 的存档打赢后按 n=2 发奖，然后才推进到 3
 	const run = { ...freshRun(cfg.RUN_MODE.endless), level: 2 };
 	const won = reward.settleVictory(run, NOW);
 	assertEqual(won.gained.gold, 70, "按刚完成的第 2 关发金币");
-	assertEqual(won.gained.exp, 2, "按刚完成的第 2 关发经验");
+	assertEqual(won.gained.exp, 28, "按刚完成的第 2 关发经验");
 	assertEqual(won.run.level, 3, "发完奖再推进到第 3 关");
-	return "1:50/2 2:70/2 3:86/3 10:158/6 100:500/20";
+	return "1:50/20 2:70/28 3:86/34 10:158/63 100:500/200";
 });
 
 check("技能文本清洗：poptip 转成可读名字，正文一个字不丢", () => {

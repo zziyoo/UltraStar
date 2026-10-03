@@ -36,7 +36,10 @@ export const BEST_ENDLESS_KEY = "rogueBestEndless";
 export const RUN_VERSION = 3;
 export const SLOT_COUNT = 6;
 
-/** 新建一局时的初始资源（只对新档生效，旧存档不会被补发）。金币 50 = 技能基准价，第一关进商店即可购买 */
+/**
+ * 新建一局时的初始资源（只对新档生效，旧存档不会被补发）。金币 50 = 技能基准价，第一关进商店即可购买；
+ * 经验与「各自模式的首级升级价」对平：闯关 2（固定表首项），无尽 20（= ENDLESS_STAT_UPGRADE_BASE×√1，见 state.js:createRun）
+ */
 export const INITIAL_CURRENCY = { gold: 50, exp: 2 };
 
 export const RUN_MODE = {
