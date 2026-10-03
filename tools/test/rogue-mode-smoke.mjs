@@ -29,9 +29,9 @@ const load = rel => import(pathToFileURL(path.join(root, rel)).href);
 const cfg = await load("src/rogue/config.js");
 const modeModule = await load("src/rogue/mode.js");
 const battleModule = await load("src/rogue/battle.js");
+const enemyModule = await load("src/rogue/enemy.js");
 const stateModule = await load("src/rogue/state.js");
 const statsData = await load("src/rogue/data/stats.js");
-const groupsData = await load("src/rogue/data/enemyGroups.js");
 const common = await load("src/rogue/ui/common.js");
 
 /**
@@ -276,6 +276,7 @@ await check("新建：选玩法→选角色→立即保存六槽", async () => {
 	assertEqual(run.level, 1);
 	assertEqual(run.version, cfg.RUN_VERSION);
 	assertEqual(run.currentBattle, null);
+	assertEqual(run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "新档应拿到满额免费刷新次数");
 	assertEqual(lib.storage.rogueActive, 0, "应记住当前槽位");
 	return `槽1 ${run.characterId}`;
 });
@@ -362,7 +363,7 @@ await check("Hub：角色/关卡/货币/属性与四个按钮（不再有技能�
 	return "营地信息齐备";
 });
 
-await check("开局：先落盘 groupId 再建局，本体事件调用顺序正确", async () => {
+await check("开局：先落盘敌方阵容再建局，本体事件调用顺序正确", async () => {
 	freshWorld();
 	session();
 	await newRunByUi("闯关模式");
@@ -378,10 +379,13 @@ await check("开局：先落盘 groupId 再建局，本体事件调用顺序正�
 	assert(order.indexOf("trigger:gameStart") < order.indexOf("gameDraw"), "gameStart 应在起手牌之前");
 	const run = lib.storage.rogueSlots[0];
 	assertEqual(run.currentBattle.status, "battle", "状态应为 battle");
-	assert(typeof run.currentBattle.groupId === "string" && run.currentBattle.groupId, "应写入 groupId");
+	const enemies = run.currentBattle.enemies;
+	assert(Array.isArray(enemies) && enemies.length === 1, "第 1 关应有 1 个敌人");
+	const pool = enemyModule.getChallengeEnemyPool();
+	assert(pool.includes(enemies[0].characterId), `敌人 ${enemies[0].characterId} 应来自扩展角色池`);
+	assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack, 1, "第 1 关每名敌人恰好 1 属性点");
 	const arena = log.find(item => item.type === "prepareArena");
-	const expected = 1 + groupsData.getEnemyGroup(run.currentBattle.groupId).enemies.length;
-	assertEqual(arena.num, expected, `座位数应为 ${expected}`);
+	assertEqual(arena.num, 1 + enemies.length, `座位数应为 ${1 + enemies.length}`);
 	assertEqual(log.find(item => item.type === "phaseLoop").player, "me", "应由玩家开始循环");
 	assertEqual(game.no_continue_game, true, "应关闭本体的“再战”控件");
 	return order.join(" → ");
@@ -392,8 +396,8 @@ await check("敌我强化只作用于 Player，不回写 lib.character", async (
 	const run = lib.storage.rogueSlots[0];
 	const enemy = game.players[1];
 	assert(enemy, "应存在敌方 Player");
-	assert(enemy.__char, "敌方应已 init 角色");
-	assertEqual(game.players.length, 1 + groupsData.getEnemyGroup(run.currentBattle.groupId).enemies.length, "座位数与阵容一致");
+	assertEqual(enemy.__char, run.currentBattle.enemies[0].characterId, "敌人角色应来自存档阵容");
+	assertEqual(game.players.length, 1 + run.currentBattle.enemies.length, "座位数与阵容一致");
 	assertEqual(JSON.stringify(lib.character), snapshot, "lib.character 不得被修改");
 	assert(!Object.keys(lib.character).some(id => id.includes("rogue_")), "不应往角色库塞东西");
 	return `敌 ${enemy.__char} hp${enemy.hp}/max${enemy.maxHp}`;
@@ -423,20 +427,24 @@ await check("AI 态度：本体 get.attitude 依赖的 rawAttitude 由模式提�
 	return `敌我 ${get.rawAttitude(game.me, foes[0])} / ${get.rawAttitude(foes[0], game.me)}，副本 ${get.rawAttitude(clone, game.me)}`;
 });
 
-await check("玩家属性与技能在开局时按存档重建", async () => {
+await check("玩家属性与技能在开局时按存档重建；旧档 groupId 自动还原成阵容", async () => {
 	putRun(2, {
 		mode: "challenge",
 		level: 1,
 		skills: ["rogue_xushui"],
 		stats: { defense: 1, draw: 0, attack: 0 },
+		// v2 旧档只记 groupId：读档时应自动还原为完整敌方阵容（佐菲），恢复时按原敌人重打
 		currentBattle: { groupId: "group_zofer", status: "battle" },
 		currency: { gold: 0, exp: 0 },
 	}, stateModule.createRun("challenge", "迪迦", 1));
 	session();
+	assert(screenText().includes("没有正常结算"), "旧档的进行中战斗应提示恢复");
 	click("重新挑战这一关");
 	await flush();
 	assertEqual(game.me.__char, "迪迦", "玩家角色来自存档");
 	assert(game.me.hasSkill("rogue_xushui"), "存档技能应重新赋予");
+	assertEqual(game.players[1].__char, "佐菲", "旧档 groupId 应还原成原组合的敌人");
+	assertEqual(lib.storage.rogueSlots[2].currentBattle.enemies[0].characterId, "佐菲", "存档里的阵容已具体化");
 	// 触发类技能能否触发，取决于建局时是否分配了 playerid（本体 addSkill 的钩子注册条件）
 	assert(game.me.playerid, "玩家应有 playerid");
 	assert(game.players.every(player => player.playerid), "每个座位都应有 playerid");
@@ -457,7 +465,7 @@ await check("属性强化合并：只加一个 rogue_stat，四项数值一次�
 		level: 1,
 		skills: [],
 		stats: { defense: 6, draw: 6, attack: 6 },
-		currentBattle: { groupId: "group_zofer", status: "battle" },
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }] },
 		currency: { gold: 0, exp: 0 },
 	}, stateModule.createRun("challenge", "迪迦", 1));
 	session();
@@ -482,55 +490,176 @@ await check("属性强化合并：只加一个 rogue_stat，四项数值一次�
 	return `rogue_stat ${JSON.stringify(game.me.storage.rogue_stat)}`;
 });
 
-await check("敌人强化：额外技能与体力上限只加在该 Player 上", async () => {
+await check("敌人强化：属性等级复用玩家效果表，额外技能与体力覆盖只加在该 Player 上", async () => {
 	lib.character["赛文"] = { hp: 5, maxHp: 5, skills: [] };
 	putRun(3, {
 		mode: "challenge",
 		level: 1,
 		characterId: "赛文",
-		currentBattle: { groupId: "group_seven", status: "battle" },
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "赛文", stats: { defense: 1, draw: 1, attack: 1 }, skills: ["rogue_xushui"], maxHp: 2, hp: 0 }],
+		},
 	}, stateModule.createRun("challenge", "赛文", 1));
 	session();
 	click("重新挑战这一关");
 	await flush();
 	const enemy = game.players[1];
-	const cfgEnemy = groupsData.getEnemyGroup("group_seven").enemies[0];
-	assertEqual(enemy.__char, "赛文", "敌人角色来自配置");
+	assertEqual(enemy.__char, "赛文", "敌人角色来自存档阵容");
 	assert(enemy.hasSkill("rogue_xushui"), "敌人额外技能应施加到该 Player");
 	assertEqual(game.me.hasSkill("rogue_xushui"), false, "不该串到玩家身上");
-	assertEqual(enemy.maxHp, lib.character["赛文"].maxHp + cfgEnemy.overrides.maxHp, "应叠加 overrides.maxHp");
+	// 敌人的 Roguelike 属性走玩家的同一张效果表（data/stats.js）：防御 1 级 = 护甲 1 + 体力上限 1
+	assertEqual(enemy.hujia, 1, "防御等级给敌人上护甲");
+	// 过牌/攻击的数值加成同样走 rogue_stat 这个统一载体
+	assert(enemy.hasSkill("rogue_stat"), "摸牌/杀伤害加成应由同一强化技能承载");
+	assertEqual(
+		JSON.stringify(enemy.storage.rogue_stat),
+		JSON.stringify({ extraDraw: 1, handLimit: 0, shaDamage: 1, shaLimit: 0 }),
+	 "敌人 storage 四项数值与玩家同一套"
+	);
+	assertEqual(game.me.hasSkill("rogue_stat"), false, "强化技能不该串到玩家身上");
+	// 体力上限 = 角色原生 5 + maxHp 覆盖 2（防御 1 级只加护甲，不加体力上限）
+	assertEqual(enemy.maxHp, lib.character["赛文"].maxHp + 2, "应叠加 maxHp 覆盖");
 	assertEqual(JSON.stringify(lib.character["赛文"]), JSON.stringify({ hp: 5, maxHp: 5, skills: [] }), "角色库不被改写");
 	return `敌 ${enemy.__char} maxHp ${lib.character["赛文"].maxHp} → ${enemy.maxHp}`;
 });
 
-await check("胜利结算：奖励入账、关卡推进、清除标记且不重复结算", async () => {
-	freshWorld();
-	session();
-	await newRunByUi("闯关模式");
-	click("开始下一关");
-	await flush();
-	const beforeLevel = lib.storage.rogueSlots[0].level;
-	const beforeGold = lib.storage.rogueSlots[0].currency.gold;
-	for (const player of game.players.slice(1)) {
-		player.__alive = false;
+await check("运行时发技能：按本体 expandSkills 补齐 group 伙伴（字符串/数组/未注册/重复）", () => {
+	lib.skill.grp_plain = {};
+	lib.skill.grp_one = { group: "grp_one_part" };
+	lib.skill.grp_one_part = {};
+	lib.skill.grp_many = { group: ["grp_many_a", "grp_many_b"] };
+	lib.skill.grp_many_a = {};
+	lib.skill.grp_many_b = {};
+	lib.skill.grp_ghost = { group: "grp_never_registered" };
+	const player = stub.ui.create.player();
+	const granted = battleModule.grantSkills(player, ["grp_plain", "grp_one", "grp_many", "grp_ghost", "grp_plain", "grp_absent"], "测试技能未注册");
+	for (const id of ["grp_plain", "grp_one", "grp_one_part", "grp_many", "grp_many_a", "grp_many_b"]) {
+		assert(player.hasSkill(id), `应挂上 ${id}`);
 	}
-	lib.element.player.dieAfter.call(game.players[1]);
-	const run = lib.storage.rogueSlots[0];
-	assertEqual(run.currentBattle, null, "战斗标记应清除");
-	assertEqual(run.level, beforeLevel + 1, "推进一关");
-	assert(run.currency.gold > beforeGold, "金币入账");
-	const gold = run.currency.gold;
-	for (const fn of lib.onover) {
-		fn(true);
-	}
-	assertEqual(lib.storage.rogueSlots[0].currency.gold, gold, "不得重复结算");
-	assertEqual(log.filter(item => item.type === "over").length, 1, "game.over 只应发生一次");
-	const text = screenText();
-	assert(text.includes("战斗胜利"), "应显示胜利页");
-	assert(text.includes("本关奖励") && text.includes(`金币 +${gold - beforeGold}`), `奖励应分行突出：${text}`);
-	assert(text.includes(`下一关：第 ${run.level} 关`), `应写明下一关：${text}`);
-	return `第${beforeLevel}关 → 第${run.level}关，+${gold - beforeGold} 金币`;
+	assertEqual(player.hasSkill("grp_never_registered"), false, "group 伙伴没注册时由本体 expandSkills 自己过滤");
+	assertEqual(granted.includes("grp_absent"), false, "未注册的 id 应被过滤掉（并给出警告）");
+	assertEqual(granted.filter(id => id === "grp_plain").length, 1, "同一技能重复传入只挂一次");
+	assertEqual(player.__skills.length, granted.length, `挂上去的条数要和返回列表一致：${player.__skills.join(",")}`);
+	return granted.join(",");
 });
+
+	await check("开局：买来的带 group 技能把伙伴一起挂上，存档与技能槽只认主技能", async () => {
+		putRun(5, {
+			mode: "challenge",
+			level: 1,
+			characterId: "迪迦",
+			skills: ["grp_buy"],
+			stats: { defense: 0, draw: 0, attack: 0 },
+			currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }] },
+			currency: { gold: 0, exp: 0 },
+		}, stateModule.createRun("challenge", "迪迦", 1));
+	session();
+	// 官方技能 kongcheng 就是 `group: "kongcheng1"` 这个写法，这里照搬一份夹具
+	lib.skill.grp_buy = { forced: true, group: "grp_buy_locked" };
+	lib.skill.grp_buy_locked = { forced: true };
+	click("重新挑战这一关");
+	await flush();
+	// session() 会把 game.me 清掉，运行时的技能列表要先记下来
+	const liveSkills = game.me.__skills.join(",");
+	assertEqual(liveSkills, "grp_buy,grp_buy_locked", "玩家身上应是主技能 + group 伙伴");
+	assert(game.me.hasSkill("grp_buy_locked"), "group 伙伴应随主技能一起挂上");
+	const saved = lib.storage.rogueSlots[5];
+	assertEqual(saved.skills.length, 1, "存档里只有主技能");
+	assertEqual(saved.skills[0], "grp_buy", "group 伙伴不得写进存档");
+	// 槽位统计永远看 run.skills：展开出来的伙伴技能一个都不占
+	putRun(5, { currentBattle: null }, saved);
+	session();
+	click("商店");
+	assert(screenText().includes("1/3"), `技能槽应显示 1/3：${screenText()}`);
+	return `运行时 ${liveSkills} / 存档 ${saved.skills.join(",")}`;
+});
+
+await check("开局：敌人配置的带 group 技能同样展开，存档阵容本身不被改写", async () => {
+	putRun(3, {
+		mode: "challenge",
+		level: 1,
+		characterId: "赛文",
+		skills: [],
+		currentBattle: { status: "battle", enemies: [{ characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, skills: ["grp_enemy"], maxHp: 0, hp: 0 }] },
+	}, stateModule.createRun("challenge", "赛文", 1));
+	session();
+	lib.skill.grp_enemy = { group: ["grp_enemy_part"] };
+	lib.skill.grp_enemy_part = {};
+	click("重新挑战这一关");
+	await flush();
+	const enemy = game.players[1];
+	assert(enemy.hasSkill("grp_enemy"), "敌人应拿到配置里的主技能");
+	assert(enemy.hasSkill("grp_enemy_part"), "敌人也应拿到 group 伙伴");
+	assertEqual(game.me.hasSkill("grp_enemy_part"), false, "不该串到玩家身上");
+	const saved = lib.storage.rogueSlots[3].currentBattle.enemies[0];
+	assertEqual(saved.skills.join(","), "grp_enemy", "存档阵容里只保存主技能 id");
+	return `敌 ${enemy.__char} ${enemy.__skills.join(",")}`;
+});
+
+await check("开局：属性 extraSkills 的带 group 技能也展开", async () => {
+	const level0 = statsData.stats.defense.levels[0];
+	const had = Object.prototype.hasOwnProperty.call(level0, "extraSkills");
+	const original = level0.extraSkills;
+	level0.extraSkills = ["grp_stat"];
+	try {
+		putRun(4, {
+			mode: "challenge",
+			level: 1,
+			characterId: "迪迦",
+			skills: [],
+			stats: { defense: 1, draw: 0, attack: 0 },
+			currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }] },
+		}, stateModule.createRun("challenge", "迪迦", 1));
+		session();
+		lib.skill.grp_stat = { group: "grp_stat_part" };
+		lib.skill.grp_stat_part = {};
+		click("重新挑战这一关");
+		await flush();
+		assert(game.me.hasSkill("grp_stat"), "属性 extraSkills 的主技能应挂上");
+		assert(game.me.hasSkill("grp_stat_part"), "extraSkills 的 group 伙伴也应挂上");
+		// 防御 1 级只有初始护甲，四项数值全 0 时不该多出 rogue_stat 标记
+		assertEqual(game.me.hujia, 1, "同一份 extraSkills 之外的属性效果不受影响");
+		assertEqual(game.me.hasSkill("rogue_stat"), false, "无数值加成时不该加强化技能");
+		return game.me.__skills.join(",");
+	} finally {
+		if (had) {
+			level0.extraSkills = original;
+		} else {
+			delete level0.extraSkills;
+		}
+	}
+});
+
+	await check("胜利结算：固定奖励入账、关卡推进、清除标记且不重复结算", async () => {
+		freshWorld();
+		session();
+		await newRunByUi("闯关模式");
+		click("开始下一关");
+		await flush();
+		const beforeLevel = lib.storage.rogueSlots[0].level;
+		const beforeGold = lib.storage.rogueSlots[0].currency.gold;
+		const beforeExp = lib.storage.rogueSlots[0].currency.exp;
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		const run = lib.storage.rogueSlots[0];
+		assertEqual(run.currentBattle, null, "战斗标记应清除");
+		assertEqual(run.level, beforeLevel + 1, "推进一关");
+		assertEqual(run.currency.gold, beforeGold + 50, "闯关胜利固定 +50 金币");
+		assertEqual(run.currency.exp, beforeExp + 2, "第 1 关经验 +2（按固定经验表）");
+		for (const fn of lib.onover) {
+			fn(true);
+		}
+		assertEqual(lib.storage.rogueSlots[0].currency.gold, beforeGold + 50, "不得重复结算");
+		assertEqual(log.filter(item => item.type === "over").length, 1, "game.over 只应发生一次");
+		const text = screenText();
+		assert(text.includes("战斗胜利"), "应显示胜利页");
+		assert(text.includes("本关奖励") && text.includes("金币 +50"), `奖励应分行突出：${text}`);
+		assert(text.includes(`下一关：第 ${run.level} 关`), `应写明下一关：${text}`);
+		return `第${beforeLevel}关 → 第${run.level}关，+50 金币`;
+	});
 
 await check("返回营地：directstart + reload，重启后落到 Hub", async () => {
 	click("返回营地");
@@ -663,7 +792,8 @@ await check("技能查看页：商店顶部技能资源块进入、只读、popt
 	return "商店技能块入口 + poptip 转名";
 });
 
-await check("异常退出恢复：重打同一组敌人，不判胜、不补奖、不跳关", async () => {
+await check("异常退出恢复：重打存档里的同一套敌方阵容，不判胜、不补奖、不跳关", async () => {
+	// v2 旧档只记 groupId：读档还原成阵容后，恢复战斗仍应原样重打，不重掷
 	const run = putRun(0, { currentBattle: { groupId: "group_seven", status: "battle" } });
 	session();
 	assert(screenText().includes("没有正常结算"), "应提示未完成战斗");
@@ -672,11 +802,13 @@ await check("异常退出恢复：重打同一组敌人，不判胜、不补奖�
 	await flush();
 	assert(log.slice(before).map(item => item.type).includes("phaseLoop"), "应重新进入战斗");
 	const saved = lib.storage.rogueSlots[0];
-	assertEqual(saved.currentBattle.groupId, "group_seven", "沿用存档里的敌人组合，不重掷");
+	assertEqual(saved.currentBattle.enemies.length, 1, "阵容还原为 1 个敌人");
+	assertEqual(saved.currentBattle.enemies[0].characterId, "赛文", "沿用旧档组合里的敌人，不重掷");
+	assertEqual(game.players[1].__char, "赛文", "场上敌人与存档一致");
 	assertEqual(saved.level, run.level, "关卡未被跳过");
 	assertEqual(saved.currency.gold, run.currency.gold, "未重复领取奖励");
 	assert(!log.slice(before).some(item => item.type === "over"), "不得自动判定胜利");
-	return `沿用 ${saved.currentBattle.groupId}`;
+	return `沿用 ${saved.currentBattle.enemies[0].characterId}`;
 });
 
 await check("取消恢复：返回存档页不删进度并标出未完成战斗", async () => {
@@ -713,9 +845,9 @@ await check("商店：浮层骨架——固定标题与资源栏 + 三张技能�
 	const back = nodesWithClass("wm-rogue-back")[0];
 	assert(back, "应有返回");
 	assertEqual(back.parentNode?.classList?.contains("wm-rogue-titlebar"), true, "返回固定在标题栏");
-	// 价格在生成候选时定死：第 1 局基准 5（4~6），重进商店 / 刷新 UI 都不会重掷
+	// 价格在生成候选时定死：基准价固定 50 ±25%（38~63），与关卡无关，重进商店 / 刷新 UI 都不会重掷
 	const prices = saved.shopOffers.map(offer => offer.price);
-	assert(prices.every(price => price >= 4 && price <= 6), `第1局售价应在 4~6：${prices.join(",")}`);
+	assert(prices.every(price => price >= 38 && price <= 63), `售价应在 38~63：${prices.join(",")}`);
 	click("返回");
 	click("商店");
 	assertEqual(
@@ -875,6 +1007,149 @@ await check("商店：购买一个后本次不能再买第二个", async () => {
 	click("商店");
 	assert(screenText().includes("金币不足"), "余额不足显示在购买按钮上");
 	return "买到 rogue_extra";
+});
+
+await check("商店刷新：标题右侧按钮，点一次重掷技能与价格、次数 -1 并立即落盘", async () => {
+	putRun(0, {
+		currentBattle: null,
+		level: 1,
+		skills: [],
+		currency: { gold: 9999, exp: 0 },
+		shopOffers: [
+			{ id: "rogue_xushui", price: 4, sold: false },
+			{ id: "rogue_jiema", price: 5, sold: false },
+			{ id: "rogue_guiyuan", price: 6, sold: false },
+		],
+		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+	});
+	session();
+	click("商店");
+	const overlay = common.currentScreenNode();
+	// 按钮属于「技能商店」这一分区：与标题同一个行容器，不放页面顶部也不跟返回挤在一起
+	const refresh = nodesWithClass("wm-rogue-shop-refresh")[0];
+	assert(refresh, "应有刷新按钮");
+	assertEqual(refresh.parentNode, nodesWithClass("wm-rogue-shop-section-title")[0].parentNode, "刷新按钮与「技能商店」标题同一行");
+	assertEqual(textOf(refresh), `刷新 ${cfg.SKILL_REFRESH_PER_LEVEL}/${cfg.SKILL_REFRESH_PER_LEVEL}`, "初始显示剩余/总次数");
+	const before = lib.storage.rogueSlots[0].shopOffers.map(offer => `${offer.id}:${offer.price}`).join(",");
+	clickNode(refresh);
+	await flush();
+	const after = lib.storage.rogueSlots[0];
+	assertEqual(after.shopRefreshesRemaining, 1, "点一次扣一次，且已落盘");
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), "刷新 1/2", "原位更新次数");
+	assertEqual(common.currentScreenNode(), overlay, "原位刷新，不重开商店（重开会丢滚动位置）");
+	const rolled = after.shopOffers.map(offer => `${offer.id}:${offer.price}`).join(",");
+	assert(rolled !== before, `候选与价格应整体重掷：${before} → ${rolled}`);
+	assert(!after.shopOffers.some(offer => ["rogue_xushui", "rogue_jiema", "rogue_guiyuan"].includes(offer.id)), "池子够时不该原样抽到旧候选");
+	assertEqual(after.shopOffers.length, cfg.SKILL_OFFER_COUNT, "仍给满三项");
+	assertEqual(nodesWithClass("wm-rogue-shop-card").length, cfg.SKILL_OFFER_COUNT, "卡片跟着候选重建");
+	assertEqual(nodesWithClass("wm-rogue-shop-name").length, cfg.SKILL_OFFER_COUNT, "每张卡一个技能名");
+	// 重载存档：候选、定死的价格与剩余次数都按落盘的来，不再重掷
+	putRun(0, { currency: { gold: 9999, exp: 0 } }, after);
+	session();
+	click("商店");
+	assertEqual(lib.storage.rogueSlots[0].shopOffers.map(offer => `${offer.id}:${offer.price}`).join(","), rolled, "重载后候选与价格原样");
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), "刷新 1/2", "重载后次数不补回");
+	clickNode(nodesWithClass("wm-rogue-shop-refresh")[0]);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, 0, "第二次刷完归零");
+	const exhausted = nodesWithClass("wm-rogue-shop-refresh")[0];
+	assertEqual(textOf(exhausted), "刷新 0/2", "用完仍显示 0/2（灰掉而不是藏起来）");
+	assert(exhausted.classList.contains("wm-rogue-disabled"), "用完应置灰");
+	const frozen = lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(",");
+	clickNode(exhausted);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(","), frozen, "没有次数时点击不重掷");
+	assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, 0, "没有次数时不能再扣");
+	assert(screenText().includes("用完"), "要给出提示而不是静默失败");
+	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+	return `重掷 ${rolled} / 次数 2 → 0`;
+});
+
+await check("商店刷新：买过技能后按钮变「本局已购买」，点击既不重掷也不补次数", async () => {
+	putRun(0, {
+		currentBattle: null,
+		level: 1,
+		skills: [],
+		currency: { gold: 9999, exp: 0 },
+		shopOffers: [
+			{ id: "rogue_xushui", price: 10, sold: false },
+			{ id: "rogue_jiema", price: 10, sold: false },
+			{ id: "rogue_guiyuan", price: 10, sold: false },
+		],
+		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+	});
+	session();
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	await flush();
+	const bought = lib.storage.rogueSlots[0];
+	assert(bought.shopOffers.some(offer => offer.sold), "已买一个");
+	const refresh = nodesWithClass("wm-rogue-shop-refresh")[0];
+	assertEqual(textOf(refresh), "本局已购买", "买过后刷新按钮改成已购买");
+	assert(refresh.classList.contains("wm-rogue-disabled"), "买过后刷新按钮置灰");
+	// 重掷会把新候选的 sold 全写成 false，所以买过之后必须彻底锁死，否则一局能买两个
+	const ids = bought.shopOffers.map(offer => offer.id).join(",");
+	clickNode(refresh);
+	await flush();
+	const now = lib.storage.rogueSlots[0];
+	assertEqual(now.shopOffers.map(offer => offer.id).join(","), ids, "点击不重掷");
+	assertEqual(now.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "被拒时次数一点没扣");
+	assert(screenText().includes("已经购买"), "要说明为什么不能刷新");
+	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[1]);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].skills.length, 1, "本局只能买一个技能");
+	return "已购买锁死刷新 + 购买上限未破";
+});
+
+await check("商店刷新次数：战斗恢复与失败都不补，通关进下一局才补满", async () => {
+	putRun(0, {
+		mode: "challenge",
+		level: 7,
+		totalLevels: cfg.CHALLENGE_TOTAL_LEVELS,
+		cleared: false,
+		currency: { gold: 100, exp: 100 },
+		shopOffers: [],
+		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+	});
+	session();
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-shop-refresh")[0]);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, 1, "这一局用掉一次");
+	click("返回");
+	click("开始下一关");
+	await flush();
+	// 战斗中途刷新页面：这一局还没结束，次数必须原样
+	session();
+	click("重新挑战这一关");
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, 1, "恢复战斗不补次数");
+	// 这一关打输：仍是第 7 局，次数不能变成 2（否则靠反复失败白刷商店）
+	game.me.__alive = false;
+	game.me.hp = 0;
+	lib.element.player.dieAfter.call(game.me);
+	const lost = lib.storage.rogueSlots[0];
+	assertEqual(lost.level, 7, "失败关卡不后退");
+	assertEqual(lost.shopRefreshesRemaining, 1, "失败不补次数");
+	session();
+	click("商店");
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), "刷新 1/2", "失败后进商店仍显示用掉一次");
+	click("返回");
+	click("开始下一关");
+	await flush();
+	for (const player of game.players.slice(1)) {
+		player.__alive = false;
+	}
+	lib.element.player.dieAfter.call(game.players[1]);
+	const won = lib.storage.rogueSlots[0];
+	assertEqual(won.level, 8, "通关进入第 8 局");
+	assertEqual(won.shopOffers.length, 0, "候选清空，下次进店重掷");
+	assertEqual(won.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "只有通关才补满次数");
+	session();
+	click("商店");
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), `刷新 ${cfg.SKILL_REFRESH_PER_LEVEL}/${cfg.SKILL_REFRESH_PER_LEVEL}`, "新一局按钮回到满次数");
+	return "恢复/失败保持 1，通关补满";
 });
 
 await check("技能上限：满槽购买走替换页，替换后仍不超过 3 个", async () => {
@@ -1105,13 +1380,19 @@ await check("存档页返回：同样回到游戏初始界面", async () => {
 });
 
 await check("敌人配置缺失：给出提示而不是崩溃或空局", async () => {
-	putRun(0, { currentBattle: { groupId: "group_not_exists", status: "battle" }, shopOffers: [] });
+	putRun(0, {
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "不存在的角色", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
+		},
+		shopOffers: [],
+	});
 	session();
 	click("重新挑战这一关");
 	const text = dump(ui.lastDialog);
-	assert(text.includes("不存在") || text.includes("没有可用"), `应报出配置问题：${text}`);
+	assert(text.includes("没有当前可用"), `应报出阵容问题：${text}`);
 	assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "应清除无效的战斗标记");
-	return "配置错误可见";
+	return "阵容错误可见";
 });
 
 await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、进战斗停止并静音/还原本体 BGM", async () => {

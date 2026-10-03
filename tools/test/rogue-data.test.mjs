@@ -1,10 +1,9 @@
 // 奥特之星·肉鸽：内容配置自检。node tools/test/rogue-data.test.mjs
 //
-// 作者填完 data/ 下的五个配置文件后跑这个脚本即可，不需要开游戏：
-//   - 关卡区间与敌人组合的引用是否对得上
-//   - 敌人的 characterId 是否真的存在于本扩展的角色包
+// 作者填完 data/ 下的配置文件后跑这个脚本即可，不需要开游戏：
+//   - 旧档迁移用的敌人组合配置是否完整（角色 id 是否真的存在于本扩展的角色包）
 //   - 敌人额外技能、肉鸽技能池的 id 是否有定义
-//   - 属性等级表 / 价格表 / 奖励货币是否与配置规模一致
+//   - 属性等级表 / 价格表 / 奖励金额是否与配置规模一致
 //   - 模式封面图是否存在且登记进素材清单
 //
 // 角色与技能清单直接从扩展包本身取（用桩顶掉 noname.js），所以校验的是真实注册结果。
@@ -61,7 +60,6 @@ const roster = new Set(Object.keys(pack.character.character ?? {}));
 const packSkills = new Set(Object.keys(pack.skill.skill ?? {}));
 
 const cfg = await load("src/rogue/config.js");
-const stages = await load("src/rogue/data/stages.js");
 const groupsData = await load("src/rogue/data/enemyGroups.js");
 const skillsData = await load("src/rogue/data/skills.js");
 const statsData = await load("src/rogue/data/stats.js");
@@ -103,40 +101,7 @@ check("封面图：路径存在且已登记进素材清单", () => {
 	return relative;
 });
 
-check("关卡区间：编号、范围与排序合法", () => {
-	assert(Array.isArray(stages.stagePools) && stages.stagePools.length > 0, "stagePools 不能为空");
-	let lastMax = 0;
-	for (const [index, band] of stages.stagePools.entries()) {
-		assert(Number.isFinite(band.min) && Number.isFinite(band.max), `第 ${index + 1} 个区间缺少 min/max`);
-		assert(band.min <= band.max, `第 ${index + 1} 个区间 min>max（${band.min}~${band.max}）`);
-		assert(band.min > lastMax, `第 ${index + 1} 个区间与上一个重叠或未按关卡升序`);
-		lastMax = band.max;
-		assert(Array.isArray(band.groups) && band.groups.length > 0, `第 ${index + 1} 个区间没有填 groups`);
-	}
-	return `${stages.stagePools.length} 个区间，覆盖 1~${lastMax}`;
-});
-
-check("关卡区间：引用的敌人组合都存在", () => {
-	const missing = [];
-	for (const band of stages.stagePools) {
-		for (const id of band.groups) {
-			if (!groupsData.getEnemyGroup(id)) {
-				missing.push(id);
-			}
-		}
-	}
-	assert(!missing.length, `以下组合在 enemyGroups.js 里不存在或阵容为空：${missing.join("、")}`);
-	return `${stages.stagePools.reduce((sum, band) => sum + band.groups.length, 0)} 处引用`;
-});
-
-check("无尽兜底池：非空且组合都存在", () => {
-	assert(Array.isArray(stages.endlessFallbackPool) && stages.endlessFallbackPool.length > 0, "endlessFallbackPool 不能为空，否则无尽模式超过最后一个区间会无法开战");
-	const missing = stages.endlessFallbackPool.filter(id => !groupsData.getEnemyGroup(id));
-	assert(!missing.length, `兜底池里的组合不存在：${missing.join("、")}`);
-	return stages.endlessFallbackPool.join("、");
-});
-
-check("敌人组合：结构与字段合法", () => {
+check("敌人组合（旧档迁移用）：结构与字段合法", () => {
 	const problems = [];
 	for (const [key, group] of Object.entries(groupsData.enemyGroups)) {
 		if (group.id !== key) {
@@ -227,12 +192,12 @@ check("肉鸽技能池：id 规范、定义与翻译齐备", () => {
 			}
 		}
 		if (item.price !== undefined && !(Number.isFinite(item.price) && item.price > 0)) {
-			problems.push(`${item.id}: price 应为正数（这一项只是作者标注的基础价，实际售价由 shop.js 按本局编号动态生成）`);
+			problems.push(`${item.id}: price 应为正数（这一项只是作者标注的基础价，实际售价由 shop.js 按固定基准价 50 ±25% 随机生成）`);
 		}
 	}
 	assert(!problems.length, problems.join("；"));
 	const priced = skillsData.pool.filter(item => Number.isFinite(item.price)).length;
-	return `${skillsData.pool.length} 条技能（${priced} 条标了基础价，实际售价按关卡动态生成）`;
+	return `${skillsData.pool.length} 条技能（${priced} 条标了基础价，实际售价按固定基准价随机浮动）`;
 });
 
 check("技能池：不在池里的 rogue_ 技能定义会被漏掉", () => {
@@ -309,25 +274,32 @@ check("属性强化：extraSkills 引用的技能有定义", () => {
 	return "引用完整";
 });
 
-check("奖励配置：货币键合法、系数非负", () => {
+check("奖励配置：闯关固定 50 金币 + 经验表；无尽系数非负；29 关累计 330", () => {
+	assert(rewardsData.CHALLENGE_GOLD_PER_LEVEL === 50, "闯关每关金币应固定 50");
 	const problems = [];
-	for (const [key, value] of Object.entries(rewardsData.reward)) {
+	for (const [key, value] of Object.entries(rewardsData.endlessReward)) {
 		if (!cfg.CURRENCIES.includes(key)) {
-			problems.push(`reward.${key} 不是已定义的货币（${cfg.CURRENCIES.join("/")}）`);
+			problems.push(`endlessReward.${key} 不是已定义的货币（${cfg.CURRENCIES.join("/")}）`);
 		} else if (!(Number.isFinite(value) && value >= 0)) {
-			problems.push(`reward.${key} 应为非负数（√关数的系数）`);
+			problems.push(`endlessReward.${key} 应为非负数（√关数的系数）`);
 		}
 	}
 	assert(!problems.length, problems.join("；"));
-	const sample = rewardsData.getRewardForLevel(1, cfg.CURRENCIES);
-	const later = rewardsData.getRewardForLevel(10, cfg.CURRENCIES);
-	return `第1关 ${JSON.stringify(sample)}，第10关 ${JSON.stringify(later)}`;
-});
-
-check("配置规模：总关卡数与区间覆盖一致", () => {
-	const lastBand = stages.stagePools[stages.stagePools.length - 1];
-	assert(lastBand.max >= cfg.CHALLENGE_TOTAL_LEVELS, `最后一个区间只到第 ${lastBand.max} 关，而总关卡数是 ${cfg.CHALLENGE_TOTAL_LEVELS}`);
-	return `区间覆盖到 ${lastBand.max} 关 ≥ 总关卡数 ${cfg.CHALLENGE_TOTAL_LEVELS}`;
+	// 闯关经验表覆盖 1~30；前 29 关累计 +328，加初始 2 点第 29 关结算后正好 330
+	let sum = 0;
+	for (let level = 1; level <= 30; level++) {
+		const exp = rewardsData.CHALLENGE_EXP_TABLE[level];
+		assert(Number.isInteger(exp) && exp > 0, `第${level}关经验未配置或非法`);
+		if (level <= 29) {
+			sum += exp;
+		}
+	}
+	assert(sum === 328, `前 29 关经验累计应为 328，实际 ${sum}`);
+	assert(cfg.INITIAL_CURRENCY.exp + sum === 330, "第 29 关结算后总经验应为 330");
+	const sample = rewardsData.getEndlessReward(1, cfg.CURRENCIES);
+	const later = rewardsData.getEndlessReward(10, cfg.CURRENCIES);
+	const challengeSample = rewardsData.getChallengeReward(7);
+	return `闯关第7关 ${JSON.stringify(challengeSample)}，无尽第1关 ${JSON.stringify(sample)}，第10关 ${JSON.stringify(later)}`;
 });
 
 console.log(`\nrogue-data: passed=${passed} failed=${failures.length}`);

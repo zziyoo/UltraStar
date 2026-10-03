@@ -4,9 +4,10 @@
 
 import { lib, game, _status } from "../../../../noname.js";
 import { ROSTER_WHITE_LIST } from "./config.js";
-import { getEnemyGroup } from "./data/enemyGroups.js";
-import { getGroupsForLevel } from "./data/stages.js";
 import { sumStatEffects } from "./data/stats.js";
+import { isEnemyUsable } from "./enemy.js";
+
+export { isEnemyUsable };
 
 const BASE_START_HAND = 4;
 
@@ -35,25 +36,6 @@ export function isPlayerUsable(id) {
 	return true;
 }
 
-function isEnemyUsable(id) {
-	if (!characterExists(id)) {
-		return false;
-	}
-	if (lib.config.forbidai?.includes(id) || lib.character[id]?.isAiForbidden) {
-		return false;
-	}
-	if (typeof lib.filter?.characterDisabled === "function") {
-		try {
-			if (lib.filter.characterDisabled(id)) {
-				return false;
-			}
-		} catch (error) {
-			console.error("[rogue] 敌方过滤失败，按可用处理：", id, error);
-		}
-	}
-	return true;
-}
-
 /** 玩家可选角色：白名单优先，否则按通用规则从 lib.character 里筛 */
 export function getRoster() {
 	const source = Array.isArray(ROSTER_WHITE_LIST) && ROSTER_WHITE_LIST.length
@@ -68,19 +50,6 @@ export function getRoster() {
 	return list;
 }
 
-/** 按当前关卡所在区间随机一组敌人；池子里全部组合无效时返回 null */
-export function rollGroupId(level, rng = Math.random) {
-	const pool = getGroupsForLevel(level);
-	if (!Array.isArray(pool) || !pool.length) {
-		return null;
-	}
-	const valid = pool.filter(id => getEnemyGroup(id));
-	if (!valid.length) {
-		return null;
-	}
-	return valid[Math.floor(rng() * valid.length) % valid.length];
-}
-
 /**
  * 数值型强化（摸牌/手牌上限/杀伤害/出杀次数）统一由一个机制技能承载：
  * 四项数值一次性写进 player.storage.rogue_stat，只 addSkill 一次——
@@ -88,6 +57,42 @@ export function rollGroupId(level, rng = Math.random) {
  */
 const STAT_BUFF_SKILL = "rogue_stat";
 const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "shaDamage", "shaLimit"];
+
+/**
+ * 运行时给一个 Player 发技能：先过本体 `game.expandSkills` 把 `group` 伙伴补齐再挂上。
+ * 本体角色正常初始化走的就是同一条（`player.js:13210` 的 `game.expandSkills(lib.character[name][3].slice(0))`），
+ * 而 `player.addSkill` 自己不会带出 `group` 伙伴（本体的 `group` 只在 `disableSkill` 里被读一次），
+ * 所以少了这一步，买到的带 group 技能就只剩主技能那半边。
+ * expandSkills 是「原地去重追加同一个数组」（`Array.prototype.add` 自带 includes 判断），
+ * 只展开一层、group 写字符串或数组都吃，这里不自己重写一遍 group 解析。
+ * 展开出来的伙伴技能只活在当前 Player 上：不写回 run.skills / 敌人配置 / 属性表，也就一个都不占肉鸽技能槽。
+ * @param {object} player 目标 Player
+ * @param {string[]} skillIds 调用方给的技能 id（来自存档、敌人配置或属性表）
+ * @param {string} missingLabel 未注册 id 的警告文案前缀，保持原来的三种提示不变
+ * @returns {string[]} 实际挂上去的技能 id（含 group 展开部分）
+ */
+export function grantSkills(player, skillIds, missingLabel) {
+	const list = [];
+	for (const id of Array.isArray(skillIds) ? skillIds : []) {
+		if (typeof id !== "string" || !id) {
+			continue;
+		}
+		if (!lib.skill[id]) {
+			console.warn(`[rogue] ${missingLabel}：${id}`);
+			continue;
+		}
+		if (!list.includes(id)) {
+			list.push(id);
+		}
+	}
+	if (!list.length) {
+		return list;
+	}
+	for (const id of game.expandSkills(list)) {
+		player.addSkill(id);
+	}
+	return list;
+}
 
 /** 把属性表算出的效果施加到具体 Player 上 */
 function applyEffects(player, effects) {
@@ -102,13 +107,7 @@ function applyEffects(player, effects) {
 	if (effects.armor) {
 		player.hujia = (player.hujia || 0) + effects.armor;
 	}
-	for (const id of effects.extraSkills) {
-		if (lib.skill[id]) {
-			player.addSkill(id);
-		} else {
-			console.warn(`[rogue] 属性效果引用的技能不存在：${id}`);
-		}
-	}
+	grantSkills(player, effects.extraSkills, "属性效果引用的技能不存在");
 	const statStorage = {};
 	let hasStat = false;
 	for (const key of STAT_BUFF_KEYS) {
@@ -130,56 +129,54 @@ function applyEffects(player, effects) {
 	player.update();
 }
 
-/** 敌人自身的 overrides：属性等级复用同一张表，hp/maxHp 直接覆盖 */
+/**
+ * 敌人自身的 Roguelike 强化：属性等级复用玩家的同一张效果表（data/stats.js），
+ * 旧档迁移来的阵容可能还带 maxHp/hp 覆盖与额外技能，一并作用在该 Player 上。
+ * 绝不写 lib.character / 全局技能。
+ */
 function applyEnemyModifiers(player, entry) {
-	const overrides = entry.overrides ?? {};
-	applyEffects(player, sumStatEffects(overrides));
+	applyEffects(player, sumStatEffects(entry.stats));
 
-	const deltaMaxHp = Number.isFinite(overrides.maxHp) ? Math.floor(overrides.maxHp) : 0;
+	const deltaMaxHp = Number.isFinite(entry.maxHp) ? Math.floor(entry.maxHp) : 0;
 	if (deltaMaxHp) {
 		player.maxHp += deltaMaxHp;
 		if (deltaMaxHp > 0) {
 			player.hp += deltaMaxHp;
 		}
 	}
-	const fixedHp = Number.isFinite(overrides.hp) ? Math.floor(overrides.hp) : 0;
+	const fixedHp = Number.isFinite(entry.hp) ? Math.floor(entry.hp) : 0;
 	if (fixedHp > 0) {
 		player.hp = Math.min(fixedHp, player.maxHp);
 	}
 
-	for (const id of Array.isArray(entry.skills) ? entry.skills : []) {
-		if (lib.skill[id]) {
-			player.addSkill(id);
-		} else {
-			console.warn(`[rogue] 敌人额外技能不存在：${id}`);
-		}
-	}
+	grantSkills(player, entry.skills, "敌人额外技能不存在");
 	player.update();
 }
 
-/** 建局前置校验：返回可用阵容与缺失角色，供上层给出明确提示 */
-export function resolveBattle(run, groupId) {
-	const group = getEnemyGroup(groupId);
-	if (!group) {
-		return { ok: false, error: `敌人组合「${groupId}」不存在或阵容为空，请检查 data/enemyGroups.js` };
+/**
+ * 建局前置校验：run 里已定死的敌方阵容 + 玩家角色是否可用。
+ * 单个敌人当前不可用就跳过它；全不可用才报错。返回可用阵容与缺失数，供上层给出明确提示。
+ */
+export function resolveBattle(run, enemies) {
+	if (!Array.isArray(enemies) || !enemies.length) {
+		return { ok: false, error: "本关敌方阵容为空，请重新开始本关" };
 	}
 	if (!isPlayerUsable(run.characterId)) {
 		return { ok: false, error: `角色「${run.characterId || "未选择"}」当前不可用，请重新选择角色` };
 	}
-	const usable = group.enemies.filter(entry => isEnemyUsable(entry?.characterId));
+	const usable = enemies.filter(entry => entry?.characterId && isEnemyUsable(entry.characterId));
 	if (!usable.length) {
-		return { ok: false, error: `敌人组合「${group.name ?? groupId}」里没有可用的敌方角色` };
+		return { ok: false, error: "敌方阵容里没有当前可用的角色，请重新开始本关" };
 	}
-	return { ok: true, group: { ...group, enemies: usable }, missing: group.enemies.length - usable.length };
+	return { ok: true, enemies: usable, missing: enemies.length - usable.length };
 }
 
 /**
- * 正式开一局。调用方（mode.js）负责在这之前把 currentBattle 写进存档，
+ * 正式开一局。调用方（mode.js）负责在这之前把 currentBattle（含敌方阵容）写进存档，
  * 因此中途刷新/崩溃也不会重掷敌人。
  * @param {object} event 承载本局的 GameEvent
  */
-export async function beginBattle(event, run, group) {
-	const enemies = group.enemies;
+export async function beginBattle(event, run, enemies) {
 	game.prepareArena(1 + enemies.length);
 
 	// prepareArena 走的 ui.create.players 不会分配 playerid，而本体 addSkill 里
@@ -187,13 +184,8 @@ export async function beginBattle(event, run, group) {
 	// 缺了它所有触发类技能都不会触发。
 	assignPlayerIds();
 	game.me.init(run.characterId);
-	for (const id of run.skills) {
-		if (lib.skill[id]) {
-			game.me.addSkill(id);
-		} else {
-			console.warn(`[rogue] 存档里的技能未注册：${id}`);
-		}
-	}
+	// 买来的技能在这里展开 group 伙伴；存档与技能槽统计始终只看 run.skills 本身
+	grantSkills(game.me, run.skills, "存档里的技能未注册");
 	const bonuses = sumStatEffects(run.stats);
 	applyEffects(game.me, bonuses);
 	game.zhu = game.me;

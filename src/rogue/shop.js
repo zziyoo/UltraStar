@@ -4,10 +4,11 @@
 import {
 	ALLOW_DUPLICATE_SKILLS,
 	CURRENCY_LABEL,
+	SKILL_BASE_PRICE,
 	SKILL_CURRENCY,
 	SKILL_OFFER_COUNT,
-	SKILL_PRICE_PER_LEVEL,
 	SKILL_PRICE_SPREAD,
+	SKILL_REFRESH_PER_LEVEL,
 	SKILL_SLOTS,
 	STAT_CURRENCY,
 	STAT_IDS,
@@ -36,26 +37,20 @@ function spend(run, currency, amount) {
 	run.currency[currency] = Math.max(0, (run.currency?.[currency] ?? 0) - amount);
 }
 
-/** 技能基准价：第 level 局 = round(5 × sqrt(level)) */
-export function getSkillBasePrice(level) {
-	const n = Math.max(1, Math.floor(Number(level) || 1));
-	return Math.round(SKILL_PRICE_PER_LEVEL * Math.sqrt(n));
+/**
+ * 技能基准价：永远固定为 SKILL_BASE_PRICE（50）。
+ * 与关卡、胜场、等级完全无关——不接受任何关卡参数，从签名上杜绝旧价回归。
+ */
+export function getSkillBasePrice() {
+	return SKILL_BASE_PRICE;
 }
 
-/** 实际售价：基准价 ±25% 内随机，至少 1。rng 可注入，方便测试 */
-export function getRandomSkillPrice(level, rng = Math.random) {
-	const base = getSkillBasePrice(level);
+/** 实际售价：固定基准价 ±25% 内随机取整（50 × 0.75~1.25 → 约 38~63）。rng 可注入，方便测试 */
+export function getRandomSkillPrice(rng = Math.random) {
+	const base = getSkillBasePrice();
 	const min = base * (1 - SKILL_PRICE_SPREAD);
 	const max = base * (1 + SKILL_PRICE_SPREAD);
 	return Math.max(1, Math.round(min + rng() * (max - min)));
-}
-
-/**
- * 定价用的“本局编号”。胜利结算会把 run.level 推进到下一关（第 2 局打完 level 已经是 3），
- * 而价格要按已经打过的第 2 局算，所以取 level-1；新建后还没打过任何一关时至少按第 1 局。
- */
-export function getPricingLevel(run) {
-	return Math.max(1, (Number(run?.level) || 1) - 1);
 }
 
 /**
@@ -98,10 +93,55 @@ export function rollSkillOffers(run, rng = Math.random, characterSkills = [], ca
 		// 已排除的只在开了“允许重复购买”时放回，且仅限“当前持有”那一条（角色原生技能永不上架）
 		return ALLOW_DUPLICATE_SKILLS && owned.has(entry.id);
 	});
-	// 售价在生成候选时随机定死并写进存档：重载、重进商店、刷新 UI 都不再重掷
-	const level = getPricingLevel(run);
+	// 售价在生成候选时随机定死并写进存档：重载、重进商店、刷新 UI 都不再重掷。
+	// 基准价固定 50、只带 ±25% 浮动，与关卡/胜场/等级无关
 	const picked = shuffle(pickedFrom, rng).slice(0, Math.max(0, SKILL_OFFER_COUNT));
-	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(level, rng), sold: false }));
+	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(rng), sold: false }));
+}
+
+/** 剩余免费刷新次数：缺字段（旧档没这一项）按每局满额算，已经刷成 0 的原样返回 */
+export function getRefreshesRemaining(run) {
+	const raw = Number(run?.shopRefreshesRemaining);
+	return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : SKILL_REFRESH_PER_LEVEL;
+}
+
+/**
+ * 花一次免费刷新，把本局商店的候选重掷：技能 id 与售价都重新随机（走同一个 rollSkillOffers，
+ * 于是「当前角色原生技能 + 当前持有技能」的排除规则原样生效）。
+ * 两条门槛：
+ *   1. 还有剩余次数；
+ *   2. 本次商店还没买过技能——重掷出来的候选 sold 全是 false，已买过还让刷就等于绕过
+ *      SKILL_PURCHASE_COUNT 的一局购买上限。
+ * 旧候选优先排除（刷完不该原样看到同三个）；池子不够 SKILL_OFFER_COUNT 条时退回完整池子，
+ * 允许旧候选重新出现——不死循环、不报错、不塞进原生/持有技能。
+ * @param {object} run 存档
+ * @param {() => number} [rng] 可注入的随机源
+ * @param {string[]} [characterSkills] 当前角色原生技能
+ * @param {{ id: string }[]} candidates 候选池（见 skillPool.getShopPool）
+ * @returns {{ ok: boolean, error: string|null, run?: object, offers?: object[] }} 失败时不返回改过的 run
+ */
+export function refreshSkillOffers(run, rng = Math.random, characterSkills = [], candidates = []) {
+	const remaining = getRefreshesRemaining(run);
+	if (remaining <= 0) {
+		return { ok: false, error: "本局免费刷新次数已经用完" };
+	}
+	const current = Array.isArray(run?.shopOffers) ? run.shopOffers : [];
+	if (current.some(offer => offer?.sold)) {
+		return { ok: false, error: "本局已经购买过技能，不能继续刷新" };
+	}
+	const previousIds = current.map(offer => offer?.id).filter(id => typeof id === "string" && id);
+	const fresh = (Array.isArray(candidates) ? candidates : []).filter(entry => entry && !previousIds.includes(entry.id));
+	let offers = rollSkillOffers(run, rng, characterSkills, fresh);
+	if (offers.length < SKILL_OFFER_COUNT) {
+		// 排掉旧候选就凑不满一局，说明池子太窄：这时允许旧候选重新出现
+		offers = rollSkillOffers(run, rng, characterSkills, candidates);
+	}
+	return {
+		ok: true,
+		error: null,
+		offers,
+		run: { ...run, shopOffers: offers, shopRefreshesRemaining: remaining - 1 },
+	};
 }
 
 /** 商店里是否还有买得起的候选 */

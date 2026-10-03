@@ -14,8 +14,8 @@ export const LOBBY_BGM = "extension/奥特之星/assets/audio/rogue/start.mp3";
 export const STORAGE_KEY = "rogueSlots";
 /** 无尽模式历史最高记录：独立于六个存档槽，无尽失败删档也不清它 */
 export const BEST_ENDLESS_KEY = "rogueBestEndless";
-/** 存档 schema 版本，只做单调递增迁移 */
-export const RUN_VERSION = 1;
+/** 存档 schema 版本，只做单调递增迁移。v2 新增 shopRefreshesRemaining（每局免费刷新次数）；v3 新增 currentBattle.enemies（进行中战斗保存完整敌方阵容） */
+export const RUN_VERSION = 3;
 export const SLOT_COUNT = 6;
 
 /** 新建一局时的初始资源（只对新档生效，旧存档不会被补发） */
@@ -47,14 +47,16 @@ export const STAT_IDS = ["defense", "draw", "attack"];
 export const SKILL_SLOTS = 3;
 export const SKILL_OFFER_COUNT = 3;
 export const SKILL_PURCHASE_COUNT = 1;
+/** 每局的免费刷新次数：新建存档与「成功通关进入下一局」时恢复到这么多，失败与重进商店都不补 */
+export const SKILL_REFRESH_PER_LEVEL = 2;
 /** false 时已拥有的技能不再进入随机候选池 */
 export const ALLOW_DUPLICATE_SKILLS = false;
 
 /**
- * 技能动态定价：第 n 局基准价 = round(SKILL_PRICE_PER_LEVEL × sqrt(n))，实际售价在基准价
- * ±SKILL_PRICE_SPREAD 内随机（第 1 局 ≈4~6、第 2 局 ≈5~9）。价格在生成商店候选时定死。
+ * 技能定价：基准价永远固定为 SKILL_BASE_PRICE，不随关卡/胜场/等级增长；
+ * 实际售价在基准价 ±SKILL_PRICE_SPREAD 内随机取整（50 → 约 38~63）。价格在生成商店候选时定死。
  */
-export const SKILL_PRICE_PER_LEVEL = 5;
+export const SKILL_BASE_PRICE = 50;
 export const SKILL_PRICE_SPREAD = 0.25;
 /** 商店里购买技能用哪种货币 */
 export const SKILL_CURRENCY = "gold";

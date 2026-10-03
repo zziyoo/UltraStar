@@ -17,11 +17,12 @@ import {
 	STORAGE_KEY,
 } from "./config.js";
 import { cloneRun, createRun, migrateSlots, normalizeBest, setSlot, toSerializable, updateBest } from "./state.js";
-import { buySkill, checkStatUpgrade, rollSkillOffers, upgradeStat } from "./shop.js";
+import { buySkill, checkStatUpgrade, refreshSkillOffers, rollSkillOffers, upgradeStat } from "./shop.js";
 import { getShopPool } from "./skillPool.js";
 import { settleVictory } from "./reward.js";
 import { loseSkill, lowerStat, settleDefeat } from "./penalty.js";
-import { beginBattle, checkResult, getRoster, rawAttitude, resolveBattle, rollGroupId } from "./battle.js";
+import { beginBattle, checkResult, getRoster, rawAttitude, resolveBattle } from "./battle.js";
+import { createEnemyConfigs } from "./enemy.js";
 import { playLobbyBgm, stopLobbyBgm } from "./bgm.js";
 import { skill as rogueSkills, translate as rogueTranslate, helpers as rogueHelpers, helperTranslate as rogueHelperTranslate } from "./data/skills.js";
 import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
@@ -145,11 +146,34 @@ function openShop() {
 		checkStatUpgrade: statId => checkStatUpgrade(context.run, statId),
 		upgradeStat: upgradeStatFlow,
 		buySkill: buySkillFlow,
+		refreshSkills: refreshShopFlow,
 		openSkills,
 		backToHub: openHub,
 		backToSlots: openSlots,
 		leaveMode,
 	});
+}
+
+/**
+ * 花一次免费刷新重掷本局商店候选。
+ * 检查与扣次数都在 shop.js 的纯函数里；这里只负责「先落盘、再原位刷新」——
+ * commit 失败时保持原候选与原次数，不能让 UI 假装刷新成功。
+ */
+function refreshShopFlow() {
+	const run = context.run;
+	// 不传 openSkills 之外的回调：浮层里 showNotice 用的是自建弹层，重开商店反而会把滚动位置甩回顶部
+	const result = refreshSkillOffers(run, undefined, characterSkillIds(run.characterId), getShopPool());
+	if (!result.ok) {
+		showNotice([result.error, `本局剩余免费刷新次数：${run.shopRefreshesRemaining}。`]);
+		return;
+	}
+	context.run = result.run;
+	if (!commit()) {
+		return;
+	}
+	if (!refreshShop(context.run)) {
+		openShop();
+	}
 }
 
 function openSlots() {
@@ -190,33 +214,36 @@ function startBattle() {
 	}
 	const run = context.run;
 	if (run.currentBattle) {
-		startFromSavedGroup(run.currentBattle.groupId);
+		startFromSavedBattle(run.currentBattle.enemies);
 		return;
 	}
-	const groupId = rollGroupId(run.level);
-	if (!groupId) {
-		showNotice(["敌人组合池为空：请检查 data/stages.js 与 data/enemyGroups.js 的配置。"]);
+	// 先把本关敌方阵容（随机角色 + 随机属性分配）定死并写进存档，再开局：
+	// 中途刷新/崩溃后按存档原样重打，绝不重掷
+	const enemies = createEnemyConfigs(run.level, run.mode);
+	if (!enemies.length) {
+		showNotice([run.mode === RUN_MODE.endless
+			? "本体角色池为空：请检查游戏角色数据与禁将配置。"
+			: "扩展角色池为空：请检查扩展角色包是否正常注册。"]);
 		return;
 	}
-	const resolved = resolveBattle(run, groupId);
+	const resolved = resolveBattle(run, enemies);
 	if (!resolved.ok) {
 		showNotice([resolved.error]);
 		return;
 	}
-	// 先写存档再开局：刷新或崩溃后仍会重打同一组敌人，不会重掷
-	context.run = { ...run, currentBattle: { groupId, status: BATTLE_STATUS.battle } };
+	context.run = { ...run, currentBattle: { status: BATTLE_STATUS.battle, enemies } };
 	if (!commit()) {
 		return;
 	}
 	launch(resolved);
 }
 
-function startFromSavedGroup(groupId) {
-	const resolved = resolveBattle(context.run, groupId);
+function startFromSavedBattle(enemies) {
+	const resolved = resolveBattle(context.run, enemies);
 	if (!resolved.ok) {
 		context.run = { ...context.run, currentBattle: null };
 		commit();
-		showNotice([resolved.error, "已清除该存档的进行中战斗，可重新选择关卡。"], openHub);
+		showNotice([resolved.error, "已清除该存档的进行中战斗，可重新开始本关。"], openHub);
 		return;
 	}
 	launch(resolved);
@@ -233,11 +260,11 @@ function launch(resolved) {
 	context.battleLive = true;
 	game.no_continue_game = true;
 	if (resolved.missing) {
-		showNotice([`敌人组合中有 ${resolved.missing} 个角色当前不可用，本关已跳过它们。`]);
+		showNotice([`敌方阵容中有 ${resolved.missing} 个角色当前不可用，本关已跳过它们。`]);
 	}
 	const next = game.createEvent("rogueBattle", false);
 	next.setContent(async function (event) {
-		await beginBattle(event, context.run, resolved.group);
+		await beginBattle(event, context.run, resolved.enemies);
 	});
 	game.loop(next);
 }
@@ -312,7 +339,7 @@ function askResume(run) {
 	showChoice(
 		["检测到上次战斗没有正常结算。", "将原样重新挑战同一组敌人：不判定胜利、不补发奖励、也不会跳过本关。"],
 		[
-			{ label: "重新挑战这一关", onClick: () => startFromSavedGroup(run.currentBattle.groupId) },
+			{ label: "重新挑战这一关", onClick: () => startFromSavedBattle(run.currentBattle.enemies) },
 			{ label: "返回存档页", onClick: openSlots },
 		]
 	);

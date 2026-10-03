@@ -11,10 +11,12 @@ import {
 	RUN_MODE_LABEL,
 	SKILL_CURRENCY,
 	SKILL_PURCHASE_COUNT,
+	SKILL_REFRESH_PER_LEVEL,
 	SKILL_SLOTS,
 	STAT_CURRENCY,
 	STAT_IDS,
 } from "../config.js";
+import { getRefreshesRemaining } from "../shop.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
@@ -80,7 +82,7 @@ export function showHub(api) {
 	addOverlayButton("返回存档", actions, () => api.backToSlots(), "wm-rogue-small");
 	addOverlayButton("退出肉鸽模式", actions, () => api.leaveMode(), "wm-rogue-small");
 	if (!canFight) {
-		ui.create.div(".wm-rogue-hub-hint", "关卡数已超过配置的总关卡数，请检查 data/stages.js 与 config.js。", body);
+		ui.create.div(".wm-rogue-hub-hint", "关卡数已超过配置的总关卡数，请检查 config.js 的 CHALLENGE_TOTAL_LEVELS。", body);
 	}
 }
 
@@ -134,7 +136,10 @@ export function showShop(api) {
 	];
 
 	const body = ui.create.div(".wm-rogue-shop-body", shop);
-	ui.create.div(".wm-rogue-shop-section-title", "技能商店", body);
+	// 刷新按钮属于「技能商店」这一分区：紧贴标题右侧，不放页面顶部、也不跟右上角的返回挤在一起
+	const offerHead = ui.create.div(".wm-rogue-shop-section-row", body);
+	ui.create.div(".wm-rogue-shop-section-title", "技能商店", offerHead);
+	const refreshButton = addOverlayButton("", offerHead, () => api.refreshSkills(), "wm-rogue-shop-refresh");
 	ui.create.div(".wm-rogue-shop-subtitle", `每次进店最多购买 ${SKILL_PURCHASE_COUNT} 个技能　点卡片可看完整描述`, body);
 	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
@@ -143,7 +148,23 @@ export function showShop(api) {
 	const statRow = ui.create.div(".wm-rogue-stat-cards", body);
 	const statCards = STAT_IDS.map(statId => buildStatCard(statRow, statId, api));
 
+	/** 刷新换的是候选 id，不只是价格：卡片要跟着重建，否则留着旧技能的头像、描述和点击回调 */
+	const syncOffers = current => {
+		const live = offerCards.map(row => row.id).join(",");
+		if (current.shopOffers.map(offer => offer.id).join(",") === live) {
+			return;
+		}
+		for (const row of offerCards) {
+			row.card.remove();
+		}
+		offerCards.length = 0;
+		for (const offer of current.shopOffers) {
+			offerCards.push(buildOfferCard(offerRow, offer, api));
+		}
+	};
+
 	const paint = current => {
+		syncOffers(current);
 		for (const cell of resCells) {
 			cell.node.innerHTML = `${cell.read(current)}`;
 		}
@@ -154,10 +175,18 @@ export function showShop(api) {
 		for (const row of statCards) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
+		paintRefresh(refreshButton, current, soldOut);
 	};
 	// 记浮层根节点用于原位刷新的存活判断（openOverlay 返回的是里面的居中层）
 	shopView = { node: currentScreenNode(), paint };
 	paint(run);
+}
+
+/** 刷新按钮的文字与可用性：本局买过技能就彻底锁死——重掷会把 sold 换成 false，放行等于绕过一局限买一个 */
+function paintRefresh(node, run, soldOut) {
+	const remaining = getRefreshesRemaining(run);
+	node.innerHTML = soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
+	node.classList[soldOut || remaining <= 0 ? "add" : "remove"]("wm-rogue-disabled");
 }
 
 function addResCell(parent, label) {

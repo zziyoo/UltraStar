@@ -11,7 +11,8 @@
 //                   shaDamage   【杀】造成的伤害 +N
 //                   shaLimit    出【杀】次数上限 +N
 //                   extraSkills 额外获得的技能 id 数组（扩展技能或肉鸽技能）
-//   price[i]      从第 i 级升到第 i+1 级的花费；留空数组表示暂不出售（商店按钮会说明「尚未配置升级价格」）
+//   price[i]      从第 i 级升到第 i+1 级的花费（2,4,6,…,20：单个属性 0→10 共 110，三项满级 330）；
+//                 留空数组表示暂不出售（商店按钮会说明「尚未配置升级价格」）
 //
 // 自检会查
 //   maxLevel 非负整数、levels 项数与 maxLevel 一致、只出现上面这些效果键、
@@ -26,7 +27,7 @@ export const stats = {
 	defense: {
 		name: "防御",
 		maxLevel: 10,
-		price: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+		price: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
 		levels: [
 			{ armor: 1 },
 			{ maxHp: 1 },
@@ -44,7 +45,7 @@ export const stats = {
 	draw: {
 		name: "过牌",
 		maxLevel: 10,
-		price: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+		price: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
 		levels: [
 			{ extraDraw: 1 },
 			{ handLimit: 1 },
@@ -62,7 +63,7 @@ export const stats = {
 	attack: {
 		name: "攻击",
 		maxLevel: 10,
-		price: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+		price: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
 		levels: [
 			{ shaDamage: 1 },
 			{ shaLimit: 1 },

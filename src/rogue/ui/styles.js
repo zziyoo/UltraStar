@@ -91,6 +91,11 @@ const CSS = `
 .wm-rogue-res-label { font-size: 13px; color: rgba(255,255,255,0.62); letter-spacing: 2px; }
 .wm-rogue-shop-section-title { margin: 14px 0 5px; font-size: 24px; font-weight: bold; color: #fff;
 	letter-spacing: 4px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+/* 分区标题行：标题靠左、该分区的操作按钮靠右，刷新按钮就属于「技能商店」这一区 */
+.wm-rogue-shop-section-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.wm-rogue-shop-section-row .wm-rogue-shop-section-title { margin-right: auto; }
+/* 宽度按「本局已购买」这种最长文案定，切换状态时不跟着抖 */
+.wm-rogue-shop-refresh { flex: none; min-width: 116px; }
 .wm-rogue-shop-subtitle { margin-bottom: 9px; font-size: 14px; color: rgba(255,255,255,0.58); }
 /* 三张技能卡：一行放得下就横排，窄屏自动换行 */
 .wm-rogue-shop-cards, .wm-rogue-stat-cards { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -244,6 +249,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-panel { display: block !important; }
 #wm-rogue-overlay .wm-rogue-titlebar { display: flex !important; }
 #wm-rogue-overlay .wm-rogue-stage { display: flex !important; }
+#wm-rogue-overlay .wm-rogue-shop-section-row { display: flex !important; align-items: center !important; justify-content: space-between !important; }
 .wm-rogue-btn { display: inline-flex !important; align-items: center !important; justify-content: center !important;
 	text-align: center !important; box-sizing: border-box !important; line-height: 1.2 !important; }
 /* 返回按钮：尺寸写死成固定盒子。想继续调大调小，只改这里的 width/height/font-size 三个数 */

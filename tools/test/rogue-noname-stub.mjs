@@ -473,6 +473,30 @@ export const game = {
 		ui.create.players(num);
 		ui.create.me();
 	},
+	/** 对齐 game/index.js:9626 expandSkills：把每个技能声明的 group 伙伴原地去重追加进同一个数组并返回；只展开一层，group 写字符串或数组都吃 */
+	expandSkills(skills, subSkill = false) {
+		const adds = [];
+		for (const id of skills) {
+			const info = lib.skill[id];
+			if (!info) {
+				continue;
+			}
+			if (info.group) {
+				const list = Array.isArray(info.group) ? info.group : [info.group];
+				adds.push(...list.filter(item => lib.skill[item]));
+			}
+			if (subSkill && info.subSkill) {
+				adds.push(...Object.keys(info.subSkill).map(key => `${id}_${key}`).filter(item => lib.skill[item]));
+			}
+		}
+		// 本体靠 Array.prototype.add 的 includes 判断去重（polyfill 没在桩里装），这里保持同一语义
+		for (const id of adds) {
+			if (!skills.includes(id)) {
+				skills.push(id);
+			}
+		}
+		return skills;
+	},
 	gameDraw(player, num, targets) {
 		const list = targets ?? game.players;
 		const counts = list.map(current => (typeof num === "function" ? num(current) : num));

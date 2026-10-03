@@ -8,10 +8,12 @@ import {
 	INITIAL_CURRENCY,
 	RUN_MODE,
 	RUN_VERSION,
+	SKILL_REFRESH_PER_LEVEL,
 	SKILL_SLOTS,
 	SLOT_COUNT,
 	STAT_IDS,
 } from "./config.js";
+import { getEnemyGroup } from "./data/enemyGroups.js";
 import { stats } from "./data/stats.js";
 
 const RUN_MODE_KEYS = Object.keys(RUN_MODE);
@@ -35,6 +37,81 @@ function clampInt(value, min, max, fallback) {
 
 function sanitizeString(value) {
 	return typeof value === "string" ? value.trim() : "";
+}
+
+/** 清洗一个敌方阵容条目：只有白名单字段，且全部是可序列化标量 */
+function normalizeBattleEnemy(entry) {
+	if (!isPlainObject(entry)) {
+		return null;
+	}
+	const characterId = sanitizeString(entry.characterId);
+	if (!characterId) {
+		return null;
+	}
+	const statLevels = {};
+	for (const key of STAT_IDS) {
+		const maxLevel = Number.isFinite(stats[key]?.maxLevel) ? Math.max(0, Math.floor(stats[key].maxLevel)) : 0;
+		statLevels[key] = clampInt(entry.stats?.[key], 0, maxLevel, 0);
+	}
+	const skills = [];
+	for (const id of Array.isArray(entry.skills) ? entry.skills : []) {
+		const skillId = sanitizeString(id);
+		if (skillId) {
+			skills.push(skillId);
+		}
+	}
+	return {
+		characterId,
+		stats: statLevels,
+		skills,
+		maxHp: toInt(entry.maxHp, 0),
+		hp: Math.max(0, toInt(entry.hp, 0)),
+	};
+}
+
+function normalizeBattleEnemies(list) {
+	const enemies = [];
+	for (const entry of Array.isArray(list) ? list : []) {
+		const enemy = normalizeBattleEnemy(entry);
+		if (enemy) {
+			enemies.push(enemy);
+		}
+	}
+	return enemies;
+}
+
+/**
+ * 进行中的战斗要保存「已解析完成的敌方阵容」：角色 + 三项属性在开战前定死并落盘，
+ * 恢复战斗原样重打，绝不重掷（否则随机出的敌人会因中途退出而变化）。
+ * v2 及更早的旧档只存了 groupId：按当时的组合配置还原出阵容，同样不重掷；
+ * 组合也没了（配置被删）才视为没有未完成战斗。
+ */
+function normalizeCurrentBattle(rawBattle) {
+	if (!isPlainObject(rawBattle) || rawBattle.status !== BATTLE_STATUS.battle) {
+		return null;
+	}
+	const enemies = normalizeBattleEnemies(rawBattle.enemies);
+	if (enemies.length) {
+		return { status: BATTLE_STATUS.battle, enemies };
+	}
+	const legacy = getEnemyGroup(sanitizeString(rawBattle.groupId));
+	if (legacy) {
+		return {
+			status: BATTLE_STATUS.battle,
+			enemies: normalizeBattleEnemies(legacy.enemies.map(enemy => ({
+				characterId: enemy?.characterId,
+				stats: {
+					defense: enemy?.overrides?.defense,
+					draw: enemy?.overrides?.draw,
+					attack: enemy?.overrides?.attack,
+				},
+				skills: Array.isArray(enemy?.skills) ? enemy.skills : [],
+				maxHp: enemy?.overrides?.maxHp,
+				hp: enemy?.overrides?.hp,
+			}))),
+		};
+	}
+	return null;
 }
 
 /**
@@ -74,10 +151,7 @@ export function normalizeRun(raw) {
 		statLevels[key] = clampInt(raw.stats?.[key], 0, maxLevel, 0);
 	}
 
-	const groupId = sanitizeString(raw.currentBattle?.groupId);
-	const currentBattle = groupId && raw.currentBattle?.status === BATTLE_STATUS.battle
-		? { groupId, status: BATTLE_STATUS.battle }
-		: null;
+	const currentBattle = normalizeCurrentBattle(raw.currentBattle);
 
 	const shopOffers = [];
 	for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
@@ -93,6 +167,9 @@ export function normalizeRun(raw) {
 		: Math.max(1, toInt(raw.totalLevels, CHALLENGE_TOTAL_LEVELS));
 	const level = clampInt(raw.level, 1, mode === RUN_MODE.endless ? Number.MAX_SAFE_INTEGER : Math.max(totalLevels, 1), 1);
 
+	// 旧存档（v1）没有这个字段时补满；已经刷成 0 的原样保留，不然重读存档就等于白送次数
+	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, SKILL_REFRESH_PER_LEVEL, SKILL_REFRESH_PER_LEVEL);
+
 	return {
 		version: RUN_VERSION,
 		mode,
@@ -104,13 +181,14 @@ export function normalizeRun(raw) {
 		stats: statLevels,
 		currentBattle,
 		shopOffers,
+		shopRefreshesRemaining,
 		cleared: !!raw.cleared,
 		createdAt: Math.max(0, toInt(raw.createdAt, 0)),
 		updatedAt: Math.max(0, toInt(raw.updatedAt, 0)),
 	};
 }
 
-/** 新档：闯关与无尽共用同一结构，只靠 mode 与 totalLevels 区分。初始资源只看 INITIAL_CURRENCY（旧档不会被补发） */
+/** 新档：闯关与无尽共用同一结构，只靠 mode 与 totalLevels 区分。初始资源与免费刷新次数只看新建时的配置（旧档不会被补发资源，但会被补刷新次数字段） */
 export function createRun(mode, characterId, now) {
 	const run = normalizeRun({
 		version: RUN_VERSION,
@@ -119,6 +197,7 @@ export function createRun(mode, characterId, now) {
 		level: 1,
 		totalLevels: mode === RUN_MODE.endless ? 0 : CHALLENGE_TOTAL_LEVELS,
 		currency: { ...INITIAL_CURRENCY },
+		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL,
 	});
 	run.createdAt = now;
 	run.updatedAt = now;

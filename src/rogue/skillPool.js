@@ -65,7 +65,7 @@ function isSellable(skillId) {
  * 排除：玩家禁用过的武将的技能，以及这些技能声明过的衍生技；
  *       同一个技能只要还有别的未禁用武将拥有，就继续上架。
  * 本体判为不可选用的技能（没翻译、内部技）不进池；作者清单在 rogue-data 自检里已经逐条验过，不再重筛。
- * price 只是作者标注位，实际售价由 shop.js 按关卡动态生成。
+ * price 只是作者标注位，实际售价由 shop.js 按固定基准价 50 ±25% 随机生成，与关卡无关。
  */
 export function getShopPool() {
 	const banned = getBannedCharacterIds();
