@@ -247,7 +247,6 @@ const CSS = `
 .wm-rogue-resume-enemy { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 64px; }
 .wm-rogue-resume-enemy-name { max-width: 64px; font-size: 14px; color: rgba(255,255,255,0.85);
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wm-rogue-resume-rule { margin-top: 6px; font-size: 15px; line-height: 1.5; color: rgba(255,255,255,0.82); }
 .wm-rogue-resume-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 24px; }
 .wm-rogue-btn.wm-rogue-resume-primary { padding: 12px 46px; font-size: 21px; border-color: rgba(255,200,120,0.75);
 	background: linear-gradient(rgba(150,105,40,0.95), rgba(100,65,20,0.95)); }
@@ -379,7 +378,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-resume-level,
 #wm-rogue-overlay .wm-rogue-resume-hint,
 #wm-rogue-overlay .wm-rogue-resume-section,
-#wm-rogue-overlay .wm-rogue-resume-rule,
 #wm-rogue-overlay .wm-rogue-resume-enemy-name,
 #wm-rogue-overlay .wm-rogue-result,
 #wm-rogue-overlay .wm-rogue-result-mark,
@@ -405,7 +403,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-replace-arrow,
 #wm-rogue-overlay .wm-rogue-resume-sub,
 #wm-rogue-overlay .wm-rogue-resume-hint,
-#wm-rogue-overlay .wm-rogue-resume-rule,
 #wm-rogue-overlay .wm-rogue-result-line,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { white-space: normal !important; overflow-wrap: break-word !important; }

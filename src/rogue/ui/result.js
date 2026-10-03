@@ -70,16 +70,8 @@ export function showResult(info) {
 	addOverlayButton(info.buttonLabel ?? "返回营地", actions, () => info.onDone(), "wm-rogue-result-btn");
 }
 
-/** 恢复行为承诺：与 mode.js 的实际恢复逻辑一一对应，不要在这里写 UI 自己的承诺 */
-const RESUME_RULES = [
-	"· 不重新随机敌方角色与属性",
-	"· 不判定本次战斗胜利",
-	"· 不重复发放战斗奖励",
-	"· 不会跳过本关",
-];
-
 /**
- * 未正常结算战斗的恢复页：告知玩家恢复的是哪一关、用的是什么阵容、恢复不改变任何结果。
+ * 未正常结算战斗的恢复页：告知玩家恢复的是哪一关、用的是什么阵容。
  * 纯 UI：api.onResume() 由 mode.js 用存档里已保存的敌方阵容重开本关（不重掷），api.onBack() 回存档页。
  * 敌人只展示存档 currentBattle.enemies 里已序列化的 characterId（角色名 + 头像），不碰任何随机逻辑。
  */
@@ -108,11 +100,6 @@ export function showResume(api) {
 			ui.create.div(".wm-rogue-shop-avatar", chip).setBackground(entry.characterId, "character");
 			ui.create.div(".wm-rogue-resume-enemy-name", translateCharacter(entry.characterId), chip);
 		}
-	}
-
-	ui.create.div(".wm-rogue-resume-section", "恢复不会改变任何结果", card);
-	for (const rule of RESUME_RULES) {
-		ui.create.div(".wm-rogue-resume-rule", rule, card);
 	}
 
 	const actions = ui.create.div(".wm-rogue-resume-actions", panel);

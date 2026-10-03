@@ -805,7 +805,6 @@ await check("异常退出恢复：恢复页展示原阵容，重打同一套敌�
 	assert(text.includes("闯关模式") && text.includes(`第 ${run.level} 关`), "应展示模式与关卡");
 	assert(text.includes("将使用上次保存的敌方阵容继续挑战"), "应说明沿用保存的阵容");
 	assert(text.includes("赛文"), "敌人应按存档阵容展示");
-	assert(text.includes("不重新随机敌方角色与属性"), "应列出恢复承诺");
 	// 主/次按钮都要在，且返回入口在点击前不改变存档
 	assertEqual(nodesWithClass("wm-rogue-resume-primary").length, 1, "主按钮：重新挑战这一关");
 	const before = log.length;
