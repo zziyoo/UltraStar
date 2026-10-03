@@ -1,6 +1,6 @@
 // 肉鸽 Hub、商店与替换技能页。同样只画界面，一切数据变更走 api 交给 mode.js。
-// Hub 与替换页是本体 Dialog（条目平铺在 dialog.content 下，见 ui/common.js 顶部说明）；
-// 商店是自建浮层 + wm-rogue-shop-* / wm-rogue-stat-* 样式，与存档页同一套承载方式。
+// 各页面都是自建浮层 + wm-rogue-* 样式（见 ui/common.js 顶部说明）；
+// 替换页与商店共用同一套技能卡渲染（addSkillHead / wm-rogue-shop-desc / sanitizeSkillText）。
 
 import {
 	CURRENCIES,
@@ -20,14 +20,10 @@ import { getRefreshesRemaining } from "../shop.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
-	addButton,
-	addGap,
-	addLine,
 	addOverlayButton,
 	bindOverlayTap,
 	currentScreenNode,
 	openOverlay,
-	openScreen,
 	showNotice,
 	skillInfo,
 	skillName,
@@ -331,18 +327,45 @@ function setBuyable(row, buyable) {
 	row.card.classList[buyable ? "remove" : "add"]("wm-rogue-off");
 }
 
-/** 技能槽满时的替换页：选一个已有技能让位 */
+/**
+ * 技能槽满时的替换页：上方居中突出新技能，下方三张已有技能卡横排，点「替换此技能」让位。
+ * 纯 UI：替换走 api.confirmReplace(offerId, 被替换的技能)，返回商店走 api.backToShop；
+ * 技能卡复用商店渲染（addSkillHead + sanitize 后的描述），没有出处的不标来源。
+ */
 export function showReplace(api, offerId) {
 	const run = api.run;
-	const content = openScreen("选择要替换的技能");
+	const stage = openOverlay("wm-rogue-replace-overlay");
+	const panel = ui.create.div(".wm-rogue-replace", stage);
 
-	addLine(content, `新技能：${skillName(offerId)}（槽位 ${run.skills.length}/${SKILL_SLOTS}，必须移除一个）`);
-	addGap(content);
+	// 返回固定在标题栏右上角，与商店/技能查看页同一设计，不再额外铺底部取消按钮
+	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
+	ui.create.div(".wm-rogue-title", "选择要替换的技能", titlebar);
+	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.backToShop());
+
+	const body = ui.create.div(".wm-rogue-replace-body", panel);
+	ui.create.div(".wm-rogue-replace-subtitle", "技能槽已满，请选择一个已有技能进行替换", body);
+
+	// 新技能：整页重点——加大卡居中，强调边框，完整描述
+	const newHead = ui.create.div(".wm-rogue-shop-section-row", body);
+	ui.create.div(".wm-rogue-shop-section-title", "新技能", newHead);
+	ui.create.div(".wm-rogue-replace-slot", `技能槽 ${run.skills.length}/${SKILL_SLOTS}`, newHead);
+	const newCard = ui.create.div(".wm-rogue-shop-card.wm-rogue-replace-new", body);
+	addSkillHead(newCard, offerId);
+	ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(offerId) || "（该技能没有描述）", newCard);
+
+	ui.create.div(".wm-rogue-replace-arrow", "↓ 选择一个要被替换的技能 ↓", body);
+
+	// 已有技能：三张等宽卡横排（窄屏自动换行），描述限高，按钮钉在卡片底部对齐
+	const cards = ui.create.div(".wm-rogue-replace-cards", body);
 	for (const id of run.skills) {
-		addLine(content, `<b>${skillName(id)}</b>`);
-		addLine(content, skillInfo(id));
-		addButton("用新技能替换它", content, () => api.confirmReplace(offerId, id));
-		addGap(content);
+		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-replace-card", cards);
+		addSkillHead(card, id);
+		const intro = skillInfo(id);
+		const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
+		desc.title = intro;
+		// 与商店一致：点卡片看完整描述，按钮上的点击会阻止冒泡，不会连带打开
+		bindOverlayTap(card, () => showNotice([skillName(id), intro || "（该技能没有描述）"]));
+		const foot = ui.create.div(".wm-rogue-shop-foot", card);
+		addOverlayButton("替换此技能", foot, () => api.confirmReplace(offerId, id), "wm-rogue-replace-btn");
 	}
-	addButton("取消购买", content, () => api.backToShop());
 }

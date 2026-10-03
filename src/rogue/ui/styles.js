@@ -201,6 +201,27 @@ const CSS = `
 .wm-rogue-btn.wm-rogue-result-btn { padding: 12px 46px; font-size: 21px; border-color: rgba(255,200,120,0.75);
 	background: linear-gradient(rgba(150,105,40,0.95), rgba(100,65,20,0.95)); }
 
+/* ---- 替换技能页：新技能居中突出，下面三张已有技能卡等宽横排 ----
+   层级：标题 28 > 新技能卡（名 26、强调边框光晕）> 区域标题 24 > 已有卡（名 22）
+   > 描述 17 / 箭头与说明 14~15 */
+.wm-rogue-replace { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
+#wm-rogue-overlay.wm-rogue-replace-overlay .wm-rogue-title { font-size: 28px; letter-spacing: 5px; }
+.wm-rogue-replace-subtitle { margin: 0 0 12px; font-size: 14px; color: rgba(255,255,255,0.58); text-align: center; }
+.wm-rogue-replace-slot { margin-left: auto; font-size: 16px; color: #ffd479; }
+/* 新技能卡：加宽居中 + 暖色边框光晕，名字随卡片放大 */
+.wm-rogue-replace-new { width: min(640px, 100%); margin: 0 auto; cursor: default;
+	border-color: rgba(255,200,120,0.6);
+	box-shadow: 0 0 18px rgba(255,180,80,0.15), 0 2px 10px rgba(0,0,0,0.5); }
+.wm-rogue-replace-new .wm-rogue-shop-name { font-size: 26px; color: #ffe2a8; }
+.wm-rogue-replace-arrow { margin: 16px 0 10px; font-size: 15px; letter-spacing: 4px; text-align: center;
+	color: rgba(255,255,255,0.55); }
+/* 三张已有技能卡：等宽横排、窄屏换行；描述限高防止一张卡把别张挤乱，按钮钉底对齐 */
+.wm-rogue-replace-cards { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+.wm-rogue-replace-card { flex: 1 1 260px; transition: transform 0.12s ease, border-color 0.12s ease; }
+.wm-rogue-replace-card:hover { border-color: rgba(255,180,80,0.75); transform: translateY(-2px); }
+.wm-rogue-replace-card:active { transform: translateY(0); }
+.wm-rogue-btn.wm-rogue-replace-btn { flex: 1 1 auto; padding: 8px 12px; font-size: 17px; }
+
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
    table/td 的 display 与文本换行；这些都会被浮层里的普通类规则继承或压掉。
@@ -273,11 +294,13 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-stat-card,
 #wm-rogue-overlay .wm-rogue-hub,
 #wm-rogue-overlay .wm-rogue-skills,
+#wm-rogue-overlay .wm-rogue-replace,
 #wm-rogue-overlay .wm-rogue-modes { display: flex !important; flex-direction: column !important; }
 #wm-rogue-overlay .wm-rogue-shop-cards,
 #wm-rogue-overlay .wm-rogue-stat-cards,
 #wm-rogue-overlay .wm-rogue-hub-actions,
 #wm-rogue-overlay .wm-rogue-mode-cards,
+#wm-rogue-overlay .wm-rogue-replace-cards,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
 #wm-rogue-overlay .wm-rogue-shop-top,
 #wm-rogue-overlay .wm-rogue-shop-foot,
@@ -288,6 +311,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-shop-body,
 #wm-rogue-overlay .wm-rogue-hub-body,
 #wm-rogue-overlay .wm-rogue-skills-body,
+#wm-rogue-overlay .wm-rogue-replace-body,
 #wm-rogue-overlay .wm-rogue-res-cell,
 #wm-rogue-overlay .wm-rogue-shop-avatar,
 #wm-rogue-overlay .wm-rogue-stat-effects { display: block !important; }
@@ -309,6 +333,9 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-hub-hint,
 #wm-rogue-overlay .wm-rogue-skills-empty,
 #wm-rogue-overlay .wm-rogue-skills-hint,
+#wm-rogue-overlay .wm-rogue-replace-subtitle,
+#wm-rogue-overlay .wm-rogue-replace-slot,
+#wm-rogue-overlay .wm-rogue-replace-arrow,
 #wm-rogue-overlay .wm-rogue-result,
 #wm-rogue-overlay .wm-rogue-result-mark,
 #wm-rogue-overlay .wm-rogue-result-title,
@@ -329,6 +356,8 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-hub-hint,
 #wm-rogue-overlay .wm-rogue-skills-empty,
 #wm-rogue-overlay .wm-rogue-skills-hint,
+#wm-rogue-overlay .wm-rogue-replace-subtitle,
+#wm-rogue-overlay .wm-rogue-replace-arrow,
 #wm-rogue-overlay .wm-rogue-result-line,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { white-space: normal !important; overflow-wrap: break-word !important; }

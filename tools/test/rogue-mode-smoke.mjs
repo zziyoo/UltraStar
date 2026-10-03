@@ -1161,7 +1161,8 @@ await check("商店刷新次数：战斗恢复与失败都不补，通关进下�
 	return "恢复/失败保持 1，通关补满";
 });
 
-await check("技能上限：满槽购买走替换页，替换后仍不超过 3 个", async () => {
+await check("技能上限：满槽购买走替换页（新版式），三个位置都能替换且取消不替换", async () => {
+	// 情况 B：正好 3 个技能再购买 → 进入替换页
 	putRun(0, {
 		skills: ["own_one", "own_two", "own_three"],
 		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
@@ -1171,13 +1172,75 @@ await check("技能上限：满槽购买走替换页，替换后仍不超过 3 �
 	session();
 	click("商店");
 	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
-	assert(screenText().includes("选择要替换的技能"), "应进入替换页");
-	click("用新技能替换它");
-	const after = lib.storage.rogueSlots[0];
-	assertEqual(after.skills.length, cfg.SKILL_SLOTS, "槽位数不超过上限");
-	assert(!after.skills.includes("own_one"), "被选中的旧技能已移除");
-	assert(after.skills.includes("rogue_extra"), "新技能已加入");
+	const text = screenText();
+	assert(text.includes("选择要替换的技能"), `应进入替换页：${text}`);
+	assert(text.includes("新技能") && text.includes("技能槽 3/3"), "应突出新技能与槽位");
+	assertEqual(nodesWithClass("wm-rogue-replace-new").length, 1, "新技能应为一张加大卡");
+	assertEqual(nodesWithClass("wm-rogue-replace-card").length, 3, "三张已有技能卡");
+	assertEqual(nodesWithClass("wm-rogue-replace-btn").length, 3, "每张卡一个替换按钮");
+	// 点已有技能卡看完整描述（弹层），关闭后仍在替换页
+	clickNode(nodesWithClass("wm-rogue-replace-card")[0]);
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "点卡片应弹完整描述");
+	nodesWithClass("wm-rogue-popup")[0].remove();
+	// 取消：右上角返回，不替换
+	click("返回");
+	await flush();
+	let after = lib.storage.rogueSlots[0];
+	assertEqual(after.skills.length, 3, "取消后技能不变");
+	assert(!after.skills.includes("rogue_extra"), "取消未购买");
+	// 情况 C：分别替换第 1、2、3 张卡
+	putRun(0, { shopOffers: [{ id: "rogue_extra", price: 10, sold: false }], currency: { gold: 500, exp: 0 } }, after);
+	session();
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[0]);
+	await flush();
+	after = lib.storage.rogueSlots[0];
+	assertEqual(after.skills.length, 3, "替换后仍是 3 个");
+	assert(!after.skills.includes("own_one") && after.skills.includes("rogue_extra"), "第一个技能已替换");
+	putRun(0, { shopOffers: [{ id: "own_four", price: 10, sold: false }], currency: { gold: 500, exp: 0 } }, after);
+	session();
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[1]);
+	await flush();
+	after = lib.storage.rogueSlots[0];
+	assert(!after.skills.includes("own_three") && after.skills.includes("own_four"), "第二个位置的技能已替换");
+	putRun(0, { shopOffers: [{ id: "own_five", price: 10, sold: false }], currency: { gold: 500, exp: 0 } }, after);
+	session();
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[2]);
+	await flush();
+	after = lib.storage.rogueSlots[0];
+	assertEqual(after.skills.length, 3, "槽位数始终不超过上限");
+	assert(!after.skills.includes("own_four") && after.skills.includes("own_five"), "第三个位置的技能已替换");
 	return after.skills.join(",");
+});
+
+await check("替换页：超长描述与 poptip 都不撑爆页面、不漏原始标签", async () => {
+	putRun(0, {
+		skills: ["own_long", "own_poptip", "own_one"],
+		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
+		currency: { gold: 500, exp: 0 },
+		currentBattle: null,
+	});
+	session();
+	// 会话会重置翻译，这两个夹具要在 session() 之后再塞
+	lib.translate.own_long = `很长<hr>${"很长很长的技能描述。".repeat(40)}`;
+	lib.translate.own_poptip = '带牌<hr>你造成的<noname-poptip poptip="sha"></noname-poptip>伤害+1。';
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	const text = screenText();
+	assertEqual(nodesWithClass("wm-rogue-replace-card").length, 3, "长描述不会把其它卡片挤掉");
+	assert(!text.includes("<noname-poptip"), `不得泄漏原始标签：${text.slice(0, 200)}`);
+	assert(text.includes("很长很长的技能描述"), "长描述正常展示（限高滚动在 CSS 层）");
+	// 情况 D：长描述在新技能卡上也只撑高自己（完整描述），已有卡限高约 5 行
+	assert(nodesWithClass("wm-rogue-replace-new")[0].querySelector(".wm-rogue-desc-full"), "新技能卡应显示完整描述");
+	click("返回");
+	await flush();
+	assert(screenText().includes("技能商店"), "返回应回到商店");
+	return "长描述 + poptip";
 });
 
 await check("属性卡：三项且防御把体力上限一起算，不得多出「体力」卡", async () => {
