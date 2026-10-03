@@ -442,7 +442,7 @@ await check("玩家属性与技能在开局时按存档重建；旧档 groupId �
 		currency: { gold: 0, exp: 0 },
 	}, stateModule.createRun("challenge", "迪迦", 1));
 	session();
-	assert(screenText().includes("没有正常结算"), "旧档的进行中战斗应提示恢复");
+	assert(screenText().includes("战斗未正常结算"), "旧档的进行中战斗应提示恢复");
 	click("重新挑战这一关");
 	await flush();
 	assertEqual(game.me.__char, "迪迦", "玩家角色来自存档");
@@ -672,7 +672,7 @@ await check("返回营地：directstart + reload，重启后落到 Hub", async (
 	session();
 	const text = screenText();
 	assert(text.includes("开始下一关"), `重启后应回到 Hub：${text}`);
-	assert(!text.includes("没有正常结算"), "已正常结算时不该提示恢复");
+	assert(!text.includes("战斗未正常结算"), "已正常结算时不该提示恢复");
 	return "Hub 复原";
 });
 
@@ -796,11 +796,18 @@ await check("技能查看页：商店顶部技能资源块进入、只读、popt
 	return "商店技能块入口 + poptip 转名";
 });
 
-await check("异常退出恢复：重打存档里的同一套敌方阵容，不判胜、不补奖、不跳关", async () => {
+await check("异常退出恢复：恢复页展示原阵容，重打同一套敌人，不判胜、不补奖、不跳关", async () => {
 	// v2 旧档只记 groupId：读档还原成阵容后，恢复战斗仍应原样重打，不重掷
 	const run = putRun(0, { currentBattle: { groupId: "group_seven", status: "battle" } });
 	session();
-	assert(screenText().includes("没有正常结算"), "应提示未完成战斗");
+	const text = screenText();
+	assert(text.includes("战斗未正常结算"), `应有恢复页大标题：${text}`);
+	assert(text.includes("闯关模式") && text.includes(`第 ${run.level} 关`), "应展示模式与关卡");
+	assert(text.includes("将使用上次保存的敌方阵容继续挑战"), "应说明沿用保存的阵容");
+	assert(text.includes("赛文"), "敌人应按存档阵容展示");
+	assert(text.includes("不重新随机敌方角色与属性"), "应列出恢复承诺");
+	// 主/次按钮都要在，且返回入口在点击前不改变存档
+	assertEqual(nodesWithClass("wm-rogue-resume-primary").length, 1, "主按钮：重新挑战这一关");
 	const before = log.length;
 	click("重新挑战这一关");
 	await flush();
@@ -1461,7 +1468,10 @@ await check("敌人配置缺失：给出提示而不是崩溃或空局", async (
 	});
 	session();
 	click("重新挑战这一关");
-	const text = dump(ui.lastDialog);
+	// 恢复页是自建浮层，报错走浮层内的自建弹层而不是本体对话框
+	const popups = nodesWithClass("wm-rogue-popup");
+	assertEqual(popups.length, 1, "阵容问题应弹出提示");
+	const text = dump(popups[0]);
 	assert(text.includes("没有当前可用"), `应报出阵容问题：${text}`);
 	assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "应清除无效的战斗标记");
 	return "阵容错误可见";

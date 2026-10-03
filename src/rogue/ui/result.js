@@ -1,8 +1,8 @@
-// 战斗结算页（胜利 / 失败 / 无尽删档）与失败惩罚的 fallback 选择页。
-// 结算页是自建浮层：大标题 + 标记 + 奖励/损失分行 + 下一步 + 显著返回按钮；
+// 战斗结算页（胜利 / 失败 / 无尽删档）、未正常结算战斗的恢复页，与失败惩罚的 fallback 选择页。
+// 结算页与恢复页是自建浮层：大标题 + 标记 + 信息卡 + 显著操作按钮；
 // 惩罚选择页是本体 Dialog 列表（条目平铺在 dialog.content 下，见 ui/common.js 顶部说明）。
 
-import { CURRENCIES, CURRENCY_LABEL, STAT_IDS } from "../config.js";
+import { CURRENCIES, CURRENCY_LABEL, RUN_MODE_LABEL, STAT_IDS } from "../config.js";
 import { ui } from "../../../../../noname.js";
 import { stats } from "../data/stats.js";
 import {
@@ -14,6 +14,7 @@ import {
 	openOverlay,
 	openScreen,
 	skillName,
+	translateCharacter,
 } from "./common.js";
 
 const currencyRows = (money, sign) =>
@@ -67,6 +68,56 @@ export function showResult(info) {
 
 	const actions = ui.create.div(".wm-rogue-result-actions", panel);
 	addOverlayButton(info.buttonLabel ?? "返回营地", actions, () => info.onDone(), "wm-rogue-result-btn");
+}
+
+/** 恢复行为承诺：与 mode.js 的实际恢复逻辑一一对应，不要在这里写 UI 自己的承诺 */
+const RESUME_RULES = [
+	"· 不重新随机敌方角色与属性",
+	"· 不判定本次战斗胜利",
+	"· 不重复发放战斗奖励",
+	"· 不会跳过本关",
+];
+
+/**
+ * 未正常结算战斗的恢复页：告知玩家恢复的是哪一关、用的是什么阵容、恢复不改变任何结果。
+ * 纯 UI：api.onResume() 由 mode.js 用存档里已保存的敌方阵容重开本关（不重掷），api.onBack() 回存档页。
+ * 敌人只展示存档 currentBattle.enemies 里已序列化的 characterId（角色名 + 头像），不碰任何随机逻辑。
+ */
+export function showResume(api) {
+	const run = api.run;
+	const panel = ui.create.div(".wm-rogue-resume", openOverlay("wm-rogue-resume-overlay"));
+
+	ui.create.div(".wm-rogue-resume-mark", "!", panel);
+	ui.create.div(".wm-rogue-resume-title", "战斗未正常结算", panel);
+	ui.create.div(".wm-rogue-resume-sub", "检测到上次战斗没有正常结束，可以原样恢复这一关", panel);
+
+	const card = ui.create.div(".wm-rogue-resume-card", panel);
+	ui.create.div(".wm-rogue-resume-mode", RUN_MODE_LABEL[run.mode] ?? run.mode, card);
+	ui.create.div(".wm-rogue-resume-level", `第 ${run.level} 关`, card);
+	ui.create.div(".wm-rogue-resume-hint", "将使用上次保存的敌方阵容继续挑战", card);
+
+	const enemies = (Array.isArray(run.currentBattle?.enemies) ? run.currentBattle.enemies : []).filter(
+		entry => entry?.characterId
+	);
+	if (enemies.length) {
+		ui.create.div(".wm-rogue-resume-section", "本关敌人", card);
+		const row = ui.create.div(".wm-rogue-resume-enemies", card);
+		for (const entry of enemies) {
+			const chip = ui.create.div(".wm-rogue-resume-enemy", row);
+			// 与商店出处头像同一套 setBackground：只读展示存档里已保存的角色，不重新随机
+			ui.create.div(".wm-rogue-shop-avatar", chip).setBackground(entry.characterId, "character");
+			ui.create.div(".wm-rogue-resume-enemy-name", translateCharacter(entry.characterId), chip);
+		}
+	}
+
+	ui.create.div(".wm-rogue-resume-section", "恢复不会改变任何结果", card);
+	for (const rule of RESUME_RULES) {
+		ui.create.div(".wm-rogue-resume-rule", rule, card);
+	}
+
+	const actions = ui.create.div(".wm-rogue-resume-actions", panel);
+	addOverlayButton("重新挑战这一关", actions, () => api.onResume(), "wm-rogue-resume-primary");
+	addOverlayButton("返回存档页", actions, () => api.onBack(), "wm-rogue-small");
 }
 
 function addResultSection(panel, label, rows) {

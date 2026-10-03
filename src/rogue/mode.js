@@ -28,7 +28,7 @@ import { skill as rogueSkills, translate as rogueTranslate, helpers as rogueHelp
 import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
 import { refreshShop, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
-import { showPenaltyChoice, showResult } from "./ui/result.js";
+import { showPenaltyChoice, showResult, showResume } from "./ui/result.js";
 
 const context = {
 	slots: [],
@@ -336,13 +336,12 @@ function draftApi(index) {
 }
 
 function askResume(run) {
-	showChoice(
-		["检测到上次战斗没有正常结算。", "将原样重新挑战同一组敌人：不判定胜利、不补发奖励、也不会跳过本关。"],
-		[
-			{ label: "重新挑战这一关", onClick: () => startFromSavedBattle(run.currentBattle.enemies) },
-			{ label: "返回存档页", onClick: openSlots },
-		]
-	);
+	// 恢复必须沿用存档里已保存的敌方阵容：闭包直取 currentBattle.enemies，绝不重掷
+	showResume({
+		run,
+		onResume: () => startFromSavedBattle(run.currentBattle.enemies),
+		onBack: openSlots,
+	});
 }
 
 // ---------------------------------------------------------------- 商店操作

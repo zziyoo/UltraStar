@@ -222,6 +222,36 @@ const CSS = `
 .wm-rogue-replace-card:active { transform: translateY(0); }
 .wm-rogue-btn.wm-rogue-replace-btn { flex: 1 1 auto; padding: 8px 12px; font-size: 17px; }
 
+/* ---- 战斗恢复页：未正常结算的战斗原样恢复；琥珀色提示是「待恢复」而非报错 ----
+   层级：标题 32 > 信息卡（关 30 > 提示 15 > 敌人/规则 14~15）> 按钮 */
+.wm-rogue-resume { display: flex; flex-direction: column; margin: auto; width: min(620px, calc(100% - 24px));
+	padding: 30px 34px 26px; border-radius: 10px; text-align: center; box-sizing: border-box;
+	background: linear-gradient(rgba(24,24,24,0.92), rgba(8,8,8,0.95));
+	border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 6px 26px rgba(0,0,0,0.65); }
+.wm-rogue-resume-mark { font-size: 44px; line-height: 1; font-weight: bold; color: #ffb347;
+	text-shadow: 0 0 16px rgba(255,180,80,0.4); }
+.wm-rogue-resume-title { margin-top: 8px; font-size: 32px; font-weight: bold; color: #fff;
+	letter-spacing: 5px; text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
+.wm-rogue-resume-sub { margin-top: 8px; font-size: 16px; color: rgba(255,255,255,0.72); }
+/* 状态卡：边框用琥珀色与普通卡片区分，整体仍是半透明深色面板 */
+.wm-rogue-resume-card { margin-top: 20px; padding: 18px 20px; border-radius: 8px;
+	background: linear-gradient(rgba(22,22,22,0.8), rgba(0,0,0,0.86));
+	border: 1px solid rgba(255,180,80,0.4); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.wm-rogue-resume-mode { font-size: 14px; color: rgba(255,255,255,0.62); letter-spacing: 4px; }
+.wm-rogue-resume-level { margin-top: 6px; font-size: 30px; font-weight: bold; color: #fff;
+	text-shadow: 0 2px 5px rgba(0,0,0,0.9); }
+.wm-rogue-resume-hint { margin-top: 8px; font-size: 15px; color: #ffd08a; }
+.wm-rogue-resume-section { margin-top: 14px; font-size: 14px; color: rgba(255,255,255,0.55); letter-spacing: 3px; }
+/* 敌人：只读展示存档里保存的角色（头像复用商店的 .wm-rogue-shop-avatar） */
+.wm-rogue-resume-enemies { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 10px; }
+.wm-rogue-resume-enemy { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 64px; }
+.wm-rogue-resume-enemy-name { max-width: 64px; font-size: 14px; color: rgba(255,255,255,0.85);
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-rogue-resume-rule { margin-top: 6px; font-size: 15px; line-height: 1.5; color: rgba(255,255,255,0.82); }
+.wm-rogue-resume-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 24px; }
+.wm-rogue-btn.wm-rogue-resume-primary { padding: 12px 46px; font-size: 21px; border-color: rgba(255,200,120,0.75);
+	background: linear-gradient(rgba(150,105,40,0.95), rgba(100,65,20,0.95)); }
+
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
    table/td 的 display 与文本换行；这些都会被浮层里的普通类规则继承或压掉。
@@ -295,13 +325,18 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-hub,
 #wm-rogue-overlay .wm-rogue-skills,
 #wm-rogue-overlay .wm-rogue-replace,
+#wm-rogue-overlay .wm-rogue-resume,
 #wm-rogue-overlay .wm-rogue-modes { display: flex !important; flex-direction: column !important; }
 #wm-rogue-overlay .wm-rogue-shop-cards,
 #wm-rogue-overlay .wm-rogue-stat-cards,
 #wm-rogue-overlay .wm-rogue-hub-actions,
 #wm-rogue-overlay .wm-rogue-mode-cards,
 #wm-rogue-overlay .wm-rogue-replace-cards,
+#wm-rogue-overlay .wm-rogue-resume-enemies,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
+#wm-rogue-overlay .wm-rogue-resume-enemy,
+#wm-rogue-overlay .wm-rogue-resume-actions { display: flex !important; flex-direction: column !important;
+	align-items: center !important; }
 #wm-rogue-overlay .wm-rogue-shop-top,
 #wm-rogue-overlay .wm-rogue-shop-foot,
 #wm-rogue-overlay .wm-rogue-stat-head,
@@ -336,6 +371,16 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-replace-subtitle,
 #wm-rogue-overlay .wm-rogue-replace-slot,
 #wm-rogue-overlay .wm-rogue-replace-arrow,
+#wm-rogue-overlay .wm-rogue-resume-mark,
+#wm-rogue-overlay .wm-rogue-resume-title,
+#wm-rogue-overlay .wm-rogue-resume-sub,
+#wm-rogue-overlay .wm-rogue-resume-card,
+#wm-rogue-overlay .wm-rogue-resume-mode,
+#wm-rogue-overlay .wm-rogue-resume-level,
+#wm-rogue-overlay .wm-rogue-resume-hint,
+#wm-rogue-overlay .wm-rogue-resume-section,
+#wm-rogue-overlay .wm-rogue-resume-rule,
+#wm-rogue-overlay .wm-rogue-resume-enemy-name,
 #wm-rogue-overlay .wm-rogue-result,
 #wm-rogue-overlay .wm-rogue-result-mark,
 #wm-rogue-overlay .wm-rogue-result-title,
@@ -358,11 +403,15 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-skills-hint,
 #wm-rogue-overlay .wm-rogue-replace-subtitle,
 #wm-rogue-overlay .wm-rogue-replace-arrow,
+#wm-rogue-overlay .wm-rogue-resume-sub,
+#wm-rogue-overlay .wm-rogue-resume-hint,
+#wm-rogue-overlay .wm-rogue-resume-rule,
 #wm-rogue-overlay .wm-rogue-result-line,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { white-space: normal !important; overflow-wrap: break-word !important; }
 #wm-rogue-overlay .wm-rogue-name { white-space: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-no { white-space: nowrap !important; }
+#wm-rogue-overlay .wm-rogue-resume-enemy-name { white-space: nowrap !important; }
 `;
 
 export function ensureRogueStyles() {
