@@ -1883,32 +1883,25 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 	assertEqual(JSON.stringify(after.curios), JSON.stringify(["energy_core"]), "奇物入袋");
 	assertEqual(JSON.stringify(after.collection.curios), JSON.stringify(["energy_core"]), "图鉴记录");
 	assertEqual(after.currency.gold, 90, "扣款落盘");
-	assert(screenText().includes("已购买"), `已购买原位显示：${screenText()}`);
-	assert(screenText().includes("本批已售罄"), "其余候选整批售罄");
-	// 已售罄再点：UI 直接拦下（按钮态不是 buy），不弹窗、不落账
-	clickNode(buyButtons[4]);
-	await flush();
-	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "售罄按钮点击被 UI 拦下");
-	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].curios), JSON.stringify(["energy_core"]), "售罄点击不落账");
-	// 重载：奇物仍在、候选仍是同一批（含已购标记）
+	// 买到即整批下架：候选清空、分区整个隐藏，不留「已购买」残卡
+	assertEqual(JSON.stringify(after.curioOffers), "[]", "买到即清空候选");
+	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 0, "候选卡全部撤下");
+	assert(nodesWithClass("wm-rogue-curio-section")[0].classList.contains("wm-rogue-hidden"), "空批次时奇物商店分区隐藏");
+	// 重载：奇物仍在、分区仍隐藏（旧档里的残卡也会在读档时被清洗掉）
 	putRun(0, {}, after);
 	session();
 	click("商店");
 	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].curios), JSON.stringify(["energy_core"]), "重载后奇物仍在");
-	assertEqual(lib.storage.rogueSlots[0].curioOffers.filter(offer => offer.sold).length, 1, "已购标记持久化");
-	// 点奇物卡看介绍：弹层只有描述与效果，不重复卡面上已经写着的奇物名
-	clickNode(nodesWithClass("wm-rogue-curio-card")[0]);
-	let popupText = dump(nodesWithClass("wm-rogue-popup")[0]);
-	assert(!popupText.includes("能量核心"), `介绍弹层不应重复奇物名：${popupText}`);
-	assert(popupText.includes("摸牌阶段额外摸一张牌"), `介绍弹层应展示效果：${popupText}`);
-	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].curioOffers), "[]", "重载后无残留候选");
+	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 0, "重载后分区仍无残卡");
+	assert(nodesWithClass("wm-rogue-curio-section")[0].classList.contains("wm-rogue-hidden"), "重载后分区仍隐藏");
 	// 顶部「奇物 n」资源块进只读查看页：与「技能 n/3」同一套入口
 	clickNode(nodesWithClass("wm-rogue-res-curio")[0]);
 	assert(screenText().includes("奇物（1）"), `查看页标题：${screenText()}`);
 	assert(screenText().includes("能量核心"), "查看页列出已拥有奇物");
 	// 查看页点卡片：弹层只讲描述与效果，不重复名字
 	clickNode(nodesWithClass("wm-rogue-shop-card-read")[0]);
-	popupText = dump(nodesWithClass("wm-rogue-popup")[0]);
+	const popupText = dump(nodesWithClass("wm-rogue-popup")[0]);
 	assert(!popupText.includes("能量核心"), `查看页弹层不应重复奇物名：${popupText}`);
 	assert(popupText.includes("摸牌阶段额外摸一张牌"), `查看页弹层应展示效果：${popupText}`);
 	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
@@ -2027,10 +2020,10 @@ await check("v3 旧档兼容：缺事件/奇物/图鉴字段时自动补齐并�
 	const text = screenText();
 	assert(text.includes("开始下一关"), `旧档应正常进营地：${text}`);
 	// 内存里已按 v4 补齐（这里读不到 context，落盘断言放在进商店触发 persist 之后）
-	// 旧档进商店：奇物分区在，无候选时给说明而不是报错；进店会重掷技能候选并落盘（版本号随之更新）
+	// 旧档进商店：无候选（未刷新过）时奇物分区整个隐藏，不报错；进店会重掷技能候选并落盘（版本号随之更新）
 	click("商店");
-	assert(screenText().includes("奇物商店"), "无尽旧档的商店仍有奇物分区");
-	assert(screenText().includes("10% 概率"), "无候选时给出触发概率说明");
+	// dump 不区分可见性：分区隐藏要按类名断言
+	assert(nodesWithClass("wm-rogue-curio-section")[0]?.classList?.contains("wm-rogue-hidden"), "无候选时奇物商店分区隐藏");
 	const saved = lib.storage.rogueSlots[0];
 	assertEqual(saved.version, cfg.RUN_VERSION, "落盘后标成当前版本");
 	assertEqual(saved.pendingEvent, null, "落盘补 pendingEvent");
@@ -2049,7 +2042,7 @@ await check("奇物商店 10% 门控：未命中保留原候选且不触发事�
 		putRun(0, {
 			mode: "endless",
 			level: 3,
-			curioOffers: [{ id: "lucky_stone", price: 66, sold: false }],
+			curioOffers: [{ id: "lucky_stone", price: 66 }],
 		});
 		session();
 		click("开始下一关");
@@ -2060,7 +2053,7 @@ await check("奇物商店 10% 门控：未命中保留原候选且不触发事�
 		lib.element.player.dieAfter.call(game.players[1]);
 		let run = lib.storage.rogueSlots[0];
 		assertEqual(run.pendingEvent, null, "未命中不触发事件");
-		assertEqual(JSON.stringify(run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 66, sold: false }]), "未命中保留原候选");
+		assertEqual(JSON.stringify(run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 66 }]), "未命中保留原候选");
 		const before = run.curioOffers.map(offer => `${offer.id}:${offer.price}`).join(",");
 		click("返回营地");
 		// 第二胜：rng=0 → 奇物商店命中整批重摇、事件也触发（顺序：先候选、后事件，同一次结算先后发生）

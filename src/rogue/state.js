@@ -197,9 +197,9 @@ function normalizeCurios(raw) {
 }
 
 /**
- * 奇物商店候选：与技能候选同一形状（id + 定死的售价 + 已购标记），无效条目剔除。
- * 「已拥有且未标记售出」的条目是过期脏数据（生成候选之后才经事件等途径获得同款），
- * 一并剔除——已拥有的奇物不得再以可购买的样子挂在商店里；已购买的条目保留作「已购买」展示。
+ * 奇物商店候选：{ id, price }，无效条目剔除。
+ * 已拥有的奇物一律剔除（无论来源：买到即整批下架、事件送出会撤下，这里兜底清洗旧档残留）——
+ * 已拥有的奇物不得再以任何形式挂在商店里。
  */
 function normalizeCurioOffers(raw, owned = []) {
 	const ownedSet = new Set(Array.isArray(owned) ? owned : []);
@@ -209,13 +209,10 @@ function normalizeCurioOffers(raw, owned = []) {
 			continue;
 		}
 		const id = sanitizeString(offer.id);
-		if (!id || !getCurio(id)) {
+		if (!id || !getCurio(id) || ownedSet.has(id)) {
 			continue;
 		}
-		if (ownedSet.has(id) && !offer.sold) {
-			continue;
-		}
-		offers.push({ id, price: clampInt(offer.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer.sold });
+		offers.push({ id, price: clampInt(offer.price, 0, Number.MAX_SAFE_INTEGER, 0) });
 	}
 	return offers;
 }

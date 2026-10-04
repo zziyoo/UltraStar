@@ -1274,7 +1274,7 @@ check("奇物候选：胜利时摇三个、排除已拥有、池空给少、结�
 	assertEqual(new Set(offers.map(offer => offer.id)).size, cfg.CURIO_OFFER_COUNT, "不重复");
 	const poolIds = new Set(curiosData.curioIds);
 	assert(offers.every(offer => poolIds.has(offer.id)), "候选来自奇物池");
-	assert(offers.every(offer => Number.isFinite(offer.price) && offer.sold === false), "候选结构");
+	assert(offers.every(offer => typeof offer.id === "string" && Number.isFinite(offer.price)), "候选结构");
 	// 排除已拥有：拥有 4 个时只能摇出剩下的那 1 个
 	const owned = curiosData.curioIds.slice(0, curiosData.curioIds.length - 1);
 	const narrow = curioManager.rollCurioOffers({ ...run, curios: owned }, makeRng(3));
@@ -1289,23 +1289,22 @@ check("奇物候选：胜利时摇三个、排除已拥有、池空给少、结�
 	return offers.map(offer => `${offer.id}:${offer.price}`).join(" ");
 });
 
-check("购买奇物：扣款入袋、写图鉴、标记已购、重复购买被拒", () => {
+check("购买奇物：扣款入袋、写图鉴、买到即整批下架不留残卡", () => {
 	const run = freshRun(cfg.RUN_MODE.endless);
 	run.currency.gold = 1000;
 	run.curioOffers = [
-		{ id: "energy_core", price: 10, sold: false },
-		{ id: "lucky_stone", price: 10, sold: false },
+		{ id: "energy_core", price: 10 },
+		{ id: "lucky_stone", price: 10 },
 	];
 	const bought = curioManager.buyCurio(run, "energy_core");
 	assert(bought.ok, bought.error ?? "购买应成功");
 	assertEqual(bought.run.currency.gold, 990, "扣款");
 	assertEqual(JSON.stringify(bought.run.curios), JSON.stringify(["energy_core"]), "奇物入袋");
 	assertEqual(JSON.stringify(bought.run.collection.curios), JSON.stringify(["energy_core"]), "图鉴记录");
-	assertEqual(bought.run.curioOffers.find(offer => offer.id === "energy_core").sold, true, "标记已购");
-	assertEqual(bought.run.curioOffers.find(offer => offer.id === "lucky_stone").sold, false, "另一候选不受影响");
-	// 买过之后整批售罄：直接买第二个被拒
+	assertEqual(JSON.stringify(bought.run.curioOffers), "[]", "买到即整批下架：不残留「已购买」候选");
+	// 批次已撤：再点其它候选直接落空（一批只卖一个）
 	const again = curioManager.buyCurio(bought.run, "lucky_stone");
-	assert(!again.ok && again.error.includes("售罄"), "一局限买一个");
+	assert(!again.ok && again.error.includes("不在本次候选"), "整批下架后无可买");
 	// 余额不足被拒
 	const poor = curioManager.buyCurio({ ...run, currency: { gold: 5, exp: 0 }, curioOffers: run.curioOffers.slice() }, "energy_core");
 	assert(!poor.ok && poor.error.includes("金币"), "金币不足被拒");
@@ -1486,36 +1485,37 @@ check("胜利结算（无尽）：摇奇物候选、幸运石放大经验；闯�
 	assertEqual(JSON.stringify(kept.run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 66, sold: false }]), "未命中保留原候选");
 	const rerolled = reward.settleVictory({ ...keep }, NOW, () => 0);
 	assertEqual(rerolled.run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "命中整批重摇");
-	assert(rerolled.run.curioOffers.every(offer => offer.sold === false), "新一批全部未售出");
+	assert(rerolled.run.curioOffers.every(offer => Number.isFinite(offer.price)), "新一批连价定死");
 	// 结算不清奇物与图鉴
 	assertEqual(JSON.stringify(blessed.run.curios), JSON.stringify(["lucky_stone"]), "胜利不清奇物");
 	return `无尽候选 ${won.run.curioOffers.length} 个 / 幸运石 exp 20→22`;
 });
 
-check("过期候选清理：事件送的奇物撤下候选，读档剔除已拥有未售出的条目", () => {
+check("过期候选清理：事件送的奇物撤下候选，读档剔除已拥有的条目", () => {
 	// 事件送奇物：若送出的同款还挂在商店候选里（生成候选时还没拥有），整条撤下
 	const run = freshRun(cfg.RUN_MODE.endless);
 	run.curioOffers = [
-		{ id: "lucky_stone", price: 10, sold: false },
-		{ id: "energy_core", price: 10, sold: false },
+		{ id: "lucky_stone", price: 10 },
+		{ id: "energy_core", price: 10 },
 	];
 	const lucky = curioManager.grantRandomCurio({ ...run }, () => 0.2);
 	assertEqual(lucky.curioId, "lucky_stone", "rng 定位幸运石");
 	assert(!lucky.run.curioOffers.some(offer => offer.id === "lucky_stone"), "送出的奇物从候选撤下");
 	assertEqual(lucky.run.curioOffers.length, 1, "其它候选不受影响");
 	assertEqual(lucky.run.curioOffers[0].id, "energy_core", "剩余候选原样");
-	// 读档清洗：已拥有且未售出 → 剔除；已拥有且已售出 → 保留（「已购买」展示）；未拥有 → 保留
+	// 读档清洗：已拥有 → 一律剔除（买到即下架、事件送出会撤下，这里兜底清洗旧档残留）；未拥有 → 保留
 	const stored = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
 		curios: ["energy_core"],
 		curioOffers: [
-			{ id: "energy_core", price: 10, sold: false },
-			{ id: "lucky_stone", price: 10, sold: true },
-			{ id: "broken_watch", price: 10, sold: false },
-			{ id: "幽灵", price: 10, sold: false },
+			{ id: "energy_core", price: 10, sold: true },
+			{ id: "lucky_stone", price: 10 },
+			{ id: "broken_watch", price: 10 },
+			{ id: "幽灵", price: 10 },
 		],
 	});
 	assertEqual(JSON.stringify(stored.curioOffers.map(offer => offer.id)), JSON.stringify(["lucky_stone", "broken_watch"]), "过期条目剔除，其余保留");
+	assertEqual(JSON.stringify(stored.curioOffers[0]), JSON.stringify({ id: "lucky_stone", price: 10 }), "候选只留 id 与定死的价格");
 	// 重新读档幂等：清洗后的存档再读一遍不变
 	assertEqual(JSON.stringify(state.normalizeRun(stored).curioOffers), JSON.stringify(stored.curioOffers), "清洗幂等");
 	return "撤下 + 剔除 + 幂等";

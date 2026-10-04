@@ -194,16 +194,17 @@ export function showShop(api) {
 	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
 
-	// 奇物商店：无尽模式专属分区。候选由战斗胜利按概率生成并连价定死写进存档，进店/重载都不重掷
+	// 奇物商店：无尽模式专属分区。候选由每关胜利按概率生成并连价定死写进存档，进店/重载都不重掷。
+	// 无候选（未刷新/已买完/已集齐）时整个分区隐藏——不留「已购买」残卡
 	const isEndless = run.mode === RUN_MODE.endless;
+	let curioSection = null;
 	let curioRow = null;
-	let curioHint = null;
 	const curioCards = [];
 	if (isEndless) {
-		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", body);
-		ui.create.div(".wm-rogue-shop-subtitle", "每关胜利后有 10% 概率刷新候选　每次最多购买 1 个", body);
-		curioRow = ui.create.div(".wm-rogue-shop-cards", body);
-		curioHint = ui.create.div(".wm-rogue-shop-subtitle.wm-rogue-curio-hint", "", body);
+		curioSection = ui.create.div(".wm-rogue-curio-section", body);
+		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", curioSection);
+		ui.create.div(".wm-rogue-shop-subtitle", "每关胜利后有 10% 概率刷新候选　每次最多购买 1 个", curioSection);
+		curioRow = ui.create.div(".wm-rogue-shop-cards", curioSection);
 	}
 
 	ui.create.div(".wm-rogue-shop-section-title", "属性强化", body);
@@ -260,11 +261,10 @@ export function showShop(api) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
 		paintRefresh(refreshButton, current, soldOut);
-		if (curioHint) {
+		// 无候选（未刷新/买到即下架/已集齐）时整个分区隐藏，不留残卡
+		if (curioSection) {
 			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
-			curioHint.innerHTML = offers.length
-				? ""
-				: "暂无奇物候选：每关胜利后有 10% 概率刷新一批。";
+			curioSection.classList[offers.length ? "remove" : "add"]("wm-rogue-hidden");
 		}
 	};
 	// 记浮层根节点用于原位刷新的存活判断（openOverlay 返回的是里面的居中层）
@@ -391,16 +391,14 @@ function buildCurioCard(parent, offer, api) {
 	return row;
 }
 
-/** 画一张奇物卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buyCurio 返回的是新对象 */
+/** 画一张奇物卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buyCurio 返回的是新对象，
+ * 买到即整批下架，所以只有「买得起 / 金币不足」两种可展示状态 */
 function paintCurio(row, run) {
 	const offer = getCurioOffer(run, row.id) ?? {};
 	const held = run.currency[SKILL_CURRENCY] ?? 0;
-	const soldOut = (run.curioOffers ?? []).some(item => item.sold);
-	const state = offer.sold ? "sold" : held < offer.price ? "poor" : soldOut ? "soldOut" : "buy";
+	const state = held < offer.price ? "poor" : "buy";
 	const text = {
-		sold: { price: `${offer.price} 金币`, button: "已购买" },
 		poor: { price: `${offer.price} 金币（持有 ${held}）`, button: "金币不足" },
-		soldOut: { price: `${offer.price} 金币`, button: "本批已售罄" },
 		buy: { price: `${offer.price} 金币`, button: "购买" },
 	}[state];
 	row.price.innerHTML = text.price;

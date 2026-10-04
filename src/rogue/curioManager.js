@@ -10,7 +10,7 @@
 // 结算类效果（expRate/goldRate）在 reward.js 胜利结算时用 getBonus 现查。
 // 商店侧：候选与售价在战斗胜利时定死写进存档（curioOffers），本文件负责生成与购买。
 
-import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_PURCHASE_COUNT } from "./config.js";
+import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD } from "./config.js";
 import { curios, getCurio, curioIds, CURIOSITY_RARITY } from "./data/curios.js";
 
 /** effect 里已知的键：战斗内四项 + 结算两项。数据自检保证 curios.json 不写出未知键 */
@@ -113,14 +113,9 @@ export function rollCurioOffers(run, rng = Math.random) {
 	}
 	for (const id of pool.slice(0, CURIO_OFFER_COUNT)) {
 		const def = curios[id];
-		picked.push({ id, price: getCurioPrice(level, def?.priceMultiplier, rng), sold: false });
+		picked.push({ id, price: getCurioPrice(level, def?.priceMultiplier, rng) });
 	}
 	return picked;
-}
-
-/** 商店里是否还有买得起的候选（一局限买 CURIO_PURCHASE_COUNT 个：买过即整批售罄） */
-function isSoldOut(offers) {
-	return CURIO_PURCHASE_COUNT <= 1 && offers.some(offer => offer?.sold);
 }
 
 function hasCurrency(run, currency, amount) {
@@ -133,7 +128,8 @@ export function getCurioOffer(run, offerId) {
 
 /**
  * 购买奇物：扣金币、写入 run.curios 与图鉴（collection.curios 记录「曾经拥有过」，
- * 之后丢弃也不会从图鉴消失）、把候选标记为已购。
+ * 之后丢弃也不会从图鉴消失）。一批只卖一个：**买到即整批下架**——curioOffers 清空，
+ * 商店里不留「已购买」残卡，下一批要等 CURIO_SHOP_RATE 命中重新摇。
  * 返回 { ok, error, run, curioId }；失败时 run 与传入的 run 是同一份未修改数据。
  */
 export function buyCurio(run, offerId) {
@@ -141,12 +137,6 @@ export function buyCurio(run, offerId) {
 	const offer = getCurioOffer(run, offerId);
 	if (!offer) {
 		return fail("该奇物不在本次候选中");
-	}
-	if (offer.sold) {
-		return fail("本批奇物已购买过");
-	}
-	if (isSoldOut(run.curioOffers ?? [])) {
-		return fail("本批奇物已售罄");
 	}
 	if (!Number.isFinite(offer.price) || !hasCurrency(run, "gold", offer.price)) {
 		return fail("金币不足");
@@ -167,17 +157,13 @@ export function buyCurio(run, offerId) {
 			events: (run.collection?.events ?? []).slice(0),
 			curios: (run.collection?.curios ?? []).slice(0),
 		},
-		curioOffers: run.curioOffers.map(item => ({ ...item })),
 	};
 	next.currency.gold = Math.max(0, (next.currency.gold ?? 0) - offer.price);
 	next.curios.push(offerId);
 	if (!next.collection.curios.includes(offerId)) {
 		next.collection.curios.push(offerId);
 	}
-	const target = next.curioOffers.find(item => item.id === offerId);
-	if (target) {
-		target.sold = true;
-	}
+	next.curioOffers = [];
 	return { ok: true, error: null, run: next, curioId: offerId };
 }
 

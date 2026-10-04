@@ -317,7 +317,9 @@ const CSS = `
 	color: #ffd479; border: 1px solid rgba(255,200,120,0.5); white-space: nowrap; }
 .wm-rogue-curio-effect { margin-top: 7px; font-size: 15px; line-height: 1.5; color: #9fd8ff;
 	white-space: pre-line; }
-.wm-rogue-shop-subtitle.wm-rogue-curio-hint { color: rgba(255,180,80,0.85); }
+/* 奇物商店分区容器：无候选时挂 .wm-rogue-hidden 整块隐藏（不留「已购买」残卡） */
+#wm-rogue-overlay .wm-rogue-curio-section { display: flex !important; flex-direction: column !important; }
+#wm-rogue-overlay .wm-rogue-curio-section.wm-rogue-hidden { display: none !important; }
 /* 商店资源行第四块「奇物 n」：与「技能 n/3」同一套入口视觉 */
 .wm-rogue-res-cell.wm-rogue-res-curio { cursor: pointer; }
 .wm-rogue-res-cell.wm-rogue-res-curio:hover { border-color: rgba(255,200,120,0.8); }
