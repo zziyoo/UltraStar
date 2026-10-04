@@ -88,7 +88,8 @@ export function showHub(api) {
 				art.style.backgroundImage = `url("${def.image}")`;
 			}
 			ui.create.div(".wm-rogue-hub-curio-name", def?.name ?? id, chip);
-			bindOverlayTap(chip, () => showNotice([def?.name ?? id, ...describeCurio(id)]));
+			// 胶囊上已经写着奇物名：弹层只讲效果，不重复自己的名字
+			bindOverlayTap(chip, () => showNotice(describeCurio(id)));
 		}
 	}
 
@@ -347,7 +348,8 @@ function buildCurioCard(parent, offer, api) {
 	if (def?.description) {
 		desc.title = def.description;
 	}
-	bindOverlayTap(card, () => showNotice([def?.name ?? offer.id, def?.description ?? "", ...lines].filter(Boolean)));
+	// 卡面上已经写着奇物名：弹层只讲描述与效果，不重复自己的名字
+	bindOverlayTap(card, () => showNotice([def?.description ?? "", ...lines].filter(Boolean)));
 	ui.create.div(".wm-rogue-curio-effect", lines.join("\n"), card);
 
 	const foot = ui.create.div(".wm-rogue-shop-foot", card);

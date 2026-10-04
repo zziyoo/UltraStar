@@ -359,6 +359,11 @@ const CSS = `
    下面把浮层内的定位语义钉死，只保留刻意绝对定位的几个元素。 */
 #wm-rogue-overlay div { position: static !important; }
 #wm-rogue-overlay .wm-rogue-popup { position: fixed !important; }
+/* 弹层的盒与行必须钉回 block：主题的裸 div{display:inline-block} 会把多行提示挤成一行
+   （真机实录：奇物弹层的「名称行」与「效果行」并排成了一句） */
+#wm-rogue-overlay .wm-rogue-popup-box,
+#wm-rogue-overlay .wm-rogue-popup-line { display: block !important; }
+#wm-rogue-overlay .wm-rogue-popup-actions { display: flex !important; }
 #wm-rogue-overlay .wm-rogue-card,
 #wm-rogue-overlay .wm-rogue-titlebar { position: relative !important; }
 #wm-rogue-overlay .wm-rogue-tag,

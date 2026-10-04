@@ -1885,8 +1885,20 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 	click("商店");
 	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].curios), JSON.stringify(["energy_core"]), "重载后奇物仍在");
 	assertEqual(lib.storage.rogueSlots[0].curioOffers.filter(offer => offer.sold).length, 1, "已购标记持久化");
+	// 点奇物卡看介绍：弹层只有描述与效果，不重复卡面上已经写着的奇物名
+	clickNode(nodesWithClass("wm-rogue-curio-card")[0]);
+	let popupText = dump(nodesWithClass("wm-rogue-popup")[0]);
+	assert(!popupText.includes("能量核心"), `介绍弹层不应重复奇物名：${popupText}`);
+	assert(popupText.includes("摸牌阶段额外摸一张牌"), `介绍弹层应展示效果：${popupText}`);
+	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
 	click("返回");
 	assert(screenText().includes("奇物（1）"), "营地奇物栏同步");
+	// 营地奇物胶囊同理：弹层只讲效果
+	clickNode(nodesWithClass("wm-rogue-hub-curio")[0]);
+	popupText = dump(nodesWithClass("wm-rogue-popup")[0]);
+	assert(!popupText.includes("能量核心"), `胶囊弹层不应重复奇物名：${popupText}`);
+	assert(popupText.includes("摸牌阶段额外摸一张牌"), `胶囊弹层应展示效果：${popupText}`);
+	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
 	return "买 1 个 → 整批售罄 → 重载保持";
 });
 
