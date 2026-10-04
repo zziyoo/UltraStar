@@ -15,6 +15,9 @@ import {
 	STAT_IDS,
 } from "./config.js";
 import { getEnemyGroup } from "./data/enemyGroups.js";
+import { getEvent } from "./data/events.js";
+import { getCurio } from "./data/curios.js";
+import { normalizeEventReward } from "./eventManager.js";
 import { stats } from "./data/stats.js";
 
 const RUN_MODE_KEYS = Object.keys(RUN_MODE);
@@ -126,6 +129,90 @@ function normalizeCurrentBattle(rawBattle) {
 }
 
 /**
+ * 无尽模式待处理事件（战斗胜利触发）：id + 已定死的选项与结果 + 生成时间。
+ * 事件定义已删除（下架）时整个事件丢弃；选项与奖励按白名单重建，形状非法的条目剔除。
+ * 只要这里还能还原出合法事件，读档就优先回到事件页——绝不重新触发、绝不重掷。
+ */
+function normalizePendingEvent(raw) {
+	if (!isPlainObject(raw)) {
+		return null;
+	}
+	const id = sanitizeString(raw.id);
+	if (!getEvent(id)) {
+		return null;
+	}
+	const choices = [];
+	for (const choice of Array.isArray(raw.choices) ? raw.choices : []) {
+		if (!isPlainObject(choice)) {
+			continue;
+		}
+		const text = sanitizeString(choice.text);
+		if (!text) {
+			continue;
+		}
+		choices.push({ text, reward: normalizeEventReward(choice.reward) });
+		if (choices.length >= 6) {
+			break;
+		}
+	}
+	if (!choices.length) {
+		return null;
+	}
+	return { id, choices, createdAt: Math.max(0, toInt(raw.createdAt, 0)) };
+}
+
+/** 图鉴：已发现事件 + 曾经拥有过的奇物（卖掉/丢弃也留在图鉴里），只记有效 id 并去重 */
+function normalizeCollection(raw) {
+	const collection = { events: [], curios: [] };
+	if (!isPlainObject(raw)) {
+		return collection;
+	}
+	for (const [key, lookup] of [["events", getEvent], ["curios", getCurio]]) {
+		const seen = new Set();
+		for (const id of Array.isArray(raw[key]) ? raw[key] : []) {
+			const clean = sanitizeString(id);
+			if (!clean || seen.has(clean) || !lookup(clean)) {
+				continue;
+			}
+			seen.add(clean);
+			collection[key].push(clean);
+		}
+	}
+	return collection;
+}
+
+/** 已拥有的奇物：只收有效 id，去重、不排序（保序） */
+function normalizeCurios(raw) {
+	const list = [];
+	const seen = new Set();
+	for (const id of Array.isArray(raw) ? raw : []) {
+		const clean = sanitizeString(id);
+		if (!clean || seen.has(clean) || !getCurio(clean)) {
+			continue;
+		}
+		seen.add(clean);
+		list.push(clean);
+	}
+	return list;
+}
+
+/** 奇物商店候选：与技能候选同一形状（id + 定死的售价 + 已购标记），无效条目剔除 */
+function normalizeCurioOffers(raw) {
+	const offers = [];
+	for (const offer of Array.isArray(raw) ? raw : []) {
+		if (!isPlainObject(offer)) {
+			continue;
+		}
+		const id = sanitizeString(offer.id);
+		if (!id || !getCurio(id)) {
+			continue;
+		}
+		offers.push({ id, price: clampInt(offer.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer.sold });
+	}
+	return offers;
+}
+
+/**
  * 把任意来路的数据重建为合法存档。
  * 采用白名单重建而非展开原对象，保证结果只含 JSON 可序列化的标量与数组，
  * Player / Card / 函数 / 循环引用都进不了存档。
@@ -193,6 +280,11 @@ export function normalizeRun(raw) {
 		currentBattle,
 		shopOffers,
 		shopRefreshesRemaining,
+		// v4：无尽模式的事件 / 图鉴 / 奇物。旧档（v3 及更早）没有这些字段时按默认值补齐，不影响读取
+		pendingEvent: normalizePendingEvent(raw.pendingEvent),
+		collection: normalizeCollection(raw.collection),
+		curios: normalizeCurios(raw.curios),
+		curioOffers: normalizeCurioOffers(raw.curioOffers),
 		cleared: !!raw.cleared,
 		createdAt: Math.max(0, toInt(raw.createdAt, 0)),
 		updatedAt: Math.max(0, toInt(raw.updatedAt, 0)),

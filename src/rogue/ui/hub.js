@@ -17,6 +17,7 @@ import {
 	STAT_IDS,
 } from "../config.js";
 import { getRefreshesRemaining } from "../shop.js";
+import { describeCurio, getCurio, getCurioOffer, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
@@ -71,10 +72,34 @@ export function showHub(api) {
 		buildStatSummary(statRow, run, statId);
 	}
 
+	// 已拥有的奇物：小图一行排开，点卡片看效果说明（无尽模式专属成长）
+	if (run.mode === RUN_MODE.endless) {
+		const curios = Array.isArray(run.curios) ? run.curios : [];
+		ui.create.div(".wm-rogue-hub-section-title", `奇物（${curios.length}）`, body);
+		const curioRow = ui.create.div(".wm-rogue-hub-curios", body);
+		if (!curios.length) {
+			ui.create.div(".wm-rogue-hub-curio-empty", "暂无奇物，战斗胜利后可获取。", curioRow);
+		}
+		for (const id of curios) {
+			const chip = ui.create.div(".wm-rogue-hub-curio", curioRow);
+			const def = getCurio(id);
+			const art = ui.create.div(".wm-rogue-hub-curio-art", chip);
+			if (def?.image) {
+				art.style.backgroundImage = `url("${def.image}")`;
+			}
+			ui.create.div(".wm-rogue-hub-curio-name", def?.name ?? id, chip);
+			bindOverlayTap(chip, () => showNotice([def?.name ?? id, ...describeCurio(id)]));
+		}
+	}
+
 	const actions = ui.create.div(".wm-rogue-hub-actions", body);
 	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
 	addOverlayButton(fightLabel, actions, () => api.startBattle(), "wm-rogue-hub-primary");
 	addOverlayButton("商店", actions, () => api.openShop(), "wm-rogue-hub-shop");
+	// 图鉴是无尽模式的收集系统：闯关不触发事件也没有奇物，不给入口
+	if (run.mode === RUN_MODE.endless) {
+		addOverlayButton("图鉴", actions, () => api.openCollection(), "wm-rogue-hub-secondary");
+	}
 	addOverlayButton("返回存档", actions, () => api.backToSlots(), "wm-rogue-hub-secondary");
 	addOverlayButton("退出肉鸽模式", actions, () => api.leaveMode(), "wm-rogue-hub-secondary");
 	if (!canFight) {
@@ -140,6 +165,18 @@ export function showShop(api) {
 	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
 
+	// 奇物商店：无尽模式专属分区。候选由战斗胜利时生成并连价定死写进存档，进店/重载都不重掷
+	const isEndless = run.mode === RUN_MODE.endless;
+	let curioRow = null;
+	let curioHint = null;
+	const curioCards = [];
+	if (isEndless) {
+		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", body);
+		ui.create.div(".wm-rogue-shop-subtitle", "战斗胜利后刷新候选　每次最多购买 1 个", body);
+		curioRow = ui.create.div(".wm-rogue-shop-cards", body);
+		curioHint = ui.create.div(".wm-rogue-shop-subtitle.wm-rogue-curio-hint", "", body);
+	}
+
 	ui.create.div(".wm-rogue-shop-section-title", "属性强化", body);
 	const statRow = ui.create.div(".wm-rogue-stat-cards", body);
 	const statCards = STAT_IDS.map(statId => buildStatCard(statRow, statId, api));
@@ -159,8 +196,27 @@ export function showShop(api) {
 		}
 	};
 
+	/** 奇物候选同理：胜利重掷后按 id 重建卡片 */
+	const syncCurios = current => {
+		if (!curioRow) {
+			return;
+		}
+		const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
+		if (offers.map(offer => offer.id).join(",") === curioCards.map(row => row.id).join(",")) {
+			return;
+		}
+		for (const row of curioCards) {
+			row.card.remove();
+		}
+		curioCards.length = 0;
+		for (const offer of offers) {
+			curioCards.push(buildCurioCard(curioRow, offer, api));
+		}
+	};
+
 	const paint = current => {
 		syncOffers(current);
+		syncCurios(current);
 		for (const cell of resCells) {
 			cell.node.innerHTML = `${cell.read(current)}`;
 		}
@@ -168,10 +224,19 @@ export function showShop(api) {
 		for (const row of offerCards) {
 			paintOffer(row, current, soldOut);
 		}
+		for (const row of curioCards) {
+			paintCurio(row, current);
+		}
 		for (const row of statCards) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
 		paintRefresh(refreshButton, current, soldOut);
+		if (curioHint) {
+			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
+			curioHint.innerHTML = offers.length
+				? ""
+				: "本批奇物已购完或尚未刷新：赢下下一关后会生成新的奇物候选。";
+		}
 	};
 	// 记浮层根节点用于原位刷新的存活判断（openOverlay 返回的是里面的居中层）
 	shopView = { node: currentScreenNode(), paint };
@@ -262,6 +327,56 @@ function buildStatCard(parent, statId, api) {
 		}
 	}, "wm-rogue-stat-up");
 	return row;
+}
+
+/** 一张奇物卡：方形图 + 名称 + 稀有度 + 效果 + 售价 + 购买按钮 */
+function buildCurioCard(parent, offer, api) {
+	const def = getCurio(offer.id);
+	const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-curio-card", parent);
+	const top = ui.create.div(".wm-rogue-shop-top", card);
+	const art = ui.create.div(".wm-rogue-curio-art", top);
+	if (def?.image) {
+		art.style.backgroundImage = `url("${def.image}")`;
+	}
+	ui.create.div(".wm-rogue-shop-name", def?.name ?? offer.id, top);
+	if (def?.rarity && CURIOSITY_RARITY[def.rarity]) {
+		ui.create.div(".wm-rogue-curio-rarity", CURIOSITY_RARITY[def.rarity], top);
+	}
+	const lines = describeCurio(offer.id);
+	const desc = ui.create.div(".wm-rogue-shop-desc", def?.description ?? "", card);
+	if (def?.description) {
+		desc.title = def.description;
+	}
+	bindOverlayTap(card, () => showNotice([def?.name ?? offer.id, def?.description ?? "", ...lines].filter(Boolean)));
+	ui.create.div(".wm-rogue-curio-effect", lines.join("\n"), card);
+
+	const foot = ui.create.div(".wm-rogue-shop-foot", card);
+	const price = ui.create.div(".wm-rogue-shop-price", "", foot);
+	const row = { id: offer.id, card, price, button: null };
+	row.button = addOverlayButton("购买", foot, () => {
+		if (paintCurio(row, api.getRun()) === "buy") {
+			api.buyCurio(offer.id);
+		}
+	}, "wm-rogue-shop-buy");
+	return row;
+}
+
+/** 画一张奇物卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buyCurio 返回的是新对象 */
+function paintCurio(row, run) {
+	const offer = getCurioOffer(run, row.id) ?? {};
+	const held = run.currency[SKILL_CURRENCY] ?? 0;
+	const soldOut = (run.curioOffers ?? []).some(item => item.sold);
+	const state = offer.sold ? "sold" : held < offer.price ? "poor" : soldOut ? "soldOut" : "buy";
+	const text = {
+		sold: { price: `${offer.price} 金币`, button: "已购买" },
+		poor: { price: `${offer.price} 金币（持有 ${held}）`, button: "金币不足" },
+		soldOut: { price: `${offer.price} 金币`, button: "本批已售罄" },
+		buy: { price: `${offer.price} 金币`, button: "购买" },
+	}[state];
+	row.price.innerHTML = text.price;
+	row.button.innerHTML = text.button;
+	setBuyable(row, state === "buy");
+	return state;
 }
 
 /**

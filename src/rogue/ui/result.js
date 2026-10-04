@@ -81,7 +81,6 @@ export function showResume(api) {
 
 	ui.create.div(".wm-rogue-resume-mark", "!", panel);
 	ui.create.div(".wm-rogue-resume-title", "战斗未正常结算", panel);
-	ui.create.div(".wm-rogue-resume-sub", "检测到上次战斗没有正常结束，可以原样恢复这一关", panel);
 
 	const card = ui.create.div(".wm-rogue-resume-card", panel);
 	ui.create.div(".wm-rogue-resume-mode", RUN_MODE_LABEL[run.mode] ?? run.mode, card);

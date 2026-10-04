@@ -32,8 +32,12 @@ export const BATTLE_BGM_LIST = [
 export const STORAGE_KEY = "rogueSlots";
 /** 无尽模式历史最高记录：独立于六个存档槽，无尽失败删档也不清它 */
 export const BEST_ENDLESS_KEY = "rogueBestEndless";
-/** 存档 schema 版本，只做单调递增迁移。v2 新增 shopRefreshesRemaining（每局免费刷新次数）；v3 新增 currentBattle.enemies（进行中战斗保存完整敌方阵容） */
-export const RUN_VERSION = 3;
+/**
+ * 存档 schema 版本，只做单调递增迁移。
+ * v2 新增 shopRefreshesRemaining（每局免费刷新次数）；v3 新增 currentBattle.enemies（进行中战斗保存完整敌方阵容）；
+ * v4 新增无尽模式的 pendingEvent（待处理事件）/ collection（图鉴）/ curios（已拥有奇物）/ curioOffers（奇物商店候选）。
+ */
+export const RUN_VERSION = 4;
 export const SLOT_COUNT = 6;
 
 /**
@@ -91,6 +95,24 @@ export const STAT_CURRENCY = "exp";
  * 改这个数即整体缩放无尽曲线的陡峭度。
  */
 export const ENDLESS_STAT_UPGRADE_BASE = 20;
+
+// ---------------------------------------------------------------- 无尽模式：事件与奇物
+// 以下参数只作用于无尽模式；闯关模式不触发事件、商店也没有奇物栏。
+
+/** 战斗胜利后触发事件的概率（Math.random() < EVENT_TRIGGER_RATE 即触发） */
+export const EVENT_TRIGGER_RATE = 0.3;
+
+/**
+ * 奇物定价：与技能同一条 √ 关曲线，基准价 floor 换 round（见 curioManager.getCurioBasePrice）。
+ * 实际售价 = round(基准价 × random(1-CURIO_PRICE_SPREAD, 1+CURIO_PRICE_SPREAD) × 奇物自带 priceMultiplier)，
+ * 在生成奇物候选时定死并写进存档，重载不重掷。
+ */
+export const CURIO_BASE_PRICE = 50;
+export const CURIO_PRICE_SPREAD = 0.25;
+/** 每次战斗胜利后生成的奇物候选数 */
+export const CURIO_OFFER_COUNT = 3;
+/** 每批奇物候选可购买个数（与技能的 SKILL_PURCHASE_COUNT 同一套「一局限买一个」规则） */
+export const CURIO_PURCHASE_COUNT = 1;
 
 /**
  * 闯关失败的损失规则。

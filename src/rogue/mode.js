@@ -18,8 +18,10 @@ import {
 } from "./config.js";
 import { cloneRun, createRun, migrateSlots, normalizeBest, setSlot, toSerializable, updateBest } from "./state.js";
 import { buySkill, checkStatUpgrade, refreshSkillOffers, rollSkillOffers, upgradeStat } from "./shop.js";
+import { buyCurio } from "./curioManager.js";
 import { getShopPool } from "./skillPool.js";
 import { settleVictory } from "./reward.js";
+import { maybeCreatePendingEvent, resolveEventChoice } from "./eventManager.js";
 import { loseSkill, lowerStat, settleDefeat } from "./penalty.js";
 import { beginBattle, checkResult, getRoster, rawAttitude, resolveBattle } from "./battle.js";
 import { createEnemyConfigs } from "./enemy.js";
@@ -29,6 +31,8 @@ import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
 import { refreshShop, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
 import { showPenaltyChoice, showResult, showResume } from "./ui/result.js";
+import { showEvent } from "./ui/event.js";
+import { showCollection } from "./ui/collection.js";
 
 const context = {
 	slots: [],
@@ -108,6 +112,7 @@ function openHub() {
 		run: context.run,
 		startBattle,
 		openShop,
+		openCollection,
 		backToSlots: openSlots,
 		leaveMode,
 	});
@@ -122,6 +127,18 @@ function openSkills() {
 	showSkills({
 		run: context.run,
 		back: openShop,
+	});
+}
+
+/** 图鉴页（入口在营地）：展示已发现事件与曾拥有过的奇物，只读、不写存档 */
+function openCollection() {
+	if (!context.run) {
+		openSlots();
+		return;
+	}
+	showCollection({
+		run: context.run,
+		back: openHub,
 	});
 }
 
@@ -148,6 +165,7 @@ function openShop() {
 		buySkill: buySkillFlow,
 		refreshSkills: refreshShopFlow,
 		openSkills,
+		buyCurio: buyCurioFlow,
 		backToHub: openHub,
 		backToSlots: openSlots,
 		leaveMode,
@@ -287,6 +305,9 @@ function slotsApi() {
 			}
 			if (run.currentBattle) {
 				askResume(run);
+			} else if (run.pendingEvent) {
+				// 存档里挂着待处理事件：优先回到事件页（选项与结果都是存档里定死的，不重掷）
+				openEventPage(openHub);
 			} else {
 				openHub();
 			}
@@ -388,6 +409,22 @@ function upgradeStatFlow(statId) {
 	}
 }
 
+function buyCurioFlow(offerId) {
+	const result = buyCurio(context.run, offerId);
+	if (!result.ok) {
+		showNotice([result.error], undefined);
+		return;
+	}
+	context.run = result.run;
+	if (!commit()) {
+		return;
+	}
+	// 与技能购买同一条原位刷新路线：不重开商店，卡片状态就是反馈
+	if (!refreshShop(context.run)) {
+		openShop();
+	}
+}
+
 function describeStat(statId) {
 	const names = { defense: "防御", draw: "过牌", attack: "攻击" };
 	return names[statId] ?? statId;
@@ -418,28 +455,79 @@ function onover(resultbool) {
 }
 
 function settleVictoryFlow() {
-	// 刚打赢的那一关要先记下来：胜利结算会把 level 推进到下一关
+	// 刚打赢的那一关要先记下来：胜利结算会把 level 推进到下一关，而事件奖励的
+	// 「胜利奖励基准」也按这一关算
 	const wonLevel = context.run.level;
-	const result = settleVictory(context.run, now());
-	context.run = result.run;
-	if (context.run.mode === RUN_MODE.endless) {
+	const result = settleVictory(context.run, now(), Math.random);
+	let run = result.run;
+	if (run.mode === RUN_MODE.endless) {
 		// 只有真的通关了某一关（不是失败进入的下一关）才更新历史最高
-		const best = updateBest(context.best, wonLevel, context.run.characterId, now());
+		const best = updateBest(context.best, wonLevel, run.characterId, now());
 		if (best !== context.best) {
 			saveBest(best);
 		}
 	}
+	// 无尽模式按概率触发事件：事件与随机结果在此定死写进存档，中途关游戏也不重掷
+	run = maybeCreatePendingEvent(run, wonLevel, now(), Math.random);
+	context.run = run;
 	commit();
 	showResult({
 		kind: "victory",
 		title: "战斗胜利",
 		level: wonLevel,
 		reward: result.gained,
-		nextLevel: result.run.level,
-		cleared: !!result.run.cleared,
-		totalLevels: result.run.totalLevels,
-		onDone: () => reloadNow(false),
+		nextLevel: run.level,
+		cleared: !!run.cleared,
+		totalLevels: run.totalLevels,
+		buttonLabel: run.pendingEvent ? "继续" : undefined,
+		onDone: afterVictoryResult,
 	});
+}
+
+/** 结算页按钮的下一步：有待处理事件就先进事件页，否则按原样重载回营地 */
+function afterVictoryResult() {
+	if (context.run?.pendingEvent) {
+		openEventPage(() => reloadNow(false));
+		return;
+	}
+	reloadNow(false);
+}
+
+/**
+ * 事件页。onDone 是「事件处理完毕（含读档恢复的场景）」的统一出口：
+ * 战斗胜利后的流程重载回营地；读档恢复的流程直接进营地（没有战斗需要收尾）。
+ */
+function openEventPage(onDone) {
+	const finishEvent = () => {
+		closeScreen();
+		onDone();
+	};
+	showEvent({
+		run: context.run,
+		getRun: () => context.run,
+		choose: choiceIndex => chooseEventFlow(choiceIndex, finishEvent),
+	});
+}
+
+/** 玩家在事件页点了某个选项：结算事件奖励并落盘，弹层展示结果后走 finishEvent 出口 */
+function chooseEventFlow(choiceIndex, finishEvent) {
+	const result = resolveEventChoice(context.run, choiceIndex, {
+		characterSkills: characterSkillIds(context.run.characterId),
+		candidates: getShopPool(),
+	}, Math.random);
+	if (!result.ok) {
+		showNotice([result.error]);
+		return;
+	}
+	context.run = result.run;
+	if (!commit()) {
+		return;
+	}
+	const lines = result.lines.slice(0);
+	if (result.skillId) {
+		lines.push(`获得技能：${skillName(result.skillId)}`);
+	}
+	showNotice(lines.length ? lines : ["什么也没有发生。"], finishEvent);
 }
 
 function settleDefeatFlow() {
@@ -549,6 +637,11 @@ function openEntry() {
 		context.run = cloneRun(context.slots[index]);
 		if (context.run.currentBattle) {
 			askResume(context.run);
+			return;
+		}
+		if (context.run.pendingEvent) {
+			// 上次胜利后挂着的事件还没处理：优先恢复事件页（绝不重新触发、绝不重掷）
+			openEventPage(openHub);
 			return;
 		}
 		openHub();

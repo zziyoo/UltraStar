@@ -8,7 +8,7 @@
 //                   startHand   开局起手手牌 +N
 //                   extraDraw   摸牌阶段额外摸 +N 张
 //                   handLimit   手牌上限 +N
-//                   shaDamageChance   使用【杀】时额外伤害 +1 的概率（百分比）
+//                   damageChance      造成伤害时额外 +1 伤害的概率（百分比，不限【杀】）
 //                   shaLimit    出【杀】次数上限 +N
 //                   extraSkills 额外获得的技能 id 数组（扩展技能或肉鸽技能）
 //   price[i]      从第 i 级升到第 i+1 级的花费（2,4,6,…,20：单个属性 0→10 共 110，三项满级 330）；
@@ -61,27 +61,27 @@ export const stats = {
 			{ handLimit: 1 },
 		],
 	},
-	// 攻击：每级提高 10% 的【杀】额外 +1 伤害概率，出杀次数为 floor(level / 2)
+	// 攻击：每级提高 10% 的「造成伤害时 +1 伤害」概率，出杀次数为 floor(level / 2)
 	attack: {
 		name: "攻击",
 		maxLevel: 10,
 		price: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
 		levels: [
-			{ shaDamageChance: 10 },
-			{ shaDamageChance: 10, shaLimit: 1 },
-			{ shaDamageChance: 10 },
-			{ shaDamageChance: 10, shaLimit: 1 },
-			{ shaDamageChance: 10 },
-			{ shaDamageChance: 10, shaLimit: 1 },
-			{ shaDamageChance: 10 },
-			{ shaDamageChance: 10, shaLimit: 1 },
-			{ shaDamageChance: 10 },
-			{ shaDamageChance: 10, shaLimit: 1 },
+			{ damageChance: 10 },
+			{ damageChance: 10, shaLimit: 1 },
+			{ damageChance: 10 },
+			{ damageChance: 10, shaLimit: 1 },
+			{ damageChance: 10 },
+			{ damageChance: 10, shaLimit: 1 },
+			{ damageChance: 10 },
+			{ damageChance: 10, shaLimit: 1 },
+			{ damageChance: 10 },
+			{ damageChance: 10, shaLimit: 1 },
 		],
 	},
 };
 
-const EMPTY_EFFECT = { armor: 0, maxHp: 0, startHand: 0, extraDraw: 0, handLimit: 0, shaDamageChance: 0, shaLimit: 0, extraSkills: [] };
+const EMPTY_EFFECT = { armor: 0, maxHp: 0, startHand: 0, extraDraw: 0, handLimit: 0, damageChance: 0, shaLimit: 0, extraSkills: [] };
 
 function toNumber(value) {
 	return Number.isFinite(value) ? value : 0;
@@ -103,7 +103,7 @@ export function getStatEffect(statId, level) {
 		startHand: toNumber(raw.startHand),
 		extraDraw: toNumber(raw.extraDraw),
 		handLimit: toNumber(raw.handLimit),
-		shaDamageChance: toNumber(raw.shaDamageChance),
+		damageChance: toNumber(raw.damageChance),
 		shaLimit: toNumber(raw.shaLimit),
 		extraSkills: Array.isArray(raw.extraSkills) ? raw.extraSkills.filter(id => typeof id === "string") : [],
 	};
@@ -138,7 +138,7 @@ export function sumStatEffects(statLevels) {
 			total.startHand += effect.startHand;
 			total.extraDraw += effect.extraDraw;
 			total.handLimit += effect.handLimit;
-			total.shaDamageChance += effect.shaDamageChance;
+			total.damageChance += effect.damageChance;
 			total.shaLimit += effect.shaLimit;
 			for (const id of effect.extraSkills) {
 				total.extraSkills.push(id);
@@ -155,7 +155,7 @@ const EFFECT_TEXT = {
 	startHand: value => `起手手牌 +${value}`,
 	extraDraw: value => `摸牌阶段 +${value} 张`,
 	handLimit: value => `手牌上限 +${value}`,
-	shaDamageChance: value => `使用【杀】时 ${value}% 概率额外造成 +1 伤害`,
+	damageChance: value => `造成伤害时 ${value}% 概率伤害 +1`,
 	shaLimit: value => `出【杀】次数 +${value}`,
 };
 

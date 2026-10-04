@@ -19,8 +19,10 @@
 //
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验上面的每一条约束，不用开游戏）
 
+import { game } from "../../../../../noname.js";
 import { packages } from "../../core/loader.js";
 import { describeStatEffects } from "./stats.js";
+import { describeCurioEffects } from "../curioManager.js";
 
 // ---------------------------------------------------------------- 分包技能汇总
 //
@@ -97,18 +99,77 @@ export const helpers = {
 				return !event.numFixed && (storage.extraDraw || 0) > 0;
 			}
 			if (triggername === "damageBegin1") {
-				return event.card?.name == "sha" && (storage.shaDamageChance || 0) > 0;
+				return !event.numFixed && (storage.damageChance || 0) > 0;
 			}
 			return false;
 		},
 		content(event, trigger, player) {
 			const storage = player.storage.rogue_stat ?? {};
-			if (trigger.name === "phaseDrawBegin2") {
+			// trigger 是本体传进来的基事件，name 只会是 phaseDraw / damage；
+			// 时机名读 event.triggername（照本体战法 zf_hengfeng 的写法）
+			if (event.triggername === "phaseDrawBegin2") {
 				trigger.num += storage.extraDraw || 0;
-			} else if (trigger.name === "damageBegin1") {
-				if (Math.random() * 100 < Math.max(0, Math.min(100, storage.shaDamageChance || 0))) {
+			} else if (event.triggername === "damageBegin1") {
+				if (Math.random() * 100 < Math.max(0, Math.min(100, storage.damageChance || 0))) {
 					trigger.num += 1;
 				}
+			}
+		},
+	},
+	// 奇物的战斗内效果载体（curioManager.sumCurioEffects 的总表由 battle.js 建局时一次写进 storage）：
+	// 破损怀表（游戏开始时额外出牌阶段，照官方「当先」的 phaseList.splice 写法）、
+	// 能量核心（摸牌 +1）、气息腰带（每局首次濒死回复至 1）、剩饭（每轮结束回 1 血）。
+	// 结算类效果（幸运石的经验加成）不走这里，由 reward.js 胜利结算时用 curioManager.getBonus 现查。
+	rogue_curio: {
+		trigger: {
+			player: ["phaseBegin", "phaseDrawBegin2", "dying"],
+			global: "roundEnd",
+		},
+		forced: true,
+		mark: true,
+		marktext: "奇物",
+		nopop: true,
+		popup: false,
+		intro: {
+			name: "奇物",
+			nocount: true,
+			mark(uiintro, storage) {
+				const lines = describeCurioEffects(storage);
+				return `<div class="text">${lines.length ? lines.join("<br>") : "无战斗效果"}</div>`;
+			},
+		},
+		filter(event, player, triggername) {
+			const storage = player.storage.rogue_curio ?? {};
+			if (triggername === "phaseBegin") {
+				// 游戏开始时：整局的第一个回合开始才给额外阶段（自身只给一次）
+				return !player.storage.rogue_curio_watch && game.phaseNumber <= 1 && (storage.extraPhase || 0) > 0;
+			}
+			if (triggername === "phaseDrawBegin2") {
+				return !event.numFixed && (storage.extraDraw || 0) > 0;
+			}
+			if (triggername === "dying") {
+				return player.hp < 1 && (storage.dyingSave || 0) > 0 && !player.storage.rogue_curio_belt;
+			}
+			if (triggername === "roundEnd") {
+				return player.isAlive() && player.hp < player.maxHp && (storage.roundHeal || 0) > 0;
+			}
+			return false;
+		},
+		async content(event, trigger, player) {
+			const storage = player.storage.rogue_curio ?? {};
+			if (event.triggername === "phaseBegin") {
+				player.storage.rogue_curio_watch = true;
+				// 官方「当先」同款：把额外出牌阶段插进当前回合的阶段列表开头
+				for (let i = 0; i < (storage.extraPhase || 0); i++) {
+					trigger.phaseList.splice(trigger.num, 0, "phaseUse|rogue_curio");
+				}
+			} else if (event.triggername === "phaseDrawBegin2") {
+				trigger.num += storage.extraDraw || 0;
+			} else if (event.triggername === "dying") {
+				player.storage.rogue_curio_belt = true;
+				await player.recoverTo(1);
+			} else if (event.triggername === "roundEnd") {
+				await player.recover(storage.roundHeal || 0);
 			}
 		},
 	},
@@ -116,4 +177,5 @@ export const helpers = {
 
 export const helperTranslate = {
 	rogue_stat: "属性强化",
+	rogue_curio: "奇物",
 };

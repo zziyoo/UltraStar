@@ -64,6 +64,9 @@ const groupsData = await load("src/rogue/data/enemyGroups.js");
 const skillsData = await load("src/rogue/data/skills.js");
 const statsData = await load("src/rogue/data/stats.js");
 const rewardsData = await load("src/rogue/data/rewards.js");
+const eventsData = await load("src/rogue/data/events.js");
+const curiosData = await load("src/rogue/data/curios.js");
+const curioManager = await load("src/rogue/curioManager.js");
 
 let passed = 0;
 const failures = [];
@@ -85,7 +88,7 @@ function assert(cond, msg) {
 }
 
 const OVERRIDE_KEYS = ["hp", "maxHp", "defense", "draw", "attack"];
-const EFFECT_KEYS = ["armor", "maxHp", "startHand", "extraDraw", "handLimit", "shaDamageChance", "shaLimit", "extraSkills"];
+const EFFECT_KEYS = ["armor", "maxHp", "startHand", "extraDraw", "handLimit", "damageChance", "shaLimit", "extraSkills"];
 const NUMBER_EFFECT_KEYS = EFFECT_KEYS.filter(key => key !== "extraSkills");
 
 console.log("奥特之星·肉鸽 内容配置自检\n");
@@ -274,8 +277,7 @@ check("属性强化：extraSkills 引用的技能有定义", () => {
 	return "引用完整";
 });
 
-check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50 / 经验系数 20；29 关累计 330", () => {
-	assert(rewardsData.CHALLENGE_GOLD_PER_LEVEL === 50, "闯关每关金币应固定 50");
+check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50 / 经验系数 20；29 关累计 330", () => {	assert(rewardsData.CHALLENGE_GOLD_PER_LEVEL === 50, "闯关每关金币应固定 50");
 	assert(rewardsData.endlessReward.gold === 50, "无尽金币系数应为 50（金币 = floor(50×√n)，第 1 关即 50）");
 	assert(rewardsData.endlessReward.exp === 20, "无尽经验系数应为 20（经验 = floor(20×√n)，与属性升级价同系数）");
 	const problems = [];
@@ -306,6 +308,177 @@ check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50
 	const later = rewardsData.getEndlessReward(10, cfg.CURRENCIES);
 	const challengeSample = rewardsData.getChallengeReward(7);
 	return `闯关第7关 ${JSON.stringify(challengeSample)}，无尽第1关 ${JSON.stringify(sample)}，第10关 ${JSON.stringify(later)}`;
+});
+
+const EVENT_REWARD_KEYS = ["gold", "exp", "goldByWin", "expByWin", "curio", "skill", "statUp", "statDown"];
+
+check("事件配置：结构与字段合法、奖励键与引用有效", () => {
+	const ids = Object.keys(eventsData.events);
+	assert(ids.length > 0, "事件池不能为空");
+	const problems = [];
+	for (const [key, event] of Object.entries(eventsData.events)) {
+		if (event.id !== key) {
+			problems.push(`${key}: id 与键名不一致（${event.id}）`);
+		}
+		if (!event.name) {
+			problems.push(`${key}: 缺少 name`);
+		}
+		if (!event.description) {
+			problems.push(`${key}: 缺少 description`);
+		}
+		if (!event.image || !event.image.startsWith(`extension/${cfg.EXTENSION_NAME}/assets/events/`)) {
+			problems.push(`${key}: image 应指向 extension/${cfg.EXTENSION_NAME}/assets/events/ 下的文件`);
+		}
+		if (!Array.isArray(event.choices) || !event.choices.length) {
+			problems.push(`${key}: choices 不能为空`);
+			continue;
+		}
+		for (const [index, choice] of event.choices.entries()) {
+			if (!choice || typeof choice.text !== "string" || !choice.text.trim()) {
+				problems.push(`${key} 第${index + 1}个选项: 缺少 text`);
+			}
+			const hasReward = choice?.reward && typeof choice.reward === "object";
+			const hasOutcomes = Array.isArray(choice?.outcomes) && choice.outcomes.length > 0;
+			if (hasReward === hasOutcomes) {
+				problems.push(`${key} 第${index + 1}个选项: reward 与 outcomes 必须二选一`);
+			}
+			if (hasOutcomes) {
+				const total = choice.outcomes.reduce((sum, item) => sum + (Number.isFinite(item?.chance) ? item.chance : 0), 0);
+				if (Math.abs(total - 1) > 1e-9) {
+					problems.push(`${key} 第${index + 1}个选项: outcomes 概率合计应为 1，实际 ${total}`);
+				}
+				for (const item of choice.outcomes) {
+					if (!item?.reward || typeof item.reward !== "object") {
+						problems.push(`${key} 第${index + 1}个选项: outcomes 里缺少 reward`);
+					}
+				}
+			}
+			const rewards = hasOutcomes ? choice.outcomes.map(item => item.reward) : [choice.reward];
+			for (const reward of rewards) {
+				for (const field of Object.keys(reward ?? {})) {
+					if (!EVENT_REWARD_KEYS.includes(field)) {
+						problems.push(`${key} 第${index + 1}个选项: 不支持的奖励键 ${field}（可用：${EVENT_REWARD_KEYS.join("/")}）`);
+					}
+				}
+				for (const field of ["gold", "exp", "goldByWin", "expByWin"]) {
+					const value = reward?.[field];
+					if (value !== undefined && !Number.isFinite(value)) {
+						problems.push(`${key} 第${index + 1}个选项: ${field} 应为数字`);
+					}
+				}
+				for (const field of ["statUp", "statDown"]) {
+					const value = reward?.[field];
+					if (value !== undefined && value !== "random" && !cfg.STAT_IDS.includes(value)) {
+						problems.push(`${key} 第${index + 1}个选项: ${field} 应为 random 或 ${cfg.STAT_IDS.join("/")}`);
+					}
+				}
+				const curioRef = reward?.curio;
+				if (curioRef !== undefined && curioRef !== "random" && !curiosData.getCurio(curioRef)) {
+					problems.push(`${key} 第${index + 1}个选项: curio 引用的「${curioRef}」不存在`);
+				}
+			}
+		}
+	}
+	assert(!problems.length, problems.join("；"));
+	return `${ids.length} 个事件、${ids.reduce((sum, id) => sum + eventsData.events[id].choices.length, 0)} 个选项`;
+});
+
+check("事件配图：文件存在且已登记进素材清单", () => {
+	const manifest = fs.readFileSync(path.join(root, "data", "assets.js"), "utf8");
+	const problems = [];
+	for (const event of Object.values(eventsData.events)) {
+		const relative = event.image.replace(`extension/${cfg.EXTENSION_NAME}/`, "");
+		if (!fs.existsSync(path.join(root, relative))) {
+			problems.push(`事件「${event.id}」配图不存在：${relative}`);
+		}
+		if (!manifest.includes(`"${relative}"`)) {
+			problems.push(`事件「${event.id}」配图未登记进 data/assets.js：${relative}（node tools/update-manifest.mjs ${relative}）`);
+		}
+	}
+	assert(!problems.length, problems.join("；"));
+	return `${Object.keys(eventsData.events).length} 张事件图齐备`;
+});
+
+check("奇物配置：结构与字段合法、效果键已知", () => {
+	const ids = Object.keys(curiosData.curios);
+	assert(ids.length > 0, "奇物池不能为空");
+	const problems = [];
+	for (const [key, curio] of Object.entries(curiosData.curios)) {
+		if (curio.id !== key) {
+			problems.push(`${key}: id 与键名不一致（${curio.id}）`);
+		}
+		if (!curio.name) {
+			problems.push(`${key}: 缺少 name`);
+		}
+		if (!curio.description) {
+			problems.push(`${key}: 缺少 description`);
+		}
+		if (!curio.image || !curio.image.startsWith(`extension/${cfg.EXTENSION_NAME}/assets/curios/`)) {
+			problems.push(`${key}: image 应指向 extension/${cfg.EXTENSION_NAME}/assets/curios/ 下的文件`);
+		}
+		if (!curiosData.CURIOSITY_RARITY[curio.rarity]) {
+			problems.push(`${key}: rarity 应为 ${Object.keys(curiosData.CURIOSITY_RARITY).join("/")}`);
+		}
+		if (curio.priceMultiplier !== undefined && !(Number.isFinite(curio.priceMultiplier) && curio.priceMultiplier >= 0)) {
+			problems.push(`${key}: priceMultiplier 应为非负数`);
+		}
+		if (!curio.effect || typeof curio.effect !== "object") {
+			problems.push(`${key}: 缺少 effect`);
+		} else {
+			for (const [field, value] of Object.entries(curio.effect)) {
+				if (!curioManager.CURIOSITY_EFFECT_KEYS.includes(field)) {
+					problems.push(`${key}: effect 不支持的键 ${field}（可用：${curioManager.CURIOSITY_EFFECT_KEYS.join("/")}）`);
+				} else if (!(Number.isFinite(value) && value > 0)) {
+					problems.push(`${key}: effect.${field} 应为正数`);
+				}
+			}
+		}
+		if (!curio.effectText && !Object.keys(curio.effect ?? {}).length) {
+			problems.push(`${key}: effectText 与 effect 至少要有一项`);
+		}
+	}
+	assert(!problems.length, problems.join("；"));
+	return `${ids.length} 个奇物`;
+});
+
+check("奇物配图：文件存在且已登记进素材清单", () => {
+	const manifest = fs.readFileSync(path.join(root, "data", "assets.js"), "utf8");
+	const problems = [];
+	for (const curio of Object.values(curiosData.curios)) {
+		const relative = curio.image.replace(`extension/${cfg.EXTENSION_NAME}/`, "");
+		if (!fs.existsSync(path.join(root, relative))) {
+			problems.push(`奇物「${curio.id}」配图不存在：${relative}`);
+		}
+		if (!manifest.includes(`"${relative}"`)) {
+			problems.push(`奇物「${curio.id}」配图未登记进 data/assets.js：${relative}（node tools/update-manifest.mjs ${relative}）`);
+		}
+	}
+	assert(!problems.length, problems.join("；"));
+	return `${Object.keys(curiosData.curios).length} 张奇物图齐备`;
+});
+
+check("奇物机制技：战斗内效果键都有承载时机，机制技随模式注册", () => {
+	const info = skillsData.helpers.rogue_curio;
+	assert(info, "helpers 里应有 rogue_curio");
+	assert(skillsData.helperTranslate.rogue_curio === "奇物", "rogue_curio 应有翻译");
+	const triggerNames = [];
+	for (const role of Object.keys(info.trigger)) {
+		const list = Array.isArray(info.trigger[role]) ? info.trigger[role] : [info.trigger[role]];
+		triggerNames.push(...list);
+	}
+	const need = {
+		extraPhase: "phaseBegin",
+		extraDraw: "phaseDrawBegin2",
+		dyingSave: "dying",
+		roundHeal: "roundEnd",
+	};
+	for (const [key, timing] of Object.entries(need)) {
+		const used = Object.values(curiosData.curios).some(curio => curio.effect?.[key]);
+		if (used) {
+			assert(triggerNames.includes(timing), `效果 ${key} 需要时机 ${timing}，rogue_curio 未声明`);
+		}
+	}
+	return `触发时机：${triggerNames.join(" / ")}`;
 });
 
 console.log(`\nrogue-data: passed=${passed} failed=${failures.length}`);

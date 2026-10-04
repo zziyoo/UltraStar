@@ -5,6 +5,7 @@
 import { lib, game, _status } from "../../../../noname.js";
 import { ROSTER_WHITE_LIST } from "./config.js";
 import { sumStatEffects } from "./data/stats.js";
+import { sumCurioEffects, CURIOSITY_BATTLE_KEYS } from "./curioManager.js";
 import { isEnemyUsable } from "./enemy.js";
 import { showBattleStats } from "./ui/common.js";
 
@@ -57,12 +58,12 @@ export function getRoster() {
 }
 
 /**
- * 数值型强化（摸牌/手牌上限/杀伤害/出杀次数）统一由一个机制技能承载：
+ * 数值型强化（摸牌/手牌上限/伤害概率/出杀次数）统一由一个机制技能承载：
  * 四项数值一次性写进 player.storage.rogue_stat，只 addSkill 一次——
  * 玩家旁边因此只有一个「强化」标记，也不会因为重复调用而叠加。
  */
 const STAT_BUFF_SKILL = "rogue_stat";
-const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "shaDamageChance", "shaLimit"];
+const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "damageChance", "shaLimit"];
 
 /**
  * 运行时给一个 Player 发技能：先过本体 `game.expandSkills` 把 `group` 伙伴补齐再挂上。
@@ -101,8 +102,7 @@ export function grantSkills(player, skillIds, missingLabel) {
 }
 
 /** 把属性表算出的效果施加到具体 Player 上 */
-function applyEffects(player, effects, showStatEntry = false) {
-	if (effects.maxHp) {
+function applyEffects(player, effects, showStatEntry = false) {	if (effects.maxHp) {
 		player.maxHp += effects.maxHp;
 		if (effects.maxHp > 0) {
 			player.hp += effects.maxHp;
@@ -133,6 +133,28 @@ function applyEffects(player, effects, showStatEntry = false) {
 		}
 	}
 	player.update();
+}
+
+/**
+ * 奇物的战斗内效果：curioManager.sumCurioEffects 把全部奇物的 effect 叠成总表，
+ * 一次写进 player.storage.rogue_curio，由机制技 rogue_curio 统一承载（extraPhase /
+ * extraDraw / dyingSave / roundHeal）。结算类效果（expRate/goldRate）不在这里处理，
+ * 由 reward.js 胜利结算时现查。与属性强化同一条纪律：绝不写 lib.skill。
+ */
+function applyCurioEffects(player, curioIds) {
+	const effects = sumCurioEffects(curioIds);
+	if (!CURIOSITY_BATTLE_KEYS.some(key => Math.floor(effects[key] ?? 0) > 0)) {
+		return false;
+	}
+	grantSkills(player, ["rogue_curio"], "奇物技能未注册");
+	player.storage.rogue_curio = {
+		extraPhase: Math.max(0, Math.floor(effects.extraPhase ?? 0)),
+		extraDraw: Math.max(0, Math.floor(effects.extraDraw ?? 0)),
+		dyingSave: Math.max(0, Math.floor(effects.dyingSave ?? 0)),
+		roundHeal: Math.max(0, Math.floor(effects.roundHeal ?? 0)),
+	};
+	player.update();
+	return true;
 }
 
 /**
@@ -195,6 +217,7 @@ export async function beginBattle(event, run, enemies) {
 	grantSkills(game.me, run.skills, "存档里的技能未注册");
 	const bonuses = sumStatEffects(run.stats);
 	applyEffects(game.me, bonuses, true);
+	applyCurioEffects(game.me, run.curios);
 	const statMark = game.me.marks?.rogue_stat;
 	if (statMark?.addEventListener) {
 		const openPanel = event => {

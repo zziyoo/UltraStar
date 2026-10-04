@@ -236,18 +236,18 @@ const CSS = `
 .wm-rogue-btn.wm-rogue-replace-btn { flex: 1 1 auto; padding: 8px 12px; font-size: 17px; }
 
 /* ---- 战斗恢复页：未正常结算的战斗原样恢复；琥珀色提示是「待恢复」而非报错 ----
-   层级：标题 32 > 信息卡（关 30 > 提示 15 > 敌人/规则 14~15）> 按钮 */
+   层级：标题 32 > 信息卡（关 30 > 提示 15 > 敌人/规则 14~15）> 按钮
+   高度旋钮（手机端整框偏高/偏矮只改这几处）：面板 padding、mark 字号、card 的 margin/padding、actions 的 margin-top */
 .wm-rogue-resume { display: flex; flex-direction: column; margin: auto; width: min(620px, calc(100% - 24px));
-	padding: 30px 34px 26px; border-radius: 10px; text-align: center; box-sizing: border-box;
+	padding: 22px 26px 20px; border-radius: 10px; text-align: center; box-sizing: border-box;
 	background: linear-gradient(rgba(24,24,24,0.92), rgba(8,8,8,0.95));
 	border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 6px 26px rgba(0,0,0,0.65); }
-.wm-rogue-resume-mark { font-size: 44px; line-height: 1; font-weight: bold; color: #ffb347;
+.wm-rogue-resume-mark { font-size: 38px; line-height: 1; font-weight: bold; color: #ffb347;
 	text-shadow: 0 0 16px rgba(255,180,80,0.4); }
-.wm-rogue-resume-title { margin-top: 8px; font-size: 32px; font-weight: bold; color: #fff;
+.wm-rogue-resume-title { margin-top: 6px; font-size: 32px; font-weight: bold; color: #fff;
 	letter-spacing: 5px; text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
-.wm-rogue-resume-sub { margin-top: 8px; font-size: 16px; color: rgba(255,255,255,0.72); }
 /* 状态卡：边框用琥珀色与普通卡片区分，整体仍是半透明深色面板 */
-.wm-rogue-resume-card { margin-top: 20px; padding: 18px 20px; border-radius: 8px;
+.wm-rogue-resume-card { margin-top: 14px; padding: 14px 16px; border-radius: 8px;
 	background: linear-gradient(rgba(22,22,22,0.8), rgba(0,0,0,0.86));
 	border: 1px solid rgba(255,180,80,0.4); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
 .wm-rogue-resume-mode { font-size: 14px; color: rgba(255,255,255,0.62); letter-spacing: 4px; }
@@ -260,9 +260,71 @@ const CSS = `
 .wm-rogue-resume-enemy { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 64px; }
 .wm-rogue-resume-enemy-name { max-width: 64px; font-size: 14px; color: rgba(255,255,255,0.85);
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wm-rogue-resume-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 24px; }
-.wm-rogue-btn.wm-rogue-resume-primary { padding: 12px 46px; font-size: 21px; border-color: rgba(255,200,120,0.75);
+.wm-rogue-resume-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 16px; }
+.wm-rogue-btn.wm-rogue-resume-primary { padding: 11px 46px; font-size: 21px; border-color: rgba(255,200,120,0.75);
 	background: linear-gradient(rgba(150,105,40,0.95), rgba(100,65,20,0.95)); }
+
+/* ---- 事件页：胜利后触发的随机事件。大图 + 名称 + 描述 + 纵排选项 ---- */
+.wm-rogue-event { display: flex; flex-direction: column; align-items: center; margin: auto;
+	width: min(560px, calc(100% - 24px)); padding: 26px 28px 24px; border-radius: 10px;
+	text-align: center; box-sizing: border-box;
+	background: linear-gradient(rgba(24,24,24,0.92), rgba(8,8,8,0.95));
+	border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 6px 26px rgba(0,0,0,0.65); }
+.wm-rogue-event-art { width: 200px; height: 200px; border-radius: 10px; margin-bottom: 16px;
+	background-size: cover; background-position: center;
+	border: 1px solid rgba(255,200,120,0.45); box-shadow: 0 0 22px rgba(120,110,255,0.25), 0 2px 10px rgba(0,0,0,0.6); }
+.wm-rogue-event-name { font-size: 30px; font-weight: bold; color: #fff; letter-spacing: 5px;
+	text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
+.wm-rogue-event-desc { margin-top: 10px; font-size: 17px; line-height: 1.6; color: rgba(255,255,255,0.85); }
+.wm-rogue-event-actions { display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+	margin-top: 22px; width: 100%; }
+.wm-rogue-btn.wm-rogue-event-choice { padding: 11px 18px; font-size: 19px; border-color: rgba(255,200,120,0.55);
+	background: linear-gradient(rgba(70,62,96,0.92), rgba(40,36,64,0.95)); }
+.wm-rogue-btn.wm-rogue-event-choice:hover { border-color: rgba(255,200,120,0.9); }
+
+/* ---- 图鉴页：已发现事件 + 曾拥有过的奇物，未收录的条目显示剪影 ---- */
+.wm-rogue-index { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
+.wm-rogue-index-body { padding: 0 4px 10px 2px; }
+.wm-rogue-index-sub { margin-bottom: 4px; font-size: 15px; color: rgba(255,255,255,0.6); letter-spacing: 3px; }
+.wm-rogue-index-section { margin: 14px 0 8px; font-size: 22px; font-weight: bold; color: #fff;
+	letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+.wm-rogue-index-cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.wm-rogue-index-card { flex: 1 1 190px; min-width: 0; box-sizing: border-box; padding: 12px;
+	border-radius: 8px; text-align: center;
+	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
+	border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.wm-rogue-index-card.wm-rogue-index-known { border-color: rgba(255,200,120,0.55); }
+.wm-rogue-index-art { width: 96px; height: 96px; margin: 0 auto 10px; border-radius: 8px;
+	background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center;
+	border: 1px solid rgba(255,255,255,0.18); background-color: rgba(255,255,255,0.06); }
+.wm-rogue-index-known .wm-rogue-index-art { border-color: rgba(255,200,120,0.6);
+	box-shadow: 0 0 14px rgba(255,180,80,0.18); }
+.wm-rogue-index-unknown { font-size: 22px; letter-spacing: 3px; color: rgba(255,255,255,0.4); }
+.wm-rogue-index-name { font-size: 19px; font-weight: bold; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.wm-rogue-index-tag { display: inline-flex; margin-top: 5px; padding: 1px 10px; border-radius: 10px;
+	font-size: 13px; color: #ffd479; border: 1px solid rgba(255,200,120,0.5); }
+.wm-rogue-index-desc { margin-top: 7px; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.72); }
+
+/* ---- 奇物卡（商店内）与营地奇物栏 ---- */
+.wm-rogue-curio-art { flex: none; width: 64px; height: 64px; border-radius: 6px;
+	background-size: cover; background-position: center;
+	border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 0 12px rgba(120,110,255,0.22); }
+.wm-rogue-curio-rarity { margin-left: auto; padding: 1px 10px; border-radius: 10px; font-size: 13px;
+	color: #ffd479; border: 1px solid rgba(255,200,120,0.5); white-space: nowrap; }
+.wm-rogue-curio-effect { margin-top: 7px; font-size: 15px; line-height: 1.5; color: #9fd8ff;
+	white-space: pre-line; }
+.wm-rogue-shop-subtitle.wm-rogue-curio-hint { color: rgba(255,180,80,0.85); }
+.wm-rogue-hub-curios { display: flex; flex-wrap: wrap; gap: 10px; }
+.wm-rogue-hub-curio-empty { font-size: 15px; color: rgba(255,255,255,0.5); }
+.wm-rogue-hub-curio { display: flex; align-items: center; gap: 9px; padding: 7px 12px 7px 7px;
+	border-radius: 8px; cursor: pointer; box-sizing: border-box;
+	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
+	border: 1px solid rgba(255,255,255,0.16); }
+.wm-rogue-hub-curio:hover { border-color: rgba(255,200,120,0.7); }
+.wm-rogue-hub-curio-art { flex: none; width: 40px; height: 40px; border-radius: 6px;
+	background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,0.25); }
+.wm-rogue-hub-curio-name { font-size: 16px; font-weight: bold; color: #fff;
+	text-shadow: 0 1px 3px rgba(0,0,0,0.9); white-space: nowrap; }
 
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
@@ -338,6 +400,8 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-skills,
 #wm-rogue-overlay .wm-rogue-replace,
 #wm-rogue-overlay .wm-rogue-resume,
+#wm-rogue-overlay .wm-rogue-event,
+#wm-rogue-overlay .wm-rogue-index,
 #wm-rogue-overlay .wm-rogue-modes { display: flex !important; flex-direction: column !important; }
 #wm-rogue-overlay .wm-rogue-shop-cards,
 #wm-rogue-overlay .wm-rogue-stat-cards,
@@ -345,10 +409,14 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-mode-cards,
 #wm-rogue-overlay .wm-rogue-replace-cards,
 #wm-rogue-overlay .wm-rogue-resume-enemies,
+#wm-rogue-overlay .wm-rogue-index-cards,
+#wm-rogue-overlay .wm-rogue-hub-curios,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
 #wm-rogue-overlay .wm-rogue-resume-enemy,
-#wm-rogue-overlay .wm-rogue-resume-actions { display: flex !important; flex-direction: column !important;
+#wm-rogue-overlay .wm-rogue-resume-actions,
+#wm-rogue-overlay .wm-rogue-event-actions { display: flex !important; flex-direction: column !important;
 	align-items: center !important; }
+#wm-rogue-overlay .wm-rogue-event-actions { align-items: stretch !important; }
 #wm-rogue-overlay .wm-rogue-shop-top,
 #wm-rogue-overlay .wm-rogue-shop-foot,
 #wm-rogue-overlay .wm-rogue-stat-head,
@@ -359,9 +427,14 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-hub-body,
 #wm-rogue-overlay .wm-rogue-skills-body,
 #wm-rogue-overlay .wm-rogue-replace-body,
+#wm-rogue-overlay .wm-rogue-index-body,
 #wm-rogue-overlay .wm-rogue-res-cell,
 #wm-rogue-overlay .wm-rogue-shop-avatar,
-#wm-rogue-overlay .wm-rogue-stat-effects { display: block !important; }
+#wm-rogue-overlay .wm-rogue-stat-effects,
+#wm-rogue-overlay .wm-rogue-event-art,
+#wm-rogue-overlay .wm-rogue-index-art,
+#wm-rogue-overlay .wm-rogue-curio-art,
+#wm-rogue-overlay .wm-rogue-hub-curio-art { display: block !important; }
 #wm-rogue-overlay .wm-rogue-shop-section-title,
 #wm-rogue-overlay .wm-rogue-shop-subtitle,
 #wm-rogue-overlay .wm-rogue-shop-name,
@@ -385,7 +458,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-replace-arrow,
 #wm-rogue-overlay .wm-rogue-resume-mark,
 #wm-rogue-overlay .wm-rogue-resume-title,
-#wm-rogue-overlay .wm-rogue-resume-sub,
 #wm-rogue-overlay .wm-rogue-resume-card,
 #wm-rogue-overlay .wm-rogue-resume-mode,
 #wm-rogue-overlay .wm-rogue-resume-level,
@@ -400,6 +472,16 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-result-row,
 #wm-rogue-overlay .wm-rogue-result-line,
 #wm-rogue-overlay .wm-rogue-result-next,
+#wm-rogue-overlay .wm-rogue-event-name,
+#wm-rogue-overlay .wm-rogue-event-desc,
+#wm-rogue-overlay .wm-rogue-index-sub,
+#wm-rogue-overlay .wm-rogue-index-section,
+#wm-rogue-overlay .wm-rogue-index-unknown,
+#wm-rogue-overlay .wm-rogue-index-name,
+#wm-rogue-overlay .wm-rogue-index-desc,
+#wm-rogue-overlay .wm-rogue-curio-effect,
+#wm-rogue-overlay .wm-rogue-hub-curio-name,
+#wm-rogue-overlay .wm-rogue-hub-curio-empty,
 #wm-rogue-overlay .wm-rogue-mode-name,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { display: block !important; }
@@ -414,8 +496,9 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-skills-hint,
 #wm-rogue-overlay .wm-rogue-replace-subtitle,
 #wm-rogue-overlay .wm-rogue-replace-arrow,
-#wm-rogue-overlay .wm-rogue-resume-sub,
 #wm-rogue-overlay .wm-rogue-resume-hint,
+#wm-rogue-overlay .wm-rogue-event-desc,
+#wm-rogue-overlay .wm-rogue-index-desc,
 #wm-rogue-overlay .wm-rogue-result-line,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { white-space: normal !important; overflow-wrap: break-word !important; }
