@@ -1478,9 +1478,47 @@ check("胜利结算（无尽）：摇奇物候选、幸运石放大经验；闯�
 	const challengeWon = reward.settleVictory(challenge, NOW, () => 0);
 	assertEqual(JSON.stringify(challengeWon.run.curioOffers), "[]", "闯关无奇物候选");
 	assertEqual(challengeWon.gained.gold, 50, "闯关金币固定");
+	// 10% 门控：rng ≥ CURIO_SHOP_RATE 未命中 → 原候选原样保留（还挂着上一批没买的）；
+	// rng < CURIO_SHOP_RATE 命中 → 整批重摇。事件判定在 mode.js 里排在其后（先奇物商店、再事件）
+	const keep = { ...freshRun(cfg.RUN_MODE.endless), level: 4, curioOffers: [{ id: "lucky_stone", price: 66, sold: false }] };
+	const kept = reward.settleVictory(keep, NOW, () => 0.5);
+	assertEqual(kept.run.level, 5, "未命中同样推进关卡");
+	assertEqual(JSON.stringify(kept.run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 66, sold: false }]), "未命中保留原候选");
+	const rerolled = reward.settleVictory({ ...keep }, NOW, () => 0);
+	assertEqual(rerolled.run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "命中整批重摇");
+	assert(rerolled.run.curioOffers.every(offer => offer.sold === false), "新一批全部未售出");
 	// 结算不清奇物与图鉴
 	assertEqual(JSON.stringify(blessed.run.curios), JSON.stringify(["lucky_stone"]), "胜利不清奇物");
 	return `无尽候选 ${won.run.curioOffers.length} 个 / 幸运石 exp 20→22`;
+});
+
+check("过期候选清理：事件送的奇物撤下候选，读档剔除已拥有未售出的条目", () => {
+	// 事件送奇物：若送出的同款还挂在商店候选里（生成候选时还没拥有），整条撤下
+	const run = freshRun(cfg.RUN_MODE.endless);
+	run.curioOffers = [
+		{ id: "lucky_stone", price: 10, sold: false },
+		{ id: "energy_core", price: 10, sold: false },
+	];
+	const lucky = curioManager.grantRandomCurio({ ...run }, () => 0.2);
+	assertEqual(lucky.curioId, "lucky_stone", "rng 定位幸运石");
+	assert(!lucky.run.curioOffers.some(offer => offer.id === "lucky_stone"), "送出的奇物从候选撤下");
+	assertEqual(lucky.run.curioOffers.length, 1, "其它候选不受影响");
+	assertEqual(lucky.run.curioOffers[0].id, "energy_core", "剩余候选原样");
+	// 读档清洗：已拥有且未售出 → 剔除；已拥有且已售出 → 保留（「已购买」展示）；未拥有 → 保留
+	const stored = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		curios: ["energy_core"],
+		curioOffers: [
+			{ id: "energy_core", price: 10, sold: false },
+			{ id: "lucky_stone", price: 10, sold: true },
+			{ id: "broken_watch", price: 10, sold: false },
+			{ id: "幽灵", price: 10, sold: false },
+		],
+	});
+	assertEqual(JSON.stringify(stored.curioOffers.map(offer => offer.id)), JSON.stringify(["lucky_stone", "broken_watch"]), "过期条目剔除，其余保留");
+	// 重新读档幂等：清洗后的存档再读一遍不变
+	assertEqual(JSON.stringify(state.normalizeRun(stored).curioOffers), JSON.stringify(stored.curioOffers), "清洗幂等");
+	return "撤下 + 剔除 + 幂等";
 });
 
 check("奇物机制技：四种战斗内效果都由 rogue_curio 承载", () => {

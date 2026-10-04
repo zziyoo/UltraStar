@@ -305,7 +305,11 @@ const CSS = `
 	font-size: 13px; color: #ffd479; border: 1px solid rgba(255,200,120,0.5); }
 .wm-rogue-index-desc { margin-top: 7px; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.72); }
 
-/* ---- 奇物卡（商店内）与营地奇物栏 ---- */
+/* ---- 奇物查看页（只读，入口在商店顶部「奇物 n」资源块）：复用商店卡片 ---- */
+.wm-rogue-curios { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
+.wm-rogue-curios-body { padding: 0 4px 10px 2px; }
+
+/* ---- 奇物卡（商店内与查看页共用）---- */
 .wm-rogue-curio-art { flex: none; width: 64px; height: 64px; border-radius: 6px;
 	background-size: cover; background-position: center;
 	border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 0 12px rgba(120,110,255,0.22); }
@@ -314,17 +318,11 @@ const CSS = `
 .wm-rogue-curio-effect { margin-top: 7px; font-size: 15px; line-height: 1.5; color: #9fd8ff;
 	white-space: pre-line; }
 .wm-rogue-shop-subtitle.wm-rogue-curio-hint { color: rgba(255,180,80,0.85); }
-.wm-rogue-hub-curios { display: flex; flex-wrap: wrap; gap: 10px; }
-.wm-rogue-hub-curio-empty { font-size: 15px; color: rgba(255,255,255,0.5); }
-.wm-rogue-hub-curio { display: flex; align-items: center; gap: 9px; padding: 7px 12px 7px 7px;
-	border-radius: 8px; cursor: pointer; box-sizing: border-box;
-	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
-	border: 1px solid rgba(255,255,255,0.16); }
-.wm-rogue-hub-curio:hover { border-color: rgba(255,200,120,0.7); }
-.wm-rogue-hub-curio-art { flex: none; width: 40px; height: 40px; border-radius: 6px;
-	background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,0.25); }
-.wm-rogue-hub-curio-name { font-size: 16px; font-weight: bold; color: #fff;
-	text-shadow: 0 1px 3px rgba(0,0,0,0.9); white-space: nowrap; }
+/* 商店资源行第四块「奇物 n」：与「技能 n/3」同一套入口视觉 */
+.wm-rogue-res-cell.wm-rogue-res-curio { cursor: pointer; }
+.wm-rogue-res-cell.wm-rogue-res-curio:hover { border-color: rgba(255,200,120,0.8); }
+.wm-rogue-res-cell.wm-rogue-res-curio:active { opacity: 0.8; }
+.wm-rogue-res-cell.wm-rogue-res-curio .wm-rogue-res-label { color: #9fd8ff; }
 
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
@@ -403,6 +401,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-stat-card,
 #wm-rogue-overlay .wm-rogue-hub,
 #wm-rogue-overlay .wm-rogue-skills,
+#wm-rogue-overlay .wm-rogue-curios,
 #wm-rogue-overlay .wm-rogue-replace,
 #wm-rogue-overlay .wm-rogue-resume,
 #wm-rogue-overlay .wm-rogue-event,
@@ -415,7 +414,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-replace-cards,
 #wm-rogue-overlay .wm-rogue-resume-enemies,
 #wm-rogue-overlay .wm-rogue-index-cards,
-#wm-rogue-overlay .wm-rogue-hub-curios,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
 #wm-rogue-overlay .wm-rogue-resume-enemy,
 #wm-rogue-overlay .wm-rogue-resume-actions,
@@ -431,6 +429,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-shop-body,
 #wm-rogue-overlay .wm-rogue-hub-body,
 #wm-rogue-overlay .wm-rogue-skills-body,
+#wm-rogue-overlay .wm-rogue-curios-body,
 #wm-rogue-overlay .wm-rogue-replace-body,
 #wm-rogue-overlay .wm-rogue-index-body,
 #wm-rogue-overlay .wm-rogue-res-cell,
@@ -438,8 +437,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-stat-effects,
 #wm-rogue-overlay .wm-rogue-event-art,
 #wm-rogue-overlay .wm-rogue-index-art,
-#wm-rogue-overlay .wm-rogue-curio-art,
-#wm-rogue-overlay .wm-rogue-hub-curio-art { display: block !important; }
+#wm-rogue-overlay .wm-rogue-curio-art { display: block !important; }
 #wm-rogue-overlay .wm-rogue-shop-section-title,
 #wm-rogue-overlay .wm-rogue-shop-subtitle,
 #wm-rogue-overlay .wm-rogue-shop-name,
@@ -485,8 +483,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-index-name,
 #wm-rogue-overlay .wm-rogue-index-desc,
 #wm-rogue-overlay .wm-rogue-curio-effect,
-#wm-rogue-overlay .wm-rogue-hub-curio-name,
-#wm-rogue-overlay .wm-rogue-hub-curio-empty,
 #wm-rogue-overlay .wm-rogue-mode-name,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { display: block !important; }

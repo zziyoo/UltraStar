@@ -232,6 +232,8 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		if (granted.ok) {
 			next.curios = granted.run.curios;
 			next.collection.curios = granted.run.collection.curios;
+			// grantRandomCurio 会把送出的奇物从商店候选里撤下（已拥有的不得再挂在奇物商店）
+			next.curioOffers = granted.run.curioOffers;
 			curioId = granted.curioId;
 			lines.push(`获得奇物：${getCurio(curioId)?.name ?? curioId}`);
 		} else {

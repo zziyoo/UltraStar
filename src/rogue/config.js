@@ -109,10 +109,15 @@ export const EVENT_TRIGGER_RATE = 0.3;
  */
 export const CURIO_BASE_PRICE = 50;
 export const CURIO_PRICE_SPREAD = 0.25;
-/** 每次战斗胜利后生成的奇物候选数 */
+/** 每批奇物候选的个数 */
 export const CURIO_OFFER_COUNT = 3;
 /** 每批奇物候选可购买个数（与技能的 SKILL_PURCHASE_COUNT 同一套「一局限买一个」规则） */
 export const CURIO_PURCHASE_COUNT = 1;
+/**
+ * 奇物商店的触发概率：无尽模式每关战斗胜利后先于事件判定掷骰，
+ * 命中才刷新一批候选（未命中保留上一批没买的）；rng 可注入。
+ */
+export const CURIO_SHOP_RATE = 0.1;
 
 /**
  * 闯关失败的损失规则。

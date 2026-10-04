@@ -1798,11 +1798,22 @@ await check("无尽胜利触发事件：结算页「继续」进事件页，选�
 		assertEqual(JSON.stringify(after.curios), JSON.stringify(["broken_watch"]), "奇物入袋");
 		assertEqual(JSON.stringify(after.collection.curios), JSON.stringify(["broken_watch"]), "图鉴记录奇物");
 		assertEqual(after.currency.gold, cfg.INITIAL_CURRENCY.gold + 50, "拆卸零件不扣金币（金币 = 初始 50 + 胜利 50）");
-		// 重载后回营地：奇物栏与图鉴入口可见
+		// 重载后回营地：查看奇物的入口在商店顶部资源行第四块「奇物 n」
 		session();
 		const hubText = screenText();
-		assert(hubText.includes("奇物（1）") && hubText.includes("破损怀表"), `营地应显示奇物：${hubText}`);
+		assert(!hubText.includes("奇物（1）"), "营地不再有奇物栏");
 		assert(hubText.includes("图鉴"), "营地应有图鉴入口");
+		click("商店");
+		assertEqual(nodesWithClass("wm-rogue-res-cell").length, 4, "无尽商店资源行四块（金币/经验/技能/奇物）");
+		assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验,技能,奇物", "资源行标签");
+		assertEqual(textOf(nodesWithClass("wm-rogue-res-num")[3]), "1", "奇物计数原位显示");
+		// 点「奇物 n」进只读查看页
+		clickNode(nodesWithClass("wm-rogue-res-curio")[0]);
+		const viewText = screenText();
+		assert(viewText.includes("奇物（1）"), `查看页标题：${viewText}`);
+		assert(viewText.includes("破损怀表"), "查看页列出已拥有奇物");
+		click("返回");
+		assert(screenText().includes("技能商店"), "返回应回到商店");
 		return "事件 → 选择 → 奇物 + 图鉴 → 营地";
 	} finally {
 		Math.random = originalRandom;
@@ -1891,14 +1902,18 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 	assert(!popupText.includes("能量核心"), `介绍弹层不应重复奇物名：${popupText}`);
 	assert(popupText.includes("摸牌阶段额外摸一张牌"), `介绍弹层应展示效果：${popupText}`);
 	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
-	click("返回");
-	assert(screenText().includes("奇物（1）"), "营地奇物栏同步");
-	// 营地奇物胶囊同理：弹层只讲效果
-	clickNode(nodesWithClass("wm-rogue-hub-curio")[0]);
+	// 顶部「奇物 n」资源块进只读查看页：与「技能 n/3」同一套入口
+	clickNode(nodesWithClass("wm-rogue-res-curio")[0]);
+	assert(screenText().includes("奇物（1）"), `查看页标题：${screenText()}`);
+	assert(screenText().includes("能量核心"), "查看页列出已拥有奇物");
+	// 查看页点卡片：弹层只讲描述与效果，不重复名字
+	clickNode(nodesWithClass("wm-rogue-shop-card-read")[0]);
 	popupText = dump(nodesWithClass("wm-rogue-popup")[0]);
-	assert(!popupText.includes("能量核心"), `胶囊弹层不应重复奇物名：${popupText}`);
-	assert(popupText.includes("摸牌阶段额外摸一张牌"), `胶囊弹层应展示效果：${popupText}`);
+	assert(!popupText.includes("能量核心"), `查看页弹层不应重复奇物名：${popupText}`);
+	assert(popupText.includes("摸牌阶段额外摸一张牌"), `查看页弹层应展示效果：${popupText}`);
 	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+	click("返回");
+	assert(screenText().includes("技能商店"), "返回应回到商店");
 	return "买 1 个 → 整批售罄 → 重载保持";
 });
 
@@ -2015,7 +2030,7 @@ await check("v3 旧档兼容：缺事件/奇物/图鉴字段时自动补齐并�
 	// 旧档进商店：奇物分区在，无候选时给说明而不是报错；进店会重掷技能候选并落盘（版本号随之更新）
 	click("商店");
 	assert(screenText().includes("奇物商店"), "无尽旧档的商店仍有奇物分区");
-	assert(screenText().includes("赢下下一关"), "无候选时给出说明");
+	assert(screenText().includes("10% 概率"), "无候选时给出触发概率说明");
 	const saved = lib.storage.rogueSlots[0];
 	assertEqual(saved.version, cfg.RUN_VERSION, "落盘后标成当前版本");
 	assertEqual(saved.pendingEvent, null, "落盘补 pendingEvent");
@@ -2023,6 +2038,92 @@ await check("v3 旧档兼容：缺事件/奇物/图鉴字段时自动补齐并�
 	assertEqual(JSON.stringify(saved.curios), "[]", "落盘补空奇物");
 	assertEqual(JSON.stringify(saved.curioOffers), "[]", "落盘补空奇物候选");
 	return "v3 → v4 静默补齐";
+});
+
+await check("奇物商店 10% 门控：未命中保留原候选且不触发事件，命中才整批重摇（先奇物商店、后事件）", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		// 第一胜：rng=0.5 → 奇物商店 0.5≥0.1 未命中、事件 0.5≥0.3 未触发
+		Math.random = () => 0.5;
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			curioOffers: [{ id: "lucky_stone", price: 66, sold: false }],
+		});
+		session();
+		click("开始下一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		let run = lib.storage.rogueSlots[0];
+		assertEqual(run.pendingEvent, null, "未命中不触发事件");
+		assertEqual(JSON.stringify(run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 66, sold: false }]), "未命中保留原候选");
+		const before = run.curioOffers.map(offer => `${offer.id}:${offer.price}`).join(",");
+		click("返回营地");
+		// 第二胜：rng=0 → 奇物商店命中整批重摇、事件也触发（顺序：先候选、后事件，同一次结算先后发生）
+		Math.random = () => 0;
+		session();
+		click("开始下一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		run = lib.storage.rogueSlots[0];
+		assertEqual(run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "命中后整批重摇");
+		assert(run.curioOffers.map(offer => `${offer.id}:${offer.price}`).join(",") !== before, "候选确实换了新一批");
+		assert(run.pendingEvent, "同一胜里事件也按概率触发");
+		return "0.5 双未命中 → 0 双命中";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("已拥有奇物不得再出现在商店：事件送的撤下候选、读档剔除过期条目", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		level: 2,
+		currency: { gold: 100, exp: 0 },
+		curioOffers: [
+			{ id: "lucky_stone", price: 10, sold: false },
+			{ id: "breath_belt", price: 10, sold: false },
+			{ id: "broken_watch", price: 10, sold: false },
+		],
+	});
+	session();
+	// 重现用户报的脏数据路径：拆卸零件事件送了候选里也挂着的幸运石
+	const pendingEvent = {
+		id: "lost_robot",
+		choices: [{ text: "拆卸零件", reward: { curio: "random" } }],
+		createdAt: 1,
+	};
+	putRun(0, { pendingEvent }, lib.storage.rogueSlots[0]);
+	session();
+	click("拆卸零件");
+	// rng 未钉：无论送出哪个，它都不应再出现在候选里
+	const run = lib.storage.rogueSlots[0];
+	const grantedId = run.curios[0];
+	assert(grantedId, "事件送出奇物");
+	assert(!run.curioOffers.some(offer => offer.id === grantedId), `事件送的奇物应从商店候选撤下：${grantedId}`);
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "结算弹层");
+	click("确定");
+	// 读档清洗：手工构造「已拥有且未售出」的过期候选（旧版存档可能残留），读入即剔除
+	putRun(0, {
+		curios: ["energy_core"],
+		curioOffers: [
+			{ id: "energy_core", price: 10, sold: false },
+			{ id: "lucky_stone", price: 10, sold: true },
+			{ id: "broken_watch", price: 10, sold: false },
+		],
+	}, run);
+	session();
+	const cleaned = lib.storage.rogueSlots[0];
+	assert(!cleaned.curioOffers.some(offer => offer.id === "energy_core" && !offer.sold), "已拥有未售出的过期候选在读档时剔除");
+	return "送出即撤下 + 读档清洗";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

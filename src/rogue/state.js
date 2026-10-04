@@ -196,8 +196,13 @@ function normalizeCurios(raw) {
 	return list;
 }
 
-/** 奇物商店候选：与技能候选同一形状（id + 定死的售价 + 已购标记），无效条目剔除 */
-function normalizeCurioOffers(raw) {
+/**
+ * 奇物商店候选：与技能候选同一形状（id + 定死的售价 + 已购标记），无效条目剔除。
+ * 「已拥有且未标记售出」的条目是过期脏数据（生成候选之后才经事件等途径获得同款），
+ * 一并剔除——已拥有的奇物不得再以可购买的样子挂在商店里；已购买的条目保留作「已购买」展示。
+ */
+function normalizeCurioOffers(raw, owned = []) {
+	const ownedSet = new Set(Array.isArray(owned) ? owned : []);
 	const offers = [];
 	for (const offer of Array.isArray(raw) ? raw : []) {
 		if (!isPlainObject(offer)) {
@@ -205,6 +210,9 @@ function normalizeCurioOffers(raw) {
 		}
 		const id = sanitizeString(offer.id);
 		if (!id || !getCurio(id)) {
+			continue;
+		}
+		if (ownedSet.has(id) && !offer.sold) {
 			continue;
 		}
 		offers.push({ id, price: clampInt(offer.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer.sold });
@@ -251,6 +259,8 @@ export function normalizeRun(raw) {
 
 	const currentBattle = normalizeCurrentBattle(raw.currentBattle);
 
+	const curios = normalizeCurios(raw.curios);
+
 		const shopOffers = [];
 		for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
 			const id = sanitizeString(offer?.id);
@@ -283,8 +293,8 @@ export function normalizeRun(raw) {
 		// v4：无尽模式的事件 / 图鉴 / 奇物。旧档（v3 及更早）没有这些字段时按默认值补齐，不影响读取
 		pendingEvent: normalizePendingEvent(raw.pendingEvent),
 		collection: normalizeCollection(raw.collection),
-		curios: normalizeCurios(raw.curios),
-		curioOffers: normalizeCurioOffers(raw.curioOffers),
+		curios,
+		curioOffers: normalizeCurioOffers(raw.curioOffers, curios),
 		cleared: !!raw.cleared,
 		createdAt: Math.max(0, toInt(raw.createdAt, 0)),
 		updatedAt: Math.max(0, toInt(raw.updatedAt, 0)),

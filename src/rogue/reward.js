@@ -1,6 +1,6 @@
-// 胜利结算：入账奖励、推进关卡、清理进行中的战斗标记、生成奇物候选。纯函数。
+// 胜利结算：入账奖励、推进关卡、清理进行中的战斗标记、按概率刷新奇物候选。纯函数。
 
-import { CURRENCIES, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { CURRENCIES, CURIO_SHOP_RATE, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getChallengeReward, getEndlessReward } from "./data/rewards.js";
 import { getBonus, rollCurioOffers } from "./curioManager.js";
 
@@ -12,7 +12,8 @@ import { getBonus, rollCurioOffers } from "./curioManager.js";
  * 加成只看这一局开始前就已持有的奇物（run.curios），本局胜利刚换到的不算。
  *
  * 闯关：未到总关卡数则进下一关，到达则置 cleared 且关卡不越界（Hub 提供重复挑战）。
- * 无尽：关卡无上限地推进，胜利后按候选池随机生成三个奇物（价格定死写进存档）。
+ * 无尽：关卡无上限地推进；胜利后先掷奇物商店（CURIO_SHOP_RATE，mode.js 里随后的
+ * 事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中保留上一批没买的。
  * 两种玩法都会清掉 currentBattle 与上一次的商店候选。
  * 免费刷新次数只在「真的通关并进入下一局」时恢复：失败还是同一关，次数必须保持原样，
  * 否则玩家可以靠反复失败白刷商店。
@@ -51,9 +52,13 @@ export function settleVictory(run, now, rng = Math.random) {
 		next.level = run.level + 1;
 	}
 
-	// 奇物候选每次胜利重掷（排除已拥有的），失败保持原样；闯关模式没有奇物商店。
-	// 售价按推进后的新关卡算：这批候选是给下一局的商店用的
-	next.curioOffers = run.mode === RUN_MODE.endless ? rollCurioOffers(next, rng) : [];
+	// 奇物商店：每关胜利后按 CURIO_SHOP_RATE 掷骰（mode.js 的事件判定在它之后，先奇物商店、再事件）。
+	// 命中才整批重摇（排除已拥有的、按推进后的新关卡定价）；未命中保留上一批没买的候选；闯关没有奇物商店
+	if (run.mode === RUN_MODE.endless) {
+		next.curioOffers = rng() < CURIO_SHOP_RATE ? rollCurioOffers(next, rng) : (run.curioOffers ?? []);
+	} else {
+		next.curioOffers = [];
+	}
 
 	return { run: next, gained };
 }

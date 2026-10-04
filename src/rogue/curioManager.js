@@ -183,7 +183,8 @@ export function buyCurio(run, offerId) {
 
 /**
  * 随机获得一个未拥有的奇物（事件奖励用）：与 rollCurioOffers 同一条排除规则。
- * 全部集齐时 ok:false，调用方给玩家写明落空原因。
+ * 若送出的奇物还挂在商店候选里（生成候选时还没拥有），把它整条撤下——
+ * 已拥有的奇物不得再出现在奇物商店。全部集齐时 ok:false，调用方给玩家写明落空原因。
  */
 export function grantRandomCurio(run, rng = Math.random) {
 	const owned = new Set(Array.isArray(run?.curios) ? run.curios : []);
@@ -195,12 +196,14 @@ export function grantRandomCurio(run, rng = Math.random) {
 	const next = {
 		...run,
 		curios: (run.curios ?? []).slice(0),
+		curioOffers: (run.curioOffers ?? []).map(item => ({ ...item })),
 		collection: {
 			events: (run.collection?.events ?? []).slice(0),
 			curios: (run.collection?.curios ?? []).slice(0),
 		},
 	};
 	next.curios.push(curioId);
+	next.curioOffers = next.curioOffers.filter(offer => offer.id !== curioId);
 	if (!next.collection.curios.includes(curioId)) {
 		next.collection.curios.push(curioId);
 	}

@@ -29,7 +29,7 @@ import { playBattleBgm, playLobbyBgm, stopBattleBgm, stopLobbyBgm } from "./bgm.
 import { skill as rogueSkills, translate as rogueTranslate, helpers as rogueHelpers, helperTranslate as rogueHelperTranslate } from "./data/skills.js";
 import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
-import { refreshShop, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
+import { refreshShop, showCurios, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
 import { showPenaltyChoice, showResult, showResume } from "./ui/result.js";
 import { showEvent } from "./ui/event.js";
 import { showCollection } from "./ui/collection.js";
@@ -130,6 +130,18 @@ function openSkills() {
 	});
 }
 
+/** 只读的奇物查看页（入口在商店顶部的「奇物 n」资源块）：不买卖、不写存档 */
+function openCurios() {
+	if (!context.run) {
+		openSlots();
+		return;
+	}
+	showCurios({
+		run: context.run,
+		back: openShop,
+	});
+}
+
 /** 图鉴页（入口在营地）：展示已发现事件与曾拥有过的奇物，只读、不写存档 */
 function openCollection() {
 	if (!context.run) {
@@ -165,6 +177,7 @@ function openShop() {
 		buySkill: buySkillFlow,
 		refreshSkills: refreshShopFlow,
 		openSkills,
+		openCurios,
 		buyCurio: buyCurioFlow,
 		backToHub: openHub,
 		backToSlots: openSlots,

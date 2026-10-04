@@ -72,27 +72,6 @@ export function showHub(api) {
 		buildStatSummary(statRow, run, statId);
 	}
 
-	// 已拥有的奇物：小图一行排开，点卡片看效果说明（无尽模式专属成长）
-	if (run.mode === RUN_MODE.endless) {
-		const curios = Array.isArray(run.curios) ? run.curios : [];
-		ui.create.div(".wm-rogue-hub-section-title", `奇物（${curios.length}）`, body);
-		const curioRow = ui.create.div(".wm-rogue-hub-curios", body);
-		if (!curios.length) {
-			ui.create.div(".wm-rogue-hub-curio-empty", "暂无奇物，战斗胜利后可获取。", curioRow);
-		}
-		for (const id of curios) {
-			const chip = ui.create.div(".wm-rogue-hub-curio", curioRow);
-			const def = getCurio(id);
-			const art = ui.create.div(".wm-rogue-hub-curio-art", chip);
-			if (def?.image) {
-				art.style.backgroundImage = `url("${def.image}")`;
-			}
-			ui.create.div(".wm-rogue-hub-curio-name", def?.name ?? id, chip);
-			// 胶囊上已经写着奇物名：弹层只讲效果，不重复自己的名字
-			bindOverlayTap(chip, () => showNotice(describeCurio(id)));
-		}
-	}
-
 	const actions = ui.create.div(".wm-rogue-hub-actions", body);
 	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
 	addOverlayButton(fightLabel, actions, () => api.startBattle(), "wm-rogue-hub-primary");
@@ -132,6 +111,47 @@ export function showSkills(api) {
 	}
 }
 
+/** 只读的奇物查看页（入口在商店顶部的「奇物」资源块）：展示已拥有奇物，不买卖、不写存档。
+ * 与技能查看页同一版式：卡面 = 方形配图 + 名字 + 稀有度 + 描述 + 效果行，点卡片弹描述与效果（不重复名字）。 */
+export function showCurios(api) {
+	const run = api.run;
+	const curios = Array.isArray(run.curios) ? run.curios : [];
+	const stage = openOverlay("wm-rogue-curios-overlay");
+	const panel = ui.create.div(".wm-rogue-curios", stage);
+
+	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
+	ui.create.div(".wm-rogue-title", `奇物（${curios.length}）`, titlebar);
+	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.back());
+
+	const body = ui.create.div(".wm-rogue-curios-body", panel);
+	if (!curios.length) {
+		ui.create.div(".wm-rogue-skills-empty", "当前没有奇物", body);
+		ui.create.div(".wm-rogue-skills-hint", "每关胜利后有 10% 概率刷新奇物商店，事件也可能送奇物。", body);
+		return;
+	}
+	const cardRow = ui.create.div(".wm-rogue-shop-cards", body);
+	for (const id of curios) {
+		const def = getCurio(id);
+		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-shop-card-read.wm-rogue-curio-card", cardRow);
+		const top = ui.create.div(".wm-rogue-shop-top", card);
+		const art = ui.create.div(".wm-rogue-curio-art", top);
+		if (def?.image) {
+			art.style.backgroundImage = `url("${def.image}")`;
+		}
+		ui.create.div(".wm-rogue-shop-name", def?.name ?? id, top);
+		if (def?.rarity && CURIOSITY_RARITY[def.rarity]) {
+			ui.create.div(".wm-rogue-curio-rarity", CURIOSITY_RARITY[def.rarity], top);
+		}
+		const desc = ui.create.div(".wm-rogue-shop-desc", def?.description ?? "", card);
+		if (def?.description) {
+			desc.title = def.description;
+		}
+		const lines = describeCurio(id);
+		ui.create.div(".wm-rogue-curio-effect", lines.join("\n"), card);
+		bindOverlayTap(card, () => showNotice([def?.description ?? "", ...lines].filter(Boolean)));
+	}
+}
+
 export function showShop(api) {
 	const run = api.run;
 	// 与存档页同一套自建浮层：标题与资源栏固定、中间滚动，返回固定在标题栏右上角
@@ -156,6 +176,14 @@ export function showShop(api) {
 		{ node: expCell, read: current => current.currency[STAT_CURRENCY] ?? 0 },
 		{ node: skillNum, read: current => `${current.skills.length}/${SKILL_SLOTS}` },
 	];
+	// 无尽模式第四块「奇物 n」：与「技能」同一套入口样式，点开只读查看已拥有奇物
+	if (run.mode === RUN_MODE.endless) {
+		const curioNum = addResCell(res, "奇物");
+		const curioCell = curioNum.parentNode;
+		curioCell.classList.add("wm-rogue-res-curio");
+		bindOverlayTap(curioCell, () => api.openCurios());
+		resCells.push({ node: curioNum, read: current => `${(current.curios ?? []).length}` });
+	}
 
 	const body = ui.create.div(".wm-rogue-shop-body", shop);
 	// 刷新按钮属于「技能商店」这一分区：紧贴标题右侧，不放页面顶部、也不跟右上角的返回挤在一起
@@ -166,14 +194,14 @@ export function showShop(api) {
 	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
 
-	// 奇物商店：无尽模式专属分区。候选由战斗胜利时生成并连价定死写进存档，进店/重载都不重掷
+	// 奇物商店：无尽模式专属分区。候选由战斗胜利按概率生成并连价定死写进存档，进店/重载都不重掷
 	const isEndless = run.mode === RUN_MODE.endless;
 	let curioRow = null;
 	let curioHint = null;
 	const curioCards = [];
 	if (isEndless) {
 		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", body);
-		ui.create.div(".wm-rogue-shop-subtitle", "战斗胜利后刷新候选　每次最多购买 1 个", body);
+		ui.create.div(".wm-rogue-shop-subtitle", "每关胜利后有 10% 概率刷新候选　每次最多购买 1 个", body);
 		curioRow = ui.create.div(".wm-rogue-shop-cards", body);
 		curioHint = ui.create.div(".wm-rogue-shop-subtitle.wm-rogue-curio-hint", "", body);
 	}
@@ -236,7 +264,7 @@ export function showShop(api) {
 			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
 			curioHint.innerHTML = offers.length
 				? ""
-				: "本批奇物已购完或尚未刷新：赢下下一关后会生成新的奇物候选。";
+				: "暂无奇物候选：每关胜利后有 10% 概率刷新一批。";
 		}
 	};
 	// 记浮层根节点用于原位刷新的存活判断（openOverlay 返回的是里面的居中层）
