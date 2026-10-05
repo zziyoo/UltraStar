@@ -29,11 +29,18 @@ export function showEvent(api) {
 
 	const actions = ui.create.div(".wm-rogue-event-actions", panel);
 	for (const [index, choice] of pendingEvent.choices.entries()) {
+		// 奇物已集齐时「随机给奇物」的选项不花钱（结算走跳过分支），不能按货币不足置灰
 		const affordable = isChoiceAffordable(run, choice.reward);
+		// 余额不足：置灰并写明原因，点了没有任何反应——与商店的「金币不足」按钮同款（结算层
+		// 自身还会再验一次，见 resolveEventChoice），不做「点了再弹一句拒绝」的两步交互
 		const button = addOverlayButton(
-			affordable ? choice.text : `${choice.text}（货币不足）`,
+			affordable ? choice.text : `${choice.text} · 货币不足`,
 			actions,
-			() => api.choose(index),
+			() => {
+				if (isChoiceAffordable(api.getRun(), choice.reward)) {
+					api.choose(index);
+				}
+			},
 			"wm-rogue-event-choice"
 		);
 		if (!affordable) {

@@ -10,6 +10,7 @@
 import { lib } from "../../../../noname.js";
 
 import { packages } from "../core/loader.js";
+import { isAbyssStage, rollAbyssAffixes } from "./endless/abyss.js";
 import { RUN_MODE } from "./config.js";
 import { getBannedCharacterIds } from "./skillPool.js";
 
@@ -153,7 +154,8 @@ function sampleCharacters(pool, count, rng) {
 
 /**
  * 生成本关敌方阵容：数量按关卡定，逐个从模式对应池子里随机挑角色，
- * 每人独立随机分配「恰好 level 点」属性（超过 30 按 30）。
+ * 每人独立随机分配「恰好 level 点」属性（超过 30 按 30），
+ * 无尽模式从第 abyssConfig.ABYSS_START_LEVEL 层起再各自独立掷一次深渊词缀。
  * 结果会原样写进存档 currentBattle.enemies——创建本关战斗前就定死，重载/恢复不重掷。
  * 失败（池子为空）返回空数组，由调用方提示。
  */
@@ -162,9 +164,12 @@ export function createEnemyConfigs(level, mode, rng = Math.random) {
 	const pool = getEnemyPool(mode);
 	const characters = sampleCharacters(pool, count, rng);
 	const points = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(level) || 0)));
+	// 深渊化的门槛（层数 + 只有无尽）在这里判一次；闯关模式恒为 false，一行随机都不会跑
+	const abyssStage = isAbyssStage(level, mode);
 	return characters.map(characterId => ({
 		characterId,
 		stats: allocateEnemyStats(points, rng),
+		abyss: abyssStage ? rollAbyssAffixes(level, rng, { mode }) : [],
 		skills: [],
 		maxHp: 0,
 		hp: 0,

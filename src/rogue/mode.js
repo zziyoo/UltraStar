@@ -6,6 +6,7 @@ import { lib, game, ui } from "../../../../noname.js";
 import {
 	BATTLE_STATUS,
 	BEST_ENDLESS_KEY,
+	COLLECTION_KEY,
 	EXTENSION_NAME,
 	MODE_ID,
 	MODE_SETTINGS,
@@ -16,7 +17,7 @@ import {
 	SLOT_COUNT,
 	STORAGE_KEY,
 } from "./config.js";
-import { cloneRun, createRun, migrateSlots, normalizeBest, setSlot, toSerializable, updateBest } from "./state.js";
+import { cloneRun, createRun, mergeCollections, migrateSlots, normalizeBest, normalizeCollection, setSlot, toSerializable, updateBest } from "./state.js";
 import { buySkill, checkStatUpgrade, refreshSkillOffers, rollSkillOffers, upgradeStat } from "./shop.js";
 import { buyCurio } from "./curioManager.js";
 import { getShopPool } from "./skillPool.js";
@@ -26,7 +27,12 @@ import { loseSkill, lowerStat, settleDefeat } from "./penalty.js";
 import { beginBattle, checkResult, getRoster, rawAttitude, resolveBattle } from "./battle.js";
 import { createEnemyConfigs } from "./enemy.js";
 import { playBattleBgm, playLobbyBgm, stopBattleBgm, stopLobbyBgm } from "./bgm.js";
-import { skill as rogueSkills, translate as rogueTranslate, helpers as rogueHelpers, helperTranslate as rogueHelperTranslate } from "./data/skills.js";
+import { helpers as rogueHelpers, helperTranslate as rogueHelperTranslate } from "./data/skills.js";
+import {
+	affix as abyssAffixSkills,
+	abyssMarkSkill,
+	translate as abyssTranslate,
+} from "./endless/abyssAffixes.js";
 import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
 import { refreshShop, showCurios, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
@@ -40,6 +46,8 @@ const context = {
 	run: null,
 	/** 无尽模式历史最高记录（独立存储键，删档不清） */
 	best: null,
+	/** 图鉴（独立存储键，六个存档共用一份公有数据，删档与新建都不清） */
+	collection: { events: [], curios: [] },
 	settled: true,
 	battleLive: false,
 };
@@ -61,6 +69,12 @@ function persist() {
 	}
 	game.save(STORAGE_KEY, check.data);
 	game.save("rogueActive", context.index ?? -1);
+	// 图鉴是六个存档共有的：每次落盘顺手把本局解锁的并进公有键。
+	// 四个解锁点（买奇物/事件送奇物/触发事件/结算事件）都只改 run.collection，并集在这里统一做
+	if (context.run) {
+		context.collection = mergeCollections(context.collection, context.run.collection);
+		game.save(COLLECTION_KEY, context.collection);
+	}
 	return true;
 }
 
@@ -76,6 +90,14 @@ function loadSlots() {
 	const migrated = migrateSlots(lib.storage?.[STORAGE_KEY]);
 	context.slots = migrated.slots;
 	context.best = normalizeBest(lib.storage?.[BEST_ENDLESS_KEY]);
+	// 图鉴以前只跟着自己那一格走；这里把六个存档各自的图鉴并进公有键一次，
+	// 老玩家升级后不会发现自己收集过的东西凭空消失，之后删档也不再丢
+	let merged = normalizeCollection(lib.storage?.[COLLECTION_KEY]);
+	for (const slot of context.slots) {
+		merged = mergeCollections(merged, slot?.collection);
+	}
+	context.collection = merged;
+	game.save(COLLECTION_KEY, merged);
 	return migrated.errors;
 }
 
@@ -142,7 +164,7 @@ function openCurios() {
 	});
 }
 
-/** 图鉴页（入口在营地）：展示已发现事件与曾拥有过的奇物，只读、不写存档 */
+/** 图鉴页（入口在营地）：展示公有图鉴，只读、不写存档 */
 function openCollection() {
 	if (!context.run) {
 		openSlots();
@@ -150,6 +172,8 @@ function openCollection() {
 	}
 	showCollection({
 		run: context.run,
+		// 公有图鉴并上本局还没落盘的解锁项：万一某条路径没走 commit，图鉴也不会漏
+		collection: mergeCollections(context.collection, context.run.collection),
 		back: openHub,
 	});
 }
@@ -685,9 +709,11 @@ export function createModeConfig() {
 				},
 			},
 		},
-		// 机制技能（属性强化载体）随本模式注册；商店候选只来自分包技能与武将技能，分包技能本体已在扩展层全局注册
-		skill: { ...rogueSkills, ...rogueHelpers },
-		translate: { ...rogueTranslate, ...rogueHelperTranslate },
+		// 只放分包之外的机制技能（属性强化 / 奇物载体 / 深渊词缀）：模式 content 由本体
+		// mixinLibrary 无条件并进 lib.skill，而分包技能已随扩展包注册，再并一遍会逐个触发
+		// 本体的 "duplicated skill in extension 奥特之星" 打印并跳过
+		skill: { ...rogueHelpers, ...abyssAffixSkills, ...abyssMarkSkill },
+		translate: { ...rogueHelperTranslate, ...abyssTranslate },
 	};
 }
 

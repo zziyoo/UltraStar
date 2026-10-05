@@ -33,11 +33,17 @@ export const STORAGE_KEY = "rogueSlots";
 /** 无尽模式历史最高记录：独立于六个存档槽，无尽失败删档也不清它 */
 export const BEST_ENDLESS_KEY = "rogueBestEndless";
 /**
+ * 图鉴：公有数据，六个存档槽共用一份，删档与新建都不清它。
+ * 每个 run.collection 仍然照常写（存档保持自描述），落盘时并进这个键，读档时以这个键为准。
+ */
+export const COLLECTION_KEY = "rogueCollection";
+/**
  * 存档 schema 版本，只做单调递增迁移。
  * v2 新增 shopRefreshesRemaining（每局免费刷新次数）；v3 新增 currentBattle.enemies（进行中战斗保存完整敌方阵容）；
- * v4 新增无尽模式的 pendingEvent（待处理事件）/ collection（图鉴）/ curios（已拥有奇物）/ curioOffers（奇物商店候选）。
+ * v4 新增无尽模式的 pendingEvent（待处理事件）/ collection（图鉴）/ curios（已拥有奇物）/ curioOffers（奇物商店候选）；
+ * v5 给 currentBattle.enemies 的每一项新增 abyss（该敌人的深渊词缀 id 列表；旧档缺字段按「本关没有词缀」补齐，不重掷）。
  */
-export const RUN_VERSION = 4;
+export const RUN_VERSION = 5;
 export const SLOT_COUNT = 6;
 
 /**

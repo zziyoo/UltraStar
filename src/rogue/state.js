@@ -17,7 +17,9 @@ import {
 import { getEnemyGroup } from "./data/enemyGroups.js";
 import { getEvent } from "./data/events.js";
 import { getCurio } from "./data/curios.js";
+import { getMaxShopRefreshes } from "./curioManager.js";
 import { normalizeEventReward } from "./eventManager.js";
+import { normalizeAbyssIds } from "./endless/abyss.js";
 import { stats } from "./data/stats.js";
 
 const RUN_MODE_KEYS = Object.keys(RUN_MODE);
@@ -77,6 +79,9 @@ function normalizeBattleEnemy(entry) {
 	return {
 		characterId,
 		stats: statLevels,
+		// 深渊词缀：只认还在池子里的 id（下架的自动剔除），且**绝不重掷**——
+		// 开战前定死落盘，读档原样还原，中途退出再进来还是同一批强化。
+		abyss: normalizeAbyssIds(entry.abyss),
 		skills,
 		maxHp: toInt(entry.maxHp, 0),
 		hp: Math.max(0, toInt(entry.hp, 0)),
@@ -162,7 +167,7 @@ function normalizePendingEvent(raw) {
 }
 
 /** 图鉴：已发现事件 + 曾经拥有过的奇物（卖掉/丢弃也留在图鉴里），只记有效 id 并去重 */
-function normalizeCollection(raw) {
+export function normalizeCollection(raw) {
 	const collection = { events: [], curios: [] };
 	if (!isPlainObject(raw)) {
 		return collection;
@@ -179,6 +184,19 @@ function normalizeCollection(raw) {
 		}
 	}
 	return collection;
+}
+
+/**
+ * 图鉴并集：把两份图鉴合成一份（公有图鉴 ∪ 某个存档的图鉴）。
+ * 去重与「只认还存在的 id」都复用 normalizeCollection，所以下架的事件/奇物会被自然剔掉。
+ */
+export function mergeCollections(a, b) {
+	const left = normalizeCollection(a);
+	const right = normalizeCollection(b);
+	return normalizeCollection({
+		events: [...left.events, ...right.events],
+		curios: [...left.curios, ...right.curios],
+	});
 }
 
 /** 已拥有的奇物：只收有效 id，去重、不排序（保序） */
@@ -212,7 +230,8 @@ function normalizeCurioOffers(raw, owned = []) {
 		if (!id || !getCurio(id) || ownedSet.has(id)) {
 			continue;
 		}
-		offers.push({ id, price: clampInt(offer.price, 0, Number.MAX_SAFE_INTEGER, 0) });
+		// 负面奇物售价为负（购买反得金币），下界必须放到负数，否则读档后被夹成 0、白送一个奇物
+		offers.push({ id, price: clampInt(offer.price, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 0) });
 	}
 	return offers;
 }
@@ -272,8 +291,9 @@ export function normalizeRun(raw) {
 		: Math.max(1, toInt(raw.totalLevels, CHALLENGE_TOTAL_LEVELS));
 	const level = clampInt(raw.level, 1, mode === RUN_MODE.endless ? Number.MAX_SAFE_INTEGER : Math.max(totalLevels, 1), 1);
 
-	// 旧存档（v1）没有这个字段时补满；已经刷成 0 的原样保留，不然重读存档就等于白送次数
-	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, SKILL_REFRESH_PER_LEVEL, SKILL_REFRESH_PER_LEVEL);
+	// 旧存档（v1）没有这个字段时补满；已经刷成 0 的原样保留，不然重读存档就等于白送次数。
+	// 上限用「基础 + 全部刷新类奇物加成」，否则循环按钮给的额外次数读档后会被夹掉。
+	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, getMaxShopRefreshes(), SKILL_REFRESH_PER_LEVEL);
 
 	return {
 		version: RUN_VERSION,

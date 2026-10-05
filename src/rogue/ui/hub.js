@@ -76,10 +76,8 @@ export function showHub(api) {
 	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
 	addOverlayButton(fightLabel, actions, () => api.startBattle(), "wm-rogue-hub-primary");
 	addOverlayButton("商店", actions, () => api.openShop(), "wm-rogue-hub-shop");
-	// 图鉴是无尽模式的收集系统：闯关不触发事件也没有奇物，不给入口
-	if (run.mode === RUN_MODE.endless) {
-		addOverlayButton("图鉴", actions, () => api.openCollection(), "wm-rogue-hub-secondary");
-	}
+	// 图鉴是六个存档共有的收集册：闯关自己不产出内容，但照样能翻开看别的存档解锁了什么
+	addOverlayButton("图鉴", actions, () => api.openCollection(), "wm-rogue-hub-secondary");
 	addOverlayButton("返回存档", actions, () => api.backToSlots(), "wm-rogue-hub-secondary");
 	addOverlayButton("退出肉鸽模式", actions, () => api.leaveMode(), "wm-rogue-hub-secondary");
 	if (!canFight) {
@@ -139,9 +137,7 @@ export function showCurios(api) {
 			art.style.backgroundImage = `url("${def.image}")`;
 		}
 		ui.create.div(".wm-rogue-shop-name", def?.name ?? id, top);
-		if (def?.rarity && CURIOSITY_RARITY[def.rarity]) {
-			ui.create.div(".wm-rogue-curio-rarity", CURIOSITY_RARITY[def.rarity], top);
-		}
+		addCurioRarity(top, def);
 		const desc = ui.create.div(".wm-rogue-shop-desc", def?.description ?? "", card);
 		if (def?.description) {
 			desc.title = def.description;
@@ -358,6 +354,14 @@ function buildStatCard(parent, statId, api) {
 	return row;
 }
 
+/** 奇物稀有度标签：按档位着色（史诗/稀有/普通/负面） */
+function addCurioRarity(parent, def) {
+	if (!def?.rarity || !CURIOSITY_RARITY[def.rarity]) {
+		return null;
+	}
+	return ui.create.div(`.wm-rogue-curio-rarity.wm-rogue-rarity-${def.rarity}`, CURIOSITY_RARITY[def.rarity], parent);
+}
+
 /** 一张奇物卡：方形图 + 名称 + 稀有度 + 效果 + 售价 + 购买按钮 */
 function buildCurioCard(parent, offer, api) {
 	const def = getCurio(offer.id);
@@ -368,9 +372,7 @@ function buildCurioCard(parent, offer, api) {
 		art.style.backgroundImage = `url("${def.image}")`;
 	}
 	ui.create.div(".wm-rogue-shop-name", def?.name ?? offer.id, top);
-	if (def?.rarity && CURIOSITY_RARITY[def.rarity]) {
-		ui.create.div(".wm-rogue-curio-rarity", CURIOSITY_RARITY[def.rarity], top);
-	}
+	addCurioRarity(top, def);
 	const lines = describeCurio(offer.id);
 	const desc = ui.create.div(".wm-rogue-shop-desc", def?.description ?? "", card);
 	if (def?.description) {

@@ -9,6 +9,7 @@
 import { ui, get } from "../../../../../noname.js";
 import { CURRENCIES, CHARACTER_PICKER_PAGE_SIZE, CHALLENGE_TOTAL_LEVELS, CURRENCY_LABEL, LIBRARY_TEXT, RUN_MODE, RUN_MODE_LABEL, SKILL_SLOTS, SLOT_COUNT, STAT_IDS } from "../config.js";
 import { stats } from "../data/stats.js";
+import { ABYSS_ENABLED, ABYSS_START_LEVEL } from "../endless/abyssConfig.js";
 import { bindTap } from "../../ui/overlay.js";
 import {
 	addButton,
@@ -217,7 +218,11 @@ export function showRunModeChoice(api) {
 	const best = api.best;
 	buildModeCard(cards, {
 		name: RUN_MODE_LABEL[RUN_MODE.endless],
-		lines: ["关卡无限，没有终点", "失败：整档删除"],
+		lines: [
+			"关卡无限，没有终点",
+			...(ABYSS_ENABLED ? [`第 ${ABYSS_START_LEVEL} 关起开启深渊强化`] : []),
+			"失败：整档删除",
+		],
 		extra: best ? `最高记录：第 ${best.level} 关（${translateCharacter(best.characterId)}）` : "最高记录：暂无",
 		onPick: () => api.pickMode(RUN_MODE.endless),
 	});

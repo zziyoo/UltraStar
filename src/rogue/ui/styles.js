@@ -67,6 +67,15 @@ const CSS = `
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { display: block !important; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { font-size: 19px; font-weight: bold; color: #ffd479; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-effect { margin-top: 4px; font-size: 16px; color: rgba(255,255,255,0.88); }
+/* 敌人强化面板：标题下给出「敌人强化」副标题，深渊词缀单独一区 */
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-subtitle { margin-top: 4px; text-align: center; font-size: 15px; letter-spacing: 3px; color: rgba(255,255,255,0.6); }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-section-title { margin: 22px 0 2px; font-size: 21px; font-weight: bold; color: #b28cff; letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+/* 词缀总览：一排深紫底的小徽记，与玩家面板的金色属性行分开 */
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-abyss-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-abyss-badge { display: inline-flex; align-items: center; justify-content: center;
+	padding: 3px 12px; border-radius: 12px; font-size: 15px; line-height: 1.4; color: #d8c6ff; white-space: nowrap;
+	background: linear-gradient(rgba(74,54,116,0.9), rgba(38,26,64,0.95));
+	border: 1px solid rgba(178,140,255,0.55); box-shadow: 0 0 10px rgba(140,100,220,0.22); }
 
 /* 浮层内的自建弹层：本体对话框会被浮层（z-index 9998）压住，所以浮层当前时改用自建弹层 */
 .wm-rogue-popup { position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9999;
@@ -270,6 +279,7 @@ const CSS = `
 	text-align: center; box-sizing: border-box;
 	background: linear-gradient(rgba(24,24,24,0.92), rgba(8,8,8,0.95));
 	border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 6px 26px rgba(0,0,0,0.65); }
+/* 事件图是满幅的不透明方图（深色星空底），所以用 cover + 圆角描边 */
 .wm-rogue-event-art { width: 200px; height: 200px; border-radius: 10px; margin-bottom: 16px;
 	background-size: cover; background-position: center;
 	border: 1px solid rgba(255,200,120,0.45); box-shadow: 0 0 22px rgba(120,110,255,0.25), 0 2px 10px rgba(0,0,0,0.6); }
@@ -294,6 +304,10 @@ const CSS = `
 	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
 	border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
 .wm-rogue-index-card.wm-rogue-index-known { border-color: rgba(255,200,120,0.55); }
+/* 已收录的条目点得开：给指针与悬停反馈。未发现的条目不挂这个类，也不挂监听 */
+.wm-rogue-index-card.wm-rogue-index-clickable { cursor: pointer; }
+.wm-rogue-index-card.wm-rogue-index-clickable:hover { border-color: rgba(255,200,120,0.9); box-shadow: 0 0 16px rgba(255,180,80,0.28); }
+/* 图鉴里的图位同时承载「奇物图 / 事件图 / ？？？未发现」三种 */
 .wm-rogue-index-art { width: 96px; height: 96px; margin: 0 auto 10px; border-radius: 8px;
 	background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center;
 	border: 1px solid rgba(255,255,255,0.18); background-color: rgba(255,255,255,0.06); }
@@ -310,11 +324,17 @@ const CSS = `
 .wm-rogue-curios-body { padding: 0 4px 10px 2px; }
 
 /* ---- 奇物卡（商店内与查看页共用）---- */
+/* 奇物卡：满幅不透明方图，圆角 + 细描边 */
 .wm-rogue-curio-art { flex: none; width: 64px; height: 64px; border-radius: 6px;
 	background-size: cover; background-position: center;
 	border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 0 12px rgba(120,110,255,0.22); }
 .wm-rogue-curio-rarity { margin-left: auto; padding: 1px 10px; border-radius: 10px; font-size: 13px;
 	color: #ffd479; border: 1px solid rgba(255,200,120,0.5); white-space: nowrap; }
+/* 品质档位配色：史诗 / 稀有 / 普通 / 负面（图鉴与商店、查看页共用同一套类名） */
+.wm-rogue-rarity-epic { color: #d8a6ff; border-color: rgba(200,120,255,0.65); }
+.wm-rogue-rarity-rare { color: #9fd8ff; border-color: rgba(120,180,255,0.65); }
+.wm-rogue-rarity-common { color: #ffd479; border-color: rgba(255,200,120,0.5); }
+.wm-rogue-rarity-negative { color: #ff8a7a; border-color: rgba(255,120,100,0.65); }
 .wm-rogue-curio-effect { margin-top: 7px; font-size: 15px; line-height: 1.5; color: #9fd8ff;
 	white-space: pre-line; }
 /* 奇物商店分区容器：无候选时挂 .wm-rogue-hidden 整块隐藏（不留「已购买」残卡） */
@@ -416,6 +436,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-replace-cards,
 #wm-rogue-overlay .wm-rogue-resume-enemies,
 #wm-rogue-overlay .wm-rogue-index-cards,
+#wm-rogue-overlay .wm-rogue-abyss-badges,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
 #wm-rogue-overlay .wm-rogue-resume-enemy,
 #wm-rogue-overlay .wm-rogue-resume-actions,
@@ -442,6 +463,8 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-curio-art { display: block !important; }
 #wm-rogue-overlay .wm-rogue-shop-section-title,
 #wm-rogue-overlay .wm-rogue-shop-subtitle,
+#wm-rogue-overlay .wm-rogue-stat-subtitle,
+#wm-rogue-overlay .wm-rogue-stat-section-title,
 #wm-rogue-overlay .wm-rogue-shop-name,
 #wm-rogue-overlay .wm-rogue-shop-owner,
 #wm-rogue-overlay .wm-rogue-shop-desc,
@@ -489,10 +512,14 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { display: block !important; }
 #wm-rogue-overlay .wm-rogue-mode-go { display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+/* 深渊词缀徽记：主题的裸 div{display:inline-block;position:absolute} 会把胶囊拉成绝对定位，这里钉回行内 flex */
+#wm-rogue-overlay .wm-rogue-abyss-badge { display: inline-flex !important; align-items: center !important; justify-content: center !important; position: static !important; }
 #wm-rogue-overlay .wm-rogue-hub-who { display: block !important; }
 #wm-rogue-overlay .wm-rogue-shop-desc,
 #wm-rogue-overlay .wm-rogue-shop-owner,
 #wm-rogue-overlay .wm-rogue-shop-subtitle,
+#wm-rogue-overlay .wm-rogue-stat-subtitle,
+#wm-rogue-overlay .wm-rogue-stat-section-title,
 #wm-rogue-overlay .wm-rogue-stat-effect,
 #wm-rogue-overlay .wm-rogue-hub-hint,
 #wm-rogue-overlay .wm-rogue-skills-empty,

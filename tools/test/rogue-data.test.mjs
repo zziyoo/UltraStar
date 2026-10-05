@@ -67,6 +67,10 @@ const rewardsData = await load("src/rogue/data/rewards.js");
 const eventsData = await load("src/rogue/data/events.js");
 const curiosData = await load("src/rogue/data/curios.js");
 const curioManager = await load("src/rogue/curioManager.js");
+const abyss = await load("src/rogue/endless/abyss.js");
+const abyssConfig = await load("src/rogue/endless/abyssConfig.js");
+const abyssAffixes = await load("src/rogue/endless/abyssAffixes.js");
+const modeModule = await load("src/rogue/mode.js");
 
 let passed = 0;
 const failures = [];
@@ -84,6 +88,11 @@ function check(name, fn) {
 function assert(cond, msg) {
 	if (!cond) {
 		throw new Error(msg ?? "断言失败");
+	}
+}
+function assertEqual(actual, expected, msg) {
+	if (actual !== expected) {
+		throw new Error(`${msg ?? "断言失败"}：期望 ${JSON.stringify(expected)}，实际 ${JSON.stringify(actual)}`);
 	}
 }
 
@@ -310,7 +319,7 @@ check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50
 	return `闯关第7关 ${JSON.stringify(challengeSample)}，无尽第1关 ${JSON.stringify(sample)}，第10关 ${JSON.stringify(later)}`;
 });
 
-const EVENT_REWARD_KEYS = ["gold", "exp", "goldByWin", "expByWin", "curio", "skill", "statUp", "statDown"];
+const EVENT_REWARD_KEYS = ["gold", "exp", "goldByWin", "expByWin", "goldPct", "goldPayout", "curio", "skill", "statUp", "statDown"];
 
 check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 	const ids = Object.keys(eventsData.events);
@@ -428,8 +437,8 @@ check("奇物配置：结构与字段合法、效果键已知", () => {
 			for (const [field, value] of Object.entries(curio.effect)) {
 				if (!curioManager.CURIOSITY_EFFECT_KEYS.includes(field)) {
 					problems.push(`${key}: effect 不支持的键 ${field}（可用：${curioManager.CURIOSITY_EFFECT_KEYS.join("/")}）`);
-				} else if (!(Number.isFinite(value) && value > 0)) {
-					problems.push(`${key}: effect.${field} 应为正数`);
+				} else if (!(Number.isFinite(value) && value !== 0)) {
+					problems.push(`${key}: effect.${field} 应为非零数字（负面奇物用负值）`);
 				}
 			}
 		}
@@ -438,7 +447,17 @@ check("奇物配置：结构与字段合法、效果键已知", () => {
 		}
 	}
 	assert(!problems.length, problems.join("；"));
-	return `${ids.length} 个奇物`;
+	// 四档品质与售价倍率锁定：普通 ×2 / 稀有 ×5 / 史诗 ×10 / 负面 ×-5（负价购买反得金币）
+	const expectedMultiplier = { common: 2, rare: 5, epic: 10, negative: -5 };
+	for (const [rarity, mult] of Object.entries(expectedMultiplier)) {
+		assert(curiosData.CURIOSITY_RARITY[rarity], `品质 ${rarity} 应有中文名`);
+		assertEqual(curiosData.CURIOSITY_RARITY_PRICE[rarity], mult, `品质 ${rarity} 售价倍率`);
+	}
+	for (const rarity of Object.keys(curiosData.CURIOSITY_RARITY)) {
+		assert(Number.isFinite(curiosData.CURIOSITY_RARITY_PRICE[rarity]) && curiosData.CURIOSITY_RARITY_PRICE[rarity] !== 0, `品质 ${rarity} 缺少售价倍率`);
+	}
+	const byRarity = Object.keys(expectedMultiplier).map(rarity => `${rarity}:${Object.values(curiosData.curios).filter(curio => curio.rarity === rarity).length}`);
+	return `${ids.length} 个奇物（${byRarity.join(" / ")}）`;
 });
 
 check("奇物配图：文件存在且已登记进素材清单", () => {
@@ -479,6 +498,49 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		}
 	}
 	return `触发时机：${triggerNames.join(" / ")}`;
+});
+
+check("深渊词缀配置：池子项数、技能本体、双键翻译与承载时机都齐备，并随模式一起注册", () => {
+	const modeConfig = modeModule.createModeConfig();
+	const pool = abyssConfig.AFFIX_POOL;
+	assert(pool.length >= 10, `第一版应有 10 个词缀，实际 ${pool.length}`);
+	assertEqual(new Set(pool.map(item => item.id)).size, pool.length, "词缀 id 不能重复");
+	assertEqual(abyssConfig.ABYSS_START_LEVEL, 31, "深渊化起始层");
+	assertEqual(abyssConfig.ABYSS_FULL_LEVEL, 100, "满层（必定拿到 1 个的层数）");
+	for (const item of pool) {
+		const info = modeConfig.skill[item.id];
+		assert(info, `${item.id} 应随模式注册`);
+		// 持恒技必须至少有一个能响的时机或一个 mod，否则永远是死技能
+		const timings = [];
+		for (const role of Object.keys(info.trigger ?? {})) {
+			assert(["player", "source", "target", "global"].includes(role), `${item.id} 的 trigger 角色名非法：${role}`);
+			const list = Array.isArray(info.trigger[role]) ? info.trigger[role] : [info.trigger[role]];
+			timings.push(...list.map(name => `${role}:${name}`));
+		}
+		assert(timings.length || info.mod, `${item.id} 既没有触发时机也没有 mod`);
+		// 翻译双键：本体只认 id（名）+ id_info（描述），写成「名<hr>描述」会被整串当技能名打进日志
+		assert(typeof modeConfig.translate[item.id] === "string" && modeConfig.translate[item.id], `${item.id} 缺技能名翻译`);
+		assert(typeof modeConfig.translate[`${item.id}_info`] === "string" && modeConfig.translate[`${item.id}_info`], `${item.id} 缺描述翻译`);
+		assert(modeConfig.translate[item.id] === abyssAffixes.affixText[item.id].name, `${item.id} 的技能名应与文案表同源`);
+		assert(!/<hr>/.test(modeConfig.translate[item.id]), `${item.id} 的翻译名里不该带 <hr>`);
+		assert(Number.isFinite(item.weight) && item.weight > 0, `${item.id} 的权重应为正数`);
+		assert(!item.tags, `${item.id} 是通用词缀，不该写 tags（写了就只在该标签场合才随机到）`);
+	}
+	// 标记载体：随模式注册，但绝不进随机池
+	assert(modeConfig.skill.abyss_affix?.mark, "abyss_affix 应作为标记技能注册");
+	assert(!pool.some(item => item.id === "abyss_affix"), "abyss_affix 不该出现在随机池里");
+	// 默认配置下每个词缀都真的能被随机到
+	for (const item of pool) {
+		assert(abyss.isAbyssAffixId(item.id), `${item.id} 应能通过池子校验`);
+	}
+	assertEqual(abyss.normalizeAbyssIds(["not_an_affix", null, ""]).length, 0, "非法词缀在读档时被清掉");
+	const timings = abyssConfig.AFFIX_POOL
+		.map(item => abyssAffixes.affix[item.id].trigger)
+		.filter(Boolean);
+	assert(timings.some(t => t.global === "roundStart"), "应有词缀挂在轮开始（狂热/永恒）");
+	assert(timings.some(t => t.global === "gainEnd"), "应有词缀挂在获得牌后（禁欲）");
+	assert(timings.some(t => t.global === "useCardAfter"), "应有词缀在使用牌后（污染）");
+	return `${pool.length} 个词缀 / 时机与翻译齐备 / 随模式注册`;
 });
 
 console.log(`\nrogue-data: passed=${passed} failed=${failures.length}`);

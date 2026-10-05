@@ -1,4 +1,4 @@
-﻿// 奥特之星·肉鸽：数据层/逻辑层测试。node tools/test/rogue.test.mjs
+// 奥特之星·肉鸽：数据层/逻辑层测试。node tools/test/rogue.test.mjs
 // 逐条覆盖规格书第三十五节的清单。data/skills.js 会拉起分包技能链，
 // 因此与 rogue-data.test.mjs 一样用桩顶掉 noname.js。
 import path from "node:path";
@@ -63,8 +63,11 @@ const eventsData = await load("src/rogue/data/events.js");
 const curiosData = await load("src/rogue/data/curios.js");
 const curioManager = await load("src/rogue/curioManager.js");
 const eventManager = await load("src/rogue/eventManager.js");
+const abyss = await load("src/rogue/endless/abyss.js");
+const abyssConfig = await load("src/rogue/endless/abyssConfig.js");
+const abyssAffixes = await load("src/rogue/endless/abyssAffixes.js");
 /** 桩里的 lib：与各模块拿到的是同一个对象，用来临时塞 lib.poptip 之类的桩数据 */
-const { lib, game: mockGame } = await import(MOCK_URL);
+const { lib, game: mockGame, get: mockGet } = await import(MOCK_URL);
 
 let passed = 0;
 const failures = [];
@@ -91,6 +94,22 @@ function assert(cond, msg) {
 }
 function assertEqual(actual, expected, msg) {
 	assert(actual === expected, `${msg ?? "值不符"}：期望 ${expected}，实际 ${actual}`);
+}
+
+/** 异步版 check：深渊词缀的 content 全是 async（本体对同步 content 会反编译源码、丢闭包），必须等完再断言 */
+async function checkAsync(name, fn) {
+	try {
+		const detail = await fn();
+		passed++;
+		if (detail) {
+			console.log(`  ok   ${name} — ${detail}`);
+		} else {
+			console.log(`  ok   ${name}`);
+		}
+	} catch (error) {
+		failures.push(name);
+		console.log(`  FAIL ${name} — ${error?.message ?? error}`);
+	}
 }
 
 const NOW = 1700000000000;
@@ -646,8 +665,8 @@ check("敌方阵容生成：数量按关卡、属性总和恰为关卡数、每�
 
 check("currentBattle 恢复：保存完整敌方阵容，重载原样读回而不重掷", () => {
 	const enemies = [
-		{ characterId: "巴尔坦星人", stats: { defense: 3, draw: 5, attack: 2 }, skills: [], maxHp: 0, hp: 0 },
-		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, skills: ["test_enemy_skill"], maxHp: 2, hp: 0 },
+		{ characterId: "巴尔坦星人", stats: { defense: 3, draw: 5, attack: 2 }, abyss: [], skills: [], maxHp: 0, hp: 0 },
+		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, abyss: [], skills: ["test_enemy_skill"], maxHp: 2, hp: 0 },
 	];
 	const run = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies, extra: "junk" } });
 	assertEqual(run.currentBattle.status, "battle", "状态保留");
@@ -1142,7 +1161,8 @@ check("旧存档补字段：v1 缺刷新次数时补满且其它字段不动，�
 	assert(migrated.errors.some(error => error.includes("迁移")), "要提示做过版本迁移");
 	assertEqual(state.normalizeRun({ ...legacy, version: 2, shopRefreshesRemaining: 1 }).shopRefreshesRemaining, 1, "v2 剩 1 次不能被抬回 2");
 	assertEqual(state.normalizeRun({ ...legacy, shopRefreshesRemaining: 0 }).shopRefreshesRemaining, 0, "刷成 0 也不补");
-	assertEqual(state.normalizeRun({ ...legacy, shopRefreshesRemaining: 99 }).shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "脏数据按上限钳制");
+	// 上限 = 基础额度 + 全部刷新类奇物的加成（循环按钮在池子里时 > SKILL_REFRESH_PER_LEVEL）
+	assertEqual(state.normalizeRun({ ...legacy, shopRefreshesRemaining: 99 }).shopRefreshesRemaining, curioManager.getMaxShopRefreshes(), "脏数据按上限钳制");
 	return `v1 → v${cfg.RUN_VERSION}`;
 });
 
@@ -1223,7 +1243,7 @@ check("v4 字段校验：脏数据剔除、未知 id 丢弃、round-trip 保持"
 	assertEqual(JSON.stringify(run.collection), JSON.stringify({ events: ["lost_robot"], curios: ["energy_core"] }), "图鉴去重且剔未知");
 	assertEqual(JSON.stringify(run.curios), JSON.stringify(["energy_core"]), "奇物去重且剔未知");
 	assertEqual(run.curioOffers.length, 2, "未知奇物的候选剔除");
-	assertEqual(run.curioOffers[1].price, 0, "负价钳到 0");
+	assertEqual(run.curioOffers[1].price, -3, "负价原样保留（负面奇物购买反得金币）");
 	// 合法 pendingEvent 原样保留（choices 白名单重建后仍一致）
 	const pending = {
 		id: "lost_robot",
@@ -1249,21 +1269,48 @@ check("v4 字段校验：脏数据剔除、未知 id 丢弃、round-trip 保持"
 	return "4 类脏数据 + round-trip";
 });
 
-check("奇物定价：基准 round(50×√关卡)，±25% 随机后 round，倍率生效", () => {
+check("公有图鉴合并：两份图鉴取并集，去重、剔未知、幂等", () => {
+	const a = { events: ["lucky_coin"], curios: ["energy_core", "幽灵奇物"] };
+	const b = { events: ["lost_robot", "lucky_coin"], curios: ["broken_watch", "energy_core"] };
+	const merged = state.mergeCollections(a, b);
+	assertEqual(JSON.stringify(merged), JSON.stringify({ events: ["lucky_coin", "lost_robot"], curios: ["energy_core", "broken_watch"] }), "并集且去重");
+	assertEqual(JSON.stringify(state.mergeCollections(merged, merged)), JSON.stringify(merged), "再并不变（幂等）");
+	assertEqual(JSON.stringify(state.mergeCollections(null, undefined)), JSON.stringify({ events: [], curios: [] }), "两边都缺给空图鉴");
+	assertEqual(JSON.stringify(state.mergeCollections(a, null)), JSON.stringify({ events: ["lucky_coin"], curios: ["energy_core"] }), "另一边为空不丢内容");
+	return "并集 / 幂等 / 缺省";
+});
+
+check("奇物定价：基准 round(50×√关卡) × 品质倍率（普通2/稀有5/史诗10/负面-5）× ±25% 随机", () => {
 	assertEqual(curioManager.getCurioBasePrice(1), 50, "第 1 关基准");
 	assertEqual(curioManager.getCurioBasePrice(10), 158, "第 10 关基准 round(158.11)");
 	assertEqual(curioManager.getCurioBasePrice(2), 71, "第 2 关基准 round(70.7)（技能 floor 是 70）");
 	assertEqual(curioManager.getCurioBasePrice(), 50, "缺省按第 1 关");
-	const level10 = { mode: cfg.RUN_MODE.endless, level: 10 };
-	assertEqual(curioManager.getCurioPrice(10, 1, () => 0), 119, "下界 round(118.5)=119");
-	assertEqual(curioManager.getCurioPrice(10, 1, () => 0.999999), 197, "接近上界 round(197.4)");
-	assertEqual(curioManager.getCurioPrice(10, 2, () => 0), 237, "倍率 2：round(118.5×2)");
-	assertEqual(curioManager.getCurioPrice(10, undefined, () => 0), 119, "倍率缺失按 1");
+	const common = { rarity: "common" };
+	const rare = { rarity: "rare" };
+	const epic = { rarity: "epic" };
+	const negative = { rarity: "negative" };
+	// 下界 118.5、上界 197.5（第 10 关基准 158 ±25%）
+	assertEqual(curioManager.getCurioPrice(10, common, () => 0), 237, "普通下界 round(118.5×2)");
+	assertEqual(curioManager.getCurioPrice(10, undefined, () => 0), 119, "定义缺失按 ×1 兜底，不是普通档");
+	assertEqual(curioManager.getCurioPrice(10, common, () => 0.999999), 395, "普通接近上界");
+	assertEqual(curioManager.getCurioPrice(10, rare, () => 0), 593, "稀有下界 round(118.5×5)");
+	assertEqual(curioManager.getCurioPrice(10, rare, () => 0.999999), 987, "稀有接近上界");
+	assertEqual(curioManager.getCurioPrice(10, epic, () => 0), 1185, "史诗下界 round(118.5×10)");
+	assertEqual(curioManager.getCurioPrice(10, epic, () => 0.999999), 1975, "史诗接近上界");
+	// 负面 ×-5：价格为负，购买反而获得金币。Math.round 对 .5 向 +∞ 进位，所以下界是 -592 而非 -593
+	assertEqual(curioManager.getCurioPrice(10, negative, () => 0), -592, "负面下界 round(118.5×-5)");
+	assertEqual(curioManager.getCurioPrice(10, negative, () => 0.999999), -987, "负面接近上界");
+	// 个人倍率与品质倍率相乘
+	assertEqual(curioManager.getCurioPrice(10, { rarity: "rare", priceMultiplier: 1.5 }, () => 0), 889, "稀有 ×1.5：round(118.5×7.5)");
+	// 真实数据对账：破损怀表=史诗、幸运石=稀有、诅咒金币=负面
+	assertEqual(curiosData.curios.broken_watch.rarity, "epic", "破损怀表史诗");
+	assertEqual(curiosData.curios.lucky_stone.rarity, "rare", "幸运石稀有");
+	assertEqual(curiosData.curios.cursed_coin.rarity, "negative", "诅咒金币负面");
 	for (let i = 0; i < 100; i++) {
-		const price = curioManager.getCurioPrice(10, 1);
-		assert(Number.isInteger(price) && price >= 119 && price <= 198, `售价 ${price} 越界`);
+		const price = curioManager.getCurioPrice(10, common);
+		assert(Number.isInteger(price) && price >= 237 && price <= 395, `普通售价 ${price} 越界`);
 	}
-	return "第 10 关 119~197";
+	return "第 10 关普通 237~395 / 史诗 1185~1975 / 负面 -987~-592";
 });
 
 check("奇物候选：胜利时摇三个、排除已拥有、池空给少、结果可持久化", () => {
@@ -1378,6 +1425,20 @@ check("事件构建：倍率按胜利奖励换算、outcomes 当场预掷、读�
 	assertEqual(JSON.stringify(built.choices[0].reward), JSON.stringify({ gold: -50, exp: 20 }), "倍率换算成固定值");
 	assertEqual(JSON.stringify(built.choices[1].reward), JSON.stringify({ curio: "random" }), "随机奇物保持标记");
 	assertEqual(JSON.stringify(built.choices[2].reward), JSON.stringify({}), "离开无奖励");
+	// 消耗类选项把价钱写进文案（玩家点之前就知道要花多少）
+	assert(built.choices[0].text.includes("-50 金币"), `消耗文案带金额：${built.choices[0].text}`);
+	assert(!built.choices[2].text.includes("金币"), "无消耗选项不加金额后缀");
+	// 金币不足时消耗项不可选（事件页置灰与结算拒绝共用这一判定）；奇物选项没有货币消耗，0 金币照常可选
+	assert(!eventManager.isChoiceAffordable({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 10, exp: 0 } }, built.choices[0].reward), "10 金币不够 50 的消耗项");
+	assert(eventManager.isChoiceAffordable({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 50, exp: 0 } }, built.choices[0].reward), "恰好够时不判不足");
+	assert(eventManager.isChoiceAffordable({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 } }, built.choices[1].reward), "奇物选项不看金币");
+	// 神秘商人：花 5 倍胜利金币换一个随机奇物
+	const merchant = eventManager.buildPendingEvent("mystery_merchant", 1, () => 0, NOW);
+	assertEqual(JSON.stringify(merchant.choices[0].reward), JSON.stringify({ gold: -250, curio: "random" }), "奇物 ×5 基准倍率（第 1 关 50×5=250）");
+	assert(merchant.choices[0].text.includes("-250 金币"), `商人选项写明花费：${merchant.choices[0].text}`);
+	// 集齐奇物时该选项不算「货币不足」（跳过分支不花钱，不能被置灰）
+	const brokeFull = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 }, curios: curiosData.curioIds.slice() };
+	assert(eventManager.isChoiceAffordable(brokeFull, merchant.choices[0].reward), "集齐奇物 + 金币不足也不置灰");
 	// 第 100 关：金币 floor(500)、经验 floor(200) → 倍率跟着放大
 	const late = eventManager.buildPendingEvent("lost_robot", 100, makeRng(1), NOW);
 	assertEqual(JSON.stringify(late.choices[0].reward), JSON.stringify({ gold: -500, exp: 200 }), "高关卡按当关奖励缩放");
@@ -1386,12 +1447,23 @@ check("事件构建：倍率按胜利奖励换算、outcomes 当场预掷、读�
 	assertEqual(JSON.stringify(heads.choices[0].reward), JSON.stringify({ gold: 50 }), "rng=0 → +50");
 	const tails = eventManager.buildPendingEvent("lucky_coin", 1, () => 0.999, NOW);
 	assertEqual(JSON.stringify(tails.choices[0].reward), JSON.stringify({ gold: -20 }), "rng→1 → -20（round(50×-0.4)）");
+	// 赌局选项（outcomes）不把预掷金额写进按钮：写出正负等于剧透结果
+	assertEqual(heads.choices[0].text, "拾取", `正面不剧透：${heads.choices[0].text}`);
+	assertEqual(tails.choices[0].text, "拾取", `反面不剧透：${tails.choices[0].text}`);
+	// 许愿池的投入百分比与结果无关，保留说明
+	const pool = eventManager.buildPendingEvent("wishing_pool", 1, () => 0, NOW);
+	assert(pool.choices[0].text.includes("投入 10% 金币"), `许愿池保留投入说明：${pool.choices[0].text}`);
 	// 同一 rng 序列下构建两次结果一致（预掷可复现），且能原样写进存档
 	const a = eventManager.buildPendingEvent("unknown_lab", 3, makeRng(9), NOW);
 	const b = eventManager.buildPendingEvent("unknown_lab", 3, makeRng(9), NOW);
 	assertEqual(JSON.stringify(a), JSON.stringify(b), "同种子构建一致");
 	const saved = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), pendingEvent: a });
 	assertEqual(JSON.stringify(saved.pendingEvent), JSON.stringify(a), "预掷结果可持久化");
+	// 未知实验室的 statUp/statDown "random" 必须在生成时就地解析成具体属性（否则结算时无事发生）
+	assert(
+		["statUp", "statDown"].some(key => cfg.STAT_IDS.includes(a.choices[0].reward[key])),
+		"未知实验室随机属性已定死",
+	);
 	// 未知事件 / 空选项：返回 null
 	assertEqual(eventManager.buildPendingEvent("不存在", 1), null, "未知事件");
 	return "倍率 + 预掷 + 复现";
@@ -1456,13 +1528,129 @@ check("事件结算：入账与扣款、奇物/技能/属性奖励、pendingEven
 	return "入账/扣款/奇物/技能/属性";
 });
 
+check("未知实验室：属性全满时随机到升级改给一个随机奇物", () => {
+	const maxed = {};
+	for (const id of cfg.STAT_IDS) {
+		maxed[id] = statsData.stats[id].maxLevel;
+	}
+	// rng 序列：触发事件(0.1<0.3) → 抽中未知实验室(0.9) → 预掷命中 statUp(0) → 定死属性为 STAT_IDS[0]
+	const queue = [0.1, 0.9, 0, 0];
+	const rng = () => (queue.length > 1 ? queue.shift() : queue[queue.length - 1]);
+	const run = { ...freshRun(cfg.RUN_MODE.endless), stats: { ...maxed } };
+	const triggered = eventManager.maybeCreatePendingEvent(run, 31, NOW, rng);
+	assert(triggered.pendingEvent?.id === "unknown_lab", `应抽中未知实验室：${JSON.stringify(triggered.pendingEvent)}`);
+	assertEqual(JSON.stringify(triggered.pendingEvent.choices[0].reward), JSON.stringify({ curio: "random" }), "全满时升级已换成随机奇物");
+	// 结算真的给奇物，且属性一格没动
+	const settled = eventManager.resolveEventChoice(triggered, 0, {}, () => 0);
+	assert(settled.ok && settled.curioId, `应获得奇物：${settled.error ?? ""}`);
+	assert(settled.run.curios.includes(settled.curioId), "奇物入袋");
+	assert(cfg.STAT_IDS.every(id => settled.run.stats[id] === maxed[id]), `全满属性保持原样：${JSON.stringify(settled.run.stats)}`);
+	assert(settled.lines.some(line => line.includes("获得奇物")), `文案写明获得奇物：${settled.lines.join(" / ")}`);
+	// 只有一项没满：不换，仍按原样给属性升级（越界钳制由结算层负责）
+	const queue2 = [0.1, 0.9, 0, 0];
+	const rng2 = () => (queue2.length > 1 ? queue2.shift() : queue2[queue2.length - 1]);
+	const notQuite = { ...maxed, [cfg.STAT_IDS[cfg.STAT_IDS.length - 1]]: statsData.stats[cfg.STAT_IDS[cfg.STAT_IDS.length - 1]].maxLevel - 1 };
+	const kept = eventManager.maybeCreatePendingEvent({ ...run, stats: notQuite }, 31, NOW, rng2);
+	assert(cfg.STAT_IDS.includes(kept.pendingEvent.choices[0].reward.statUp), `未满时仍是属性升级：${JSON.stringify(kept.pendingEvent.choices[0].reward)}`);
+	// 全满时的 statDown 是真实减益，不参与替换
+	const queue3 = [0.1, 0.9, 0.999, 0];
+	const rng3 = () => (queue3.length > 1 ? queue3.shift() : queue3[queue3.length - 1]);
+	const down = eventManager.maybeCreatePendingEvent(run, 31, NOW, rng3);
+	assert(cfg.STAT_IDS.includes(down.pendingEvent.choices[0].reward.statDown), `减益保持原样：${JSON.stringify(down.pendingEvent.choices[0].reward)}`);
+	return "全满 → 随机奇物（含结算与两条边界）";
+});
+
+check("许愿池：按当前金币百分比投入，赢时按倍率返还", () => {
+	const wager = (gold, reward) => {
+		const run = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold, exp: 0 } };
+		run.pendingEvent = { id: "wishing_pool", choices: [{ text: "投入", reward }], createdAt: NOW };
+		return eventManager.resolveEventChoice(run, 0, {}, () => 0);
+	};
+	// 中奖：投 10%（1000→扣 100）拿回 100 倍（+10000）→ 净 10900
+	const hit = wager(1000, { goldPct: 10, goldPayout: 100 });
+	assert(hit.ok, hit.error ?? "投入应成功");
+	assertEqual(hit.run.currency.gold, 10900, "10% 投入 ×100 倍");
+	assert(hit.lines.some(line => line.includes("投入金币 -100")), `投入文案：${hit.lines.join(" | ")}`);
+	assert(hit.lines.some(line => line.includes("100 倍")), "返还写明倍数");
+	// 落空：投入全额亏掉
+	const miss = wager(1000, { goldPct: 10, goldPayout: 0 });
+	assertEqual(miss.run.currency.gold, 900, "落空只剩 900");
+	assert(miss.lines.some(line => line.includes("落空")), "落空文案");
+	// 必中档：投 50% 拿回 2 倍 → 净赚一倍
+	const sure = wager(1000, { goldPct: 50, goldPayout: 2 });
+	assertEqual(sure.run.currency.gold, 1500, "50% 投入 ×2 倍");
+	// 投入额按「点击那一刻」的金币算，不是事件生成时：生成后金币变多也要按新余额投
+	const grown = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 2000, exp: 0 } };
+	const pending = eventManager.buildPendingEvent("wishing_pool", 3, () => 0, NOW);
+	const afterGrowth = eventManager.resolveEventChoice({ ...grown, pendingEvent: pending }, 2, {}, () => 0);
+	assertEqual(afterGrowth.run.currency.gold, 3000, "按点击时余额 2000 投 50% 拿 2 倍");
+	// 金币为 0：选项直接不可选、结算被拒，绝不落成负数
+	const empty = wager(0, { goldPct: 50, goldPayout: 2 });
+	assert(!empty.ok, "0 金币时投入被拒");
+	assertEqual(empty.run.currency.gold, 0, "没有金币不落成负数");
+	const poorRun = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 } };
+	assert(!eventManager.isChoiceAffordable(poorRun, { goldPct: 50, goldPayout: 2 }), "0 金币时选项不可选");
+	assert(eventManager.isChoiceAffordable({ ...poorRun, currency: { gold: 1, exp: 0 } }, { goldPct: 50, goldPayout: 2 }), "有 1 块也能投 50%");
+	// 余额小到四舍五入后投不出 1 块：结算不报错、不倒扣，原样返回
+	const dust = wager(1, { goldPct: 10, goldPayout: 100 });
+	assert(dust.ok, dust.error ?? "小额不该报错");
+	assertEqual(dust.run.currency.gold, 1, "投不出的 1 块不动");
+	assert(dust.lines.some(line => line.includes("金币不足")), `投不出时写明：${dust.lines.join(" | ")}`);
+	// 百分比与倍率都被夹在合法范围，不接受 0 / 负数倍率
+	const clean = eventManager.normalizeEventReward({ goldPct: -500, goldPayout: -3 });
+	assertEqual(clean.goldPct, -100, "百分比夹到 -100");
+	assertEqual(clean.goldPayout, 0, "负倍率归零");
+	// 文案带百分比（金额随余额浮动，此时算不准）
+	const text = eventManager.buildPendingEvent("wishing_pool", 3, () => 0, NOW).choices[0].text;
+	assert(text.includes("10%"), `许愿池选项写明比例：${text}`);
+	return "投入/返还/落空/边界";
+});
+
+check("循环按钮：每场战斗结束额外补一次技能商城刷新", () => {
+	const base = { ...freshRun(cfg.RUN_MODE.endless), level: 3 };
+	const plain = reward.settleVictory(base, NOW, () => 0);
+	assertEqual(plain.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "无奇物时按基础额度");
+	const withLoop = { ...base, curios: ["loop_button"] };
+	const won = reward.settleVictory(withLoop, NOW, () => 0);
+	assertEqual(won.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 1, "循环按钮 +1 次");
+	// 读档不得把多出来的次数夹掉（上限随奇物池走）
+	const cap = curioManager.getMaxShopRefreshes();
+	assert(cap > cfg.SKILL_REFRESH_PER_LEVEL, "上限已按奇物池放宽");
+	assertEqual(state.normalizeRun(won.run).shopRefreshesRemaining, cap, "额外次数可持久化");
+	// 攒着不花：连续两场战斗各 +1（每场都重置，不累积成 4）
+	assertEqual(reward.settleVictory(won.run, NOW, () => 0).run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 1, "每场重置为 3，不累积");
+	// 真的能多刷一次：基础额度只有 2 次，循环按钮让第 3 次也能刷
+	const pool = [{ id: SKILL_A }, { id: SKILL_B }, { id: SKILL_C }];
+	let shopRun = { ...won.run, shopOffers: [] };
+	for (let i = 0; i < cfg.SKILL_REFRESH_PER_LEVEL; i++) {
+		const step = shop.refreshSkillOffers(shopRun, () => 0, [], pool);
+		assert(step.ok, `第 ${i + 1} 次刷新可用`);
+		shopRun = step.run;
+	}
+	assertEqual(shopRun.shopRefreshesRemaining, 1, "基础 2 次刷完还剩 1 次（循环按钮给的）");
+	const third = shop.refreshSkillOffers(shopRun, () => 0, [], pool);
+	assert(third.ok, "第 3 次刷新可用（基础额度之外的额外机会）");
+	assertEqual(third.run.shopRefreshesRemaining, 0, "额外那次也用掉");
+	assert(!shop.refreshSkillOffers(third.run, () => 0, [], pool).ok, "真的用光了");
+	return "每战 +1 / 可持久化 / 真能多刷";
+});
+
 check("胜利结算（无尽）：摇奇物候选、幸运石放大经验；闯关两项都不做", () => {
-	// 无尽第 1 关胜利：候选按推进后的第 2 关定价（round(50×√2)=71 → 53~89）
+	// 无尽第 1 关胜利：候选按推进后的第 2 关定价（round(50×√2)=71 → 普通 53~89，再乘品质倍率）
 	const endless = freshRun(cfg.RUN_MODE.endless);
 	const won = reward.settleVictory(endless, NOW, () => 0);
 	assertEqual(won.run.level, 2, "推进到第 2 关");
 	assertEqual(won.run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "候选三个");
-	assert(won.run.curioOffers.every(offer => offer.price >= 53 && offer.price <= 89), `第 2 关售价 53~89：${won.run.curioOffers.map(offer => offer.price).join(",")}`);
+	// rng=()=>0 取下界：round(71×0.75×品质倍率)，普通 107（106.5 进位）/ 稀有 266 / 史诗 533 / 负面 -266
+	const levelFloor = 71 * (1 - cfg.CURIO_PRICE_SPREAD);
+	assert(
+		won.run.curioOffers.every(offer => offer.price === curioManager.getCurioPrice(2, curiosData.getCurio(offer.id), () => 0)),
+		`第 2 关售价 = round(71×0.75×品质倍率)：${won.run.curioOffers.map(offer => `${offer.id}:${offer.price}`).join(",")}`,
+	);
+	assert(
+		won.run.curioOffers.every(offer => offer.price === Math.round(levelFloor * curiosData.CURIOSITY_RARITY_PRICE[curiosData.getCurio(offer.id).rarity])),
+		`第 2 关售价 = round(71×0.75×品质倍率)：${won.run.curioOffers.map(offer => `${offer.id}:${offer.price}`).join(",")}`,
+	);
 	assertEqual(won.gained.exp, 20, "无奇物时经验不变");
 	// 幸运石：经验 +10% → round(20×1.1)=22，金币不变
 	const lucky = { ...freshRun(cfg.RUN_MODE.endless), curios: ["lucky_stone"] };
@@ -1488,7 +1676,7 @@ check("胜利结算（无尽）：摇奇物候选、幸运石放大经验；闯�
 	assert(rerolled.run.curioOffers.every(offer => Number.isFinite(offer.price)), "新一批连价定死");
 	// 结算不清奇物与图鉴
 	assertEqual(JSON.stringify(blessed.run.curios), JSON.stringify(["lucky_stone"]), "胜利不清奇物");
-	return `无尽候选 ${won.run.curioOffers.length} 个 / 幸运石 exp 20→22`;
+	return `无尽候选 ${won.run.curioOffers.length} 个（${won.run.curioOffers.map(offer => `${curiosData.getCurio(offer.id).name} ${offer.price}`).join(" / ")}）/ 幸运石 exp 20→22`;
 });
 
 check("过期候选清理：事件送的奇物撤下候选，读档剔除已拥有的条目", () => {
@@ -1582,6 +1770,435 @@ check("奇物机制技：四种战斗内效果都由 rogue_curio 承载", () => 
 		assert(html.includes(token), `标记说明应包含「${token}」：${html}`);
 	}
 	return "phaseList 插入 + 摸牌 + 濒死救回 + 轮回复";
+});
+
+// ---------------------------------------------------------------- 深渊化强化（无尽模式）
+
+// 词缀要靠 get.itemtype 区分「实体牌」与「虚拟/转化牌」（本体的判据：Card 实例 → "card"）。
+// 桩里原本没有这个函数，整段深渊用例共用这一份最小实现。
+mockGet.itemtype = obj => {
+	if (!obj || typeof obj !== "object") {
+		return null;
+	}
+	if (obj.__realCard) {
+		return "card";
+	}
+	return obj.name ? "vcard" : null;
+};
+
+/** 造一个能沿父链上溯的假事件：本体的 getParent 支持「层数 / 名字 / 判定函数」三种用法，这里逐一对齐 */
+function makeEvent(name, fields, ancestors) {
+	const evt = { name, ...(fields ?? {}) };
+	evt.getParent = (level = 1, forced, includeSelf) => {
+		const chain = [evt, ...(ancestors ?? [])];
+		const miss = forced ? undefined : {};
+		if (typeof level === "function") {
+			for (let i = 1; i < chain.length; i++) {
+				if (level(chain[i])) {
+					return chain[i];
+				}
+			}
+			return miss;
+		}
+		if (typeof level === "number") {
+			return chain[level] ?? miss;
+		}
+		for (let i = includeSelf ? 0 : 1; i < chain.length; i++) {
+			if (chain[i].name === level) {
+				return chain[i];
+			}
+		}
+		return miss;
+	};
+	return evt;
+}
+
+/** 深渊词缀的假角色：把十个 content 会碰的 Player API 全记下来，断言看的就是这些记录 */
+function makeAbyssPlayer(options) {
+	const rec = { discard: [], gain: [], recoverTo: [], damage: [], disable: [], enable: [], insertPhase: [] };
+	const player = {
+		storage: {},
+		hp: options.hp ?? 4,
+		maxHp: options.maxHp ?? 4,
+		playerid: options.playerid ?? "abyss_holder",
+		rogueSide: options.rogueSide ?? 1,
+		isAlive: () => options.alive !== false,
+		getCards: position => (position === "h" ? (options.hand ?? []).slice() : position === "j" ? (options.judge ?? []).slice() : []),
+		getEquips: () => (options.equips ?? []).slice(),
+		discard: async card => {
+			rec.discard.push(card);
+		},
+		gain: async card => {
+			rec.gain.push(card);
+		},
+		recoverTo: async value => {
+			rec.recoverTo.push(value);
+			player.hp = value;
+		},
+		damage: async (num, source) => {
+			rec.damage.push({ num, source });
+		},
+		disableSkill: (tag, skillId) => {
+			rec.disable.push({ tag, skillId });
+		},
+		enableSkill: tag => {
+			rec.enable.push(tag);
+		},
+		judge: () => ({ forResult: async () => ({ color: options.judgeColor ?? "black" }) }),
+		insertPhase: skill => {
+			const phase = { skill, _noTurnOver: false, phaseList: null };
+			rec.insertPhase.push(phase);
+			return phase;
+		},
+	};
+	return { player, rec };
+}
+
+/** 本体契约：content 的第二个参数才是基事件 */
+const abyssSkillEvent = (timing, base) => ({ triggername: timing, _trigger: base });
+const realCard = name => ({ name, __realCard: true, __type: name === "tao" ? "basic" : name === "sha" ? "basic" : "vcard" });
+const virtualCard = name => ({ name });
+
+check("深渊词缀池配置：恰好十个、id 唯一、与技能定义和翻译一一对应", () => {
+	const ids = abyssConfig.AFFIX_POOL.map(item => item.id);
+	assertEqual(ids.length, 10, "第一版词缀数");
+	assertEqual(new Set(ids).size, 10, "id 不重复");
+	for (const id of ids) {
+		assert(abyssAffixes.affix[id], `${id} 应有技能本体`);
+		assert(abyssAffixes.affixText[id]?.name, `${id} 应有名称`);
+		assert(abyssAffixes.affixText[id]?.desc, `${id} 应有描述`);
+		assert(abyssAffixes.translate[id] === abyssAffixes.affixText[id].name, `${id} 的翻译名与文案表同源`);
+		assert(!!abyssAffixes.translate[`${id}_info`], `${id} 缺 id_info 双键描述`);
+	}
+	// 标记载体不进随机池，否则会被当成一个「强化」发到敌人身上
+	assert(!ids.includes("abyss_affix"), "abyss_affix 不该在词缀池里");
+	assert(!!abyssAffixes.abyssMarkSkill.abyss_affix?.mark, "abyss_affix 应是标记载体");
+	return `${ids.length} 个词缀，定义/文案/翻译三处对齐`;
+});
+
+check("深渊词缀数量：31~99 层按 stage%，100 层起 floor(stage/100) 再按余数%追加一个", () => {
+	const always0 = () => 0;
+	const alwaysAlmost1 = () => 0.999999;
+	// 起始层之前恒为 0
+	for (const stage of [1, 20, 30]) {
+		assertEqual(abyss.rollAbyssAffixCount(stage, always0), 0, `${stage} 层不该有词缀`);
+	}
+	// 31~99：rng 落在 stage% 之内才给 1 个
+	assertEqual(abyss.rollAbyssAffixCount(31, () => 0.3), 1, "31 层 30% 命中");
+	assertEqual(abyss.rollAbyssAffixCount(31, () => 0.31), 0, "31 层 31% 边界不命中（严格小于）");
+	assertEqual(abyss.rollAbyssAffixCount(50, () => 0.49), 1, "50 层 49% 命中");
+	assertEqual(abyss.rollAbyssAffixCount(50, () => 0.5), 0, "50 层 50% 边界不命中");
+	assertEqual(abyss.rollAbyssAffixCount(99, () => 0.98), 1, "99 层 98% 命中");
+	assertEqual(abyss.rollAbyssAffixCount(99, alwaysAlmost1), 0, "99 层 99.99% 已过 99% 线");
+	// 100 层起：必定 floor(stage/100) 个，余数再掷一次
+	assertEqual(abyss.rollAbyssAffixCount(100, alwaysAlmost1), 1, "100 层必定 1 个且没有额外");
+	assertEqual(abyss.rollAbyssAffixCount(199, () => 0.5), 2, "199 层 1 个 + 99% 追加");
+	assertEqual(abyss.rollAbyssAffixCount(199, alwaysAlmost1), 1, "199 层 99.9999% 未过余数线时只给必定值");
+	assertEqual(abyss.rollAbyssAffixCount(200, alwaysAlmost1), 2, "200 层必定 2 个");
+	assertEqual(abyss.rollAbyssAffixCount(234, () => 0.3), 3, "234 层 2 个 + 34% 拿到第 3 个");
+	assertEqual(abyss.rollAbyssAffixCount(234, () => 0.4), 2, "234 层 40% 未过时保持 2 个");
+	assertEqual(abyss.rollAbyssAffixCount(300, always0), 3, "300 层必定 3 个");
+	return "31/50/99/100/199/200/234/300 全分支";
+});
+
+check("深渊词缀随机：不放回不重复、数量受池子约束、同一种子结果可复现", () => {
+	const poolSize = abyssConfig.AFFIX_POOL.length;
+	const list = abyss.rollAbyssAffixes(234, makeRng(7));
+	assert(list.length > 0, "高层应有词缀");
+	assertEqual(new Set(list).size, list.length, "同一敌人身上不重复同一个词缀");
+	for (const id of list) {
+		assert(abyss.isAbyssAffixId(id), `${id} 应在词缀池里`);
+	}
+	assertEqual(
+		abyss.rollAbyssAffixes(234, makeRng(7)).join(","),
+		list.join(","),
+		"同一随机源应给出同一结果（存档不重掷的前提）",
+	);
+	// 层数再高也不可能超过池子大小
+	const huge = abyss.rollAbyssAffixes(1000 + poolSize * 100, () => 0);
+	assertEqual(huge.length, poolSize, `超高层最多拿满 ${poolSize} 个词缀`);
+	assertEqual(new Set(huge).size, poolSize, "拿满时仍然互不重复");
+	return `234 层 ${list.length} 个 / 超高层 ${huge.length} 个`;
+});
+
+check("深渊只作用于无尽：闯关阵容一个词缀都不带，无尽高层每个敌人各自掷", () => {
+	assert(!abyss.isAbyssStage(999, cfg.RUN_MODE.challenge), "闯关模式再高层也不该深渊化");
+	assert(!abyss.isAbyssStage(30, cfg.RUN_MODE.endless), "无尽 30 层还没到起始层");
+	assert(abyss.isAbyssStage(abyssConfig.ABYSS_START_LEVEL, cfg.RUN_MODE.endless), "无尽起始层应开始深渊化");
+	// 把角色塞进桩里的 lib.character，两个敌方池才真的有东西可挑（空池会让断言假绿）
+	const extensionIds = [...enemy.getExtensionCharacterIds()];
+	assert(extensionIds.length > 0, "扩展角色池不应为空");
+	for (const id of extensionIds) {
+		lib.character[id] ??= { hp: 4, maxHp: 4, skills: [] };
+	}
+	lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
+
+	for (const level of [31, 120, 500]) {
+		const enemies = enemy.createEnemyConfigs(level, cfg.RUN_MODE.challenge, () => 0);
+		assert(enemies.length > 0, `闯关 ${level} 层应能组出阵容`);
+		for (const entry of enemies) {
+			assertEqual(entry.abyss.length, 0, `闯关 ${level} 层不该有词缀`);
+		}
+	}
+	// rng 恒为 0：31~99 层必中，100 层起的余数也必中，所以每个敌人都该拿满必定值 + 1
+	const late = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0);
+	assert(late.length > 0, "无尽高层应能组出阵容");
+	for (const entry of late) {
+		assertEqual(entry.abyss.length, 3, "234 层每个敌人必定 2 个 + 命中余数 1 个");
+		assertEqual(new Set(entry.abyss).size, 3, "同一敌人身上词缀不重复");
+		for (const id of entry.abyss) {
+			assert(abyss.isAbyssAffixId(id), `${id} 应在词缀池里`);
+		}
+	}
+	const early = enemy.createEnemyConfigs(abyssConfig.ABYSS_START_LEVEL - 1, cfg.RUN_MODE.endless, () => 0);
+	for (const entry of early) {
+		assertEqual(entry.abyss.length, 0, "起始层之前的无尽阵容不带词缀");
+	}
+	return `闯关 3 档全空 / 无尽 234 层每人 ${late[0].abyss.length} 个`;
+});
+
+check("深渊存档往返：脏词缀被清洗、下架的被剔除、重载原样读回而不重掷", () => {
+	const ids = abyssConfig.AFFIX_POOL.map(item => item.id);
+	const run = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 45,
+		currentBattle: {
+			status: "battle",
+			enemies: [{
+				characterId: "佐菲",
+				stats: { defense: 1, draw: 1, attack: 1 },
+				// 顺序故意打乱、塞重复、塞不存在与空串：读档应清成「池子顺序、去重、只留合法项」
+				abyss: [ids[3], ids[1], ids[3], "abyss_not_exists", "", null, ids[0]],
+				skills: [],
+				maxHp: 0,
+				hp: 0,
+			}],
+		},
+	});
+	const saved = run.currentBattle.enemies[0].abyss;
+	assertEqual(saved.join(","), [ids[0], ids[1], ids[3]].join(","), "清洗后按池子顺序去重");
+	const again = state.normalizeRun({ ...run });
+	assertEqual(again.currentBattle.enemies[0].abyss.join(","), saved.join(","), "重载不重掷、结果稳定");
+	// 旧档（v4 及更早）根本没有这个字段：按「本关没有词缀」补齐，不能凭空随机出几个来
+	const legacy = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 250, currentBattle: null });
+	assertEqual(legacy.currentBattle, null, "没有进行中战斗时不造词缀");
+	const legacyEnemy = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", stats: {}, skills: [] }] },
+	});
+	assertEqual(legacyEnemy.currentBattle.enemies[0].abyss.length, 0, "缺 abyss 字段的旧档补齐为空");
+	return `清洗 ${saved.length} 项 / 旧档补空`;
+});
+
+await checkAsync("深渊·不屈：首次濒死回复至上限，同一回合内的伤害全部防止", async () => {
+	const info = abyssAffixes.affix.abyss_buqu;
+	const turn = makeEvent("phase");
+	const { player, rec } = makeAbyssPlayer({ hp: 1 });
+	const dying = makeEvent("dying", {}, [turn]);
+	assert(info.filter(dying, player, "dying"), "首次濒死应触发");
+	await info.content(abyssSkillEvent("dying", dying), dying, player);
+	assertEqual(rec.recoverTo.length, 1, "回复一次");
+	assertEqual(rec.recoverTo[0], player.maxHp, "回复至体力上限（不是固定值）");
+	assertEqual(player.storage.abyss_buqu_used, true, "记下本局已用过");
+	assert(!info.filter(makeEvent("dying", {}, [turn]), player, "dying"), "第二次濒死不再触发");
+
+	const damage = makeEvent("damage", { num: 2 }, [turn]);
+	assert(info.filter(damage, player, "damageBegin4"), "同一回合内应继续防止伤害");
+	let cancelled = 0;
+	await info.content(abyssSkillEvent("damageBegin4", damage), { ...damage, cancel: () => { cancelled++; } }, player);
+	assertEqual(cancelled, 1, "用 cancel 防止伤害（不是把 num 写成 0）");
+	// 换到下一个回合就不拦了
+	const nextTurn = makeEvent("phase");
+	assert(!info.filter(makeEvent("damage", { num: 1 }, [nextTurn]), player, "damageBegin4"), "护盾只在濒死那个回合内有效");
+	return "回复至上限 + 本回合逐道伤害防止 + 只触发一次";
+});
+
+await checkAsync("深渊·坚壁与猎杀：受伤-1 与造成+1，固定伤害都不参与", async () => {
+	const wall = abyssAffixes.affix.abyss_jianbi;
+	const holder = makeAbyssPlayer({}).player;
+	assert(wall.filter({ numFixed: false, num: 3 }, holder, "damageBegin4"), "非固定伤害应触发");
+	assert(!wall.filter({ numFixed: true, num: 3 }, holder, "damageBegin4"), "固定伤害不触发");
+	assert(!wall.filter({ numFixed: false, num: 0 }, holder, "damageBegin4"), "0 点伤害不触发");
+	for (const [before, after] of [[1, 0], [3, 2]]) {
+		const trigger = { num: before };
+		await wall.content(abyssSkillEvent("damageBegin4", trigger), trigger, holder);
+		assertEqual(trigger.num, after, `受到伤害 ${before} → ${after}`);
+	}
+
+	const hunter = abyssAffixes.affix.abyss_liesha;
+	assertEqual(hunter.mod.attackRange(makeAbyssPlayer({}).player, 1), Infinity, "攻击范围无限");
+	assert(hunter.filter({ numFixed: false }, holder, "damageBegin1"), "造成伤害时应加伤");
+	assert(!hunter.filter({ numFixed: true }, holder, "damageBegin1"), "固定伤害不加");
+	const trigger = { num: 1 };
+	await hunter.content(abyssSkillEvent("damageBegin1", trigger), trigger, holder);
+	assertEqual(trigger.num, 2, "造成的伤害 +1");
+	return "坚壁减到 0 为止 / 猎杀无限距离加伤";
+});
+
+await checkAsync("深渊·禁欲：只罚玩家方在摸牌阶段外获得的牌，摸牌阶段内不罚", async () => {
+	const info = abyssAffixes.affix.abyss_jinyu;
+	const holder = makeAbyssPlayer({}).player;
+	// 假事件的父链是一层扁平数组（不像本体那样递归各自行），所以 phaseDraw 要直接列进 ancestors
+	const inDraw = makeEvent("gain", { player: null }, [makeEvent("phase"), makeEvent("phaseDraw")]);
+	const victim = makeAbyssPlayer({ rogueSide: 0, hand: [realCard("sha"), realCard("shan")] });
+	inDraw.player = victim.player;
+	assert(!info.filter(inDraw, holder, "gainEnd"), "摸牌阶段内获得牌不该被罚");
+
+	const outside = makeEvent("gain", { player: victim.player }, [makeEvent("phase")]);
+	assert(info.filter(outside, holder, "gainEnd"), "摸牌阶段外获得牌应被罚");
+	await info.content(abyssSkillEvent("gainEnd", outside), outside, holder);
+	assertEqual(victim.rec.discard.length, 1, "弃一张牌");
+	assert(!info.filter(makeEvent("gain", { player: holder }, [makeEvent("phase")]), holder, "gainEnd"), "敌人自己摸牌不受影响");
+	const empty = makeAbyssPlayer({ rogueSide: 0 });
+	assert(!info.filter(makeEvent("gain", { player: empty.player }, [makeEvent("phase")]), holder, "gainEnd"), "对方没有牌时不触发");
+	return "阶段归属判定 + 阵营判定 + 空牌区不触发";
+});
+
+await checkAsync("深渊·狂热：黑色判定给一个完整额外回合，红色不给，且一轮只判一次", async () => {
+	const info = abyssAffixes.affix.abyss_kuangre;
+	mockGame.roundNumber = 3;
+	const black = makeAbyssPlayer({ judgeColor: "black" });
+	assert(info.filter(makeEvent("roundStart"), black.player, "roundStart"), "新一轮应触发");
+	await info.content(abyssSkillEvent("roundStart", makeEvent("roundStart")), makeEvent("roundStart"), black.player);
+	assertEqual(black.rec.insertPhase.length, 1, "黑色判定给一个额外回合");
+	const phase = black.rec.insertPhase[0];
+	assertEqual(phase._noTurnOver, true, "额外回合不被翻面跳过");
+	assertEqual(phase.phaseList.length, 6, "是完整回合（六个阶段），不是只加一个出牌阶段");
+	assertEqual(phase.phaseList[0], "phaseZhunbei", "回合从准备阶段开始");
+	assert(!info.filter(makeEvent("roundStart"), black.player, "roundStart"), "同一轮不重复判定（防无限连锁）");
+	mockGame.roundNumber = 4;
+	assert(info.filter(makeEvent("roundStart"), black.player, "roundStart"), "换轮后可以再判");
+	const red = makeAbyssPlayer({ judgeColor: "red" });
+	await info.content(abyssSkillEvent("roundStart", makeEvent("roundStart")), makeEvent("roundStart"), red.player);
+	assertEqual(red.rec.insertPhase.length, 0, "红色判定不给回合");
+	assertEqual(red.player.storage.abyss_kuangre_round, 4, "红色也吃掉本轮那次判定");
+	mockGame.roundNumber = 1;
+	return "黑色→完整额外回合 / 红色无 / 每轮一次";
+});
+
+await checkAsync("深渊·虚无：第一次技能伤害封来源技能到本轮结束，实体牌伤害不封", async () => {
+	const info = abyssAffixes.affix.abyss_xuwu;
+	lib.skill.abyss_test_caster = { forced: true };
+	// 被禁/被解除都是发生在伤害来源那个 Player 身上，所以断言看的是来源的记录
+	const caster = makeAbyssPlayer({ playerid: "caster" });
+	const holder = makeAbyssPlayer({ playerid: "holder" });
+	const skillEventAncestor = makeEvent("abyss_test_caster", { player: caster.player });
+	const skillDamage = makeEvent("damage", { source: caster.player }, [skillEventAncestor, makeEvent("phase")]);
+	assert(info.filter(skillDamage, holder.player, "damageBegin4"), "第一次受到技能伤害应触发");
+	await info.content(abyssSkillEvent("damageBegin4", skillDamage), skillDamage, holder.player);
+	assertEqual(caster.rec.disable.length, 1, "封掉一个技能");
+	assertEqual(caster.rec.disable[0].skillId, "abyss_test_caster", "封的是来源技能");
+	// 本体契约：disableSkill(登记名, 被禁技能) —— 被禁的技能是第二个参数
+	assert(caster.rec.disable[0].tag !== "abyss_test_caster", "登记名不能和被禁技能 id 混用");
+	assert(caster.rec.disable[0].tag.includes(holder.player.playerid), "登记名要能区分是哪一位持有者封的");
+	assert(!info.filter(skillDamage, holder.player, "damageBegin4"), "同一个技能本局只封一次");
+	const cardDamage = makeEvent("damage", { source: caster.player, card: realCard("sha") }, [skillEventAncestor]);
+	assert(!info.filter(cardDamage, holder.player, "damageBegin4"), "有实体牌参与的伤害不算技能伤害");
+	assert(info.filter(makeEvent("round"), holder.player, "roundEnd"), "本轮结束应恢复");
+	await info.content(abyssSkillEvent("roundEnd", makeEvent("round")), makeEvent("round"), holder.player);
+	assertEqual(caster.rec.enable.length, 1, "按登记名解除封印");
+	assertEqual(caster.rec.enable[0], caster.rec.disable[0].tag, "解除用的就是当初那个登记名");
+	assert(!info.filter(makeEvent("round"), holder.player, "roundEnd"), "没有残留封印时不再触发恢复");
+	// 持有者阵亡时 roundEnd 不会再跑到，onremove 必须兜底放开
+	const dying = makeAbyssPlayer({ playerid: "dying_holder" });
+	const otherCaster = makeAbyssPlayer({ playerid: "other_caster" });
+	const otherDamage = makeEvent("damage", { source: otherCaster.player }, [makeEvent("abyss_test_caster", { player: otherCaster.player })]);
+	await info.content(abyssSkillEvent("damageBegin4", otherDamage), otherDamage, dying.player);
+	info.onremove(dying.player);
+	assertEqual(otherCaster.rec.enable.length, 1, "阵亡兜底解除");
+	delete lib.skill.abyss_test_caster;
+	return "首次技能伤害封印 + 到点解除 + 阵亡兜底";
+});
+
+await checkAsync("深渊·镜像：只对用实体牌打来的伤害反弹 1 点，纯技能伤害不反弹", async () => {
+	const info = abyssAffixes.affix.abyss_jingxiang;
+	const holder = makeAbyssPlayer({});
+	// 反弹是「对伤害来源造成 1 点伤害」，所以挨这一下的是来源，记录也在来源身上
+	const attacker = makeAbyssPlayer({ playerid: "attacker" });
+	const hit = makeEvent("damage", { num: 1, card: realCard("sha"), source: attacker.player });
+	assert(info.filter(hit, holder.player, "damageEnd"), "实体牌伤害应反弹");
+	await info.content(abyssSkillEvent("damageEnd", hit), hit, holder.player);
+	assertEqual(attacker.rec.damage.length, 1, "反弹一次");
+	assertEqual(attacker.rec.damage[0].num, 1, "反弹 1 点");
+	assertEqual(attacker.rec.damage[0].source, holder.player, "反弹的伤害记在持有者名下");
+	const converted = makeEvent("damage", { num: 1, card: virtualCard("sha"), source: attacker.player });
+	assert(!info.filter(converted, holder.player, "damageEnd"), "纯虚拟牌没有实体牌参与");
+	const skillHit = makeEvent("damage", { num: 1, source: attacker.player });
+	assert(!info.filter(skillHit, holder.player, "damageEnd"), "技能伤害不反弹");
+	const zero = makeEvent("damage", { num: 0, card: realCard("sha"), source: attacker.player });
+	assert(!info.filter(zero, holder.player, "damageEnd"), "被减到 0 的伤害不反弹");
+	const friendly = makeEvent("damage", { num: 1, card: realCard("sha"), source: holder.player });
+	assert(!info.filter(friendly, holder.player, "damageEnd"), "来源是自己时不反弹");
+	return "实体牌才反弹 / 0 点与自伤不反弹";
+});
+
+await checkAsync("深渊·污染：玩家用牌后把一张手牌换成牌堆里的基本牌，牌堆和弃牌堆都没有就不响应", async () => {
+	const info = abyssAffixes.affix.abyss_wuran;
+	const piles = { cardPile: [], discardPile: [] };
+	mockGet.type = card => card.__type;
+	mockGet.cardPile = (pattern, position) => (piles[position] ?? []).find(card => pattern(card)) ?? null;
+	const holder = makeAbyssPlayer({});
+	const victim = makeAbyssPlayer({ rogueSide: 0, hand: [realCard("sha"), realCard("install")] });
+	// 手牌里那张不是基本牌的牌才该被换掉，基本牌本身也在候选里（本体重「换」而不挑牌）
+	piles.cardPile.push(realCard("tao"));
+	const used = makeEvent("useCard", { player: victim.player, card: victim.player.getCards("h")[0] });
+	assert(info.filter(used, holder.player, "useCardAfter"), "玩家用牌且牌堆有基本牌时应触发");
+	await info.content(abyssSkillEvent("useCardAfter", used), used, holder.player);
+	assertEqual(victim.rec.discard.length, 1, "弃掉一张手牌");
+	assertEqual(victim.rec.gain.length, 1, "换进一张牌");
+	assertEqual(victim.rec.gain[0].__type, "basic", "换进的是基本牌");
+	piles.cardPile.length = 0;
+	assert(!info.filter(used, holder.player, "useCardAfter"), "两处都没有基本牌时不该空转");
+	piles.discardPile.push(realCard("tao"));
+	assert(info.filter(used, holder.player, "useCardAfter"), "牌堆空了还能从弃牌堆拿");
+	const enemyUser = makeAbyssPlayer({ rogueSide: 1 });
+	assert(!info.filter(makeEvent("useCard", { player: enemyUser.player }), holder.player, "useCardAfter"), "敌人用牌不受污染");
+	delete mockGet.cardPile;
+	delete mockGet.type;
+	return "换牌一次 / 牌堆优先弃牌堆兜底 / 无牌可换不触发";
+});
+
+await checkAsync("深渊·永恒：每轮开始把体力补回上限，满血与阵亡都不空转", async () => {
+	const info = abyssAffixes.affix.abyss_yongheng;
+	const hurt = makeAbyssPlayer({ hp: 2, maxHp: 4 });
+	assert(info.filter(makeEvent("round"), hurt.player, "roundStart"), "受伤时应触发");
+	await info.content(abyssSkillEvent("roundStart", makeEvent("round")), makeEvent("round"), hurt.player);
+	assertEqual(hurt.rec.recoverTo.length, 1, "回复一次");
+	assertEqual(hurt.rec.recoverTo[0], 4, "回复至上限 4");
+	assert(!info.filter(makeEvent("round"), hurt.player, "roundStart"), "满血不再触发");
+	const dead = makeAbyssPlayer({ hp: 0, alive: false });
+	assert(!info.filter(makeEvent("round"), dead.player, "roundStart"), "阵亡不再触发");
+	return "每轮补满 / 满血与死亡不空转";
+});
+
+await checkAsync("深渊·复仇：每受一次伤永久+1 伤害，可叠加且不吃固定伤害", async () => {
+	const info = abyssAffixes.affix.abyss_fuchou;
+	const holder = makeAbyssPlayer({});
+	assert(!info.filter({ num: 0 }, holder.player, "damageBegin1"), "还没受过伤时不加伤");
+	for (const expect of [1, 2]) {
+		const hit = makeEvent("damage", { num: 1 });
+		assert(info.filter(hit, holder.player, "damageEnd"), "受到伤害后应叠加");
+		await info.content(abyssSkillEvent("damageEnd", hit), hit, holder.player);
+		assertEqual(holder.player.storage.abyss_fuchou, expect, `第 ${expect} 次受伤叠加到 +${expect}`);
+	}
+	assert(info.filter({ numFixed: false }, holder.player, "damageBegin1"), "有层数时应加伤");
+	assert(!info.filter({ numFixed: true }, holder.player, "damageBegin1"), "固定伤害不加");
+	const trigger = { num: 1 };
+	await info.content(abyssSkillEvent("damageBegin1", trigger), trigger, holder.player);
+	assertEqual(trigger.num, 3, "累计层数全部加进伤害");
+	return "两层叠加 + 固定伤害豁免";
+});
+
+check("深渊标记：徽记说明按存档里的词缀 id 列出名称与描述", () => {
+	const ids = [abyssConfig.AFFIX_POOL[0].id, abyssConfig.AFFIX_POOL[4].id];
+	const html = abyssAffixes.abyssMarkSkill.abyss_affix.intro.mark(null, ids, null);
+	for (const token of ["深渊·不屈", "深渊·猎杀", "攻击范围无限"]) {
+		assert(html.includes(token), `标记说明应包含「${token}」：${html}`);
+	}
+	const empty = abyssAffixes.abyssMarkSkill.abyss_affix.intro.mark(null, [], null);
+	assert(empty.includes("无深渊强化"), "空列表要有兜底文案");
+	assertEqual(abyssAffixes.abyssAffixLines(["abyss_not_exists"]).length, 0, "下架词缀不进说明");
+	return "两枚词缀进说明 / 空列表兜底";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

@@ -13,7 +13,7 @@ import { getCurio } from "./data/curios.js";
 import { getEndlessReward } from "./data/rewards.js";
 import { stats } from "./data/stats.js";
 import { STAT_IDS } from "./config.js";
-import { grantRandomCurio } from "./curioManager.js";
+import { grantRandomCurio, hasGrantableCurio } from "./curioManager.js";
 
 /** 战斗胜利后是否触发事件（rng 可注入，方便测试） */
 export function shouldTriggerEvent(rng = Math.random) {
@@ -40,11 +40,20 @@ export function normalizeEventReward(raw) {
 		const num = Number(value);
 		return Number.isFinite(num) ? Math.floor(num) : 0;
 	};
-	if (Number.isFinite(Number(raw.gold))) {
-		reward.gold = int(raw.gold);
+	for (const key of ["gold", "exp"]) {
+		const value = raw[key];
+		if (Number.isFinite(Number(value))) {
+			reward[key] = int(value);
+		}
 	}
-	if (Number.isFinite(Number(raw.exp))) {
-		reward.exp = int(raw.exp);
+	// goldPct（按当前金币的百分比投入/获得）与 goldPayout（赢时按投入额的几倍返还）
+	// 依赖「点击那一刻」的金币数，不能像 goldByWin 那样在生成时换算成固定值，原样保留百分比。
+	// 百分比夹在 ±100：超过 100% 的投入没有意义（也不该允许倒扣成负余额）。
+	if (Number.isFinite(Number(raw.goldPct))) {
+		reward.goldPct = Math.min(100, Math.max(-100, int(raw.goldPct)));
+	}
+	if (Number.isFinite(Number(raw.goldPayout))) {
+		reward.goldPayout = Math.max(0, int(raw.goldPayout));
 	}
 	for (const key of ["curio", "skill"]) {
 		const value = raw[key];
@@ -68,14 +77,26 @@ export function normalizeEventReward(raw) {
 }
 
 /**
+ * 三项属性是否已全部满级。拿不到存档属性时按「未满」处理——
+ * 不知道当前等级就不能断定升级会落空，宁可保持原奖励。
+ */
+function allStatsMaxed(statLevels) {
+	if (!statLevels || typeof statLevels !== "object") {
+		return false;
+	}
+	return STAT_IDS.every(id => (Number(statLevels[id]) || 0) >= (stats[id]?.maxLevel ?? 0));
+}
+
+/**
  * 构建一个待处理事件：按胜利奖励基准把 goldByWin / expByWin 换算成固定值，
  * outcomes 当场预掷出唯一结果（写进存档，读档不重掷），statUp/statDown 的具体属性也当场定死。
  * @param {string} eventId 事件 id
  * @param {number} wonLevel 刚刚打赢的关卡编号（奖励基准 = 该关的无尽胜利奖励）
  * @param {() => number} [rng] 可注入的随机源
  * @param {number} [now] createdAt 时间戳
+ * @param {object} [statLevels] 玩家当前属性等级；属性全满时把 statUp 换成随机奇物
  */
-export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0) {
+export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0, statLevels = null) {
 	const event = getEvent(eventId);
 	if (!event || !Array.isArray(event.choices) || !event.choices.length) {
 		return null;
@@ -108,12 +129,47 @@ export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0)
 		// 先按本次胜利奖励换算倍率（goldByWin / expByWin → 固定值），再走白名单清洗：
 		// 存档里只允许出现固定值，绝不保存倍率与随机态
 		const clean = normalizeEventReward(scaleReward(reward, base));
-		choices.push({ text: choice.text.trim(), reward: clean });
+		// statUp/statDown 的 "random" 就地解析成具体属性（消费 rng），与 outcomes 预掷同属生成期随机，
+		// 存档里只保存定死后的属性 id，读档不重掷
+		for (const key of ["statUp", "statDown"]) {
+			if (clean[key] === "random") {
+				clean[key] = STAT_IDS[Math.floor(rng() * STAT_IDS.length)];
+			}
+		}
+		// 属性全满时 statUp 结算必然「已达最高等级，未生效」，这次机遇等于空转；
+		// 生成期就换成一个随机奇物，存档里存的也就是奇物，读档恢复不会变卦
+		if (clean.statUp && allStatsMaxed(statLevels)) {
+			delete clean.statUp;
+			clean.curio = "random";
+		}
+		// 消耗类选项把价钱写进文案：倍率是按本次胜利奖励现算的，玩家点之前就该看到要花多少，
+		// 而不是结算完才发现。文案随存档定死，读档后显示不变。
+		// 带 outcomes 的赌局选项除外：负金额是预掷结果，写进按钮文案等于剧透正负面
+		const fromOutcomes = Array.isArray(choice.outcomes) && choice.outcomes.length > 0;
+		choices.push({ text: withCostText(choice.text.trim(), clean, fromOutcomes), reward: clean });
 	}
 	if (!choices.length) {
 		return null;
 	}
 	return { id: event.id, choices, createdAt: Math.max(0, Math.floor(Number(now) || 0)) };
+}
+
+/**
+ * 给选项文案补上消耗金额：「购买奇怪物品」→「购买奇怪物品（-86 金币）」。
+ * 奖励为正（白拿钱）不加后缀；没有消耗则原样返回。
+ * 百分比投入（goldPct）金额取决于点击那一刻的金币数，此时算不准，只在文案里保留百分比说明。
+ * 带 outcomes 的赌局选项（isOutcome）不加金币后缀：负金额是预掷结果，写出来等于剧透。
+ */
+function withCostText(text, reward, isOutcome) {
+	const pct = reward?.goldPct;
+	if (Number.isFinite(pct) && pct) {
+		return `${text}（投入 ${Math.abs(pct)}% 金币）`;
+	}
+	const cost = reward?.gold;
+	if (isOutcome || !Number.isFinite(cost) || cost >= 0) {
+		return text;
+	}
+	return `${text}（${cost} 金币）`;
 }
 
 /**
@@ -150,7 +206,7 @@ export function maybeCreatePendingEvent(run, wonLevel, now, rng = Math.random) {
 		return run;
 	}
 	const eventId = rollEventId(rng);
-	const pendingEvent = buildPendingEvent(eventId, wonLevel, rng, now);
+	const pendingEvent = buildPendingEvent(eventId, wonLevel, rng, now, run.stats);
 	if (!pendingEvent) {
 		return run;
 	}
@@ -166,10 +222,21 @@ export function maybeCreatePendingEvent(run, wonLevel, now, rng = Math.random) {
 	};
 }
 
-/** 事件页判断某个选项是否可选：负向货币（消耗）超过持有量时置灰 */
+/**
+ * 事件页判断某个选项是否可选：负向货币（消耗）超过持有量时置灰。
+ * 「随机给一个奇物」且图鉴已集齐的选项一律可选——它不会扣任何货币（走跳过分支），
+ * 否则选项会被置灰且点不动，事件永远关不掉。
+ */
 export function isChoiceAffordable(run, reward) {
 	if (!reward || typeof reward !== "object") {
 		return true;
+	}
+	if (reward.curio === "random" && !hasGrantableCurio(run)) {
+		return true;
+	}
+	// 百分比投入（许愿池）：只要手上还有金币就一定能投，10% 投得起、50% 也投得起
+	if (Number.isFinite(reward.goldPct) && reward.goldPct) {
+		return (run.currency?.gold ?? 0) > 0;
 	}
 	for (const key of ["gold", "exp"]) {
 		const cost = reward[key];
@@ -199,6 +266,20 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		return { ok: false, error: "该选项不存在", run };
 	}
 	const reward = choice.reward ?? {};
+	// 随机奇物不可得（图鉴已集齐）时整个选项落空：不扣任何货币、不入袋，
+	// 只提示一句并照常关闭事件（神秘商人「拥有所有奇物则不扣金币直接跳过」走的就是这条）。
+	// 必须排在 isChoiceAffordable 之前：跳过分支不花钱，不能因为金币不够就把选项卡死。
+	if (reward.curio === "random" && !hasGrantableCurio(run)) {
+		const skipped = {
+			...run,
+			collection: {
+				events: (run.collection?.events ?? []).slice(0),
+				curios: (run.collection?.curios ?? []).slice(0),
+			},
+			pendingEvent: null,
+		};
+		return { ok: true, error: null, run: skipped, lines: ["奇物图鉴已集齐，他没有可出售的东西，这次不收货币。"], skillId: null, curioId: null };
+	}
 	if (!isChoiceAffordable(run, reward)) {
 		return { ok: false, error: "货币不足，无法选择该项", run };
 	}
@@ -225,6 +306,26 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		next.currency[key] = Math.max(0, (next.currency[key] ?? 0) + value);
 		const label = { gold: "金币", exp: "经验" }[key];
 		lines.push(`${label} ${value > 0 ? "+" : ""}${value}`);
+	}
+
+	// 许愿池：按「点击那一刻」的金币数算投入额，所以必须在这里（而不是生成事件时）换算。
+	// 先扣掉投入，再按 goldPayout 倍返还——赢了净赚 (倍率-1)×投入，输了全丢。
+	if (Number.isFinite(reward.goldPct) && reward.goldPct) {
+		const held = next.currency.gold ?? 0;
+		const wager = Math.min(held, Math.round((held * Math.abs(reward.goldPct)) / 100));
+		if (wager <= 0) {
+			lines.push("金币不足，无法投入");
+		} else {
+			next.currency.gold = held - wager;
+			lines.push(`投入金币 -${wager}`);
+			const payout = Math.round((wager * (reward.goldPayout ?? 0)) / 1);
+			if (payout > 0) {
+				next.currency.gold += payout;
+				lines.push(`愿望达成，获得 ${payout} 金币（${reward.goldPayout} 倍）`);
+			} else {
+				lines.push("愿望落空，投入化为乌有");
+			}
+		}
 	}
 
 	if (reward.curio === "random") {

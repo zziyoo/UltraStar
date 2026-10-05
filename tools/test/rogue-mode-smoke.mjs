@@ -27,6 +27,7 @@ const log = stub.__log;
 
 const load = rel => import(pathToFileURL(path.join(root, rel)).href);
 const cfg = await load("src/rogue/config.js");
+const abyssCfg = await load("src/rogue/endless/abyssConfig.js");
 const modeModule = await load("src/rogue/mode.js");
 const battleModule = await load("src/rogue/battle.js");
 const enemyModule = await load("src/rogue/enemy.js");
@@ -233,7 +234,12 @@ await check("模式配置：机制技能挂在模式上，肉鸽原创技能已�
 	assertEqual(config.splash, cfg.MODE_SPLASH);
 	assert(config.skill.rogue_stat, "rogue_stat 应在模式 skill 表里");
 	assert(config.translate.rogue_stat, "rogue_stat 应有翻译");
-	assert(Object.keys(config.skill).length > 100, "分包技能应一并并入模式 skill 表");
+	// 模式 content 会被本体 mixinLibrary 无条件并进 lib.skill；分包技能已随扩展包注册，
+	// 若再并入模式表，本体装载扩展时会逐个打 "duplicated skill in extension 奥特之星" 并跳过
+	const stray = Object.keys(config.skill).filter(id => !/^(rogue_|abyss_)/.test(id));
+	assertEqual(stray.length, 0, `模式 skill 表只应有机制技能/词缀，不该有分包技能：${stray.slice(0, 5).join("、")}`);
+	const strayTrans = Object.keys(config.translate).filter(id => !/^(rogue_|abyss_)/.test(id.replace(/_info$|_append$|_ab$/, "")));
+	assertEqual(strayTrans.length, 0, `模式 translate 表只应有机制技能/词缀的翻译：${strayTrans.slice(0, 5).join("、")}`);
 	// 肉鸽专属原创技能已下架：定义与翻译都不再随模式注册
 	for (const id of ["rogue_xushui", "rogue_jiema", "rogue_guiyuan"]) {
 		assertEqual(config.skill[id], undefined, `${id} 不应再注册`);
@@ -246,7 +252,7 @@ await check("模式配置：机制技能挂在模式上，肉鸽原创技能已�
 	assert(typeof config.element.player.dieAfter === "function", "应提供 element.player.dieAfter");
 	assert(typeof config.game.checkResult === "function", "应提供 game.checkResult");
 	assert(typeof config.game.onover === "function", "应提供 game.onover（本体自动推进 lib.onover）");
-	return `${Object.keys(config.skill).length} 项技能定义（全部为分包技能 + rogue_stat）`;
+	return `${Object.keys(config.skill).length} 项机制技能/词缀（分包技能由扩展包注册）`;
 });
 
 await check("启动：空存档直接进入六槽页", () => {
@@ -785,7 +791,11 @@ await check("选择玩法页：自建浮层 + 两张玩法卡 + 无尽历史最�
 	const stage = nodesWithClass("wm-rogue-modes")[0];
 	assert(stage, "选择玩法也是自建浮层");
 	assertEqual(nodesWithClass("wm-rogue-mode-card").length, 2, "两张玩法卡");
-	for (const token of ["闯关模式", `固定总关卡数：${cfg.CHALLENGE_TOTAL_LEVELS} 关`, "失败：损失部分货币", "无尽模式", "关卡无限", "失败：整档删除"]) {
+	const modeTokens = ["闯关模式", `固定总关卡数：${cfg.CHALLENGE_TOTAL_LEVELS} 关`, "失败：损失部分货币", "无尽模式", "关卡无限", "失败：整档删除"];
+	if (abyssCfg.ABYSS_ENABLED) {
+		modeTokens.push(`第 ${abyssCfg.ABYSS_START_LEVEL} 关起开启深渊强化`);
+	}
+	for (const token of modeTokens) {
 		assert(text.includes(token), `玩法卡应显示「${token}」：${text}`);
 	}
 	assert(text.includes("最高记录：第 27 关（迪迦）"), `应显示最高记录：${text}`);
@@ -1849,6 +1859,41 @@ await check("事件持久化：触发后关游戏再读档，事件页原样恢�
 	}
 });
 
+await check("事件选项：金币不足的消耗项置灰且点了没反应，可用项照常", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		level: 4,
+		currency: { gold: 0, exp: 0 },
+		pendingEvent: {
+			id: "lost_robot",
+			choices: [
+				{ text: "修复机器人（-86 金币）", reward: { gold: -86, exp: 34 } },
+				{ text: "离开", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	const choices = nodesWithClass("wm-rogue-event-choice");
+	assertEqual(choices.length, 2, "两个选项");
+	assert(choices[0].classList.contains("wm-rogue-disabled"), "金币不足的消耗项应置灰");
+	assert(textOf(choices[0]).includes("货币不足"), `置灰项注明原因：${textOf(choices[0])}`);
+	assert(!choices[1].classList.contains("wm-rogue-disabled"), "无消耗项不置灰");
+	// 点置灰项：不弹提示、不进结算、不改存档（与商店「金币不足」按钮同款静默无操作）
+	const saved = JSON.stringify(lib.storage.rogueSlots[0].pendingEvent);
+	clickNode(choices[0]);
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "点了不弹任何提示");
+	assert(!screenText().includes("无法选择"), "没有结算层拒绝文案");
+	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].pendingEvent), saved, "点了不改存档");
+	assertEqual(nodesWithClass("wm-rogue-event").length, 1, "仍停留在事件页");
+	// 可用项照常：选择后事件关闭
+	click("离开");
+	click("确定");
+	assertEqual(lib.storage.rogueSlots[0].pendingEvent, null, "可用项选择后事件关闭");
+	return "置灰 = 静默不可点";
+});
+
 await check("奇物商店：候选展示、购买落袋、整批售罄、重载保持", async () => {
 	freshWorld();
 	putRun(0, {
@@ -1914,7 +1959,7 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 	freshWorld();
 	putRun(0, {
 		mode: "endless",
-		collection: { events: ["lucky_coin"], curios: ["broken_watch", "energy_core"] },
+		collection: { events: ["lucky_coin", "unknown_lab", "lost_robot", "mystery_merchant", "wishing_pool"], curios: ["broken_watch", "energy_core"] },
 		curios: ["broken_watch"],
 	});
 	session();
@@ -1922,12 +1967,12 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 	const stage = nodesWithClass("wm-rogue-index")[0];
 	assert(stage, "图鉴走自建浮层");
 	const text = screenText();
-	assert(text.includes("事件（1/4）"), `事件计数：${text}`);
-	assert(text.includes("奇物（2/5）"), `奇物计数：${text}`);
+	assert(text.includes("事件（5/5）"), `事件计数：${text}`);
+	assert(text.includes("奇物（2/7）"), `奇物计数：${text}`);
 	assert(text.includes("幸运硬币"), "已发现事件显示名字");
 	assert(text.includes("能量核心"), "曾拥有的奇物仍在图鉴（当前已不持有）");
-	// 未收录条目按「未发现」剪影展示（事件 3 个 + 奇物 3 个）
-	assertEqual(nodesWithClass("wm-rogue-index-unknown").length, 6, "未发现条目显示？？？");
+	// 未收录条目按「未发现」剪影展示（事件 0 个 + 奇物 5 个）
+	assertEqual(nodesWithClass("wm-rogue-index-unknown").length, 5, "未发现条目显示？？？");
 	// 已知条目按定义画配图，未收录的剪影不挂图
 	const arts = nodesWithClass("wm-rogue-index-art");
 	assert(arts.some(node => node.style.backgroundImage.includes("lucky_coin.png")), "事件图引用");
@@ -1935,9 +1980,86 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 		arts.filter(node => node.style.backgroundImage !== "none").every(node => node.style.backgroundImage.includes("assets/")),
 		"已收录条目的图全部指向素材目录"
 	);
+	// 已收录的条目点得开：选项名一律单独成行，会拿到什么缩进写在它下面（固定奖励与赌局同版式）
+	const cards = nodesWithClass("wm-rogue-index-card");
+	const openDetail = label => {
+		clickNode(cards.find(node => dump(node).includes(label)));
+		const lines = nodesWithClass("wm-rogue-popup-line").map(node => node.textContent);
+		assert(lines.length, `点「${label}」应弹出详情`);
+		click("确定");
+		assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "点确定应关掉详情弹窗");
+		return lines;
+	};
+	const coin = openDetail("幸运硬币");
+	assertEqual(coin[0], "幸运硬币", "详情首行是事件名");
+	assert(coin[1].includes("闪耀的硬币"), `第二行是描述：${coin.join(" / ")}`);
+	assertEqual(
+		JSON.stringify(coin.slice(2)),
+		JSON.stringify(["「拾取」", "　50%：获得 1 倍胜利金币", "　50%：消耗 0.4 倍胜利金币", "「观察」", "　无奖励"]),
+		`幸运硬币逐行版式：${coin.join(" / ")}`
+	);
+	const lab = openDetail("未知实验室");
+	assert(
+		lab.some(line => line.includes("随机一项属性 +1（三项属性已满时改送一个随机奇物）")),
+		`属性全满改送奇物的规则要写进图鉴：${lab.join(" / ")}`
+	);
+	// 许愿池：只列拿得到东西的那支，落空不写
+	const pool = openDetail("许愿池");
+	assertEqual(
+		JSON.stringify(pool.slice(2)),
+		JSON.stringify([
+			"「小额许愿」",
+			"　10%：投入当前金币的 10%，愿望达成按 100 倍返还",
+			"「中额许愿」",
+			"　50%：投入当前金币的 20%，愿望达成按 10 倍返还",
+			"「大额许愿」",
+			"　投入当前金币的 50%，愿望达成按 2 倍返还",
+			"「离开」",
+			"　无奖励",
+		]),
+		`许愿池逐行版式：${pool.join(" / ")}`
+	);
+	assert(!pool.some(line => line.includes("落空")), `落空分支不该出现在图鉴里：${pool.join(" / ")}`);
+	const watch = openDetail("破损怀表");
+	assertEqual(watch[0], "破损怀表（史诗）", "奇物详情首行带品质档");
+	assertEqual(watch.length, 3, `奇物详情三行（名称/风味/效果）：${watch.join(" / ")}`);
+	assert(watch[2].includes("额外的出牌阶段"), `第三行是实际效果：${watch.join(" / ")}`);
+	// 未发现的条目不挂监听：点了必须毫无反应，不能弹一个「尚未发现」
+	const unknown = cards.find(node => dump(node).includes("未发现"));
+	assert(unknown, "应有未发现条目");
+	assert(!(unknown.__listeners ?? []).length, "未发现条目不该绑定点击");
+	assert(!unknown.classList.contains("wm-rogue-index-clickable"), "未发现条目不该有可点样式");
 	click("返回");
 	assert(screenText().includes("开始下一关"), "返回应回到营地");
-	return "事件 1/4 + 奇物 2/5";
+	return "事件 5/5 + 奇物 2/7 + 详情逐行";
+});
+
+await check("图鉴是公有的：别的存档解锁的内容这里也看得到，删档也不丢", async () => {
+	freshWorld();
+	putRun(0, { mode: "endless", collection: { events: ["lucky_coin"], curios: [] } });
+	// 1 号档只解锁过奇物；rogueActive 指向它，进的就是 1 号档
+	putRun(1, { mode: "endless", collection: { events: [], curios: ["broken_watch", "energy_core"] } });
+	session();
+	click("图鉴");
+	const merged = screenText();
+	assert(merged.includes("事件（1/5）"), `0 号档解锁的事件应在：${merged}`);
+	assert(merged.includes("奇物（2/7）"), `1 号档解锁的奇物应在：${merged}`);
+	assert(merged.includes("幸运硬币") && merged.includes("能量核心"), "两个存档的内容同屏");
+	click("返回");
+	// 公有键已经落盘：把 0 号档整个删掉（连解锁记录一起），图鉴仍然留着它解锁过的事件
+	assertEqual(
+		JSON.stringify(lib.storage.rogueCollection),
+		JSON.stringify({ events: ["lucky_coin"], curios: ["broken_watch", "energy_core"] }),
+		"公有图鉴键已写入",
+	);
+	lib.storage.rogueSlots[0] = null;
+	session();
+	click("图鉴");
+	const afterDelete = screenText();
+	assert(afterDelete.includes("事件（1/5）"), `删掉 0 号档后图鉴不丢：${afterDelete}`);
+	assert(afterDelete.includes("幸运硬币"), "已发现事件仍在");
+	click("返回");
+	return "两档合并 + 删档不丢";
 });
 
 await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总表", async () => {
@@ -1967,7 +2089,7 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	return "rogue_curio + storage 三项";
 });
 
-await check("挑战模式不受影响：没有奇物商店、奇物栏与图鉴入口", async () => {
+await check("挑战模式不受影响：没有奇物商店与奇物栏，图鉴只读公有内容", async () => {
 	freshWorld();
 	putRun(0, {
 		mode: "challenge",
@@ -1981,13 +2103,18 @@ await check("挑战模式不受影响：没有奇物商店、奇物栏与图鉴�
 	});
 	session();
 	const hubText = screenText();
-	assert(!hubText.includes("图鉴"), `闯关营地不应有图鉴入口：${hubText}`);
 	assert(!hubText.includes("奇物（"), "闯关营地不应有奇物栏");
 	click("商店");
 	const text = screenText();
 	assert(!text.includes("奇物商店"), `闯关商店不应有奇物分区：${text}`);
 	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 0, "闯关不渲染奇物卡");
-	return "闯关无奇物/图鉴";
+	click("返回");
+	// 图鉴改成公有收集册后闯关也给入口：里面是别的存档解锁的内容，闯关自己不产出
+	click("图鉴");
+	const indexText = screenText();
+	assert(indexText.includes("事件（0/5）") && indexText.includes("奇物（0/7）"), `空公有图鉴计数：${indexText}`);
+	click("返回");
+	return "闯关无奇物商店 / 图鉴可读但不产出";
 });
 
 await check("v3 旧档兼容：缺事件/奇物/图鉴字段时自动补齐并正常进营地", async () => {
@@ -2117,6 +2244,140 @@ await check("已拥有奇物不得再出现在商店：事件送的撤下候选�
 	const cleaned = lib.storage.rogueSlots[0];
 	assert(!cleaned.curioOffers.some(offer => offer.id === "energy_core" && !offer.sold), "已拥有未售出的过期候选在读档时剔除");
 	return "送出即撤下 + 读档清洗";
+});
+
+// ---------------------------------------------------------------- 深渊化强化（无尽模式）
+
+const ABYSS_TEST_IDS = ["abyss_jianbi", "abyss_kuangre"];
+
+/** 徽记绑的是 addEventListener("click")，桩里同样记在 __listeners；这里模拟一次真实点击（带 preventDefault 等） */
+function tapMark(mark) {
+	assert(mark, "徽记节点应存在");
+	const handler = (mark.__listeners ?? [])[0];
+	assert(handler, "徽记没有绑定点击");
+	handler({ preventDefault() {}, stopImmediatePropagation() {}, stopPropagation() {} });
+}
+
+await check("深渊化：敌人按存档词缀挂上技能与「深渊」徽记，点徽记看强化面板，落盘原样不变", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		level: 45,
+		currentBattle: {
+			status: "battle",
+			enemies: [
+				{ characterId: "佐菲", stats: { defense: 2, draw: 0, attack: 0 }, abyss: ABYSS_TEST_IDS, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], maxHp: 0, hp: 0 },
+			],
+		},
+	}, stateModule.createRun("endless", "迪迦", 1));
+	session();
+	click("重新挑战这一关");
+	await flush();
+	const first = game.players[1];
+	const second = game.players[2];
+	assert(first && second, "应建成两个敌人");
+	for (const id of ABYSS_TEST_IDS) {
+		assert(first.hasSkill(id), `敌人一应挂上 ${id}`);
+	}
+	assertEqual(
+		JSON.stringify(first.storage.abyss_affix),
+		JSON.stringify(ABYSS_TEST_IDS),
+		"标记载体的 storage 就是存档里那份词缀（不重掷）",
+	);
+	assert(first.hasSkill("abyss_affix"), "应挂上深渊标记载体");
+	assert(!!first.marks.abyss_affix, "徽记节点应建在敌人身上");
+	assert(!second.hasSkill("abyss_affix"), "没有词缀的敌人不该出现深渊徽记");
+	// 时机登记：坚壁走 damageBegin4、狂热走全局 roundStart，缺一个就等于技能全哑
+	assertEqual(lib.hookmap.damageBegin4, true, "受伤时机已登记");
+	assertEqual(lib.hookmap.roundStart, true, "轮开始时机已登记");
+	// 点徽记 → 敌人强化面板：属性与玩家同一套版式，词缀名和描述都在
+	tapMark(first.marks.abyss_affix);
+	const overlay = common.currentScreenNode();
+	const text = screenText();
+	for (const token of ["深渊·坚壁", "受到的伤害-1", "深渊·狂热", "额外的回合", "防御 Lv.2", "佐菲"]) {
+		assert(text.includes(token), `面板应显示「${token}」：${text.slice(0, 400)}`);
+	}
+	assert(!text.includes("深渊·不屈"), "面板只列这名敌人实际拥有的词缀");
+	const panel = nodesWithClass("wm-rogue-stat-panel")[0];
+	const tapOverlay = target => overlay.__listeners[0]({ target });
+	tapOverlay(panel);
+	assertEqual(common.currentScreenNode(), overlay, "点面板内不应关闭");
+	tapOverlay(overlay);
+	assertEqual(common.currentScreenNode(), null, "点框外应直接退出");
+	// 玩家自己的属性面板入口不受影响（同一套绑定逻辑，两个来源共用）
+	assert(!!game.me.marks.rogue_stat, "玩家属性徽记仍在");
+	tapMark(game.me.marks.rogue_stat);
+	assert(screenText().includes("属性强化"), "玩家徽记仍打开玩家面板");
+	common.closeScreen();
+	assertEqual(
+		JSON.stringify(lib.storage.rogueSlots[0].currentBattle.enemies.map(entry => entry.abyss)),
+		JSON.stringify([ABYSS_TEST_IDS, []]),
+		"落盘的词缀原样不变",
+	);
+	return "挂技 + 徽记 + 面板 + 存档一致";
+});
+
+await check("深渊化：第 120 关新开战必定带词缀并随阵容落盘，恢复战斗原样挂回不重掷", async () => {
+	freshWorld();
+	// 无尽敌方池是「本体未禁用的角色」，桩里需要一个扩展之外的角色才组得出阵容
+	lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
+	putRun(0, { mode: "endless", level: 120 }, stateModule.createRun("endless", "迪迦", 1));
+	session();
+	click("开始下一关");
+	await flush();
+	const notice = screenText();
+	assert(!notice.includes("角色池为空"), `敌方池不应为空：${notice.slice(0, 200)}`);
+	const enemies = lib.storage.rogueSlots[0].currentBattle.enemies;
+	assert(enemies?.length >= 1, `应组出敌人：${enemies?.length}`);
+	const snapshot = JSON.stringify(enemies.map(entry => entry.abyss));
+	for (const entry of enemies) {
+		assert(entry.abyss.length >= 1, "120 层每个敌人必定拿到 1 个词缀");
+		assertEqual(new Set(entry.abyss).size, entry.abyss.length, "同一敌人身上词缀不重复");
+	}
+	enemies.forEach((entry, index) => {
+		const player = game.players[index + 1];
+		for (const id of entry.abyss) {
+			assert(player.hasSkill(id), `场上第 ${index + 1} 个敌人应挂上 ${id}`);
+		}
+	});
+	// 模拟中途退出再进来：恢复战斗用的是同一批词缀，绝不再随机一次
+	session();
+	click("重新挑战这一关");
+	await flush();
+	const resumed = lib.storage.rogueSlots[0].currentBattle.enemies;
+	assertEqual(JSON.stringify(resumed.map(entry => entry.abyss)), snapshot, "恢复战斗后词缀完全一致");
+	resumed.forEach((entry, index) => {
+		const player = game.players[index + 1];
+		for (const id of entry.abyss) {
+			assert(player.hasSkill(id), `恢复后场上第 ${index + 1} 个敌人仍挂着 ${id}`);
+		}
+	});
+	return `${enemies.length} 名敌人 / ${snapshot.length} 字符词缀快照`;
+});
+
+await check("深渊化不影响普通玩法：闯关高层与无尽低层的敌人都没有深渊技能", async () => {
+	for (const [mode, level, label] of [
+		["challenge", 30, "闯关封顶关"],
+		["endless", 5, "无尽低层"],
+	]) {
+		freshWorld();
+		lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
+		putRun(0, { mode, level }, stateModule.createRun(mode, "迪迦", 1));
+		session();
+		click("开始下一关");
+		await flush();
+		const enemies = lib.storage.rogueSlots[0].currentBattle?.enemies ?? [];
+		assert(enemies.length >= 1, `${label} 应组出敌人`);
+		for (const entry of enemies) {
+			assertEqual(entry.abyss.length, 0, `${label} 不该有词缀`);
+		}
+		game.players.slice(1).forEach(player => {
+			assert(!player.hasSkill("abyss_affix"), `${label} 的敌人不该挂深渊徽记`);
+		});
+		assertEqual(lib.hookmap.damageBegin4, undefined, `${label} 不该登记深渊受伤时机`);
+	}
+	return "闯关 30 关 / 无尽 5 层 均无深渊技能";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

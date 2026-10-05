@@ -6,8 +6,9 @@ import { lib, game, _status } from "../../../../noname.js";
 import { ROSTER_WHITE_LIST } from "./config.js";
 import { sumStatEffects } from "./data/stats.js";
 import { sumCurioEffects, CURIOSITY_BATTLE_KEYS } from "./curioManager.js";
+import { normalizeAbyssIds } from "./endless/abyss.js";
 import { isEnemyUsable } from "./enemy.js";
-import { showBattleStats } from "./ui/common.js";
+import { showBattleStats, showEnemyEnhance } from "./ui/common.js";
 
 export { isEnemyUsable };
 
@@ -64,6 +65,29 @@ export function getRoster() {
  */
 const STAT_BUFF_SKILL = "rogue_stat";
 const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "damageChance", "shaLimit"];
+/** 深渊词缀的标记载体技能 id（词缀本体技能另由 endless/abyssAffixes.js 提供） */
+const ABYSS_MARK_SKILL = "abyss_affix";
+/** 敌人身上可以点开「强化面板」的两枚徽记：属性强化 + 深渊词缀 */
+const ENEMY_ENHANCE_MARKS = [STAT_BUFF_SKILL, ABYSS_MARK_SKILL];
+
+/**
+ * 把一枚徽记接成「点一下就打开强化面板」。
+ * 与玩家那枚 rogue_stat 完全同一套做法：preventDefault 掐掉轻触后浏览器补发的合成 click，
+ * stopImmediatePropagation 免得本体把这次点击当成选中角色（面板会被随后的本体逻辑盖掉）。
+ */
+function bindMarkTap(mark, open) {
+	if (!mark || typeof mark.addEventListener !== "function") {
+		return false;
+	}
+	const eventName = lib.config.touchscreen ? "touchend" : "click";
+	mark.addEventListener(eventName, event => {
+		event.preventDefault?.();
+		event.stopImmediatePropagation?.();
+		event.stopPropagation?.();
+		open();
+	}, true);
+	return true;
+}
 
 /**
  * 运行时给一个 Player 发技能：先过本体 `game.expandSkills` 把 `group` 伙伴补齐再挂上。
@@ -159,7 +183,8 @@ function applyCurioEffects(player, curioIds) {
 
 /**
  * 敌人自身的 Roguelike 强化：属性等级复用玩家的同一张效果表（data/stats.js），
- * 旧档迁移来的阵容可能还带 maxHp/hp 覆盖与额外技能，一并作用在该 Player 上。
+ * 旧档迁移来的阵容可能还带 maxHp/hp 覆盖与额外技能，一并作用在该 Player 上；
+ * 深渊词缀（abyss）按存档里已定死的 id 列表原样挂上，绝不在此处重掷。
  * 绝不写 lib.character / 全局技能。
  */
 function applyEnemyModifiers(player, entry) {
@@ -178,7 +203,27 @@ function applyEnemyModifiers(player, entry) {
 	}
 
 	grantSkills(player, entry.skills, "敌人额外技能不存在");
+	const abyss = applyAbyssAffixes(player, entry.abyss);
+	// 战斗里点敌人标记要看的就是这两份数据：属性等级来自阵容，词缀 id 来自存档
+	player.rogueEnhanceInfo = { stats: entry.stats, abyss };
 	player.update();
+}
+
+/**
+ * 深渊词缀落地：把存档里已定死的 id 列表逐个 addSkill，并挂一个纯标记载体 abyss_affix
+ * （敌人身边只出现一个「深渊」徽记，点开看全部词缀，与玩家的单枚「强化」徽记同一套做法）。
+ * @returns {string[]} 实际生效的词缀 id
+ */
+function applyAbyssAffixes(player, ids) {
+	const list = normalizeAbyssIds(ids);
+	if (!list.length) {
+		return list;
+	}
+	grantSkills(player, list, "深渊强化不存在");
+	// 赋值而不是累加：同一场战斗里重复调用只保留这一份最终结果（与 rogue_stat 同一条纪律）
+	player.storage[ABYSS_MARK_SKILL] = list;
+	grantSkills(player, [ABYSS_MARK_SKILL], "深渊标记载体未注册");
+	return list;
 }
 
 /**
@@ -218,19 +263,7 @@ export async function beginBattle(event, run, enemies) {
 	const bonuses = sumStatEffects(run.stats);
 	applyEffects(game.me, bonuses, true);
 	applyCurioEffects(game.me, run.curios);
-	const statMark = game.me.marks?.rogue_stat;
-	if (statMark?.addEventListener) {
-		const openPanel = event => {
-			// preventDefault 掐掉轻触后浏览器补发的合成 click——否则它会落进刚挂出的浮层，
-			// 被「点框外关闭」当成一次外部点击，面板一点开就自己关掉
-			event.preventDefault?.();
-			event.stopImmediatePropagation?.();
-			event.stopPropagation?.();
-			game.me.rogueStatRun.openPanel();
-		};
-		const eventName = lib.config.touchscreen ? "touchend" : "click";
-		statMark.addEventListener(eventName, openPanel, true);
-	}
+	bindMarkTap(game.me.marks?.[STAT_BUFF_SKILL], () => game.me.rogueStatRun.openPanel());
 	game.zhu = game.me;
 	markSides(game.me, game.players.slice(1));
 
@@ -241,6 +274,10 @@ export async function beginBattle(event, run, enemies) {
 		}
 		player.init(enemies[i].characterId);
 		applyEnemyModifiers(player, enemies[i]);
+		// 徽记是在 applyEnemyModifiers 里 addSkill 时才建出来的，所以绑定必须排在它后面
+		for (const markId of ENEMY_ENHANCE_MARKS) {
+			bindMarkTap(player.marks?.[markId], () => showEnemyEnhance(player));
+		}
 	}
 	rogueBattleEnemies = game.players.slice(1, 1 + enemies.length).filter(Boolean);
 	game.me.update();

@@ -33,7 +33,8 @@ export function settleVictory(run, now, rng = Math.random) {
 		...run,
 		currency: { ...run.currency },
 		shopOffers: [],
-		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL,
+		// 循环按钮：每场战斗结束额外补一次刷新（只看开战前已持有的奇物，本局换到的不算）
+		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL + getBonus(run.curios, "extraShopRefresh"),
 		currentBattle: null,
 		updatedAt: now,
 	};

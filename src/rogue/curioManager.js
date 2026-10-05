@@ -10,11 +10,11 @@
 // 结算类效果（expRate/goldRate）在 reward.js 胜利结算时用 getBonus 现查。
 // 商店侧：候选与售价在战斗胜利时定死写进存档（curioOffers），本文件负责生成与购买。
 
-import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD } from "./config.js";
-import { curios, getCurio, curioIds, CURIOSITY_RARITY } from "./data/curios.js";
+import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE } from "./data/curios.js";
 
-/** effect 里已知的键：战斗内四项 + 结算两项。数据自检保证 curios.json 不写出未知键 */
-export const CURIOSITY_EFFECT_KEYS = ["extraPhase", "extraDraw", "dyingSave", "roundHeal", "expRate", "goldRate"];
+/** effect 里已知的键：战斗内四项 + 结算两项 + 刷新次数一项。数据自检保证 curios.json 不写出未知键 */
+export const CURIOSITY_EFFECT_KEYS = ["extraPhase", "extraDraw", "dyingSave", "roundHeal", "expRate", "goldRate", "extraShopRefresh"];
 
 /** effect 里属于战斗内的键：有任意一项才需要在建局时挂 rogue_curio 技能 */
 export const CURIOSITY_BATTLE_KEYS = ["extraPhase", "extraDraw", "dyingSave", "roundHeal"];
@@ -45,14 +45,15 @@ export function getBonus(ids, type) {
 	return sumCurioEffects(ids)[type] ?? 0;
 }
 
-/** 单键效果文案；0 值不显示。与 curios.js 的 effectText 字段同源，文案改动只改这里 */
+/** 单键效果文案；0 值不显示，负值显示为减益（负面奇物）。与 curios.js 的 effectText 字段同源 */
 const EFFECT_TEXT = {
 	extraPhase: value => `游戏开始时，获得 ${value} 个额外的出牌阶段`,
 	extraDraw: value => `摸牌阶段额外摸 ${value} 张牌`,
 	dyingSave: value => `每局游戏首次进入濒死状态时，回复体力值至 1（共 ${value} 次）`,
 	roundHeal: value => `每轮结束时回复 ${value} 点体力`,
-	expRate: value => `经验获取 +${Math.round(value * 100)}%`,
-	goldRate: value => `金币获取 +${Math.round(value * 100)}%`,
+	expRate: value => `经验获取 ${value >= 0 ? "+" : "-"}${Math.round(Math.abs(value) * 100)}%`,
+	goldRate: value => `金币获取 ${value >= 0 ? "+" : "-"}${Math.round(Math.abs(value) * 100)}%`,
+	extraShopRefresh: value => `每场战斗结束后，额外获得 ${value} 次技能商城刷新机会`,
 };
 
 /** 效果总表 → 一行一条的说明，顺序按 EFFECT_TEXT 的键序稳定输出 */
@@ -60,7 +61,7 @@ export function describeCurioEffects(effects) {
 	const lines = [];
 	for (const key of Object.keys(EFFECT_TEXT)) {
 		const value = effects?.[key];
-		if (Number.isFinite(value) && value > 0) {
+		if (Number.isFinite(value) && value !== 0) {
 			lines.push(EFFECT_TEXT[key](value));
 		}
 	}
@@ -84,20 +85,35 @@ export function getCurioBasePrice(level = 1) {
 }
 
 /**
- * 奇物实际售价：round(基准价 × random(1±CURIO_PRICE_SPREAD) × priceMultiplier)。
- * rng 可注入，方便测试；倍率缺失按 1。
+ * 一局最多可能攒到的技能商城刷新次数：基础额度 + 全部「循环按钮」类奇物的加成。
+ * 存档清洗要拿它当 clamp 上限——写死基础额度会把奇物给的额外次数读档时夹掉。
  */
-export function getCurioPrice(level, priceMultiplier, rng = Math.random) {
+export function getMaxShopRefreshes() {
+	return SKILL_REFRESH_PER_LEVEL + curioIds.reduce((sum, id) => sum + Math.max(0, getBonus([id], "extraShopRefresh")), 0);
+}
+
+/**
+ * 奇物实际售价：round(基准价 × random(1±CURIO_PRICE_SPREAD) × 品质倍率 × priceMultiplier)。
+ * 品质倍率来自 CURIOSITY_RARITY_PRICE（普通 ×2 / 稀有 ×5 / 史诗 ×10 / 负面 ×-5），
+ * 负面奇物价格为负：购买反而获得金币。rng 可注入，方便测试；priceMultiplier 缺失按 1。
+ * @param {number} level 当前关卡（基准价 = round(50×√level)）
+ * @param {object} [def] 奇物定义（用 rarity 与 priceMultiplier；缺失按 ×1 兜底，不是普通档）
+ * @param {() => number} [rng]
+ */
+export function getCurioPrice(level, def, rng = Math.random) {
 	const base = getCurioBasePrice(level);
-	const mult = Number.isFinite(priceMultiplier) && priceMultiplier >= 0 ? priceMultiplier : 1;
+	const rarityMult = CURIOSITY_RARITY_PRICE[def?.rarity] ?? 1;
+	const mult = rarityMult * (Number.isFinite(def?.priceMultiplier) && def.priceMultiplier >= 0 ? def.priceMultiplier : 1);
 	const min = base * (1 - CURIO_PRICE_SPREAD);
 	const max = base * (1 + CURIO_PRICE_SPREAD);
-	return Math.max(1, Math.round((min + rng() * (max - min)) * mult));
+	const raw = Math.round((min + rng() * (max - min)) * mult);
+	// 正价至少 1；负价（负面奇物）至多 -1，购买时反得金币
+	return raw > 0 ? Math.max(1, raw) : Math.min(-1, raw);
 }
 
 /**
  * 战斗胜利后随机生成 CURIO_OFFER_COUNT 个奇物候选。
- * 随机池是整个 curios.json，排除已经拥有的奇物；第一版全部同概率（普通/稀有同权）。
+ * 随机池是整个 curios.json，排除已经拥有的奇物；第一版全部同概率（品质只影响售价与展示）。
  * 池子被排空时返回更少的候选（不重复填充、不死循环）；售价与候选一起定死，写进存档后不再重掷。
  * @param {object} run 存档（只读 run.level 与 run.curios）
  * @param {() => number} [rng] 可注入的随机源
@@ -112,8 +128,7 @@ export function rollCurioOffers(run, rng = Math.random) {
 		[pool[i], pool[j]] = [pool[j], pool[i]];
 	}
 	for (const id of pool.slice(0, CURIO_OFFER_COUNT)) {
-		const def = curios[id];
-		picked.push({ id, price: getCurioPrice(level, def?.priceMultiplier, rng) });
+		picked.push({ id, price: getCurioPrice(level, curios[id], rng) });
 	}
 	return picked;
 }
@@ -165,6 +180,12 @@ export function buyCurio(run, offerId) {
 	}
 	next.curioOffers = [];
 	return { ok: true, error: null, run: next, curioId: offerId };
+}
+
+/** 是否还有「未拥有、可随机获得」的奇物（事件奖励与神秘商人跳过判定共用） */
+export function hasGrantableCurio(run) {
+	const owned = new Set(Array.isArray(run?.curios) ? run.curios : []);
+	return curioIds.some(id => !owned.has(id));
 }
 
 /**

@@ -306,7 +306,10 @@ function makePlayer() {
 	node.identity = null;
 	// 对齐 player.js:131：真实 Player 创建时就带 storage
 	node.storage = {};
+	// 对齐本体：mark:true 的技能 addSkill 时会在角色身上建一个徽记节点（点击链路要能测）
+	node.marks = {};
 	node.init = character => {
+		node.name = character;
 		node.__char = character;
 		const info = lib.character[character];
 		if (!info) {
@@ -326,8 +329,16 @@ function makePlayer() {
 	};
 	node.addSkill = id => {
 		node.__skills.push(id);
-		// 对齐 player.js:11088：只有 playerid 存在时才登记触发钩子
 		const info = lib.skill[id];
+		// 对齐本体 addSkill 的标记分支：mark:true 才建徽记，marktext 走 id_bg 翻译
+		if (info?.mark && !node.marks[id]) {
+			const mark = createDiv(".mark");
+			mark.link = id;
+			mark.innerHTML = lib.translate[`${id}_bg`] ?? info.marktext ?? get.translation(id);
+			node.appendChild(mark);
+			node.marks[id] = mark;
+		}
+		// 对齐 player.js:11088：只有 playerid 存在时才登记触发钩子
 		if (info?.trigger && node.playerid) {
 			for (const role of Object.keys(info.trigger)) {
 				const events = Array.isArray(info.trigger[role]) ? info.trigger[role] : [info.trigger[role]];
@@ -340,6 +351,10 @@ function makePlayer() {
 	node.hasSkill = id => node.__skills.includes(id);
 	node.removeSkill = id => {
 		node.__skills = node.__skills.filter(item => item !== id);
+		if (node.marks[id]) {
+			node.marks[id].remove();
+			delete node.marks[id];
+		}
 	};
 	node.update = () => node;
 	node.addTempClass = () => node;

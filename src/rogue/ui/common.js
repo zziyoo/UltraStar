@@ -15,6 +15,7 @@ import { bindTap, isolateOverlayTouch } from "../../ui/overlay.js";
 import { ensureRogueStyles } from "./styles.js";
 import { STAT_IDS } from "../config.js";
 import { describeStat } from "../data/stats.js";
+import { abyssAffixInfo } from "../endless/abyssAffixes.js";
 
 /** @type {{ node: any, kind: "dialog" | "overlay", page: string } | null} */
 let currentScreen = null;
@@ -129,6 +130,39 @@ export function addGap(parent) {
 	return ui.create.div(".placeholder", parent);
 }
 
+/**
+ * 浮层的「点框外退出」：目标是否在面板内按父链判断，不依赖 DOM contains；
+ * 事件缺失（测试桩直接调监听）按框外处理。
+ */
+function bindOutsideTapClose(overlay, panel) {
+	bindTap(overlay, event => {
+		for (let node = event?.target; node; node = node.parentNode) {
+			if (node === panel) {
+				return;
+			}
+		}
+		closeScreen();
+	});
+}
+
+/** 「防御 Lv.3」标题 + 逐条效果，玩家与敌人的面板共用同一版式 */
+function addStatDetail(parent, info) {
+	const section = document.createElement("div");
+	section.className = "wm-rogue-stat-detail";
+	const heading = document.createElement("div");
+	heading.className = "wm-rogue-stat-detail-name";
+	heading.textContent = `${info.name} Lv.${info.level}`;
+	section.appendChild(heading);
+	for (const line of info.lines) {
+		const effect = document.createElement("div");
+		effect.className = "wm-rogue-stat-detail-effect";
+		effect.textContent = line;
+		section.appendChild(effect);
+	}
+	parent.appendChild(section);
+}
+
+/** 玩家战斗里的属性强化面板 */
 export function showBattleStats(run) {
 	const stage = openOverlay("wm-rogue-stat-overlay");
 	const panel = document.createElement("div");
@@ -142,32 +176,80 @@ export function showBattleStats(run) {
 	divider.className = "wm-rogue-stat-divider";
 	panel.appendChild(divider);
 	for (const statId of STAT_IDS) {
-		const info = describeStat(statId, run?.stats?.[statId]);
-		const section = document.createElement("div");
-		section.className = "wm-rogue-stat-detail";
-		const heading = document.createElement("div");
-		heading.className = "wm-rogue-stat-detail-name";
-		heading.textContent = `${info.name} Lv.${info.level}`;
-		section.appendChild(heading);
-		for (const line of info.lines) {
+		addStatDetail(panel, describeStat(statId, run?.stats?.[statId]));
+	}
+	// 没有「关闭」按钮：点面板以外的遮罩区域直接退出（轻触/点击都走 bindTap）
+	bindOutsideTapClose(stage.parentNode, panel);
+	return stage;
+}
+
+/**
+ * 敌人身上「强化」徽记点开的面板：属性强化与玩家那份同一个版式，
+ * 再补一段深渊词缀——先一排徽记给出「［深渊·坚壁］［深渊·狂热］」的总览，下面逐条给描述。
+ * 数据全部取自这个 Player（battle.js 在 applyEnemyModifiers 里写进 rogueEnhanceInfo），
+ * 所以异常退出恢复战斗之后，显示的内容和开战当时完全一致。
+ * @param {object} player 敌方 Player
+ */
+export function showEnemyEnhance(player) {
+	const stage = openOverlay("wm-rogue-stat-overlay");
+	const panel = document.createElement("div");
+	panel.className = "wm-rogue-panel wm-rogue-stat-panel";
+	stage.appendChild(panel);
+	const info = player?.rogueEnhanceInfo ?? {};
+	const title = document.createElement("div");
+	title.className = "wm-rogue-stat-title";
+	title.textContent = translateCharacter(player?.name ?? "");
+	panel.appendChild(title);
+	const subtitle = document.createElement("div");
+	subtitle.className = "wm-rogue-stat-subtitle";
+	subtitle.textContent = "敌人强化";
+	panel.appendChild(subtitle);
+	const divider = document.createElement("div");
+	divider.className = "wm-rogue-stat-divider";
+	panel.appendChild(divider);
+
+	for (const statId of STAT_IDS) {
+		addStatDetail(panel, describeStat(statId, info.stats?.[statId]));
+	}
+
+	const ids = Array.isArray(info.abyss) ? info.abyss : [];
+	const sectionTitle = document.createElement("div");
+	sectionTitle.className = "wm-rogue-stat-section-title";
+	sectionTitle.textContent = "深渊强化";
+	panel.appendChild(sectionTitle);
+	if (!ids.length) {
+		const none = document.createElement("div");
+		none.className = "wm-rogue-stat-detail-effect";
+		none.textContent = "未被深渊强化";
+		panel.appendChild(none);
+	} else {
+		// 徽记行：一眼看全这个敌人身上有哪几个词缀
+		const badges = document.createElement("div");
+		badges.className = "wm-rogue-abyss-badges";
+		for (const id of ids) {
+			const affix = abyssAffixInfo(id);
+			const badge = document.createElement("div");
+			badge.className = "wm-rogue-abyss-badge";
+			badge.textContent = `［${affix ? affix.name : id}］`;
+			badges.appendChild(badge);
+		}
+		panel.appendChild(badges);
+		for (const id of ids) {
+			const affix = abyssAffixInfo(id);
+			const section = document.createElement("div");
+			section.className = "wm-rogue-stat-detail";
+			const heading = document.createElement("div");
+			heading.className = "wm-rogue-stat-detail-name";
+			heading.textContent = affix ? affix.name : id;
+			section.appendChild(heading);
 			const effect = document.createElement("div");
 			effect.className = "wm-rogue-stat-detail-effect";
-			effect.textContent = line;
+			effect.textContent = affix ? affix.desc : "（该深渊强化已下架）";
 			section.appendChild(effect);
+			panel.appendChild(section);
 		}
-		panel.appendChild(section);
 	}
-	// 没有「关闭」按钮：点面板以外的遮罩区域直接退出（轻触/点击都走 bindTap）。
-	// 目标是否在面板内按父链判断，不依赖 DOM contains；事件缺失（测试桩直接调监听）按框外处理
-	const overlay = stage.parentNode;
-	bindTap(overlay, event => {
-		for (let node = event?.target; node; node = node.parentNode) {
-			if (node === panel) {
-				return;
-			}
-		}
-		closeScreen();
-	});
+	bindOutsideTapClose(stage.parentNode, panel);
 	return stage;
 }
 
