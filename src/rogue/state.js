@@ -3,6 +3,7 @@
 
 import {
 	BATTLE_STATUS,
+	CHALLENGE_STAGE_LEVELS,
 	CHALLENGE_TOTAL_LEVELS,
 	CURRENCIES,
 	ENDLESS_STAT_UPGRADE_BASE,
@@ -18,7 +19,7 @@ import { getEnemyGroup } from "./data/enemyGroups.js";
 import { getEvent } from "./data/events.js";
 import { getCurio, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 import { getMaxShopRefreshes } from "./curioManager.js";
-import { normalizeEventReward } from "./eventManager.js";
+import { normalizeEventReward, normalizeEventAction } from "./eventManager.js";
 import { normalizeAbyssIds } from "./endless/abyss.js";
 import { stats } from "./data/stats.js";
 
@@ -100,18 +101,38 @@ function normalizeBattleEnemies(list) {
 }
 
 /**
+ * 深渊裂隙那一场的参数（v7）：事件在构建期把敌人数与奖励定死，开战时抄进 currentBattle.rift。
+ * 为什么要单独存一份——选下「打五个」的瞬间 pendingEvent 就被清掉了，中途刷新再进来时
+ * 「这场该发多少金币经验」只能从正在进行的战斗本身读出来。
+ */
+function normalizeRift(raw) {
+	if (!isPlainObject(raw)) {
+		return null;
+	}
+	return {
+		level: clampInt(raw.level, 1, Number.MAX_SAFE_INTEGER, 1),
+		enemies: clampInt(raw.enemies, 1, 99, 1),
+		affixes: clampInt(raw.affixes, 0, 10, 0),
+		gold: clampInt(raw.gold, 0, Number.MAX_SAFE_INTEGER, 0),
+		exp: clampInt(raw.exp, 0, Number.MAX_SAFE_INTEGER, 0),
+	};
+}
+
+/**
  * 进行中的战斗要保存「已解析完成的敌方阵容」：角色 + 三项属性在开战前定死并落盘，
  * 恢复战斗原样重打，绝不重掷（否则随机出的敌人会因中途退出而变化）。
  * v2 及更早的旧档只存了 groupId：按当时的组合配置还原出阵容，同样不重掷；
  * 组合也没了（配置被删）才视为没有未完成战斗。
+ * v7 起额外携带 rift：有它 = 这一场是深渊裂隙，结算走「只发定死的倍率奖励、不推进关卡、不掷事件与奇物商店」。
  */
 function normalizeCurrentBattle(rawBattle) {
 	if (!isPlainObject(rawBattle) || rawBattle.status !== BATTLE_STATUS.battle) {
 		return null;
 	}
+	const rift = normalizeRift(rawBattle.rift);
 	const enemies = normalizeBattleEnemies(rawBattle.enemies);
 	if (enemies.length) {
-		return { status: BATTLE_STATUS.battle, enemies };
+		return { status: BATTLE_STATUS.battle, enemies, rift };
 	}
 	const legacy = getEnemyGroup(sanitizeString(rawBattle.groupId));
 	if (legacy) {
@@ -128,6 +149,7 @@ function normalizeCurrentBattle(rawBattle) {
 				maxHp: enemy?.overrides?.maxHp,
 				hp: enemy?.overrides?.hp,
 			}))),
+			rift,
 		};
 	}
 	return null;
@@ -136,6 +158,8 @@ function normalizeCurrentBattle(rawBattle) {
 /**
  * 无尽模式待处理事件（战斗胜利触发）：id + 已定死的选项与结果 + 生成时间。
  * 事件定义已删除（下架）时整个事件丢弃；选项与奖励按白名单重建，形状非法的条目剔除。
+ * action（交互型选项的参数）与 blockedText（「此刻没有对象可作用」要对玩家说的话）同样随存档定死——
+ * 商人手里那件货、裂隙的五个敌人、融合炉的融合费，读档恢复时都必须是同一个。
  * 只要这里还能还原出合法事件，读档就优先回到事件页——绝不重新触发、绝不重掷。
  */
 function normalizePendingEvent(raw) {
@@ -155,7 +179,16 @@ function normalizePendingEvent(raw) {
 		if (!text) {
 			continue;
 		}
-		choices.push({ text, reward: normalizeEventReward(choice.reward) });
+		const built = { text, reward: normalizeEventReward(choice.reward) };
+		const action = normalizeEventAction(choice.action);
+		if (action) {
+			built.action = action;
+		}
+		const blockedText = sanitizeString(choice.blockedText);
+		if (blockedText) {
+			built.blockedText = blockedText;
+		}
+		choices.push(built);
 		if (choices.length >= 6) {
 			break;
 		}
@@ -261,6 +294,30 @@ function normalizeCurioOffers(raw, owned = []) {
 }
 
 /**
+ * 闯关前 10 关的敌方配置抽取结果（v8）：一次抽取、随档落盘、只清不掷。
+ * 这里只把数据洗成干净的字符串数组——**不按配置池校验、不剔「不在池里」的 id、不去重**：
+ * challengeStages 是「第 N 关 → 第 N 个配置」的位置表，剔掉任何一项都会让后面的关卡整体前移，
+ * 读档就等于换敌人（规格明令禁止）；配置被改/删的关卡由开战时明确报错，而不是悄悄换人。
+ * 只有非字符串（损坏数据）才剔除，超过前 10 关的截断。
+ */
+function normalizeChallengeStages(raw) {
+	const stages = [];
+	for (const id of Array.isArray(raw) ? raw : []) {
+		if (typeof id !== "string") {
+			continue;
+		}
+		const clean = id.trim();
+		if (clean) {
+			stages.push(clean);
+		}
+		if (stages.length >= CHALLENGE_STAGE_LEVELS) {
+			break;
+		}
+	}
+	return stages;
+}
+
+/**
  * 把任意来路的数据重建为合法存档。
  * 采用白名单重建而非展开原对象，保证结果只含 JSON 可序列化的标量与数组，
  * Player / Card / 函数 / 循环引用都进不了存档。
@@ -315,6 +372,16 @@ export function normalizeRun(raw) {
 		: Math.max(1, toInt(raw.totalLevels, CHALLENGE_TOTAL_LEVELS));
 	const level = clampInt(raw.level, 1, mode === RUN_MODE.endless ? Number.MAX_SAFE_INTEGER : Math.max(totalLevels, 1), 1);
 
+	// v7：黄金罗盘多刷出来的那几批奇物候选。逐批走与当前批次同一套清洗
+	// （已拥有的不上架、已下架的剔除），空批直接丢掉，免得货架上出现一格什么都不买的空白
+	const curioOfferQueue = [];
+	for (const batch of Array.isArray(raw.curioOfferQueue) ? raw.curioOfferQueue : []) {
+		const offers = normalizeCurioOffers(batch, curios);
+		if (offers.length) {
+			curioOfferQueue.push(offers);
+		}
+	}
+
 	// 旧存档（v1）没有这个字段时补满；已经刷成 0 的原样保留，不然重读存档就等于白送次数。
 	// 上限用「基础 + 全部刷新类奇物加成」，否则循环按钮给的额外次数读档后会被夹掉。
 	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, getMaxShopRefreshes(), SKILL_REFRESH_PER_LEVEL);
@@ -325,6 +392,8 @@ export function normalizeRun(raw) {
 		characterId: sanitizeString(raw.characterId),
 		level,
 		totalLevels,
+		// v8：闯关前 10 关的敌方配置抽取结果（challenge 模式专用；由 enemy.ensureChallengeStages 生成，本层只清洗）
+		challengeStages: normalizeChallengeStages(raw.challengeStages),
 		currency,
 		skills,
 		stats: statLevels,
@@ -338,6 +407,10 @@ export function normalizeRun(raw) {
 		// v6：奇物品质升级。旧档（v5 及更早）没有这个字段时按空表补齐 = 全部停在初始品质
 		curioQuality: normalizeCurioQuality(raw.curioQuality, curios),
 		curioOffers: normalizeCurioOffers(raw.curioOffers, curios),
+		// v7：奇物商店的额外批次队列（黄金罗盘给的，买完当前这批才提上货架）
+		curioOfferQueue,
+		// v7：经验泉「再饮一口」欠下的债——下一场每名敌人追加几个深渊强化。旧档按「没有债」补齐，不重掷
+		abyssDebt: clampInt(raw.abyssDebt, 0, 10, 0),
 		cleared: !!raw.cleared,
 		createdAt: Math.max(0, toInt(raw.createdAt, 0)),
 		updatedAt: Math.max(0, toInt(raw.updatedAt, 0)),

@@ -10,6 +10,22 @@
 //     reward    固定奖励对象（三选一的第一种写法）
 //     outcomes  随机奖励列表 [{ chance, reward }, ...]，chance 合计应为 1（第二种写法）；
 //               生成事件时就地预掷并把结果定死写进存档，读档恢复绝不重掷
+//     action    交互型选项（第三种写法）：本层不自己处理，交回 mode.js 编排子页面/子战斗
+//                 { kind: "abyssDebt", perEnemy }   下一场战斗每名敌人追加 N 个随机深渊强化
+//                                        （落在 run.abyssDebt 上，开那一场时消费并清零）
+//                 { kind: "skillForge", grant }    先弹「选一个已有技能」页；grant:"exp" 只按 reward 发经验，
+//                                        grant:"skill" 在失去之后再随机补一个新技能
+//                 { kind: "rift", tier }           深渊裂隙：按 config.RIFT_TIERS 立刻开一场**不算层数**的战斗，
+//                                        构建期就把敌人数与 gold/exp 定死写进存档
+//                 { kind: "merchant" }             流浪商人：构建期掷出那件奇物与恒定售价，弹单件奇物页
+//                 { kind: "curioForge" }            奇物融合炉：构建期算好融合费，弹「选一件奇物升一级」页
+//               带 action 的选项**不要**把花费写进 reward——写进去就会被「点了即扣钱」的通用流程扣掉，
+//               而玩家还没真定下来。由子页面在真选定那一刻才扣；价钱由构建期追加进 text，点之前看得见。
+//     blockedText 这个选项「此刻没有可作用的对象」时对玩家说的一句话（属性已满 / 没有技能 / 没有奇物）。
+//               写了它的选项不会被置灰——点了只弹这句话，一个钱都不扣。
+//               「钱不够」才置灰，「没对象可作用」弹提示，两种不可用不要混。
+//               另：写了 blockedText 的 statUp 不再被「属性全满就换成随机奇物」的生成期改写吃掉，
+//               因为作者要的就是那句提示，不是换个奖励。
 //
 //   reward 支持的键（可叠加）
 //     gold / exp      固定增减的货币，负数表示消耗（消耗不足时选项置灰、点了没反应，结算层再验一次）
@@ -28,6 +44,11 @@
 //     statUp / statDown   "random" = 随机一项属性 +1 / -1（越界按已达上限/下限处理，写明哪项在生成时定死）；
 //                       玩家三项属性全满时，生成期会把 statUp 就地换成 curio:"random"
 //                       （否则结算必然「已达最高等级，未生效」），statDown 不受影响
+//     curioRarity + expIfNoCurioByWin
+//                     按**初始品质**掷一件「还没拥有」的奇物（"common" / "rare" / "epic" / "negative"）：
+//                     掷得到就把那个具体 id 写进 curio（构建期定死，读档不重掷）；
+//                     掷不到就把 expIfNoCurioByWin 倍的基准经验并进 exp，两者都写回固定值。
+//                     古代遗迹三扇门用的就是它——所以 curio 从此支持写具体 id，结算层会照单发放
 //     空对象 {} 表示无奖励
 //
 // 自检会查：id 与键名一致、name/description/image 齐备、choices 非空且 text 非空、
@@ -136,6 +157,168 @@ export const events = {
 					{ chance: 0.5, reward: { statUp: "random" } },
 					{ chance: 0.5, reward: { statDown: "random" } },
 				],
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	// ---------------------------------------------------------------- 本轮新增：只有「需要玩家挑对象」和「立刻开打」这两类走 action
+	spring_of_wisdom: {
+		id: "spring_of_wisdom",
+		name: "经验泉",
+		description: "泉水中流动着奇怪的光芒，似乎能够刺激精神成长。",
+		image: "extension/奥特之星/assets/events/spring_of_wisdom.png",
+		choices: [
+			{
+				text: "饮用",
+				reward: { expByWin: 1.5 },
+			},
+			{
+				// 第二口更划算的倍率没有（100% < 150%），代价是下一场每个敌人多一条深渊强化
+				text: "再饮一口",
+				reward: { expByWin: 1 },
+				// 追加几个词缀由 config.SPRING_DEBT_AFFIXES 定，构建期注入，别在这里抄一份数字
+				action: { kind: "abyssDebt" },
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	skill_forge: {
+		id: "skill_forge",
+		name: "技能熔炉",
+		description: "巨大的炉子可以将已有技能重新锻造。",
+		image: "extension/奥特之星/assets/events/skill_forge.png",
+		choices: [
+			{
+				text: "失去一个技能 → 换取大量经验",
+				// 基准数 ×2 的经验就是这里的 2 倍本层胜利经验（构建期换算成固定值）
+				reward: { expByWin: 2 },
+				action: { kind: "skillForge", grant: "exp" },
+				blockedText: "技能不足，炉子里没有可以熔炼的东西。",
+			},
+			{
+				text: "失去一个技能 → 换一个随机新技能",
+				reward: {},
+				action: { kind: "skillForge", grant: "skill" },
+				blockedText: "技能不足，炉子里没有可以熔炼的东西。",
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	stat_training_ground: {
+		id: "stat_training_ground",
+		name: "属性训练场",
+		description: "这里云集各种高手。",
+		image: "extension/奥特之星/assets/events/stat_training_ground.png",
+		choices: [
+			{
+				// 三项全满时不置灰：点了弹这句、一分经验也不扣（写了 blockedText 就不再走「满级换随机奇物」的改写）
+				text: "接受训练 → 随机属性 +1",
+				reward: { expByWin: -0.5, statUp: "random" },
+				blockedText: "你太厉害了，没什么能学到的东西。",
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	abyss_rift: {
+		id: "abyss_rift",
+		name: "深渊裂隙",
+		description: "裂隙中传来令人不安的力量。",
+		image: "extension/奥特之星/assets/events/abyss_rift.png",
+		choices: [
+			{
+				// 三档的敌人数与倍率都在 config.RIFT_TIERS，构建期定死进存档：
+				// 这一场不算入关卡层数、胜利不触发事件也不刷奇物商店、其它奇物的胜利加成一律不生效
+				text: "打一个",
+				reward: {},
+				action: { kind: "rift", tier: 0 },
+			},
+			{
+				text: "打五个",
+				reward: {},
+				action: { kind: "rift", tier: 1 },
+			},
+			{
+				text: "打十个",
+				reward: {},
+				action: { kind: "rift", tier: 2 },
+			},
+			{
+				text: "我不打扰了，我走了哈",
+				reward: {},
+			},
+		],
+	},
+	wandering_merchant: {
+		id: "wandering_merchant",
+		name: "流浪商人",
+		description: "一个风尘仆仆的商人拦住了你，摊开手掌，上面只躺着一件东西。",
+		image: "extension/奥特之星/assets/events/wandering_merchant.png",
+		choices: [
+			{
+				// 与奇物商店的区别：只有一件货、价恒为基准价 ×4、允许买已经拥有的——买完自动升一级而不是多一件。
+				// 只有「这一件已经拥有而且练到最高档」才是没对象可作用：那时点了弹这句、金币一个不动
+				text: "和商人交易",
+				reward: {},
+				action: { kind: "merchant" },
+				blockedText: "他已经把最好的一件卖给你了，这一笔做不成。",
+			},
+			{
+				text: "不买了",
+				reward: {},
+			},
+		],
+	},
+	curio_forge: {
+		id: "curio_forge",
+		name: "奇物融合炉",
+		description: "炉膛里的火是紫色的，把东西放进去，出来一件更好的。",
+		image: "extension/奥特之星/assets/events/curio_forge.png",
+		choices: [
+			{
+				// 融合费 = 本层基准经验 ×3（config.FORGE_EXP_MULTIPLIER），构建期算成固定值
+				text: "把一件奇物投进炉子",
+				reward: {},
+				action: { kind: "curioForge" },
+				blockedText: "奇物不足，炉子里没有可以融合的东西。",
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	ancient_ruins: {
+		id: "ancient_ruins",
+		name: "古代遗迹",
+		description: "遗迹尽头立着三扇门，各自透着不一样的光。",
+		image: "extension/奥特之星/assets/events/ancient_ruins.png",
+		choices: [
+			{
+				// 白门：普通奇物 + 0.5 倍基准经验；普通款全都有了就折成 0.5 + 1.5 = 2 倍经验（与紫门同额）
+				text: "推开白门",
+				reward: { curioRarity: "common", expByWin: 0.5, expIfNoCurioByWin: 1.5 },
+			},
+			{
+				// 紫门：稀有奇物；全有了才给 2 倍基准经验
+				text: "推开紫门",
+				reward: { curioRarity: "rare", expIfNoCurioByWin: 2 },
+			},
+			{
+				// 黑门：负面奇物 + 4 倍基准经验；负面款已获得过就只拿这 4 倍经验
+				text: "推开黑门",
+				reward: { curioRarity: "negative", expByWin: 4 },
 			},
 			{
 				text: "离开",

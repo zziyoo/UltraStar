@@ -6,6 +6,8 @@
 //   3. 若该强化需要跨回合的状态或标记，只在 abyssAffixes.js 里加字段，不回到本文件写逻辑
 // 奇物互动、Boss 专属强化都走 tags：随机时把上下文（{ mode, level, tags }）传进
 // abyss.rollAbyssAffixes，标签过滤在这张表上完成，无尽流程一行都不用改。
+// 词缀自己需要的「载体技能」（虚无的封印载体、污染的封牌载体）写在 abyssAffixes.js 的
+// abyssHelperSkills 里，跟着模式一起注册，但永远不进这张池子。
 
 /** 词缀总开关：false 时无尽任何层数都不再附加深渊强化 */
 export const ABYSS_ENABLED = true;
@@ -48,6 +50,3 @@ export const ABYSS_MAX_AFFIXES = null;
 
 /** 敌人身上「深渊强化」标记的显示文字（与玩家的「强化」标记同一套机制） */
 export const ABYSS_MARK_TEXT = "深渊";
-
-/** 深渊·污染 从牌堆/弃牌堆取牌的类别：牌type，基本牌就是 "basic" */
-export const ABYSS_POLLUTION_CARD_TYPE = "basic";

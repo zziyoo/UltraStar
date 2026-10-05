@@ -61,6 +61,7 @@ const packSkills = new Set(Object.keys(pack.skill.skill ?? {}));
 
 const cfg = await load("src/rogue/config.js");
 const groupsData = await load("src/rogue/data/enemyGroups.js");
+const stagesData = await load("src/rogue/data/challengeStages.js");
 const skillsData = await load("src/rogue/data/skills.js");
 const statsData = await load("src/rogue/data/stats.js");
 const rewardsData = await load("src/rogue/data/rewards.js");
@@ -166,6 +167,140 @@ check("敌人组合：角色存在于本扩展，额外技能有定义", () => {
 	}
 	assert(!problems.length, problems.join("；"));
 	return `覆盖 ${Object.values(groupsData.enemyGroups).reduce((sum, group) => sum + (group.enemies?.length ?? 0), 0)} 个敌人位`;
+});
+
+check("闯关关卡配置池：结构合法、id 唯一、数量足够不重复抽取", () => {
+	const pool = stagesData.challengeStagePool;
+	assert(Array.isArray(pool), "challengeStagePool 应为数组");
+	assert(pool.length >= cfg.CHALLENGE_STAGE_LEVELS, `配置池至少要 ${cfg.CHALLENGE_STAGE_LEVELS} 项才能保证前 10 关不重复，实际 ${pool.length}`);
+	const problems = [];
+	const seen = new Set();
+	for (const [index, config] of pool.entries()) {
+		const label = `#${index + 1}${config?.id ? `「${config.id}」` : ""}`;
+		if (!config || typeof config.id !== "string" || !config.id.trim()) {
+			problems.push(`${label}: 缺少 id（存档唯一标识，必须是稳定字符串）`);
+			continue;
+		}
+		if (seen.has(config.id)) {
+			problems.push(`${label}: id 重复`);
+		}
+		seen.add(config.id);
+		if (!["single", "group"].includes(config.type)) {
+			problems.push(`${config.id}: type 应为 single 或 group，实际 ${JSON.stringify(config.type)}`);
+		}
+		if (!Array.isArray(config.players) || !config.players.length) {
+			problems.push(`${config.id}: players 不能为空`);
+			continue;
+		}
+		if (config.type === "single" && config.players.length !== 1) {
+			problems.push(`${config.id}: single 的 players 应恰好 1 名，实际 ${config.players.length}`);
+		}
+		if (config.type === "group" && config.players.length < 2) {
+			problems.push(`${config.id}: group 的 players 应 ≥ 2 名，实际 ${config.players.length}（只有 1 名请写 single）`);
+		}
+		for (const [memberIndex, player] of config.players.entries()) {
+			const member = `${config.id} 第${memberIndex + 1}名成员`;
+			if (!player || typeof player.character !== "string" || !player.character.trim()) {
+				problems.push(`${member}: 缺少 character（真实角色 id，官方包是拼音式 id，不能照抄显示名）`);
+			}
+			if (player?.stats !== undefined) {
+				if (!player.stats || typeof player.stats !== "object" || Array.isArray(player.stats)) {
+					problems.push(`${member}: stats 应为对象`);
+				} else {
+					for (const [key, value] of Object.entries(player.stats)) {
+						if (!cfg.STAT_IDS.includes(key)) {
+							problems.push(`${member}: stats.${key} 不是已定义的属性（${cfg.STAT_IDS.join("/")}）`);
+						} else if (!(Number.isFinite(value) && value >= 0 && value <= 10)) {
+							problems.push(`${member}: stats.${key} 应为 0~10 的数字`);
+						}
+					}
+				}
+			}
+			if (player?.skills !== undefined && (!Array.isArray(player.skills) || player.skills.some(id => typeof id !== "string"))) {
+				problems.push(`${member}: skills 应为字符串数组`);
+			}
+			for (const field of ["maxHp", "hp"]) {
+				if (player?.[field] !== undefined && !Number.isFinite(player[field])) {
+					problems.push(`${member}: ${field} 应为数字`);
+				}
+			}
+		}
+	}
+	assert(!problems.length, problems.join("；"));
+	for (const config of pool) {
+		assert(stagesData.getChallengeStageConfig(config.id) === config, `${config.id}: getChallengeStageConfig 应能按 id 取回`);
+	}
+	assert(stagesData.getChallengeStageConfig("不存在的配置") === null, "未知 id 应返回 null");
+	assert(stagesData.drawChallengeStageIds(() => 0).length === cfg.CHALLENGE_STAGE_LEVELS, "抽取结果应有前 10 关每一关");
+	return `${pool.length} 个配置（single ${pool.filter(item => item.type === "single").length} / group ${pool.filter(item => item.type === "group").length}）`;
+});
+
+check("闯关关卡配置池：角色 id 在当前游戏环境中存在（找不到的只提醒不拦截）", () => {
+	const appRoot = path.resolve(root, "..", "..");
+	const characterRoot = path.join(appRoot, "character");
+	if (!fs.existsSync(characterRoot)) {
+		return "跳过（未找到游戏本体目录，无法核对角色 id）";
+	}
+	const characters = new Set();
+	for (const config of stagesData.challengeStagePool) {
+		for (const player of config.players ?? []) {
+			if (player?.character) {
+				characters.add(player.character);
+			}
+		}
+	}
+	// 配置池文件本身含有这些 id 字面量，扫它等于自己证明自己，必须排除
+	const selfPath = path.join(root, "src", "rogue", "data", "challengeStages.js");
+	// 与 tools/preview 时代的核对脚本同一思路：官方包角色 id 是拼音式（在包文件里以 key 形式出现），
+	// 扩展包则常用中文 id。ASCII id 用 \b 词边界匹配（避免命中更长 id 的后缀）；
+	// 中文 id 必须带引号整体匹配——「新杀谋司马师」这类长名字里的子串不算角色。
+	const patterns = [...characters].map(id => ({
+		id,
+		regex: /^[A-Za-z0-9_]+$/.test(id) ? new RegExp(`\\b${id}\\b`) : new RegExp(`["']${id}["']`),
+	}));
+	let scanned = 0;
+	const hits = new Map([...characters].map(id => [id, false]));
+	const scan = dir => {
+		let entries;
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (entry.name === "node_modules" || entry.name === ".git") {
+					continue;
+				}
+				scan(full);
+			} else if (entry.isFile() && entry.name.endsWith(".js")) {
+				if (full === selfPath) {
+					continue;
+				}
+				scanned++;
+				let text;
+				try {
+					text = fs.readFileSync(full, "utf8");
+				} catch {
+					continue;
+				}
+				for (const { id, regex } of patterns) {
+					if (!hits.get(id) && regex.test(text)) {
+						hits.set(id, true);
+					}
+				}
+			}
+		}
+	};
+	scan(characterRoot);
+	scan(path.join(appRoot, "extension"));
+	const missing = patterns.filter(({ id }) => !hits.get(id)).map(({ id }) => id);
+	assert(scanned > 0, "没有扫描到任何 js 文件");
+	// 缺失不判失败：角色可能来自尚未安装的扩展包；抽取时会自动跳过这些配置
+	return missing.length
+		? `扫描 ${scanned} 个文件，${characters.size - missing.length}/${characters.size} 个角色 id 已确认；未找到（抽取时自动跳过）：${missing.join("、")}`
+		: `扫描 ${scanned} 个文件，${characters.size} 个角色 id 全部已确认`;
 });
 
 check("商店技能池：id 规范、定义与翻译齐备", () => {
@@ -319,7 +454,15 @@ check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50
 	return `闯关第7关 ${JSON.stringify(challengeSample)}，无尽第1关 ${JSON.stringify(sample)}，第10关 ${JSON.stringify(later)}`;
 });
 
-const EVENT_REWARD_KEYS = ["gold", "exp", "goldByWin", "expByWin", "goldPct", "goldPayout", "curio", "skill", "statUp", "statDown"];
+const EVENT_REWARD_KEYS = [
+	"gold", "exp", "goldByWin", "expByWin", "goldPct", "goldPayout",
+	"curio", "skill", "statUp", "statDown",
+	// 只在构建期出现的两个键：掷定给哪一件奇物、掷不到时补几倍基准经验，
+	// 落档前一定被展开成 curio(具体 id) + 固定 exp，不会进存档
+	"curioRarity", "expIfNoCurioByWin",
+];
+/** 交互型选项的 kind 白名单，参数判据见 eventManager.normalizeEventAction */
+const EVENT_ACTION_KINDS = ["abyssDebt", "skillForge", "rift", "merchant", "curioForge"];
 
 check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 	const ids = Object.keys(eventsData.events);
@@ -385,6 +528,37 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 				if (curioRef !== undefined && curioRef !== "random" && !curiosData.getCurio(curioRef)) {
 					problems.push(`${key} 第${index + 1}个选项: curio 引用的「${curioRef}」不存在`);
 				}
+				const rarity = reward?.curioRarity;
+				if (rarity !== undefined && !curiosData.CURIOSITY_RARITY[rarity]) {
+					problems.push(`${key} 第${index + 1}个选项: curioRarity 应为 ${Object.keys(curiosData.CURIOSITY_RARITY).join("/")}`);
+				}
+				const fallback = reward?.expIfNoCurioByWin;
+				if (fallback !== undefined && !(Number.isFinite(fallback) && fallback >= 0)) {
+					problems.push(`${key} 第${index + 1}个选项: expIfNoCurioByWin 应为非负数（掷不到奇物时补几倍基准经验）`);
+				}
+				// 掷奇物的门同时消耗经验是自我矛盾的：落空分支会把负数抬成正数，
+				// 玩家点之前看到的「要花多少」与实际结算的方向相反
+				if (rarity !== undefined && Number.isFinite(reward?.expByWin) && reward.expByWin < 0) {
+					problems.push(`${key} 第${index + 1}个选项: 掷奇物的门不能同时消耗经验`);
+				}
+			}
+			// 交互型选项：kind 必须在白名单里、参数必须齐；写错会让 mode.js 认不出来（退回普通奖励 = 白点一次）
+			const action = choice?.action;
+			if (action !== undefined) {
+				if (!action || typeof action !== "object" || !EVENT_ACTION_KINDS.includes(action.kind)) {
+					problems.push(`${key} 第${index + 1}个选项: action.kind 应为 ${EVENT_ACTION_KINDS.join("/")}`);
+				} else if (action.kind === "rift" && !Number.isInteger(action.tier)) {
+					problems.push(`${key} 第${index + 1}个选项: rift 必须写整数 tier（指向 config.RIFT_TIERS 的第几档）`);
+				} else if (action.kind === "rift" && !(action.tier >= 0 && action.tier < cfg.RIFT_TIERS.length)) {
+					problems.push(`${key} 第${index + 1}个选项: rift 的 tier ${action.tier} 超出 config.RIFT_TIERS（共 ${cfg.RIFT_TIERS.length} 档）`);
+				} else if (action.kind === "skillForge" && !["exp", "skill"].includes(action.grant)) {
+					problems.push(`${key} 第${index + 1}个选项: skillForge 的 grant 应为 exp 或 skill`);
+				} else if (action.kind === "abyssDebt" && action.perEnemy !== undefined) {
+					problems.push(`${key} 第${index + 1}个选项: abyssDebt 的个数由 config.SPRING_DEBT_AFFIXES 在构建期注入，别在数据里抄一份`);
+				}
+			}
+			if (choice?.blockedText !== undefined && !(typeof choice.blockedText === "string" && choice.blockedText.trim())) {
+				problems.push(`${key} 第${index + 1}个选项: 写了 blockedText 就必须是非空句子（它是「此刻没有对象可作用」时对玩家说的话）`);
 			}
 		}
 	}
@@ -509,12 +683,31 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		extraDraw: "phaseDrawBegin2",
 		dyingSave: "dying",
 		roundHeal: "roundEnd",
+		turnHeal: "phaseEnd",
+		// 狂战徽章靠「我造成的伤害」这个时机认本回合的第一下
+		firstDamageBonus: "damage",
+		// 反击护符三档都是「受到伤害后」上一层 buff
+		hurtDamageNext: "damageEnd",
+		hurtDamageRound: "damageEnd",
+		hurtDamageGame: "damageEnd",
+		// 血怒核心的「无法被响应」走 ai 标签（norespond + playernowuxie），
+		// 但它附带的「此牌伤害 +1」仍要有加伤时机，所以这里盯 damageBegin1
+		unrespondable: "damageBegin1",
 	};
 	for (const [key, timing] of Object.entries(need)) {
 		const used = Object.values(curiosData.curios).some(curio => curio.effect?.[key]);
 		if (used) {
 			assert(triggerNames.includes(timing), `效果 ${key} 需要时机 ${timing}，rogue_curio 未声明`);
 		}
+	}
+	// 血怒核心「无法被响应」必须挂两个标签：本体问「能不能响应」和问「能不能无懈」是两条分开的路，
+	// 只挂一个会出现「杀必中但锦囊照样被无懈」。标签为真时本体才调 skillTagFilter，缺了就变成无条件生效。
+	const usesUnrespondable = Object.values(curiosData.curios).some(curio => (curio.effect?.unrespondable || 0) > 0
+		|| Object.values(curio.qualityEffects ?? {}).some(effect => (effect?.unrespondable || 0) > 0));
+	if (usesUnrespondable) {
+		assert(info.ai?.norespond === true, "rogue_curio 应声明 ai.norespond（使用的牌无法被响应）");
+		assert(info.ai?.playernowuxie === true, "rogue_curio 应声明 ai.playernowuxie（锦囊不能被无懈可击）");
+		assert(typeof info.ai?.skillTagFilter === "function", "ai 标签必须配 skillTagFilter，否则体力条件那一半永远不生效");
 	}
 	return `触发时机：${triggerNames.join(" / ")}`;
 });
@@ -548,6 +741,13 @@ check("深渊词缀配置：池子项数、技能本体、双键翻译与承载�
 	// 标记载体：随模式注册，但绝不进随机池
 	assert(modeConfig.skill.abyss_affix?.mark, "abyss_affix 应作为标记技能注册");
 	assert(!pool.some(item => item.id === "abyss_affix"), "abyss_affix 不该出现在随机池里");
+	// 词缀自带的载体（虚无的封印与解除宿主、污染的封牌）也必须随模式注册，否则本体按 id 现查时查不到
+	assert(typeof modeConfig.skill.abyss_xuwu_blocker?.skillBlocker === "function", "abyss_xuwu_blocker 应带 skillBlocker");
+	assert(typeof modeConfig.skill.abyss_xuwu_release?.onremove === "function", "abyss_xuwu_release 应带 onremove");
+	assert(!!modeConfig.skill.abyss_wuran_lock?.mod?.cardEnabled2, "abyss_wuran_lock 应带 cardEnabled2 mod");
+	for (const id of ["abyss_xuwu_blocker", "abyss_xuwu_release", "abyss_wuran_lock"]) {
+		assert(!pool.some(item => item.id === id), `${id} 是载体，不该出现在随机池里`);
+	}
 	// 默认配置下每个词缀都真的能被随机到
 	for (const item of pool) {
 		assert(abyss.isAbyssAffixId(item.id), `${item.id} 应能通过池子校验`);
@@ -556,7 +756,9 @@ check("深渊词缀配置：池子项数、技能本体、双键翻译与承载�
 	const timings = abyssConfig.AFFIX_POOL
 		.map(item => abyssAffixes.affix[item.id].trigger)
 		.filter(Boolean);
-	assert(timings.some(t => t.global === "roundStart"), "应有词缀挂在轮开始（狂热/永恒）");
+	assert(timings.some(t => t.global === "roundStart"), "应有词缀挂在轮开始（狂热）");
+	assert(timings.some(t => t.global === "phaseBegin"), "应有词缀挂在回合开始（永恒）");
+	assert(timings.some(t => t.player === "damageEnd"), "应有词缀挂在受到伤害后（虚无/镜像/复仇）");
 	assert(timings.some(t => t.global === "gainEnd"), "应有词缀挂在获得牌后（禁欲）");
 	assert(timings.some(t => t.global === "useCardAfter"), "应有词缀在使用牌后（污染）");
 	return `${pool.length} 个词缀 / 时机与翻译齐备 / 随模式注册`;

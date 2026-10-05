@@ -136,6 +136,37 @@ export function rollAbyssAffixes(level, rng = Math.random, context = {}) {
 }
 
 /**
+ * 往某个敌人已有的词缀上再追加 N 个（深渊裂隙必给的那一条、经验泉欠下的债都走这里）。
+ * 与 rollAbyssAffixes 同一条不放回规则：已经在他身上的不会再被抽到，所以「额外自带一个」
+ * 永远是**新**的一条强化，不会和常规随机的结果重叠计数。
+ * 词缀池被抽干（或 ABYSS_ENABLED 关掉、池子为空）时就少加，不死循环也不造空条目。
+ * @param {string[]} existing 该敌人已随机到的词缀 id
+ * @param {number} count 要追加几个
+ * @param {() => number} [rng]
+ * @param {{ mode?: string, tags?: string[] }} [context]
+ */
+export function appendAbyssAffixes(existing, count, rng = Math.random, context = {}) {
+	const list = Array.isArray(existing) ? existing.slice(0) : [];
+	const extra = Math.floor(Number(count) || 0);
+	if (extra <= 0) {
+		return list;
+	}
+	const bag = getAbyssAffixDefs(context).filter(item => !list.includes(item.id));
+	let added = 0;
+	while (added < extra && bag.length) {
+		const chosen = pickWeighted(bag, rng);
+		const index = bag.indexOf(chosen);
+		if (index < 0) {
+			break;
+		}
+		bag.splice(index, 1);
+		list.push(chosen.id);
+		added += 1;
+	}
+	return list;
+}
+
+/**
  * 把读档来的词缀数据重建为合法数组：只留还在池子里的 id、去重、按配置顺序稳定排列、夹到上限。
  * 数组为空时返回空数组（不是 undefined），保证存档里永远有这一个字段。
  */

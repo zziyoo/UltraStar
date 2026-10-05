@@ -5,7 +5,7 @@
 import { lib, game, _status } from "../../../../noname.js";
 import { ROSTER_WHITE_LIST } from "./config.js";
 import { sumStatEffects } from "./data/stats.js";
-import { sumCurioEffects, CURIOSITY_BATTLE_KEYS } from "./curioManager.js";
+import { sumCurioEffects, CURIOSITY_BATTLE_KEYS, CURIOSITY_STORAGE_KEYS } from "./curioManager.js";
 import { normalizeAbyssIds } from "./endless/abyss.js";
 import { isEnemyUsable } from "./enemy.js";
 import { showBattleCurios, showBattleStats, showEnemyAbyss, showEnemyEnhance } from "./ui/common.js";
@@ -162,10 +162,13 @@ function applyEffects(player, effects, showStatEntry = false) {
 
 /**
  * 奇物的战斗内效果：curioManager.sumCurioEffects 按**当前品质**把全部奇物的 effect 叠成总表，
- * 一次写进 player.storage.rogue_curio，由机制技 rogue_curio 统一承载（extraPhase / extraDraw /
- * dyingSave + dyingRecoverToRatio / roundHeal / turnHeal）。品质判定全在 curioManager，
- * 这里与 reward.js 都不看 def.rarity。结算类效果（expRate/goldRate）不在这里处理，
+ * 一次写进 player.storage.rogue_curio，由机制技 rogue_curio 统一承载。品质判定全在 curioManager，
+ * 这里与 reward.js 都不看 def.rarity。结算类效果（expRate/goldRate/goldOfHeld…）不在这里处理，
  * 由 reward.js 胜利结算时现查。与属性强化同一条纪律：绝不写 lib.skill。
+ *
+ * 写进去的是 `CURIOSITY_STORAGE_KEYS` 这张表（战斗内键 + 它们的配套键），**按表遍历而不是逐个键手写**：
+ * 以前这里是六行硬编码，加一件新战斗内奇物就得记得回来补一行，漏了就是「技能挂上了但数值全是 0」——
+ * 桩测里 storage 是测试自己塞的所以照绿，真机上表现为效果完全没生效。
  */
 function applyCurioEffects(player, curioIds, qualityMap) {
 	const effects = sumCurioEffects(curioIds, qualityMap);
@@ -173,16 +176,16 @@ function applyCurioEffects(player, curioIds, qualityMap) {
 		return false;
 	}
 	grantSkills(player, [CURIO_SKILL], "奇物技能未注册");
-	// 比例类不取整：0.5 要原样进 storage，由机制技去乘体力上限
-	const ratio = effects.dyingRecoverToRatio ?? 0;
-	player.storage.rogue_curio = {
-		extraPhase: Math.max(0, Math.floor(effects.extraPhase ?? 0)),
-		extraDraw: Math.max(0, Math.floor(effects.extraDraw ?? 0)),
-		dyingSave: Math.max(0, Math.floor(effects.dyingSave ?? 0)),
-		dyingRecoverToRatio: Number.isFinite(ratio) && ratio > 0 ? ratio : 0,
-		roundHeal: Math.max(0, Math.floor(effects.roundHeal ?? 0)),
-		turnHeal: Math.max(0, Math.floor(effects.turnHeal ?? 0)),
-	};
+	const storage = {};
+	for (const key of CURIOSITY_STORAGE_KEYS) {
+		const value = effects[key];
+		// 每一项都写（没给就写 0），storage 的形状因此稳定，机制技读哪个键都不会拿到 undefined；
+		// 比例类不取整——0.5 要原样进去，由机制技去乘体力上限
+		storage[key] = Number.isFinite(value)
+			? (key.endsWith("Ratio") ? Math.max(0, value) : Math.max(0, Math.floor(value)))
+			: 0;
+	}
+	player.storage.rogue_curio = storage;
 	player.update();
 	return true;
 }
@@ -239,17 +242,26 @@ function applyAbyssAffixes(player, ids) {
 /**
  * 建局前置校验：run 里已定死的敌方阵容 + 玩家角色是否可用。
  * 单个敌人当前不可用就跳过它；全不可用才报错。返回可用阵容与缺失数，供上层给出明确提示。
+ * options.allowBanned：把敌人的跳过判定放宽为「角色存在即可」，禁将（forbidai / 全局禁将 /
+ * 本体判禁）不再拦——闯关前 10 关的关卡配置专用（定稿：配置池的角色即使被禁也照抽照打）；
+ * 其余战斗路径不传本项，维持原来的 isEnemyUsable 口径。
  */
-export function resolveBattle(run, enemies) {
+export function resolveBattle(run, enemies, options = {}) {
 	if (!Array.isArray(enemies) || !enemies.length) {
 		return { ok: false, error: "本关敌方阵容为空，请重新开始本关" };
 	}
 	if (!isPlayerUsable(run.characterId)) {
 		return { ok: false, error: `角色「${run.characterId || "未选择"}」当前不可用，请重新选择角色` };
 	}
-	const usable = enemies.filter(entry => entry?.characterId && isEnemyUsable(entry.characterId));
+	const allowBanned = options?.allowBanned === true;
+	const usable = enemies.filter(entry => entry?.characterId && (allowBanned ? characterExists(entry.characterId) : isEnemyUsable(entry.characterId)));
 	if (!usable.length) {
-		return { ok: false, error: "敌方阵容里没有当前可用的角色，请重新开始本关" };
+		return {
+			ok: false,
+			error: allowBanned
+				? "敌方阵容里的角色在当前游戏中都不存在（配置可能被修改过），请重新开始本关"
+				: "敌方阵容里没有当前可用的角色，请重新开始本关",
+		};
 	}
 	return { ok: true, enemies: usable, missing: enemies.length - usable.length };
 }

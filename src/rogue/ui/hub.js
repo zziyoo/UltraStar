@@ -17,11 +17,13 @@ import {
 	STAT_IDS,
 } from "../config.js";
 import { getRefreshesRemaining } from "../shop.js";
-import { checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getNextCurioQuality, CURIOSITY_RARITY } from "../curioManager.js";
+import { checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getNextCurioQuality, getUpgradableCurios, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
 	addOverlayButton,
+	addResBar,
+	addResCell,
 	bindOverlayTap,
 	currentScreenNode,
 	openOverlay,
@@ -264,12 +266,13 @@ export function showShop(api) {
 	// 无候选（未刷新/已买完/已集齐）时整个分区隐藏——不留「已购买」残卡
 	const isEndless = run.mode === RUN_MODE.endless;
 	let curioSection = null;
+	let curioHint = null;
 	let curioRow = null;
 	const curioCards = [];
 	if (isEndless) {
 		curioSection = ui.create.div(".wm-rogue-curio-section", body);
 		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", curioSection);
-		ui.create.div(".wm-rogue-shop-subtitle", "每关胜利后有 10% 概率刷新候选　每次最多购买 1 个", curioSection);
+		curioHint = ui.create.div(".wm-rogue-shop-subtitle", "", curioSection);
 		curioRow = ui.create.div(".wm-rogue-shop-cards", curioSection);
 	}
 
@@ -330,6 +333,14 @@ export function showShop(api) {
 		if (curioSection) {
 			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
 			curioSection.classList[offers.length ? "remove" : "add"]("wm-rogue-hidden");
+			// 黄金罗盘额外那批：买完当前这批会自动提上货架（curioManager.buyCurio 负责搬运），
+			// 队列里还压着货时得让玩家知道「还能再买一次」，否则看着像商店出故障了
+			if (curioHint) {
+				const queued = (Array.isArray(current.curioOfferQueue) ? current.curioOfferQueue : []).filter(batch => batch.length).length;
+				curioHint.innerHTML = queued
+					? `每关胜利后有 10% 概率刷新候选　每次最多购买 1 个　黄金罗盘另指了 ${queued} 批，买完这批接着上`
+					: "每关胜利后有 10% 概率刷新候选　每次最多购买 1 个";
+			}
 		}
 	};
 	// 记浮层根节点用于原位刷新的存活判断（openOverlay 返回的是里面的居中层）
@@ -342,13 +353,6 @@ function paintRefresh(node, run, soldOut) {
 	const remaining = getRefreshesRemaining(run);
 	node.innerHTML = soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
 	node.classList[soldOut || remaining <= 0 ? "add" : "remove"]("wm-rogue-disabled");
-}
-
-function addResCell(parent, label) {
-	const cell = ui.create.div(".wm-rogue-res-cell", parent);
-	const num = ui.create.div(".wm-rogue-res-num", "", cell);
-	ui.create.div(".wm-rogue-res-label", label, cell);
-	return num;
 }
 
 /** 技能卡的「头」：出处小头像 + 技能名 + 出自行；商店与技能查看页共用同一视觉语言。
@@ -582,4 +586,156 @@ export function showReplace(api, offerId) {
 		const foot = ui.create.div(".wm-rogue-shop-foot", card);
 		addOverlayButton("替换此技能", foot, () => api.confirmReplace(offerId, id), "wm-rogue-replace-btn");
 	}
+}
+
+// ---------------------------------------------------------------- 事件子页面
+//
+// 流浪商人 / 技能熔炉 / 奇物融合炉：共同点是「先挑对象，挑中那一刻才扣钱」，
+// 所以页面只拿 getRun + 一个动作回调，任何按钮都不许自己改存档（一律交给 mode.js）。
+// 版式复用替换页那一套居中层 + 卡片横排，不新造 class：同一视觉语言，样式加固也一行都不用动。
+//
+// 置灰与可点的分界与事件页一致，不许混：
+//   · 钱不够 → 置灰，点了毫无反应（回调里现读存档再判一次，双判）；
+//   · 东西本身没法用（商人那件已是最高品质）→ 照常可点，由结算层弹一句、钱一个不动。
+
+/** 子页骨架：居中面板 + 标题 + 右上角返回 + 说明 + 金币经验条 + 正文。返回就是「这个事件我不想再动了」 */
+function openEventSubPage(api, overlayClass, title, subtitle) {
+	const stage = openOverlay(overlayClass);
+	const panel = ui.create.div(".wm-rogue-replace", stage);
+	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
+	ui.create.div(".wm-rogue-title", title, titlebar);
+	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.leave());
+	const body = ui.create.div(".wm-rogue-replace-body", panel);
+	ui.create.div(".wm-rogue-replace-subtitle", subtitle, body);
+	addResBar(body, api.getRun());
+	return body;
+}
+
+/** 一张奇物卡的壳子（图 + 名 + 品质标签 + 描述 + 效果 + 下一档预览 + 价钱 + 按钮），商人与融合炉共用 */
+function buildCurioChoiceCard(parent, curioId, buttonLabel, onPick) {
+	const def = getCurio(curioId);
+	const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-curio-card.wm-rogue-replace-card", parent);
+	const top = ui.create.div(".wm-rogue-shop-top", card);
+	const art = ui.create.div(".wm-rogue-curio-art", top);
+	if (def?.image) {
+		art.style.backgroundImage = `url("${def.image}")`;
+	}
+	ui.create.div(".wm-rogue-shop-name", def?.name ?? curioId, top);
+	const rarity = addCurioRarity(top, def);
+	const desc = ui.create.div(".wm-rogue-shop-desc", def?.description ?? "", card);
+	if (def?.description) {
+		desc.title = def.description;
+	}
+	const effect = ui.create.div(".wm-rogue-curio-effect", "", card);
+	const next = ui.create.div(".wm-rogue-curio-next", "", card);
+	const foot = ui.create.div(".wm-rogue-shop-foot", card);
+	const price = ui.create.div(".wm-rogue-shop-price", "", foot);
+	const row = { id: curioId, card, rarity, effect, next, price, button: null };
+	row.button = addOverlayButton(buttonLabel, foot, () => onPick(row), "wm-rogue-replace-btn");
+	return row;
+}
+
+/**
+ * 流浪商人：他只带一件货，价恒为奇物基准价 ×4，与奇物商店的区别是**允许买已经拥有的**——
+ * 买回去是把那一件升一级品质，不是多一件。已拥有且已经练到最高档才是「没得可作用」，
+ * 所以那一档按钮保持可点，交给 mode.js 弹一句并把金币留在口袋里。
+ */
+export function showMerchant(api) {
+	const body = openEventSubPage(api, "wm-rogue-merchant-overlay", "流浪商人", "他只带了一件货，价钱按奇物基准价的四倍咬死，不还价。");
+	const action = api.action;
+	const card = ui.create.div(".wm-rogue-replace-cards", body);
+	const row = buildCurioChoiceCard(card, action.curioId, "买下", target => {
+		const state = paintMerchant(target, api.getRun(), action);
+		if (state === "buy" || state === "maxed") {
+			api.buy();
+		}
+	});
+	paintMerchant(row, api.getRun(), action);
+}
+
+/** 画商人那一件货的价签与按钮，返回当前状态 buy / poor / maxed */
+function paintMerchant(row, run, action) {
+	const held = run.currency?.gold ?? 0;
+	const owned = (run.curios ?? []).includes(action.curioId);
+	const nextQuality = owned ? getNextCurioQuality(action.curioId, run.curioQuality) : null;
+	paintCurioRarity(row.rarity, getCurioQuality(action.curioId, run.curioQuality));
+	row.effect.textContent = describeCurio(action.curioId, run.curioQuality).join("\n");
+	row.next.textContent = nextQuality
+		? [`买回去直接升为：${CURIOSITY_RARITY[nextQuality]}`, ...describeCurioEffects(getCurioEffectAt(action.curioId, nextQuality))].join("\n")
+		: (owned ? "这一件你已经练到最高品质了。" : "这一件你还没有。");
+	const state = owned && !nextQuality ? "maxed" : held < action.price ? "poor" : "buy";
+	const text = {
+		// 练满了不是「买不起」，所以按钮不置灰：点了由结算层说明为什么做不成这笔买卖
+		maxed: { price: `${action.price} 金币（已有最高品质）`, button: "买下" },
+		poor: { price: `${action.price} 金币（持有 ${held}）`, button: "金币不足" },
+		buy: { price: `${action.price} 金币`, button: owned ? "买下并升级" : "买下" },
+	}[state];
+	row.price.innerHTML = text.price;
+	row.button.innerHTML = text.button;
+	setBuyable(row, state !== "poor");
+	return state;
+}
+
+/**
+ * 技能熔炉：挑一个已有技能投进炉子。模式层已经拦掉「一个技能都没有」的情况，
+ * 这里的空列表只是兜底（比如子页停着的时候技能被别处扣光）。
+ */
+export function showSkillForge(api) {
+	const run = api.getRun();
+	const body = openEventSubPage(api, "wm-rogue-skill-forge-overlay", "技能熔炉", "炉子吃一个技能，吐一样东西回来。选一个投进去。");
+	if (!run.skills.length) {
+		ui.create.div(".wm-rogue-skills-empty", "当前没有技能", body);
+		return;
+	}
+	const cards = ui.create.div(".wm-rogue-replace-cards", body);
+	for (const id of run.skills) {
+		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-replace-card", cards);
+		addSkillHead(card, id);
+		const intro = skillInfo(id);
+		const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
+		desc.title = intro;
+		// 与商店/替换页一致：点卡片看完整描述，按钮上的点击会阻止冒泡，不会连带打开
+		bindOverlayTap(card, () => showNotice([skillName(id), intro || "（该技能没有描述）"]));
+		const foot = ui.create.div(".wm-rogue-shop-foot", card);
+		addOverlayButton("熔炼此技能", foot, () => api.pick(id), "wm-rogue-replace-btn");
+	}
+}
+
+/**
+ * 奇物融合炉：已拥有的奇物各画一张卡，卡上写着「现在什么效果 / 融完升为什么」。
+ * 融合费是事件在构建期就定死的数，页面上不重算；经验不够只置灰，钱不够不弹提示。
+ */
+export function showCurioForge(api) {
+	const run = api.getRun();
+	const cost = api.action.costExp;
+	const body = openEventSubPage(api, "wm-rogue-curio-forge-overlay", "奇物融合炉", `放进炉子的那一件直接升一级品质，融合费 ${cost} 经验。`);
+	const list = getUpgradableCurios(run);
+	if (!list.length) {
+		ui.create.div(".wm-rogue-skills-empty", "没有还能往上融合的奇物", body);
+		return;
+	}
+	const cards = ui.create.div(".wm-rogue-replace-cards", body);
+	for (const id of list) {
+		const row = buildCurioChoiceCard(cards, id, "融合", target => {
+			// 现读存档判经验：够才交回模式层，不够就是置灰、点了毫无反应
+			if ((api.getRun().currency?.exp ?? 0) >= cost) {
+				api.forge(id);
+			}
+		});
+		paintForge(row, run, cost);
+	}
+}
+
+/** 画融合炉的一张奇物卡：当前品质 + 当前效果 + 下一档预览 + 融合费 */
+function paintForge(row, run, cost) {
+	const held = run.currency?.exp ?? 0;
+	const nextQuality = getNextCurioQuality(row.id, run.curioQuality);
+	paintCurioRarity(row.rarity, getCurioQuality(row.id, run.curioQuality));
+	row.effect.textContent = describeCurio(row.id, run.curioQuality).join("\n");
+	row.next.textContent = [`融完升为：${CURIOSITY_RARITY[nextQuality] ?? nextQuality}`, ...describeCurioEffects(getCurioEffectAt(row.id, nextQuality))].join("\n");
+	const money = moneyName(STAT_CURRENCY);
+	const enough = held >= cost;
+	row.price.innerHTML = enough ? `融合 ${cost} ${money}` : `融合 ${cost} ${money}（持有 ${held}）`;
+	row.button.innerHTML = enough ? "融合" : `${money}不足`;
+	setBuyable(row, enough);
 }

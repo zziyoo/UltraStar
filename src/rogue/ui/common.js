@@ -13,7 +13,7 @@
 import { lib, ui, get } from "../../../../../noname.js";
 import { bindTap, isolateOverlayTouch } from "../../ui/overlay.js";
 import { ensureRogueStyles } from "./styles.js";
-import { STAT_IDS } from "../config.js";
+import { CURRENCIES, CURRENCY_LABEL, STAT_IDS } from "../config.js";
 import { describeStat } from "../data/stats.js";
 import { describeCurioEffects, getCurio, getCurioEffect, getCurioQuality, CURIOSITY_BATTLE_KEYS, CURIOSITY_RARITY } from "../curioManager.js";
 import { abyssAffixInfo } from "../endless/abyssAffixes.js";
@@ -134,14 +134,14 @@ export function addGap(parent) {
  * 浮层的「点框外退出」：目标是否在面板内按父链判断，不依赖 DOM contains；
  * 事件缺失（测试桩直接调监听）按框外处理。
  */
-function bindOutsideTapClose(overlay, panel) {
+function bindOutsideTapClose(overlay, panel, onClose = closeScreen) {
 	bindTap(overlay, event => {
 		for (let node = event?.target; node; node = node.parentNode) {
 			if (node === panel) {
 				return;
 			}
 		}
-		closeScreen();
+		onClose();
 	});
 }
 
@@ -377,6 +377,26 @@ export function bindOverlayTap(node, onClick) {
 	return node;
 }
 
+/**
+ * 资源条的一格：上面数字、下面标签。返回**数字节点**，原位刷新时只改它的 innerHTML
+ * （营地与商店都用这一套；事件页与商人和熔炉子页也用它，玩家才看得见自己手上有多少）。
+ */
+export function addResCell(parent, label) {
+	const cell = ui.create.div(".wm-rogue-res-cell", parent);
+	const num = ui.create.div(".wm-rogue-res-num", "", cell);
+	ui.create.div(".wm-rogue-res-label", label, cell);
+	return num;
+}
+
+/** 一排货币资源（金币/经验）。新增货币只看 config 的 CURRENCIES，这里不点名 */
+export function addResBar(parent, run) {
+	const res = ui.create.div(".wm-rogue-res", parent);
+	for (const key of CURRENCIES) {
+		addResCell(res, CURRENCY_LABEL[key] ?? key).innerHTML = `${run?.currency?.[key] ?? 0}`;
+	}
+	return res;
+}
+
 export function translateCharacter(id) {
 	if (!id) {
 		return "未选择角色";
@@ -494,6 +514,39 @@ function overlayPopup(lines, options) {
 	}
 	host.appendChild(popup);
 	return popup;
+}
+
+/**
+ * 浮层内的详情页弹层（图鉴的奇物详情用）：与 showNotice 同一套弹层壳，
+ * 但正文挂在**能独立滚动的 body** 里、头部与底部「关闭」固定不动——
+ * 升级路线可能有好几档，内容不能把整个图鉴页撑长。
+ * 返回 { head, body }，内容一律由调用方挂，这里不认得任何具体条目。
+ * 同时只允许存在一个：再开一次先摘掉旧的，避免叠层与内容串台。
+ */
+export function openDetailPopup() {
+	const host = currentScreen && currentScreen.kind === "overlay" ? currentScreen.node : document.body;
+	for (const node of host.querySelectorAll?.(".wm-rogue-detail-popup") ?? []) {
+		node.remove();
+	}
+	const popup = document.createElement("div");
+	popup.className = "wm-rogue-popup wm-rogue-detail-popup";
+	const box = document.createElement("div");
+	box.className = "wm-rogue-popup-box wm-rogue-detail-box";
+	popup.appendChild(box);
+	const head = document.createElement("div");
+	head.className = "wm-rogue-detail-head";
+	box.appendChild(head);
+	const body = document.createElement("div");
+	body.className = "wm-rogue-detail-body";
+	box.appendChild(body);
+	const actions = document.createElement("div");
+	actions.className = "wm-rogue-popup-actions";
+	box.appendChild(actions);
+	addOverlayButton("关闭", actions, () => popup.remove());
+	host.appendChild(popup);
+	// 与属性/奇物面板同一套退出手感：点弹层以外的区域也关（只关弹层，不关图鉴）
+	bindOutsideTapClose(popup, box, () => popup.remove());
+	return { popup, head, body };
 }
 
 function isOverlayCurrent() {

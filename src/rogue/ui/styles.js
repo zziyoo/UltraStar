@@ -241,9 +241,14 @@ const CSS = `
 
 /* ---- 替换技能页：新技能居中突出，下面三张已有技能卡等宽横排 ----
    层级：标题 28 > 新技能卡（名 26、强调边框光晕）> 区域标题 24 > 已有卡（名 22）
-   > 描述 17 / 箭头与说明 14~15 */
+   > 描述 17 / 箭头与说明 14~15
+   事件子页面（流浪商人 / 技能熔炉 / 奇物融合炉）整页复用这一套版式，所以标题字号的选择器把它们一并列上：
+   同一视觉语言，也免得为三个页面新写一遍 id 级加固 ---- */
 .wm-rogue-replace { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
-#wm-rogue-overlay.wm-rogue-replace-overlay .wm-rogue-title { font-size: 28px; letter-spacing: 5px; }
+#wm-rogue-overlay.wm-rogue-replace-overlay .wm-rogue-title,
+#wm-rogue-overlay.wm-rogue-merchant-overlay .wm-rogue-title,
+#wm-rogue-overlay.wm-rogue-skill-forge-overlay .wm-rogue-title,
+#wm-rogue-overlay.wm-rogue-curio-forge-overlay .wm-rogue-title { font-size: 28px; letter-spacing: 5px; }
 .wm-rogue-replace-subtitle { margin: 0 0 12px; font-size: 14px; color: rgba(255,255,255,0.58); text-align: center; }
 .wm-rogue-replace-slot { margin-left: auto; font-size: 16px; color: #ffd479; }
 /* 新技能卡：加宽居中 + 暖色边框光晕，名字随卡片放大 */
@@ -308,8 +313,21 @@ const CSS = `
 	background: linear-gradient(rgba(70,62,96,0.92), rgba(40,36,64,0.95)); }
 .wm-rogue-btn.wm-rogue-event-choice:hover { border-color: rgba(255,200,120,0.9); }
 
-/* ---- 图鉴页：已发现事件 + 曾拥有过的奇物，未收录的条目显示剪影 ---- */
+/* ---- 图鉴页：顶部「事件 / 奇物」页签二选一，未收录的条目显示剪影 ---- */
 .wm-rogue-index { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
+/* 分类页签：一个横框里的左右两格，一次只亮一个；选中态沿用图鉴已有条目的琥珀高亮 */
+.wm-rogue-index-tabs { display: flex; margin: 0 0 2px; border-radius: 8px; overflow: hidden;
+	background: linear-gradient(rgba(255,255,255,0.14), rgba(255,255,255,0.05));
+	border: 1px solid rgba(255,255,255,0.14); }
+.wm-rogue-index-tab { flex: 1 1 0; min-width: 0; padding: 9px 0 8px; text-align: center; cursor: pointer;
+	font-size: 19px; font-weight: bold; letter-spacing: 4px; user-select: none;
+	color: rgba(255,255,255,0.55); text-shadow: 0 1px 3px rgba(0,0,0,0.85); }
+.wm-rogue-index-tab + .wm-rogue-index-tab { border-left: 1px solid rgba(255,255,255,0.16); }
+.wm-rogue-index-tab:active { opacity: 0.8; }
+.wm-rogue-index-tab.wm-rogue-index-tab-active { color: #ffd479;
+	background: linear-gradient(rgba(255,180,80,0.18), rgba(255,160,60,0.06));
+	box-shadow: inset 0 -3px 0 rgba(255,200,120,0.85); }
+/* pane 只是显隐用的分组壳：没选中的整个 pane 挂 .wm-rogue-hidden 拿掉，不留高度 */
 .wm-rogue-index-body { padding: 0 4px 10px 2px; }
 .wm-rogue-index-sub { margin-bottom: 4px; font-size: 15px; color: rgba(255,255,255,0.6); letter-spacing: 3px; }
 .wm-rogue-index-section { margin: 14px 0 8px; font-size: 22px; font-weight: bold; color: #fff;
@@ -363,6 +381,31 @@ const CSS = `
 .wm-rogue-res-cell.wm-rogue-res-curio:hover { border-color: rgba(255,200,120,0.8); }
 .wm-rogue-res-cell.wm-rogue-res-curio:active { opacity: 0.8; }
 .wm-rogue-res-cell.wm-rogue-res-curio .wm-rogue-res-label { color: #9fd8ff; }
+
+/* ---- 图鉴奇物详情弹层：头部（图 + 名 + 初始品质）与「关闭」固定，正文独立滚动 ----
+   一件的升级路线可能有好几档，正文必须自己滚，不能把整个图鉴页撑长 */
+.wm-rogue-detail-box { width: min(560px, calc(100% - 24px)); max-height: 78%; display: flex; flex-direction: column; }
+.wm-rogue-detail-head { flex: none; text-align: center; }
+.wm-rogue-detail-art { width: 104px; height: 104px; margin: 0 auto 10px; border-radius: 8px;
+	background-size: cover; background-position: center; background-color: rgba(255,255,255,0.06);
+	border: 1px solid rgba(255,200,120,0.45); box-shadow: 0 0 16px rgba(255,180,80,0.18); }
+.wm-rogue-detail-name { font-size: 26px; font-weight: bold; color: #fff; letter-spacing: 3px;
+	text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+.wm-rogue-detail-rarity { display: inline-flex; margin-top: 6px; padding: 1px 10px; border-radius: 10px;
+	font-size: 13px; color: #ffd479; border: 1px solid rgba(255,200,120,0.5); }
+.wm-rogue-detail-body { flex: 1 1 auto; min-height: 0; margin-top: 12px; overflow-y: auto;
+	overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+/* 正文条与头部的间距交给 margin-top：不归零的话正文第一条会离头部太远 */
+.wm-rogue-detail-body > :first-child { margin-top: 0; }
+.wm-rogue-detail-desc { margin-bottom: 10px; font-size: 15px; line-height: 1.6; text-align: center;
+	color: rgba(255,255,255,0.7); }
+.wm-rogue-detail-step { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.14); }
+/* 档位名按品质着色（与图鉴卡片、商店同一套 .wm-rogue-rarity-*） */
+.wm-rogue-detail-step-name { font-size: 19px; font-weight: bold; letter-spacing: 2px; color: #ffd479; }
+.wm-rogue-detail-effect { margin-top: 5px; font-size: 16px; line-height: 1.55; color: rgba(255,255,255,0.9); }
+/* 变化注记：上一档同一条效果的原文，让玩家看出「由 1 张变成 2 张」 */
+.wm-rogue-detail-prev { margin-top: 3px; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.5); }
+.wm-rogue-detail-same { margin-top: 4px; font-size: 14px; color: rgba(255,255,255,0.45); }
 
 /* ---- 加固块 ----
    本体 CSS 里存在大量 writing-mode: vertical-rl（竖排名字），主题也会用 !important 改
@@ -465,7 +508,8 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-shop-foot,
 #wm-rogue-overlay .wm-rogue-stat-head,
 #wm-rogue-overlay .wm-rogue-stat-foot,
-#wm-rogue-overlay .wm-rogue-result-actions { display: flex !important; flex-wrap: nowrap !important; }
+#wm-rogue-overlay .wm-rogue-result-actions,
+#wm-rogue-overlay .wm-rogue-index-tabs { display: flex !important; flex-wrap: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-shop-head,
 #wm-rogue-overlay .wm-rogue-shop-body,
 #wm-rogue-overlay .wm-rogue-hub-body,
@@ -526,11 +570,32 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-index-unknown,
 #wm-rogue-overlay .wm-rogue-index-name,
 #wm-rogue-overlay .wm-rogue-index-desc,
+#wm-rogue-overlay .wm-rogue-index-pane,
 #wm-rogue-overlay .wm-rogue-curio-effect,
 #wm-rogue-overlay .wm-rogue-curio-next,
 #wm-rogue-overlay .wm-rogue-mode-name,
 #wm-rogue-overlay .wm-rogue-mode-line,
-#wm-rogue-overlay .wm-rogue-mode-best { display: block !important; }
+#wm-rogue-overlay .wm-rogue-mode-best,
+#wm-rogue-overlay .wm-rogue-detail-head,
+#wm-rogue-overlay .wm-rogue-detail-body,
+#wm-rogue-overlay .wm-rogue-detail-art,
+#wm-rogue-overlay .wm-rogue-detail-name,
+#wm-rogue-overlay .wm-rogue-detail-desc,
+#wm-rogue-overlay .wm-rogue-detail-step,
+#wm-rogue-overlay .wm-rogue-detail-step-name,
+#wm-rogue-overlay .wm-rogue-detail-effect,
+#wm-rogue-overlay .wm-rogue-detail-prev,
+#wm-rogue-overlay .wm-rogue-detail-same { display: block !important; }
+/* 详情弹层的盒是 flex 列（头部/正文/按钮三段），正文条 min-height:0 才真的滚得起来；
+   这条排在 .wm-rogue-popup-box 的 block 之后，靠顺序取胜 */
+#wm-rogue-overlay .wm-rogue-detail-box { display: flex !important; flex-direction: column !important; }
+/* 「关闭」那一行钉在底部：正文再长也不会把按钮挤出去 */
+#wm-rogue-overlay .wm-rogue-detail-box > .wm-rogue-popup-actions { flex: none !important; }
+#wm-rogue-overlay .wm-rogue-detail-rarity { display: inline-flex !important; }
+#wm-rogue-overlay .wm-rogue-detail-desc,
+#wm-rogue-overlay .wm-rogue-detail-effect,
+#wm-rogue-overlay .wm-rogue-detail-prev,
+#wm-rogue-overlay .wm-rogue-detail-same { white-space: normal !important; overflow-wrap: break-word !important; }
 #wm-rogue-overlay .wm-rogue-mode-go { display: inline-flex !important; align-items: center !important; justify-content: center !important; }
 #wm-rogue-overlay .wm-rogue-hub-who { display: block !important; }
 #wm-rogue-overlay .wm-rogue-shop-desc,
@@ -554,9 +619,9 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-no { white-space: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-resume-enemy-name { white-space: nowrap !important; }
 
-/* .wm-rogue-hidden 是「整块拿掉」的通用开关：奇物商店无候选时的分区、奇物管理页升到链尾时的升级按钮。
-   按钮自己的 display:inline-flex !important 在前（.wm-rogue-btn，权重 0,1,0），这条挂在 id 作用域下（1,1,0）
-   又在最末尾，权重与顺序双双压得住——两条都是 !important 时由权重决定 */
+/* .wm-rogue-hidden 是「整块拿掉」的通用开关：奇物商店无候选时的分区、奇物管理页升到链尾时的升级按钮、
+   图鉴里没选中的分类 pane。按钮自己的 display:inline-flex !important 权重只有 0,1,0，这条挂在 id
+   作用域下（1,1,0）压得住；pane 的 display:block !important 与这条同为 1,1,0，靠这条在最末尾的顺序取胜 */
 #wm-rogue-overlay .wm-rogue-hidden { display: none !important; }
 `;
 

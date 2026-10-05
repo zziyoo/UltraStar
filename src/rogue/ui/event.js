@@ -1,11 +1,16 @@
 // 无尽模式事件页：战斗胜利后（或读档恢复时）展示待处理事件，玩家点选项结算。
-// 与商店/营地同一套自建浮层视觉语言：事件大图 + 名称 + 描述 + 选项按钮。
+// 与商店/营地同一套自建浮层视觉语言：事件大图 + 名称 + 描述 + 金币经验条 + 选项按钮。
 // 纯 UI：一切数据变更走 api.choose(选项下标) 交给 mode.js，选项可用性按存档现算。
+//
+// 两种「用不了」在这一页长得不一样，不要混（判据都在 eventManager 里现读存档）：
+//   · 钱不够 → 置灰 + 写明「货币不足」，点了没有任何反应（与商店的「金币不足」按钮同款双判）；
+//   · 没有可作用的对象（属性已满 / 没技能可熔 / 没奇物可融合）→ 选项照常可点，
+//     点下去由结算层弹作者写的那一句，钱一分不扣。
 
 import { getEvent } from "../data/events.js";
 import { isChoiceAffordable } from "../eventManager.js";
 import { ui } from "../../../../../noname.js";
-import { addOverlayButton, openOverlay } from "./common.js";
+import { addOverlayButton, addResBar, openOverlay } from "./common.js";
 
 export function showEvent(api) {
 	const run = api.getRun();
@@ -27,6 +32,9 @@ export function showEvent(api) {
 
 	ui.create.div(".wm-rogue-event-name", event.name, panel);
 	ui.create.div(".wm-rogue-event-desc", event.description, panel);
+	// 手上有多少金币经验就写在选项正上方：这一页好几个选项要花钱（训练场、商人、融合炉），
+	// 玩家得先看得见余额，才知道置灰的那一项是「付不起」而不是「坏了」
+	addResBar(panel, run);
 
 	const actions = ui.create.div(".wm-rogue-event-actions", panel);
 	for (const [index, choice] of pendingEvent.choices.entries()) {

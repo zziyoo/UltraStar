@@ -15,7 +15,7 @@ import { getBonus, rollCurioOffers } from "./curioManager.js";
  *
  * 闯关：未到总关卡数则进下一关，到达则置 cleared 且关卡不越界（Hub 提供重复挑战）。
  * 无尽：关卡无上限地推进；胜利后先掷奇物商店（CURIO_SHOP_RATE，mode.js 里随后的
- * 事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中保留上一批没买的。
+ * 事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中清空（不留旧批次）。
  * 两种玩法都会清掉 currentBattle 与上一次的商店候选。
  * 免费刷新次数只在「真的通关并进入下一局」时恢复：失败还是同一关，次数必须保持原样，
  * 否则玩家可以靠反复失败白刷商店。
@@ -47,6 +47,18 @@ export function settleVictory(run, now, rng = Math.random) {
 		next.currency[key] = (next.currency[key] ?? 0) + gained[key];
 	}
 
+	// 储蓄罐：乘的是「此刻手上的金币总额」，不是本关基础奖励，所以必须排在上面入账之后
+	// （两者会叠乘：先被 goldRate 放大、再按放大后的余额抽一成，这是刻意的）。
+	// 向下取整，余额不足 1/比例 时一分钱也不额外给。
+	const ofHeld = getBonus(run.curios, "goldOfHeld", quality);
+	if (ofHeld > 0) {
+		const bonus = Math.floor((next.currency.gold ?? 0) * ofHeld);
+		if (bonus > 0) {
+			next.currency.gold += bonus;
+			gained.gold = (gained.gold ?? 0) + bonus;
+		}
+	}
+
 	if (run.mode === RUN_MODE.challenge) {
 		if (run.level >= run.totalLevels) {
 			next.cleared = true;
@@ -58,11 +70,29 @@ export function settleVictory(run, now, rng = Math.random) {
 	}
 
 	// 奇物商店：每关胜利后按 CURIO_SHOP_RATE 掷骰（mode.js 的事件判定在它之后，先奇物商店、再事件）。
-	// 命中才整批重摇（排除已拥有的、按推进后的新关卡定价）；未命中保留上一批没买的候选；闯关没有奇物商店
+	// 命中就整批重摇（排除已拥有的、按推进后的新关卡定价），**未命中直接清空**——
+	// 旧版本把没买的候选一直留着，结果同一批奇物能挂十几关不动，商店看着像坏了；
+	// 现在「看得见商店」等价于「这一关刚刷出新货」。闯关没有奇物商店。
+	//
+	// 黄金罗盘再单独掷一次，命中就多出一批：两批互不排斥，所以同一关可能「买完一批还有一批」——
+	// 第一批被买走时整批下架，队列里的第二批随即提上货架（见 curioManager.buyCurio）。
+	// 第二批摇的时候把第一批已挂出去的 id 一起排掉，免得同一件货在两家货架上重复出现。
 	if (run.mode === RUN_MODE.endless) {
-		next.curioOffers = rng() < CURIO_SHOP_RATE ? rollCurioOffers(next, rng) : (run.curioOffers ?? []);
+		const batches = [];
+		if (rng() < CURIO_SHOP_RATE) {
+			batches.push(rollCurioOffers(next, rng));
+		}
+		const compass = getBonus(run.curios, "extraCurioShopChance", quality);
+		if (compass > 0 && rng() < compass) {
+			const first = batches[0] ?? [];
+			batches.push(rollCurioOffers(next, rng, first.map(item => item?.id)));
+		}
+		const stocked = batches.filter(batch => batch.length);
+		next.curioOffers = stocked[0] ?? [];
+		next.curioOfferQueue = stocked.slice(1);
 	} else {
 		next.curioOffers = [];
+		next.curioOfferQueue = [];
 	}
 
 	return { run: next, gained };

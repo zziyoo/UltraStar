@@ -39,9 +39,14 @@ export const COLLECTION_KEY = "rogueCollection";
  * v2 新增 shopRefreshesRemaining（每局免费刷新次数）；v3 新增 currentBattle.enemies（进行中战斗保存完整敌方阵容）；
  * v4 新增无尽模式的 pendingEvent（待处理事件）/ collection（图鉴）/ curios（已拥有奇物）/ curioOffers（奇物商店候选）；
  * v5 给 currentBattle.enemies 的每一项新增 abyss（该敌人的深渊词缀 id 列表；旧档缺字段按「本关没有词缀」补齐，不重掷）；
- * v6 新增 curioQuality（已拥有奇物的当前品质覆盖表；旧档按空表补齐 = 全部停在初始品质）。
+ * v6 新增 curioQuality（已拥有奇物的当前品质覆盖表；旧档按空表补齐 = 全部停在初始品质）；
+ * v7 新增 abyssDebt（经验泉欠下的「下一场每个敌人追加词缀」）、curioOfferQueue（黄金罗盘多给的那批奇物候选），
+ * 并让 currentBattle 携带 rift（这一场是深渊裂隙：胜利只发定死的倍率奖励、不推进关卡、不掷事件与奇物商店）。
+ * v8 新增 challengeStages（闯关模式前 10 关的敌方配置抽取结果：建局时一次性从 data/challengeStages.js
+ * 的配置池抽出并落盘，读档/重进/失败重战都原样沿用；旧档缺字段按空数组补齐，首次开战时补抽一次，之后绝不重掷）。
+ * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 6;
+export const RUN_VERSION = 8;
 export const SLOT_COUNT = 6;
 
 /**
@@ -60,6 +65,12 @@ export const RUN_MODE_LABEL = {
 };
 /** 闯关模式总关卡数；无尽模式不使用 */
 export const CHALLENGE_TOTAL_LEVELS = 30;
+/**
+ * 闯关模式走「关卡配置池」的关数（前 10 关）：这些关的敌人不再按扩展角色池随机，
+ * 而是用建局时从 data/challengeStages.js 配置池里不重复抽出的配置生成（run.challengeStages）。
+ * 第 11 关起恢复原有的按池随机（enemy.js），无尽模式不使用这张表。
+ */
+export const CHALLENGE_STAGE_LEVELS = 10;
 
 /** 战斗状态机：主界面 ↔ 战斗中 */
 export const BATTLE_STATUS = {
@@ -104,7 +115,7 @@ export const ENDLESS_STAT_UPGRADE_BASE = 20;
 // 以下参数只作用于无尽模式；闯关模式不触发事件、商店也没有奇物栏。
 
 /** 战斗胜利后触发事件的概率（Math.random() < EVENT_TRIGGER_RATE 即触发） */
-export const EVENT_TRIGGER_RATE = 0.3;
+export const EVENT_TRIGGER_RATE = 0.33;
 
 /**
  * 奇物定价：与技能同一条 √ 关曲线，基准价 floor 换 round（见 curioManager.getCurioBasePrice）。
@@ -121,11 +132,31 @@ export const CURIO_UPGRADE_PRICE_MULTIPLIER = 5;
 /** 每批奇物候选的个数 */
 export const CURIO_OFFER_COUNT = 3;
 /**
- * 奇物商店的触发概率：无尽模式每关战斗胜利后先于事件判定掷骰，
- * 命中才刷新一批候选（未命中保留上一批没买的）；rng 可注入。
+ * 奇物商店的触发概率：无尽模式每关战斗胜利后先于事件判定掷骰，命中才刷新一批候选，
+ * **未命中直接清空**（旧批次不留着，避免同一批货挂十几关不动）；rng 可注入。
  * 一批只卖一个：买到即整批下架（buyCurio 清空 curioOffers），商店分区随之隐藏。
+ * 注意这条概率同时决定「商店多久出现一次」——批次不再留存后，平均 1/该值 关才看得到一次。
  */
 export const CURIO_SHOP_RATE = 0.1;
+
+/**
+ * 深渊裂隙的三档赌局（选项顺序即 data/events.js 里写死的顺序）：
+ * enemies 是这一场的敌人数，multiplier 是「本层胜利奖励基准 ×N」的金币与经验倍率。
+ * 裂隙战不算入关卡层数，也不触发事件与奇物商店——见 mode.js 的裂隙结算分支。
+ */
+export const RIFT_TIERS = [
+	{ enemies: 1, multiplier: 5 },
+	{ enemies: 5, multiplier: 50 },
+	{ enemies: 10, multiplier: 150 },
+];
+/** 深渊裂隙：每名敌人固定自带的额外深渊强化个数（与常规随机词缀同池、不放回、不重复） */
+export const RIFT_EXTRA_AFFIXES = 1;
+/** 经验泉「再饮一口」欠下的债：下一场战斗每名敌人追加几个深渊强化 */
+export const SPRING_DEBT_AFFIXES = 1;
+/** 流浪商人的售价 = 奇物基准价 ×该倍数，恒定不打 ±CURIO_PRICE_SPREAD 波动、也不乘品质倍率 */
+export const MERCHANT_PRICE_MULTIPLIER = 4;
+/** 奇物融合炉的融合费 = 本层基准经验 ×该倍数（品质仍只走一级，与商店升级同一条链） */
+export const FORGE_EXP_MULTIPLIER = 3;
 
 /**
  * 闯关失败的损失规则。

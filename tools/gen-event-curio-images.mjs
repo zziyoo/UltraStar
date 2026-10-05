@@ -1,4 +1,6 @@
 // 无尽模式事件/奇物占位图生成器：node tools/gen-event-curio-images.mjs
+//   加 --preview 顺手导出一张「每条目的真实 64px 样子」拼表（tools/preview-sheet.png），
+//   奇物卡面上只有 64px，看原图会一路绿灯、进游戏全是糊的，验收只看这张拼表。
 //
 // 用纯 Node（zlib + 手写 PNG 编码）生成 assets/events/*.png（512x512）与 assets/curios/*.png（256x256）。
 // 风格：粗描边徽章/贴纸风 —— 每个条目一套专属对角双色底 + 斜切亮带 + 彩色粒子 + 暗角 + 徽章框，
@@ -879,6 +881,381 @@ const draw = {
 		// 左上高光
 		cv.dot(c - s * 0.15, c * 0.82, s * 0.04, [1, 0.8, 0.8], 0.4);
 	},
+	// ---------------------------------------------------------------- 本轮新增：七个事件图
+	spring_of_wisdom(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		const water = mix(hue, P.ink, 0.64);
+		// 泉眼：扁椭圆的石沿 + 内潭。正圆会读成「一口井」，扁下去才像积住的一汪水
+		cv.inked(() => cv.ellipse(c, c * 1.16, s * 0.33, s * 0.19, BODY));
+		cv.ellipse(c, c * 1.1, s * 0.27, s * 0.145, water, 1);
+		cv.glow(c, c * 1.08, s * 0.2, hue, 0.5);
+		// 波纹：亮环挖心，连画两层做前后景
+		for (const [rx, ry, a] of [[0.205, 0.108, 0.4], [0.125, 0.062, 0.3]]) {
+			cv.ellipse(c, c * 1.08, s * rx, s * ry, P.warm, a);
+			cv.ellipse(c, c * 1.08, s * (rx - 0.013), s * (ry - 0.008), water, 1);
+		}
+		// 升起的光泡：三颗大小不一，「刺激精神成长」的那点光就是从这儿冒出来的
+		for (const [dx, r, top, alpha] of [[-0.1, 0.034, 0.84, 0.85], [0.015, 0.05, 0.64, 1], [0.12, 0.026, 0.76, 0.8]]) {
+			cv.dot(c + s * dx, c * top, s * r, P.warm, alpha);
+			cv.dot(c + s * dx - s * r * 0.32, c * (top - r * 0.34), s * r * 0.32, [1, 1, 1], 0.85);
+		}
+		// 泉沿压角的石头：不画的话整个画面只剩一个椭圆，认不出是野外的一处泉
+		cv.inked(() => {
+			cv.polygon([[c - s * 0.31, c * 1.26], [c - s * 0.2, c * 1.3], [c - s * 0.25, c * 1.44]], mix(hue, P.ink, 0.48));
+			cv.polygon([[c + s * 0.31, c * 1.3], [c + s * 0.2, c * 1.34], [c + s * 0.26, c * 1.46]], mix(hue, P.ink, 0.54));
+		}, 0.5);
+		// 顶上那颗四芒星：与许愿池的星同一种画法，但放在正中泉口上方
+		cv.dot(c, c * 0.38, s * 0.02, [1, 1, 1], 1);
+		cv.segment(c - s * 0.055, c * 0.38, c + s * 0.055, c * 0.38, s * 0.006, P.warm, 0.9);
+		cv.segment(c, c * 0.325, c, c * 0.435, s * 0.006, P.warm, 0.9);
+	},
+	skill_forge(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 炉体 + 烟囱：先立起「一座大炉子」的剪影，门和火都压在它身上
+		cv.inked(() => {
+			cv.roundBox(c - s * 0.2, c * 0.72, s * 0.036, s * 0.15, s * 0.012, mix(hue, P.ink, 0.44));
+			cv.roundBox(c, c * 1.14, s * 0.26, s * 0.24, s * 0.05, BODY);
+		});
+		// 炉门：拱形内凹，比炉体暗两档，火才有地方待
+		cv.inked(() => cv.polygon([
+			[c - s * 0.16, c * 1.3],
+			[c + s * 0.16, c * 1.3],
+			[c + s * 0.16, c * 1.02],
+			[c, c * 0.86],
+			[c - s * 0.16, c * 1.02],
+		], mix(hue, P.ink, 0.84)), 0.35);
+		// 三层舌焰：外层最宽最暗，芯子最亮——一坨纯色会被读成色块而不是火
+		for (const [dx, w, h, color] of [[0, 0.1, 0.3, [1, 0.5, 0.14]], [-0.065, 0.045, 0.18, [1, 0.76, 0.3]], [0.065, 0.042, 0.16, [1, 0.9, 0.48]]]) {
+			cv.polygon([
+				[c + s * dx - s * w, c * 1.3],
+				[c + s * dx + s * w, c * 1.3],
+				[c + s * dx + s * w * 0.42, c * (1.3 - h * 0.55)],
+				[c + s * dx, c * (1.3 - h)],
+				[c + s * dx - s * w * 0.42, c * (1.3 - h * 0.62)],
+			], color, 0.95);
+		}
+		// 被熔掉的那张技能卷：压在右上，明确「炉子吃的是技能」
+		cv.inked(() => {
+			cv.roundBox(c + s * 0.2, c * 0.72, s * 0.082, s * 0.048, s * 0.014, P.warm);
+			cv.dot(c + s * 0.282, c * 0.72, s * 0.024, mix(hue, P.ink, 0.4));
+			cv.dot(c + s * 0.118, c * 0.72, s * 0.024, mix(hue, P.ink, 0.4));
+		}, 0.5);
+		// 火星与底座
+		for (const [dx, dy, r] of [[-0.15, 0.6, 0.012], [0.05, 0.54, 0.01], [-0.02, 0.48, 0.008], [0.13, 0.62, 0.009]]) {
+			cv.dot(c + s * dx, c * dy, s * r, [1, 0.85, 0.35], 0.9);
+		}
+		cv.inked(() => cv.roundBox(c, c * 1.44, s * 0.31, s * 0.035, s * 0.014, mix(hue, P.ink, 0.58)), 0.5);
+	},
+	stat_training_ground(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 后景靶环：偏心放左上半，主体是让两把剑交叉
+		cv.inked(() => cv.ring(c, c * 1.04, s * 0.3, s * 0.032, mix(hue, P.ink, 0.5)));
+		cv.ring(c, c * 1.04, s * 0.3, s * 0.014, P.pale, 0.55);
+		cv.dot(c, c * 1.04, s * 0.16, mix(hue, P.ink, 0.76), 1);
+		cv.dot(c, c * 1.04, s * 0.062, P.warm, 0.9);
+		/** 一把剑：剑身 + 垂直护手 + 柄头。angle 用「起止点」而不是旋转，画起来不易歪 */
+		const sword = (from, to, tint) => {
+			const ax = c + s * from[0];
+			const ay = c * (1 + from[1]);
+			const bx = c + s * to[0];
+			const by = c * (1 + to[1]);
+			const vx = -(by - ay);
+			const vy = bx - ax;
+			const L = Math.hypot(vx, vy) || 1;
+			const gx = ax + (bx - ax) * 0.2;
+			const gy = ay + (by - ay) * 0.2;
+			cv.inked(() => {
+				cv.segment(ax, ay, bx, by, s * 0.022, tint);
+				cv.segment(gx - (vx / L) * s * 0.05, gy - (vy / L) * s * 0.05, gx + (vx / L) * s * 0.05, gy + (vy / L) * s * 0.05, s * 0.014, P.warm);
+				cv.dot(ax, ay, s * 0.026, P.warm);
+			}, 0.42);
+			// 剑尖：把末端收成一颗亮点，剑才不是两根等粗的棍子
+			cv.dot(bx, by, s * 0.012, [1, 1, 1], 0.9);
+		};
+		sword([-0.26, 0.36], [0.24, -0.3], [0.88, 0.93, 1]);
+		sword([0.26, 0.36], [-0.24, -0.3], [0.74, 0.8, 0.94]);
+		// 地上那道练功痕：一条横压的暗带，把两把剑「放」在场景里而不是飘着
+		cv.inked(() => cv.roundBox(c, c * 1.5, s * 0.3, s * 0.026, s * 0.012, mix(hue, P.ink, 0.62)), 0.4);
+	},
+	abyss_rift(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 一条**纵向**裂缝：两侧压暗的岩壁、中间接近黑的洞、洞边各描一条亮线。
+		// 上一版往整幅打主色光晕，64px 上读成「一条紫色横幅」而不是「地裂开了」，
+		// 所以这版光晕只留在缝里那一小块。
+		const jag = [[0.04, -0.44], [-0.05, -0.22], [0.07, 0.0], [-0.05, 0.22], [0.04, 0.44]];
+		const half = 0.062;
+		const left = jag.map(([dx, dy]) => [c + s * (dx - half), c * (1 + dy)]);
+		const right = jag.map(([dx, dy]) => [c + s * (dx + half), c * (1 + dy)]);
+		// 岩壁：左亮右暗，给画面一个光源方向，两块墙才不是一块背景
+		cv.inked(() => {
+			cv.polygon([[0, 0], ...left, [0, s]], mix(hue, P.ink, 0.34));
+			cv.polygon([[s, 0], ...right, [s, s]], mix(hue, P.ink, 0.52));
+		}, 0.3);
+		// 洞：接近纯黑的楔形，压在两壁之间
+		cv.polygon([...left, ...right.slice().reverse()], P.ink, 1);
+		cv.glow(c, c, s * 0.11, hue, 0.75);
+		// 亮边：左暖右冷，缝才有「裂开的口子」而不是「画了一条线」
+		cv.inked(() => {
+			for (let i = 0; i < jag.length - 1; i++) {
+				cv.segment(left[i][0], left[i][1], left[i + 1][0], left[i + 1][1], s * 0.016, P.warm, 1);
+				cv.segment(right[i][0], right[i][1], right[i + 1][0], right[i + 1][1], s * 0.016, hue, 1);
+			}
+		}, 0.35);
+		// 缝里冒出来的三点光：「令人不安的力量」得有个出处
+		for (const [dx, dy, r] of [[-0.02, 0.3, 0.026], [0.03, 0.0, 0.018], [-0.01, -0.3, 0.013]]) {
+			cv.dot(c + s * dx, c * (1 + dy), s * r, P.warm, 0.9);
+		}
+		// 崩起来的三块碎石：带亮边的菱形，压在两壁上
+		for (const [dx, dy, r] of [[-0.22, -0.26, 0.035], [0.24, -0.16, 0.026], [0.19, 0.34, 0.03]]) {
+			const x = c + s * dx;
+			const y = c * (1 + dy);
+			cv.inked(() => cv.polygon([[x, y - s * r], [x + s * r, y], [x, y + s * r], [x - s * r, y]], mix(hue, P.ink, 0.2)), 0.4);
+		}
+	},
+	wandering_merchant(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 斗笠而不是兜帽：与「神秘商人」必须一眼分得开，两张图撞形就是设计事故
+		cv.inked(() => {
+			cv.polygon([[c - s * 0.24, c * 0.68], [c + s * 0.24, c * 0.68], [c, c * 0.44]], BODY);
+			cv.roundBox(c, c * 0.7, s * 0.27, s * 0.026, s * 0.012, BODY);
+			cv.ellipse(c, c * 0.9, s * 0.11, s * 0.09, BODY);
+			cv.polygon([[c - s * 0.13, c * 1.44], [c + s * 0.13, c * 1.44], [c + s * 0.1, c * 1.06], [c - s * 0.1, c * 1.06]], BODY);
+		});
+		// 背后的包袱：比主色暗一档，压在身后而不是身上，读得出「行脚」
+		cv.inked(() => {
+			cv.dot(c - s * 0.17, c * 1.1, s * 0.11, mix(hue, P.ink, 0.42));
+			cv.segment(c - s * 0.17, c * 0.98, c - s * 0.11, c * 0.9, s * 0.02, mix(hue, P.ink, 0.42));
+		}, 0.5);
+		// 抬起的那只手 + 手心唯一的一件货
+		cv.inked(() => {
+			cv.segment(c + s * 0.1, c * 1.14, c + s * 0.26, c * 1.0, s * 0.024, BODY);
+			cv.dot(c + s * 0.28, c * 0.97, s * 0.03, BODY);
+		}, 0.5);
+		cv.dot(c + s * 0.285, c * 0.86, s * 0.046, P.warm, 1);
+		cv.dot(c + s * 0.285, c * 0.86, s * 0.02, [1, 1, 1], 1);
+		// 斗笠下两只眼睛：不画的话这张脸就是一个黑三角
+		cv.dot(c - s * 0.04, c * 0.9, s * 0.015, P.warm, 1);
+		cv.dot(c + s * 0.04, c * 0.9, s * 0.015, P.warm, 1);
+	},
+	curio_forge(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 坩埚 + 支脚：与技能熔炉的「方炉体 + 烟囱」区分开，一个是锻技能的炉子、一个是融奇物的锅
+		cv.inked(() => {
+			cv.polygon([[c - s * 0.24, c * 1.04], [c + s * 0.24, c * 1.04], [c + s * 0.16, c * 1.36], [c - s * 0.16, c * 1.36]], BODY);
+			cv.roundBox(c, c * 1.44, s * 0.1, s * 0.03, s * 0.012, mix(hue, P.ink, 0.5));
+		});
+		// 锅里熔着的料：凹面压暗 + 一层亮液
+		cv.ellipse(c, c * 1.06, s * 0.21, s * 0.058, mix(hue, P.ink, 0.8), 1);
+		cv.ellipse(c, c * 1.06, s * 0.18, s * 0.044, [0.95, 0.55, 1], 0.95);
+		// 紫焰三舌
+		for (const [dx, w, h, color] of [[0, 0.09, 0.32, [0.76, 0.38, 1]], [-0.075, 0.04, 0.2, [0.88, 0.6, 1]], [0.075, 0.04, 0.2, [0.88, 0.6, 1]]]) {
+			cv.polygon([
+				[c + s * dx - s * w, c * 1.02],
+				[c + s * dx + s * w, c * 1.02],
+				[c + s * dx + s * w * 0.45, c * (1.02 - h * 0.55)],
+				[c + s * dx, c * (1.02 - h)],
+				[c + s * dx - s * w * 0.45, c * (1.02 - h * 0.62)],
+			], color, 0.92);
+		}
+		// 顶上那颗「升了一档」的宝石：菱形 + 白心 + 十字光，把结果直接画在画面上
+		cv.inked(() => cv.polygon([[c, c * 0.34], [c + s * 0.095, c * 0.48], [c, c * 0.62], [c - s * 0.095, c * 0.48]], P.warm), 0.4);
+		cv.dot(c, c * 0.48, s * 0.022, [1, 1, 1], 1);
+		cv.segment(c - s * 0.15, c * 0.48, c + s * 0.15, c * 0.48, s * 0.005, P.warm, 0.8);
+		cv.segment(c, c * 0.32, c, c * 0.64, s * 0.005, P.warm, 0.8);
+	},
+	ancient_ruins(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 一堵残墙上开三个拱门：白 / 紫 / 黑，各透各的光
+		cv.inked(() => cv.roundBox(c, c * 1.06, s * 0.34, s * 0.3, s * 0.022, BODY));
+		const door = (dx, tint, glowColor, glow) => {
+			const x = c + s * dx;
+			cv.polygon([[x - s * 0.078, c * 1.32], [x + s * 0.078, c * 1.32], [x + s * 0.078, c * 0.98], [x, c * 0.82], [x - s * 0.078, c * 0.98]], tint, 1);
+			if (glow > 0) {
+				cv.glow(x, c * 1.12, s * 0.075, glowColor, glow);
+			}
+		};
+		door(-0.2, [0.9, 0.94, 1], [1, 1, 1], 0.5);
+		door(0, [0.62, 0.38, 1], [0.72, 0.46, 1], 0.55);
+		// 黑门里什么都不透出——三扇门必须读得出明暗差，最后那扇就是「不安」
+		door(0.2, [0.08, 0.07, 0.14], [0.4, 0.2, 0.5], 0.12);
+		// 门框亮线：三扇都描一遍，压在暗门洞外沿上
+		for (const dx of [-0.2, 0, 0.2]) {
+			const x = c + s * dx;
+			cv.polygon([
+				[x - s * 0.082, c * 1.32], [x + s * 0.082, c * 1.32], [x + s * 0.082, c * 0.97], [x, c * 0.8], [x - s * 0.082, c * 0.97],
+				[x - s * 0.07, c * 0.99], [x, c * 0.85], [x + s * 0.07, c * 0.99], [x + s * 0.07, c * 1.3], [x - s * 0.07, c * 1.3],
+			], P.pale, 0.4);
+		}
+		// 塌了一半的墙顶 + 一块歪出去的石料
+		cv.inked(() => {
+			cv.roundBox(c - s * 0.05, c * 0.72, s * 0.3, s * 0.036, s* 0.01, mix(hue, P.ink, 0.4));
+			cv.polygon([[c + s * 0.26, c * 0.66], [c + s * 0.37, c * 0.72], [c + s * 0.3, c * 0.8]], mix(hue, P.ink, 0.5));
+		}, 0.45);
+	},
+	// ---------------------------------------------------------------- 本轮新增：六件奇物图
+	berserker_badge(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 盾牌：上宽下尖，缩到 64px 仍是一个整体轮廓
+		cv.inked(() => cv.polygon([
+			[c - s * 0.26, c * 0.64], [c + s * 0.26, c * 0.64], [c + s * 0.24, c * 1.12], [c, c * 1.46], [c - s * 0.24, c * 1.12],
+		], BODY));
+		cv.polygon([
+			[c - s * 0.2, c * 0.74], [c + s * 0.2, c * 0.74], [c + s * 0.18, c * 1.08], [c, c * 1.32], [c - s * 0.18, c * 1.08],
+		], mix(hue, P.ink, 0.74), 1);
+		// 中央一柄双刃斧：「狂战」的标志，斧刃左右两片、斧柄穿下来
+		cv.inked(() => {
+			cv.segment(c, c * 0.76, c, c * 1.32, s * 0.022, P.warm);
+			cv.polygon([[c - s * 0.13, c * 0.8], [c, c * 0.88], [c, c * 1.04], [c - s * 0.13, c * 1.08]], [0.9, 0.94, 1]);
+			cv.polygon([[c + s * 0.13, c * 0.8], [c, c * 0.88], [c, c * 1.04], [c + s * 0.13, c * 1.08]], [0.78, 0.84, 0.94]);
+		}, 0.42);
+		// 两道血痕斜压盾面：升史诗就是「更上头」，靠血痕而不是换个盾形来表达
+		for (const [dx, dy, len] of [[-0.17, 1.18, 0.3], [-0.1, 1.26, 0.24]]) {
+			cv.segment(c + s * dx, c * dy, c + s * (dx + len), c * (dy - 0.09), s * 0.017, [0.86, 0.12, 0.2], 0.9);
+		}
+		cv.dot(c - s * 0.15, c * 0.72, s * 0.038, [1, 1, 1], 0.45);
+	},
+	blood_rage_core(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 心脏：两个心房 + 下面一个尖，比画一个圆球更像「血」的东西
+		cv.inked(() => {
+			cv.dot(c - s * 0.12, c * 0.84, s * 0.14, BODY);
+			cv.dot(c + s * 0.12, c * 0.84, s * 0.14, BODY);
+			cv.polygon([[c - s * 0.24, c * 0.92], [c + s * 0.24, c * 0.92], [c, c * 1.42]], BODY);
+		});
+		cv.dot(c, c * 1.02, s * 0.12, P.warm, 1);
+		cv.dot(c, c * 1.02, s * 0.05, [1, 1, 1], 1);
+		// 裂纹：从顶端炸开的两条折线
+		for (const [ax, ay, bx, by, cx2, cy2] of [[-0.1, 0.68, -0.01, 0.9, -0.05, 0.8], [0.12, 0.72, 0.05, 0.94, 0.11, 0.84]]) {
+			cv.segment(c + s * ax, c * ay, c + s * bx, c * by, s * 0.013, P.ink, 0.95);
+			cv.segment(c + s * bx, c * by, c + s * cx2, c * cy2, s * 0.011, P.ink, 0.9);
+		}
+		// 底下三滴血：血越少越怒，所以血是「掉出去」的
+		for (const [dx, dy, r] of [[-0.12, 1.52, 0.034], [0.0, 1.62, 0.044], [0.12, 1.5, 0.03]]) {
+			cv.dot(c + s * dx, c * dy, s * r, [0.86, 0.14, 0.24], 1);
+			cv.dot(c + s * dx - s * r * 0.3, c * (dy - r * 0.3), s * r * 0.28, [1, 0.6, 0.65], 0.7);
+		}
+	},
+	counter_amulet(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 挂链：顶上一排由中间向两侧抬高的环
+		for (let i = -2; i <= 2; i++) {
+			cv.dot(c + s * 0.032 * i, c * 0.62 + s * Math.abs(i) * 0.012, s * 0.014, P.warm, 0.9);
+		}
+		// 符体：一圈向外的尖刺 + 粗环，与「破损怀表」那种素圆环区分
+		cv.inked(() => {
+			for (let i = 0; i < 12; i++) {
+				const a = (Math.PI * 2 * i) / 12;
+				cv.segment(
+					c + Math.cos(a) * s * 0.24, c * 1.08 + Math.sin(a) * s * 0.24,
+					c + Math.cos(a) * s * 0.3, c * 1.08 + Math.sin(a) * s * 0.3,
+					s * 0.013, BODY);
+			}
+			cv.ring(c, c * 1.08, s * 0.21, s * 0.05, BODY);
+		});
+		cv.dot(c, c * 1.08, s * 0.165, mix(hue, P.ink, 0.78), 1);
+		cv.ring(c, c * 1.08, s * 0.165, s * 0.011, P.pale, 0.55);
+		// 符面中央那根「还回去」的尖刺：菱形竖着放
+		cv.inked(() => cv.polygon([[c, c * 0.9], [c + s * 0.075, c * 1.14], [c, c * 1.28], [c - s * 0.075, c * 1.14]], P.warm), 0.35);
+		cv.dot(c, c * 1.09, s * 0.03, [1, 1, 1], 1);
+	},
+	golden_compass(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 壳 + 挂环：怀表有表冠和停摆的指针，罗盘则是八向刻度 + 一根歪着的针
+		cv.inked(() => {
+			cv.roundBox(c, c * 0.72, s * 0.05, s * 0.03, s * 0.012, BODY);
+			cv.dot(c, c * 1.06, s * 0.3, BODY);
+		});
+		cv.dot(c, c * 1.06, s * 0.25, mix(hue, P.ink, 0.82), 1);
+		for (let i = 0; i < 8; i++) {
+			const a = (Math.PI * i) / 4;
+			const r0 = 0.215;
+			const r1 = i % 2 ? 0.178 : 0.135;
+			cv.segment(
+				c + Math.cos(a) * s * r0, c * 1.06 + Math.sin(a) * s * r0,
+				c + Math.cos(a) * s * r1, c * 1.06 + Math.sin(a) * s * r1,
+				s * 0.01, P.warm, 0.8);
+		}
+		// 指针不指北，指向压在壳角上的那枚金币
+		cv.inked(() => cv.polygon([[c + s * 0.19, c * 1.19], [c - s * 0.05, c * 1.13], [c - s * 0.12, c * 0.99], [c + s * 0.13, c * 1.05]], P.warm), 0.35);
+		cv.dot(c, c * 1.06, s * 0.03, [1, 1, 1], 1);
+		cv.inked(() => {
+			cv.dot(c + s * 0.23, c * 1.32, s * 0.062, [1, 0.8, 0.3]);
+			cv.ring(c + s * 0.23, c * 1.32, s * 0.062, s * 0.012, [1, 0.94, 0.6], 0.9);
+		}, 0.4);
+	},
+	piggy_bank(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 罐身 + 两条短腿 + 顶上的盖子
+		cv.inked(() => {
+			cv.ellipse(c, c * 1.14, s * 0.29, s * 0.21, BODY);
+			cv.roundBox(c - s * 0.02, c * 0.9, s * 0.1, s * 0.032, s * 0.014, BODY);
+			cv.roundBox(c - s * 0.19, c * 1.38, s * 0.05, s * 0.045, s * 0.015, BODY);
+			cv.roundBox(c + s * 0.15, c * 1.38, s * 0.05, s * 0.045, s * 0.015, BODY);
+		});
+		// 投币口那条缝
+		cv.roundBox(c - s * 0.02, c * 0.9, s * 0.075, s * 0.012, s * 0.006, P.ink, 0.92);
+		// 鼻 + 两个鼻孔 + 一只眼
+		cv.inked(() => cv.ellipse(c + s * 0.25, c * 1.14, s * 0.075, s * 0.06, mix(hue, P.ink, 0.24)), 0.45);
+		cv.dot(c + s * 0.235, c * 1.12, s * 0.012, P.ink, 0.9);
+		cv.dot(c + s * 0.27, c * 1.16, s * 0.012, P.ink, 0.9);
+		cv.dot(c + s * 0.12, c * 1.04, s * 0.022, P.ink, 0.95);
+		// 一枚金币正被塞进去：画面有动作才读得出「储蓄」
+		cv.inked(() => {
+			cv.dot(c + s * 0.02, c * 0.64, s * 0.072, [1, 0.82, 0.32]);
+			cv.ring(c + s * 0.02, c * 0.64, s * 0.072, s * 0.013, [1, 0.95, 0.6], 0.9);
+		}, 0.4);
+		cv.dot(c + s * 0.02, c * 0.64, s * 0.03, [1, 0.96, 0.72], 1);
+	},
+	oblivion_stone(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 一块顶部被啃掉的不规则石碑
+		cv.inked(() => cv.polygon([
+			[c - s * 0.22, c * 0.74], [c - s * 0.04, c * 0.6], [c + s * 0.07, c * 0.7], [c + s * 0.22, c * 0.8],
+			[c + s * 0.18, c * 1.36], [c - s * 0.19, c * 1.38],
+		], BODY));
+		cv.polygon([
+			[c - s * 0.16, c * 0.84], [c + s * 0.15, c * 0.92], [c + s * 0.12, c * 1.3], [c - s * 0.13, c * 1.3],
+		], mix(hue, P.ink, 0.76), 1);
+		// 碑面三行字只剩淡痕：被抹掉的技能连名字都不留
+		for (const [dy, len] of [[1.0, 0.22], [1.1, 0.18], [1.2, 0.2]]) {
+			cv.roundBox(c - s * 0.02, c * dy, s * len, s * 0.011, s * 0.006, P.pale, 0.32);
+		}
+		// 一道横扫的擦痕压在字上，才是「抹掉」这个动作本身
+		cv.inked(() => cv.polygon([
+			[c - s * 0.24, c * 1.04], [c + s * 0.24, c * 0.96], [c + s * 0.24, c * 1.02], [c - s * 0.24, c * 1.1],
+		], P.warm), 0.3);
+		// 飘走的灰烬：越往上越小越淡
+		for (const [dx, dy, r] of [[-0.1, 0.5, 0.02], [0.03, 0.42, 0.016], [0.14, 0.5, 0.013], [0.06, 0.34, 0.01]]) {
+			cv.dot(c + s * dx, c * dy, s * r, P.warm, 0.6);
+		}
+		cv.dot(c - s * 0.12, c * 0.76, s * 0.035, [1, 1, 1], 0.45);
+	},
 };
 
 // ---------------------------------------------------------------- 生成
@@ -898,18 +1275,96 @@ const IMAGES = [
 	["curios", 256, "leftover_rice", "#ffb63f", 97],
 	["curios", 256, "cursed_coin", "#ff5470", 109],
 	["curios", 256, "loop_button", "#3fe8b0", 113],
+	["events", 512, "spring_of_wisdom", "#59f2d0", 131],
+	["events", 512, "skill_forge", "#ff9440", 137],
+	["events", 512, "stat_training_ground", "#a8e05c", 149],
+	["events", 512, "abyss_rift", "#8c6cff", 157],
+	["events", 512, "wandering_merchant", "#ffd97a", 163],
+	["events", 512, "curio_forge", "#c86cff", 173],
+	["events", 512, "ancient_ruins", "#9fd8ff", 181],
+	["curios", 256, "berserker_badge", "#ff5c3c", 191],
+	["curios", 256, "blood_rage_core", "#ff3c6c", 197],
+	["curios", 256, "counter_amulet", "#7ac8ff", 211],
+	["curios", 256, "golden_compass", "#ffc93c", 223],
+	["curios", 256, "piggy_bank", "#ffa8c8", 227],
+	["curios", 256, "oblivion_stone", "#a0a8c8", 233],
 ];
 
+/** 盒式降采样：把 size×size 的 RGBA 收成 to×to。用来还原奇物在界面上的真实尺寸（64px） */
+function shrink(pixels, size, to) {
+	const k = Math.round(size / to);
+	const out = new Uint8Array(to * to * 4);
+	for (let y = 0; y < to; y++) {
+		for (let x = 0; x < to; x++) {
+			let r = 0;
+			let g = 0;
+			let b = 0;
+			for (let sy = 0; sy < k; sy++) {
+				for (let sx = 0; sx < k; sx++) {
+					const i = ((y * k + sy) * size + x * k + sx) * 4;
+					r += pixels[i];
+					g += pixels[i + 1];
+					b += pixels[i + 2];
+				}
+			}
+			const o = (y * to + x) * 4;
+			out[o] = Math.round(r / (k * k));
+			out[o + 1] = Math.round(g / (k * k));
+			out[o + 2] = Math.round(b / (k * k));
+			out[o + 3] = 255;
+		}
+	}
+	return out;
+}
+
+// 自检用拼表：把所有条目的「真实 64px 样子」放大两倍排进一张 4×4 网格。
+// 奇物界面里只有 64px，直接看 256px 原图会一路绿灯、进游戏全是糊的（踩过），所以必须看这张。
+const PREVIEW = process.argv.includes("--preview");
+const PREVIEW_TILE = 64;
+const PREVIEW_ZOOM = 2;
+// 5×5 格、每格放大两倍 → 640×640；全部条目（12 事件 + 13 奇物 = 25 张）一张放完
+const PREVIEW_COLS = 5;
+const SHEET = PREVIEW_COLS * PREVIEW_TILE * PREVIEW_ZOOM;
+const sheet = PREVIEW ? new Uint8Array(SHEET * SHEET * 4).fill(24) : null;
+
+let index = 0;
 for (const [dir, size, name, colorText, seed] of IMAGES) {
 	const color = hex(colorText);
 	const canvas = new Canvas(size, size > 400 ? 3 : 4);
 	canvas.p = palette(color);
 	backdrop(canvas, color, seed);
 	draw[name](canvas, color);
-	const png = encodePNG(canvas.pixels(), size);
+	const pixels = canvas.pixels();
+	const png = encodePNG(pixels, size);
 	const outDir = dir === "events" ? EVENTS_DIR : CURIOS_DIR;
 	fs.mkdirSync(outDir, { recursive: true });
 	const file = path.join(outDir, `${name}.png`);
 	fs.writeFileSync(file, png);
 	console.log(`生成 ${path.relative(root, file)}（${size}x${size}，${png.length} 字节）`);
+	if (PREVIEW) {
+		const tiny = shrink(pixels, size, PREVIEW_TILE);
+		const ox = (index % PREVIEW_COLS) * PREVIEW_TILE * PREVIEW_ZOOM;
+		const oy = Math.floor(index / PREVIEW_COLS) * PREVIEW_TILE * PREVIEW_ZOOM;
+		for (let y = 0; y < PREVIEW_TILE; y++) {
+			for (let x = 0; x < PREVIEW_TILE; x++) {
+				const i = (y * PREVIEW_TILE + x) * 4;
+				for (let sy = 0; sy < PREVIEW_ZOOM; sy++) {
+					for (let sx = 0; sx < PREVIEW_ZOOM; sx++) {
+						const o = ((oy + y * PREVIEW_ZOOM + sy) * SHEET + ox + x * PREVIEW_ZOOM + sx) * 4;
+						sheet[o] = tiny[i];
+						sheet[o + 1] = tiny[i + 1];
+						sheet[o + 2] = tiny[i + 2];
+						sheet[o + 3] = 255;
+					}
+				}
+			}
+		}
+		index += 1;
+	}
+}
+
+if (PREVIEW) {
+	const sheetFile = path.join(root, "tools", "preview-sheet.png");
+	fs.writeFileSync(sheetFile, encodePNG(sheet, SHEET));
+	console.log(`拼表（每格 = 真实 64px，放大两倍便于查看）：${path.relative(root, sheetFile)}`);
 }

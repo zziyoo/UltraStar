@@ -74,18 +74,24 @@ export function showResult(info) {
  * 未正常结算战斗的恢复页：告知玩家恢复的是哪一关、用的是什么阵容。
  * 纯 UI：api.onResume() 由 mode.js 用存档里已保存的敌方阵容重开本关（不重掷），api.onBack() 回存档页。
  * 敌人只展示存档 currentBattle.enemies 里已序列化的 characterId（角色名 + 头像），不碰任何随机逻辑。
+ *
+ * 带 rift 的那一场（深渊裂隙）也走这一页——它本来就是「落盘 + 重载 + 在这里开打」进来的，
+ * 所以标题与按钮换成裂隙的说法，免得玩家以为自己打了一半崩了。
  */
 export function showResume(api) {
 	const run = api.run;
+	const rift = run.currentBattle?.rift ?? null;
 	const panel = ui.create.div(".wm-rogue-resume", openOverlay("wm-rogue-resume-overlay"));
 
 	ui.create.div(".wm-rogue-resume-mark", "!", panel);
-	ui.create.div(".wm-rogue-resume-title", "战斗未正常结算", panel);
+	ui.create.div(".wm-rogue-resume-title", rift ? "深渊裂隙已开启" : "战斗未正常结算", panel);
 
 	const card = ui.create.div(".wm-rogue-resume-card", panel);
 	ui.create.div(".wm-rogue-resume-mode", RUN_MODE_LABEL[run.mode] ?? run.mode, card);
 	ui.create.div(".wm-rogue-resume-level", `第 ${run.level} 关`, card);
-	ui.create.div(".wm-rogue-resume-hint", "将使用上次保存的敌方阵容继续挑战", card);
+	ui.create.div(".wm-rogue-resume-hint", rift
+		? "将使用已保存的阵容进入裂隙：这一场不计入关卡层数，战败与平常失败同罪"
+		: "将使用上次保存的敌方阵容继续挑战", card);
 
 	const enemies = (Array.isArray(run.currentBattle?.enemies) ? run.currentBattle.enemies : []).filter(
 		entry => entry?.characterId
@@ -102,7 +108,7 @@ export function showResume(api) {
 	}
 
 	const actions = ui.create.div(".wm-rogue-resume-actions", panel);
-	addOverlayButton("重新挑战这一关", actions, () => api.onResume(), "wm-rogue-resume-primary");
+	addOverlayButton(rift ? "进入裂隙" : "重新挑战这一关", actions, () => api.onResume(), "wm-rogue-resume-primary");
 	addOverlayButton("返回存档页", actions, () => api.onBack(), "wm-rogue-small");
 }
 

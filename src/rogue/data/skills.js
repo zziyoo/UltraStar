@@ -59,6 +59,59 @@ export const translate = {
 // 一个技能同时承担四种效果，玩家旁边因此只有一个「强化」标记，点开能看到全部当前效果。
 // 技能本体只读 storage，不在 lib 里登记任何针对具体存档的内容。
 
+/**
+ * 「本回合」的判据：拿 phase 事件对象本身比——同一个 phase 事件才是同一个回合
+ * （与深渊词缀 abyss_buqu 同一套做法，不必再挂临时技，回合一走两边自然不再相等）。
+ */
+function phaseOf(event) {
+	const found = event && typeof event.getParent === "function" ? event.getParent("phase") : null;
+	return found && found.name === "phase" ? found : null;
+}
+
+function samePhase(stored, phase) {
+	return !!stored && !!phase && stored === phase;
+}
+
+/** 血怒核心的体力闸门：带 lowHp 标记的档只在「体力低于体力上限的一半（向上取整）」时生效 */
+function curioUnrespondableActive(player) {
+	const storage = player.storage?.rogue_curio ?? {};
+	if (!((storage.unrespondable || 0) > 0)) {
+		return false;
+	}
+	if ((storage.unrespondableLowHp || 0) > 0) {
+		return player.hp < Math.ceil(player.maxHp / 2);
+	}
+	return true;
+}
+
+/**
+ * 此刻这名玩家「造成伤害时」能加的点数（纯查询，绝不在这里消耗任何东西）。
+ * filter 与 content 都调它，判据因此只有一份；消耗（下一次那一层）只在 content 里做一次。
+ * 反击护符三档都只加一层：布尔/回合标记被反复受伤刷新也不会变成 +2。
+ */
+function curioDealtDamageBonus(player, event) {
+	const storage = player.storage?.rogue_curio ?? {};
+	const phase = phaseOf(event);
+	let bonus = 0;
+	if ((storage.firstDamageBonus || 0) > 0 && samePhase(player.rogueCurioRagePhase, phase)) {
+		bonus += storage.firstDamageBonus;
+	}
+	if ((storage.hurtDamageGame || 0) > 0 && player.rogueCurioCounterGame) {
+		bonus += storage.hurtDamageGame;
+	}
+	if ((storage.hurtDamageRound || 0) > 0 && samePhase(player.rogueCurioCounterPhase, phase)) {
+		bonus += storage.hurtDamageRound;
+	}
+	if ((storage.hurtDamageNext || 0) > 0 && player.rogueCurioCounterNext) {
+		bonus += storage.hurtDamageNext;
+	}
+	// 「此牌伤害 +1」只对**有牌**的伤害生效：纯技能伤害没有「这张牌」
+	if ((storage.unrespondableCardDamage || 0) > 0 && !!event.card && curioUnrespondableActive(player)) {
+		bonus += storage.unrespondableCardDamage;
+	}
+	return bonus;
+}
+
 export const helpers = {
 	rogue_stat: {
 		// 一个技能可以同时挂多个时机与 mod
@@ -118,9 +171,28 @@ export const helpers = {
 	rogue_curio: {
 		trigger: {
 			// phaseEnd 是「这个玩家的整个回合走完」的时机（本体在 phaseList 跑完后 trigger 一次），
-			// roundEnd 才是全场一轮结束——剩饭的史诗档换的就是这两者
-			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd"],
+			// roundEnd 才是全场一轮结束——剩饭的史诗档换的就是这两者。
+			// damageEnd = 受到伤害后（反击护符上 buff）；source 那两个是「我造成的伤害」：
+			// damageBegin1 加伤、damage 用来认出「本回合的首次造成伤害」。
+			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd"],
+			source: ["damageBegin1", "damage"],
 			global: "roundEnd",
+		},
+		// 血怒核心「你使用的牌无法被响应」要走本体的两个技能标签，而且**两个都得挂**：
+		//   norespond      —— 本体 lib.filter.cardRespondable 里问的是「出牌那个人」有没有这个标签，
+		//                    有就让响应者一律不能响应（闪挡不住杀、决斗接不住……）；
+		//   playernowuxie  —— 锦囊的无懈可击询问走的是另一条路（lib.skill._wuxie 的 filter），
+		//                    不吃 cardRespondable，所以必须单独挂它。
+		// 两者都靠 skillTagFilter 现读体力条件；标签为 true 时本体才会调 skillTagFilter，别写成函数式标签。
+		ai: {
+			norespond: true,
+			playernowuxie: true,
+			skillTagFilter(player, tag) {
+				if (tag === "norespond" || tag === "playernowuxie") {
+					return curioUnrespondableActive(player);
+				}
+				return false;
+			},
 		},
 		forced: true,
 		mark: true,
@@ -153,6 +225,23 @@ export const helpers = {
 			if (triggername === "phaseEnd") {
 				return player.isAlive() && player.hp < player.maxHp && (storage.turnHeal || 0) > 0;
 			}
+			if (triggername === "damageEnd") {
+				// 反击护符：受到伤害后上一层 buff。当前品质下三档只有一个键存在（qualityEffects 整份替换），
+				// 所以「不累加」天然成立；反复受伤也只是把同一层重新按上
+				return event.num > 0
+					&& (storage.hurtDamageNext || 0) + (storage.hurtDamageRound || 0) + (storage.hurtDamageGame || 0) > 0;
+			}
+			if (triggername === "damage") {
+				// 狂战徽章要的是「首次造成伤害**后**」，所以第一下之前不该武装——已经武装过本回合就不再重复
+				return event.num > 0
+					&& (storage.firstDamageBonus || 0) > 0
+					&& !samePhase(player.rogueCurioRagePhase, phaseOf(event));
+			}
+			if (triggername === "damageBegin1") {
+				// 加伤一律排在 damageBegin1（damageBegin4 本体没有 await，改数会赶上结算的读取）；
+				// 固定伤害不参与
+				return !event.numFixed && curioDealtDamageBonus(player, event) > 0;
+			}
 			return false;
 		},
 		async content(event, trigger, player) {
@@ -174,6 +263,30 @@ export const helpers = {
 				await player.recover(storage.roundHeal || 0);
 			} else if (event.triggername === "phaseEnd") {
 				await player.recover(storage.turnHeal || 0);
+			} else if (event.triggername === "damageEnd") {
+				// 反击护符上 buff：三个记号都是「赋值」而不是「累加」，所以挨多少次打都只有一层
+				const phase = phaseOf(trigger);
+				if ((storage.hurtDamageNext || 0) > 0) {
+					player.rogueCurioCounterNext = true;
+				}
+				if ((storage.hurtDamageRound || 0) > 0) {
+					player.rogueCurioCounterPhase = phase;
+				}
+				if ((storage.hurtDamageGame || 0) > 0) {
+					player.rogueCurioCounterGame = true;
+				}
+			} else if (event.triggername === "damage") {
+				// 狂战徽章：记下「本回合已经造成过伤害」的那个回合对象，之后同回合的伤害才吃加成
+				player.rogueCurioRagePhase = phaseOf(trigger);
+			} else if (event.triggername === "damageBegin1") {
+				const bonus = curioDealtDamageBonus(player, trigger);
+				if (bonus > 0) {
+					trigger.num += bonus;
+					// 「下一次造成伤害 +1」是消耗品：吃到就清空，之后要重新挨一发才再有一层
+					if ((storage.hurtDamageNext || 0) > 0 && player.rogueCurioCounterNext) {
+						player.rogueCurioCounterNext = false;
+					}
+				}
 			}
 		},
 	},

@@ -28,6 +28,8 @@ const log = stub.__log;
 const load = rel => import(pathToFileURL(path.join(root, rel)).href);
 const cfg = await load("src/rogue/config.js");
 const eventsData = await load("src/rogue/data/events.js");
+const curiosData = await load("src/rogue/data/curios.js");
+const stagesData = await load("src/rogue/data/challengeStages.js");
 const abyssCfg = await load("src/rogue/endless/abyssConfig.js");
 const modeModule = await load("src/rogue/mode.js");
 const battleModule = await load("src/rogue/battle.js");
@@ -317,11 +319,12 @@ await check("选将页：每页张数放开到配置的 24 张", () => {
 	click("空存档");
 	click("闯关模式");
 	const dialog = common.currentScreenNode();
-	assertEqual(dialog.buttons.length, 63, "候选总数（桩里 4 个基础角色 + 59 个测试角色）");
+	const expectedTotal = battleModule.getRoster().length;
+	assertEqual(dialog.buttons.length, expectedTotal, `候选总数应与可用名单一致（桩基础角色 + 关卡配置池角色 + 59 个测试角色 = ${expectedTotal}）`);
 	assertEqual(dialog.paginationMaxCount.get("character"), cfg.CHARACTER_PICKER_PAGE_SIZE, "每页张数应放开");
 	assertEqual(dialog.buttons.filter(button => !button.classList.contains("nodisplay")).length, cfg.CHARACTER_PICKER_PAGE_SIZE, "第一页显示 24 张");
 	const pager = dialog.paginationMap.get(dialog.content.querySelector(".buttons"));
-	assertEqual(pager.state.totalPageCount, 3, `页数应重算：${pager.state.totalPageCount}`);
+	assertEqual(pager.state.totalPageCount, Math.ceil(expectedTotal / cfg.CHARACTER_PICKER_PAGE_SIZE), `页数应重算：${pager.state.totalPageCount}`);
 	assertEqual(pager.state.pageNumber, 1, "回到第一页");
 	lib.config.showMax_character_number = 0;
 	click("迪迦");
@@ -402,8 +405,13 @@ await check("开局：先落盘敌方阵容再建局，本体事件调用顺序�
 	assertEqual(run.currentBattle.status, "battle", "状态应为 battle");
 	const enemies = run.currentBattle.enemies;
 	assert(Array.isArray(enemies) && enemies.length === 1, "第 1 关应有 1 个敌人");
-	const pool = enemyModule.getChallengeEnemyPool();
-	assert(pool.includes(enemies[0].characterId), `敌人 ${enemies[0].characterId} 应来自扩展角色池`);
+	// 闯关前 10 关：敌人来自建局时抽定的关卡配置（challengeStages[level-1]），不再是扩展角色池
+	const stages = run.challengeStages;
+	assert(Array.isArray(stages) && stages.length === cfg.CHALLENGE_STAGE_LEVELS, "建局时应一次性抽出前 10 关配置");
+	assertEqual(new Set(stages).size, stages.length, "前 10 关配置互不重复");
+	assert(stages.every(id => stagesData.getChallengeStageConfig(id)), "每关配置都在配置池里");
+	const stageConfig = stagesData.getChallengeStageConfig(stages[run.level - 1]);
+	assertEqual(enemies[0].characterId, stageConfig.players[0].character, `敌人 ${enemies[0].characterId} 应来自关卡配置「${stageConfig.id}」`);
 	assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack, 1, "第 1 关每名敌人恰好 1 属性点");
 	const arena = log.find(item => item.type === "prepareArena");
 	assertEqual(arena.num, 1 + enemies.length, `座位数应为 ${1 + enemies.length}`);
@@ -1587,7 +1595,7 @@ await check("敌人配置缺失：给出提示而不是崩溃或空局", async (
 	const popups = nodesWithClass("wm-rogue-popup");
 	assertEqual(popups.length, 1, "阵容问题应弹出提示");
 	const text = dump(popups[0]);
-	assert(text.includes("没有当前可用"), `应报出阵容问题：${text}`);
+	assert(text.includes("都不存在"), `应报出阵容问题（闯关前 10 关的恢复也放行禁将、只拦角色不存在）：${text}`);
 	assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "应清除无效的战斗标记");
 	return "阵容错误可见";
 });
@@ -2077,12 +2085,15 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 	const stage = nodesWithClass("wm-rogue-index")[0];
 	assert(stage, "图鉴走自建浮层");
 	const text = screenText();
-	assert(text.includes("事件（5/5）"), `事件计数：${text}`);
-	assert(text.includes("奇物（2/7）"), `奇物计数：${text}`);
+	// 计数一律按数据表算：事件与奇物会随内容扩充，记死的分母每次加条目都要跟着改，测不出真问题
+	const eventTotal = eventsData.eventIds.length;
+	const curioTotal = curiosData.curioIds.length;
+	assert(text.includes(`事件（5/${eventTotal}）`), `事件计数：${text}`);
+	assert(text.includes(`奇物（2/${curioTotal}）`), `奇物计数：${text}`);
 	assert(text.includes("幸运硬币"), "已发现事件显示名字");
 	assert(text.includes("能量核心"), "曾拥有的奇物仍在图鉴（当前已不持有）");
 	// 未收录条目按「未发现」剪影展示（事件 0 个 + 奇物 5 个）
-	assertEqual(nodesWithClass("wm-rogue-index-unknown").length, 5, "未发现条目显示？？？");
+	assertEqual(nodesWithClass("wm-rogue-index-unknown").length, (eventTotal - 5) + (curioTotal - 2), "未发现条目显示？？？");
 	// 已知条目按定义画配图，未收录的剪影不挂图
 	const arts = nodesWithClass("wm-rogue-index-art");
 	assert(arts.some(node => node.style.backgroundImage.includes("lucky_coin.png")), "事件图引用");
@@ -2130,10 +2141,16 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 		`许愿池逐行版式：${pool.join(" / ")}`
 	);
 	assert(!pool.some(line => line.includes("落空")), `落空分支不该出现在图鉴里：${pool.join(" / ")}`);
-	const watch = openDetail("破损怀表");
-	assertEqual(watch[0], "破损怀表（史诗）", "奇物详情首行带品质档");
-	assertEqual(watch.length, 3, `奇物详情三行（名称/风味/效果）：${watch.join(" / ")}`);
-	assert(watch[2].includes("额外的出牌阶段"), `第三行是实际效果：${watch.join(" / ")}`);
+	// 奇物详情走自己的详情框：名称 + 图标 + 初始品质 + 每一档实际效果（完整升级路线见下一条用例）
+	clickNode(cards.find(node => dump(node).includes("破损怀表")));
+	const watchBox = nodesWithClass("wm-rogue-detail-box")[0];
+	assert(watchBox, "点奇物应弹出详情框");
+	const watch = dump(watchBox);
+	assert(watch.includes("破损怀表"), `详情有奇物名：${watch}`);
+	assert(watch.includes("初始品质：史诗"), `详情有初始品质：${watch}`);
+	assert(watch.includes("额外的出牌阶段"), `详情有实际效果：${watch}`);
+	click("关闭");
+	assertEqual(nodesWithClass("wm-rogue-detail-popup").length, 0, "关闭后详情框移除");
 	// 未发现的条目不挂监听：点了必须毫无反应，不能弹一个「尚未发现」
 	const unknown = cards.find(node => dump(node).includes("未发现"));
 	assert(unknown, "应有未发现条目");
@@ -2141,7 +2158,176 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 	assert(!unknown.classList.contains("wm-rogue-index-clickable"), "未发现条目不该有可点样式");
 	click("返回");
 	assert(screenText().includes("开始下一关"), "返回应回到营地");
-	return "事件 5/5 + 奇物 2/7 + 详情逐行";
+	return `事件 5/${eventTotal} + 奇物 2/${curioTotal} + 详情逐行`;
+});
+
+await check("图鉴页签：默认事件，切到奇物再切回，pane 显隐不带残留", async () => {
+	freshWorld();
+	putRun(0, { mode: "endless", collection: { events: ["lucky_coin"], curios: ["broken_watch"] } });
+	session();
+	click("图鉴");
+	const tabs = nodesWithClass("wm-rogue-index-tab");
+	assertEqual(tabs.length, 2, "事件/奇物两个页签");
+	assert(tabs[0].classList.contains("wm-rogue-index-tab-active"), "默认选中事件");
+	assert(!tabs[1].classList.contains("wm-rogue-index-tab-active"), "奇物默认不亮");
+	const panes = nodesWithClass("wm-rogue-index-pane");
+	assertEqual(panes.length, 2, "事件与奇物各一个 pane");
+	assert(!panes[0].classList.contains("wm-rogue-hidden"), "事件 pane 可见");
+	assert(panes[1].classList.contains("wm-rogue-hidden"), "奇物 pane 隐藏（.wm-rogue-hidden 有 display:none 规则）");
+	// 切到奇物：只有奇物亮、只有事件被拿掉
+	const overlay = common.currentScreenNode();
+	clickNode(tabs[1]);
+	assert(tabs[1].classList.contains("wm-rogue-index-tab-active"), "奇物页签高亮");
+	assert(!tabs[0].classList.contains("wm-rogue-index-tab-active"), "事件页签熄灭");
+	assert(panes[0].classList.contains("wm-rogue-hidden"), "事件 pane 整块隐藏");
+	assert(!panes[1].classList.contains("wm-rogue-hidden"), "奇物 pane 显示");
+	assertEqual(overlay.scrollTop, 0, "切换后内容区滚回页首");
+	// 隐藏的 pane 里卡片监听不重复：奇物卡详情照常弹出
+	const watchCard = nodesWithClass("wm-rogue-index-card").find(node => dump(node).includes("破损怀表"));
+	clickNode(watchCard);
+	assertEqual(nodesWithClass("wm-rogue-detail-popup").length, 1, "奇物详情照常弹出");
+	click("关闭");
+	assertEqual(nodesWithClass("wm-rogue-detail-popup").length, 0, "关闭后回到图鉴");
+	// 反复切换：卡片与页签都不重建，监听不叠加
+	const cardCount = nodesWithClass("wm-rogue-index-card").length;
+	for (let i = 0; i < 3; i++) {
+		clickNode(tabs[0]);
+		clickNode(tabs[1]);
+	}
+	assertEqual(nodesWithClass("wm-rogue-index-card").length, cardCount, "反复切换卡片数量不变");
+	assertEqual(nodesWithClass("wm-rogue-index-tab").length, 2, "页签不重建");
+	clickNode(tabs[0]);
+	assert(!panes[0].classList.contains("wm-rogue-hidden"), "切回事件 pane");
+	assert(panes[1].classList.contains("wm-rogue-hidden"), "奇物 pane 重新隐藏");
+	// 再进图鉴：页签状态不保留，回到默认的事件
+	click("返回");
+	click("图鉴");
+	const tabsAgain = nodesWithClass("wm-rogue-index-tab");
+	assert(tabsAgain[0].classList.contains("wm-rogue-index-tab-active"), "重进图鉴默认回到事件");
+	assert(nodesWithClass("wm-rogue-index-pane")[1].classList.contains("wm-rogue-hidden"), "重进后奇物 pane 仍隐藏");
+	click("返回");
+	return "默认事件 → 奇物 → 事件，卡片只建一次";
+});
+
+await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质），与玩家当前品质无关", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		collection: { events: [], curios: ["energy_core", "cursed_coin", "broken_watch"] },
+		curios: ["energy_core"],
+		// 玩家已把它升到史诗：图鉴仍要给全链路，而不是只显示史诗那一档
+		curioQuality: { energy_core: "epic" },
+	});
+	session();
+	click("图鉴");
+	clickNode(nodesWithClass("wm-rogue-index-tab")[1]);
+	const cards = nodesWithClass("wm-rogue-index-card");
+	const detailOf = label => {
+		clickNode(cards.find(node => dump(node).includes(label)));
+		const box = nodesWithClass("wm-rogue-detail-box")[0];
+		assert(box, `点「${label}」应弹出详情框`);
+		return {
+			names: nodesWithClass("wm-rogue-detail-step-name").map(textOf),
+			effects: nodesWithClass("wm-rogue-detail-effect").map(textOf),
+			prevs: nodesWithClass("wm-rogue-detail-prev").map(textOf),
+			text: dump(box),
+		};
+	};
+	// 数值成长：普通 1 张 → 稀有 2 张 → 史诗 4 张，逐档给最终值并注记上一档
+	const core = detailOf("能量核心");
+	assertEqual(
+		JSON.stringify(core.names),
+		JSON.stringify(["【普通】 初始", "【稀有】", "【史诗】"]),
+		`档位名：${core.names.join(" / ")}`,
+	);
+	assertEqual(
+		JSON.stringify(core.effects),
+		JSON.stringify(["摸牌阶段额外摸 1 张牌", "摸牌阶段额外摸 2 张牌", "摸牌阶段额外摸 4 张牌"]),
+		`每档的实际数值：${core.effects.join(" / ")}`,
+	);
+	assertEqual(
+		JSON.stringify(core.prevs),
+		JSON.stringify(["上一档：摸牌阶段额外摸 1 张牌", "上一档：摸牌阶段额外摸 2 张牌"]),
+		`变化注记：${core.prevs.join(" / ")}`,
+	);
+	assert(core.text.includes("能量核心") && core.text.includes("初始品质：普通"), `头部有名称与初始品质：${core.text}`);
+	// 负面奇物：从「金币 -10%」一路净化到「+20%」，四档全给
+	const coin = detailOf("诅咒金币");
+	assertEqual(coin.names.length, 4, `负面奇物走满品质链：${coin.names.join(" / ")}`);
+	assert(coin.effects[0].includes("-10%"), `负面初始效果：${coin.effects.join(" / ")}`);
+	assert(coin.effects[3].includes("+20%"), `最高品质效果：${coin.effects.join(" / ")}`);
+	// 链尾起手只有一档：不伪造升级档
+	const watch = detailOf("破损怀表");
+	assertEqual(watch.names.length, 1, `史诗起手没有后续档位：${watch.names.join(" / ")}`);
+	assert(!watch.prevs.length, `没有上一档就不写注记：${watch.text}`);
+	// 连点不同奇物：不叠层、不串台
+	assertEqual(nodesWithClass("wm-rogue-detail-popup").length, 1, "任何时刻只有一个详情弹层");
+	assert(!watch.text.includes("诅咒金币"), `详情内容不串台：${watch.text}`);
+	click("关闭");
+	assertEqual(nodesWithClass("wm-rogue-detail-popup").length, 0, "关闭后弹层销毁");
+	assert(nodesWithClass("wm-rogue-index")[0], "关闭详情后图鉴还在原地");
+	click("返回");
+	assert(screenText().includes("开始下一关"), "返回应回到营地");
+	return "能量核心 3 档 / 诅咒金币 4 档（含负面）/ 怀表 1 档";
+});
+
+await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展示，交互选项不再写「无奖励」", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		collection: {
+			events: ["abyss_rift", "ancient_ruins", "wandering_merchant", "curio_forge", "skill_forge", "spring_of_wisdom", "stat_training_ground"],
+			curios: [],
+		},
+	});
+	session();
+	click("图鉴");
+	const cards = nodesWithClass("wm-rogue-index-card");
+	const openDetail = label => {
+		clickNode(cards.find(node => dump(node).includes(label)));
+		const lines = nodesWithClass("wm-rogue-popup-line").map(textOf);
+		assert(lines.length, `点「${label}」应弹出详情`);
+		click("确定");
+		assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "点确定应关掉详情弹窗");
+		return lines;
+	};
+	// 深渊裂隙：三档的敌人数与倍率读 config.RIFT_TIERS，每名敌人的深渊强化读 RIFT_EXTRA_AFFIXES
+	const rift = openDetail("深渊裂隙");
+	for (let i = 0; i < cfg.RIFT_TIERS.length; i++) {
+		const expect = `　开一场 ${cfg.RIFT_TIERS[i].enemies} 名敌人的裂隙战（不算层数），胜利得本层基准 ${cfg.RIFT_TIERS[i].multiplier} 倍金币与经验，每名敌人自带 ${cfg.RIFT_EXTRA_AFFIXES} 个深渊强化`;
+		assert(rift.includes(expect), `裂隙第 ${i + 1} 档应写明奖励规则：${rift.join(" / ")}`);
+	}
+	assert(!rift.includes("无奖励"), `裂隙选项不该再显示无奖励：${rift.join(" / ")}`);
+	// 古代遗迹：三扇门写明品质与折算经验（折算额 = expByWin + expIfNoCurioByWin）
+	const ruins = openDetail("古代遗迹");
+	assert(ruins.some(line => line.includes("获得一件普通奇物（该品质已集齐时改为获得 2 倍胜利经验）")),
+		`白门应写明普通奇物与 0.5+1.5=2 倍折算：${ruins.join(" / ")}`);
+	assert(ruins.some(line => line.includes("获得一件稀有奇物（该品质已集齐时改为获得 2 倍胜利经验）")),
+		`紫门不再是「无奖励」：${ruins.join(" / ")}`);
+	assert(ruins.some(line => line.includes("获得一件负面奇物") && !line.includes("改为获得")),
+		`黑门没写折算就不写「改为」：${ruins.join(" / ")}`);
+	// 交互选项：商人与融合炉写明价钱规则（读 config 倍率），换技能不再显示「无奖励」
+	const merchant = openDetail("流浪商人");
+	assert(merchant.some(line => line.includes(`奇物基准价 ×${cfg.MERCHANT_PRICE_MULTIPLIER}`) && line.includes("升一级品质")),
+		`流浪商人应写明定价规则：${merchant.join(" / ")}`);
+	const forge = openDetail("奇物融合炉");
+	assert(forge.some(line => line.includes(`本层基准经验 ×${cfg.FORGE_EXP_MULTIPLIER}`)),
+		`融合炉应写明费用规则：${forge.join(" / ")}`);
+	const skillForge = openDetail("技能熔炉");
+	assert(skillForge.some(line => line.includes("失去一个技能，换一个随机新技能")),
+		`换技能选项不该是「无奖励」：${skillForge.join(" / ")}`);
+	// 经验泉「再饮一口」：奖励与深渊债写同一行
+	const spring = openDetail("经验泉");
+	assert(spring.some(line => line.includes("获得 1 倍胜利经验") && line.includes(`每名敌人追加 ${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`)),
+		`再饮一口应连深渊债一起写：${spring.join(" / ")}`);
+	// 属性训练场：写了 blockedText 的 statUp，全满注记换成原话，不再是「改送随机奇物」
+	const training = openDetail("属性训练场");
+	assert(training.some(line => line.includes("随机一项属性 +1（属性已满时：你太厉害了，没什么能学到的东西。）")),
+		`训练场的全满注记应引自 blockedText：${training.join(" / ")}`);
+	assert(!training.some(line => line.includes("改送一个随机奇物")),
+		`训练场不该写「改送随机奇物」：${training.join(" / ")}`);
+	click("返回");
+	return "裂隙 3 档 + 遗迹 3 门 + 5 个交互选项全部有说明";
 });
 
 await check("图鉴是公有的：别的存档解锁的内容这里也看得到，删档也不丢", async () => {
@@ -2152,8 +2338,8 @@ await check("图鉴是公有的：别的存档解锁的内容这里也看得到�
 	session();
 	click("图鉴");
 	const merged = screenText();
-	assert(merged.includes("事件（1/5）"), `0 号档解锁的事件应在：${merged}`);
-	assert(merged.includes("奇物（2/7）"), `1 号档解锁的奇物应在：${merged}`);
+	assert(merged.includes(`事件（1/${eventsData.eventIds.length}）`), `0 号档解锁的事件应在：${merged}`);
+	assert(merged.includes(`奇物（2/${curiosData.curioIds.length}）`), `1 号档解锁的奇物应在：${merged}`);
 	assert(merged.includes("幸运硬币") && merged.includes("能量核心"), "两个存档的内容同屏");
 	click("返回");
 	// 公有键已经落盘：把 0 号档整个删掉（连解锁记录一起），图鉴仍然留着它解锁过的事件
@@ -2166,7 +2352,7 @@ await check("图鉴是公有的：别的存档解锁的内容这里也看得到�
 	session();
 	click("图鉴");
 	const afterDelete = screenText();
-	assert(afterDelete.includes("事件（1/5）"), `删掉 0 号档后图鉴不丢：${afterDelete}`);
+	assert(afterDelete.includes(`事件（1/${eventsData.eventIds.length}）`), `删掉 0 号档后图鉴不丢：${afterDelete}`);
 	assert(afterDelete.includes("幸运硬币"), "已发现事件仍在");
 	click("返回");
 	return "两档合并 + 删档不丢";
@@ -2176,9 +2362,12 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	freshWorld();
 	putRun(0, {
 		mode: "endless",
-		curios: ["energy_core", "lucky_stone", "broken_watch"],
+		// 三件老的 + 三件本轮新增的战斗内奇物：新键必须照样流到 storage。
+		// battle.js 以前是逐个键手写这张表，漏一个键就是「技能挂上了但数值全是 0」——
+		// 逻辑层测试自己往 storage 塞数所以照绿，只有这条真机链路的用例拦得住
+		curios: ["energy_core", "lucky_stone", "broken_watch", "berserker_badge", "blood_rage_core", "counter_amulet"],
 		// 能量核心升到史诗：战斗总表要按当前品质给 +4，而不是初始的 +1
-		curioQuality: { energy_core: "epic" },
+		curioQuality: { energy_core: "epic", blood_rage_core: "rare", counter_amulet: "epic" },
 		currentBattle: {
 			status: "battle",
 			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
@@ -2190,32 +2379,56 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	assert(game.me.hasSkill("rogue_curio"), "应挂上奇物机制技");
 	assertEqual(
 		JSON.stringify(game.me.storage.rogue_curio),
-		JSON.stringify({ extraPhase: 1, extraDraw: 4, dyingSave: 0, dyingRecoverToRatio: 0, roundHeal: 0, turnHeal: 0 }),
-		"storage 按当前品质写（史诗能量核心 +4；幸运石是结算类不进 storage）"
+		JSON.stringify({
+			extraPhase: 1,
+			extraDraw: 4,
+			dyingSave: 0,
+			dyingRecoverToRatio: 0,
+			roundHeal: 0,
+			turnHeal: 0,
+			firstDamageBonus: 1,
+			unrespondable: 1,
+			unrespondableLowHp: 1,
+			unrespondableCardDamage: 1,
+			hurtDamageNext: 0,
+			hurtDamageRound: 0,
+			hurtDamageGame: 1,
+		}),
+		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；幸运石是结算类不进 storage）"
 	);
 	assertEqual(lib.hookmap.phaseBegin, true, "额外出牌阶段时机已登记");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "摸牌时机已登记");
 	assertEqual(lib.hookmap.dying, true, "濒死时机已登记");
 	assertEqual(lib.hookmap.roundEnd, true, "轮结束时机已登记");
 	assertEqual(lib.hookmap.phaseEnd, true, "回合结束时机已登记（剩饭史诗档）");
+	assertEqual(lib.hookmap.damageBegin1, true, "造成伤害加伤时机已登记（狂战/反击/血怒）");
+	assertEqual(lib.hookmap.damage, true, "「我造成的伤害」时机已登记（狂战徽章认本回合第一下）");
+	assertEqual(lib.hookmap.damageEnd, true, "受到伤害时机已登记（反击护符上 buff）");
+	// 「无法被响应」走的是本体两个技能标签，注册表里必须都在
+	assertEqual(lib.skill.rogue_curio.ai.norespond, true, "norespond 标签已注册");
+	assertEqual(lib.skill.rogue_curio.ai.playernowuxie, true, "playernowuxie 标签已注册");
 	assert(game.me.hasSkill("rogue_stat"), "属性强化机制技不受影响");
 	// 点「奇物」徽记 → 自建浮层面板（不再只是本体那个灰盒子 tooltip）：逐件列出名称（当前品质）与效果
 	assert(!!game.me.marks.rogue_curio, "应挂上「奇物」徽记");
 	tapMark(game.me.marks.rogue_curio);
 	const curioText = screenText();
-	for (const token of ["奇物", "能量核心（史诗）", "摸牌阶段额外摸 4 张牌", "幸运石（稀有）", "经验获取 +10%", "破损怀表（史诗）"]) {
-		assert(curioText.includes(token), `奇物面板应显示「${token}」：${curioText.slice(0, 400)}`);
+	for (const token of ["奇物", "能量核心（史诗）", "摸牌阶段额外摸 4 张牌", "幸运石（稀有）", "经验获取 +10%", "破损怀表（史诗）",
+		"狂战徽章（稀有）", "每回合首次造成伤害后，本回合你造成的伤害 +1",
+		"血怒核心（稀有）", "体力低于体力上限的一半（向上取整）时，你使用的牌无法被响应，且此牌造成的伤害 +1",
+		"反击护符（史诗）", "当你受到伤害后，本局游戏你造成的伤害 +1"]) {
+		assert(curioText.includes(token), `奇物面板应显示「${token}」：${curioText.slice(0, 600)}`);
 	}
 	assertEqual(nodesWithClass("wm-rogue-stat-panel").length, 1, "奇物面板复用属性面板的版式");
-	assertEqual(nodesWithClass("wm-rogue-stat-detail").length, 3, "三件奇物各一行");
+	assertEqual(nodesWithClass("wm-rogue-stat-detail").length, 6, "六件奇物各一行");
 	// 分两组：战斗里真生效的与结算才生效的分开，别让人以为诅咒金币/循环按钮这局马上能吃到
 	const splitAt = curioText.indexOf("结算时生效");
 	assert(curioText.includes("战斗内生效") && splitAt > 0, `两组标题都要在：${curioText.slice(0, 400)}`);
 	assert(curioText.indexOf("能量核心") < splitAt, `战斗类的奇物不该落到结算组：${curioText.slice(0, 400)}`);
 	assert(curioText.indexOf("破损怀表") < splitAt, `破损怀表是本局生效的：${curioText.slice(0, 400)}`);
+	assert(curioText.indexOf("狂战徽章") < splitAt, `狂战徽章是战斗内生效的：${curioText.slice(0, 400)}`);
 	assert(curioText.indexOf("幸运石") > splitAt, `幸运石只有结算加成，不该出现在战斗组：${curioText.slice(0, 400)}`);
 	common.closeScreen();
-	return "rogue_curio + storage 按品质 + 奇物面板";
+	return "rogue_curio + storage 十三键全量 + 战斗/结算分组";
 });
 
 await check("挑战模式不受影响：没有奇物商店与奇物栏，图鉴只读公有内容", async () => {
@@ -2241,7 +2454,7 @@ await check("挑战模式不受影响：没有奇物商店与奇物栏，图鉴�
 	// 图鉴改成公有收集册后闯关也给入口：里面是别的存档解锁的内容，闯关自己不产出
 	click("图鉴");
 	const indexText = screenText();
-	assert(indexText.includes("事件（0/5）") && indexText.includes("奇物（0/7）"), `空公有图鉴计数：${indexText}`);
+	assert(indexText.includes(`事件（0/${eventsData.eventIds.length}）`) && indexText.includes(`奇物（0/${curiosData.curioIds.length}）`), `空公有图鉴计数：${indexText}`);
 	click("返回");
 	return "闯关无奇物商店 / 图鉴可读但不产出";
 });
@@ -2289,7 +2502,7 @@ await check("v3 旧档兼容：缺事件/奇物/图鉴字段时自动补齐并�
 	return "v3 → v4 静默补齐";
 });
 
-await check("奇物商店 10% 门控：未命中保留原候选且不触发事件，命中才整批重摇（先奇物商店、后事件）", async () => {
+await check("奇物商店 10% 门控：未命中清空旧批次且不触发事件，命中才整批上新货（先奇物商店、后事件）", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
@@ -2309,8 +2522,9 @@ await check("奇物商店 10% 门控：未命中保留原候选且不触发事�
 		lib.element.player.dieAfter.call(game.players[1]);
 		let run = lib.storage.rogueSlots[0];
 		assertEqual(run.pendingEvent, null, "未命中不触发事件");
-		assertEqual(JSON.stringify(run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 66 }]), "未命中保留原候选");
+		assertEqual(JSON.stringify(run.curioOffers), "[]", "未命中清空旧批次（同一批货不许挂十几关）");
 		const before = run.curioOffers.map(offer => `${offer.id}:${offer.price}`).join(",");
+		assertEqual(before, "", "未命中后商店确实是空的");
 		click("返回营地");
 		// 第二胜：rng=0 → 奇物商店命中整批重摇、事件也触发（顺序：先候选、后事件，同一次结算先后发生）
 		Math.random = () => 0;
@@ -2428,7 +2642,7 @@ await check("深渊化：敌人按存档词缀挂上技能与「深渊」徽记�
 	tapMark(first.marks.abyss_affix);
 	const overlay = common.currentScreenNode();
 	const text = screenText();
-	for (const token of ["深渊强化", "深渊·坚壁", "受到的伤害-1", "深渊·狂热", "额外的回合", "佐菲"]) {
+	for (const token of ["深渊强化", "深渊·坚壁", "受到的伤害减半（向上取整），且至少减免2点", "深渊·狂热", "额外的回合", "佐菲"]) {
 		assert(text.includes(token), `深渊面板应显示「${token}」：${text.slice(0, 400)}`);
 	}
 	assert(!text.includes("深渊·不屈"), "面板只列这名敌人实际拥有的词缀");
@@ -2520,6 +2734,284 @@ await check("深渊化不影响普通玩法：闯关高层与无尽低层的敌�
 		assertEqual(lib.hookmap.damageBegin4, undefined, `${label} 不该登记深渊受伤时机`);
 	}
 	return "闯关 30 关 / 无尽 5 层 均无深渊技能";
+});
+
+await check("事件页资源条与「没对象可作用」：余额看得见，满级点了只弹一句、钱不动", async () => {
+	freshWorld();
+	const maxed = {};
+	for (const id of cfg.STAT_IDS) {
+		maxed[id] = statsData.stats[id].maxLevel;
+	}
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		stats: maxed,
+		currency: { gold: 1234, exp: 999 },
+		pendingEvent: {
+			id: "stat_training_ground",
+			choices: [
+				{ text: "接受训练 → 随机属性 +1（-20 经验）", reward: { exp: -20, statUp: "defense" }, blockedText: "你太厉害了，没什么能学到的东西。" },
+				{ text: "离开", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	const text = screenText();
+	assert(text.includes("1234") && text.includes("999"), `事件页要显示金币与经验：${text}`);
+	assertEqual(nodesWithClass("wm-rogue-res-cell").length, 2, "事件页资源条两块（金币/经验）");
+	assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验", "资源条标签");
+	// 满级是「没有对象可作用」，不是「付不起」：选项不置灰，点了弹一句
+	const choice = nodesWithClass("wm-rogue-event-choice")[0];
+	assert(!choice.classList.contains("wm-rogue-disabled"), "属性满级不该把选项置灰");
+	click("接受训练");
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "结果走浮层内弹层");
+	assert(screenText().includes("你太厉害了，没什么能学到的东西"), `弹的就是作者那句：${screenText()}`);
+	click("确定");
+	// 这一场是从存档页进来的（读档优先回事件页），出口是营地而不是重载
+	assert(screenText().includes("开始下一关"), `事件办完回营地：${screenText()}`);
+	const after = lib.storage.rogueSlots[0];
+	assertEqual(after.pendingEvent, null, "事件清空");
+	assertEqual(after.currency.exp, 999, "经验一分不扣");
+	return "资源条两块 + 满级弹提示不扣钱";
+});
+
+await check("事件页置灰仍按「付不起」：经验不够时选项置灰且点了毫无反应", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 0, exp: 5 },
+		pendingEvent: {
+			id: "stat_training_ground",
+			choices: [
+				{ text: "接受训练 → 随机属性 +1（-20 经验）", reward: { exp: -20, statUp: "defense" }, blockedText: "你太厉害了，没什么能学到的东西。" },
+				{ text: "离开", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	const choice = nodesWithClass("wm-rogue-event-choice")[0];
+	assert(choice.classList.contains("wm-rogue-disabled"), "经验不够应置灰");
+	assert(textOf(choice).includes("货币不足"), `置灰要写明原因：${textOf(choice)}`);
+	click("接受训练");
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "置灰项点了不弹任何东西");
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 5, "经验不动");
+	assert(lib.storage.rogueSlots[0].pendingEvent, "事件仍挂着，可以改选别的");
+	return "钱不够 = 静默不可点";
+});
+
+await check("流浪商人：买没买过的入袋，已拥有的买回去升一级，练满了才弹提示", async () => {
+	const merchantRun = patch => ({
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 9999, exp: 0 },
+		pendingEvent: {
+			id: "wandering_merchant",
+			choices: [
+				{
+					text: "和商人交易（一件货 · 标价 400 金币）",
+					reward: {},
+					action: { kind: "merchant", curioId: "energy_core", price: 400 },
+					blockedText: "他已经把最好的一件卖给你了，这一笔做不成。",
+				},
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: 1,
+		},
+		...patch,
+	});
+	// 第一次：没买过 → 入袋
+	freshWorld();
+	putRun(0, merchantRun());
+	session();
+	click("和商人交易");
+	assertEqual(nodesWithClass("wm-rogue-merchant-overlay").length, 1, "应进入商人子页");
+	assertEqual(lib.storage.rogueSlots[0].currency.gold, 9999, "只是开子页，一个钱都不扣");
+	assert(lib.storage.rogueSlots[0].pendingEvent, "没成交前事件仍挂着");
+	const cardText = screenText();
+	assert(cardText.includes("能量核心") && cardText.includes("400"), `卡面要写着货与价：${cardText}`);
+	click("买下");
+	click("确定");
+	const bought = lib.storage.rogueSlots[0];
+	assertEqual(bought.currency.gold, 9599, "成交才扣 400");
+	assertEqual(JSON.stringify(bought.curios), JSON.stringify(["energy_core"]), "奇物入袋");
+	assertEqual(bought.pendingEvent, null, "事件收掉");
+	// 第二次：已拥有且还能升 → 买回去是升一级，不是多一件
+	freshWorld();
+	putRun(0, merchantRun({ curios: ["energy_core"] }));
+	session();
+	click("和商人交易");
+	assert(screenText().includes("买下并升级"), `已拥有的那件要写成「买下并升级」：${screenText()}`);
+	click("买下并升级");
+	click("确定");
+	const upgraded = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(upgraded.curioQuality), JSON.stringify({ energy_core: "rare" }), "品质升一级");
+	assertEqual(JSON.stringify(upgraded.curios), JSON.stringify(["energy_core"]), "不会多出一件");
+	assertEqual(upgraded.currency.gold, 9599, "照样收 400");
+	// 第三次：已拥有且练满 → 「和商人交易」这一步就弹提示（没对象可作用），不进子页、不收钱
+	freshWorld();
+	putRun(0, merchantRun({ curios: ["energy_core"], curioQuality: { energy_core: "epic" } }));
+	session();
+	click("和商人交易");
+	assertEqual(nodesWithClass("wm-rogue-merchant-overlay").length, 0, "满级时不进子页");
+	assert(screenText().includes("他已经把最好的一件卖给你了"), `弹的就是这句：${screenText()}`);
+	click("确定");
+	const refused = lib.storage.rogueSlots[0];
+	assertEqual(refused.currency.gold, 9999, "做不成的买卖不收钱");
+	assertEqual(refused.pendingEvent, null, "事件照样收掉");
+	return "入袋 / 升级 / 满级弹提示 三条分支";
+});
+
+await check("技能熔炉与奇物融合炉：选定那一刻才扣、才发", async () => {
+	// 技能熔炉（换经验档）：开子页不进账，熔掉哪个才给哪个的钱
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 0, exp: 10 },
+		skills: ["rogue_extra"],
+		pendingEvent: {
+			id: "skill_forge",
+			choices: [
+				{ text: "失去一个技能 → 换取大量经验", reward: { exp: 80 }, action: { kind: "skillForge", grant: "exp" }, blockedText: "技能不足，炉子里没有可以熔炼的东西。" },
+				{ text: "离开", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	click("失去一个技能");
+	assertEqual(nodesWithClass("wm-rogue-skill-forge-overlay").length, 1, "应进入技能熔炉子页");
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 10, "开子页不进账");
+	click("熔炼此技能");
+	click("确定");
+	const melted = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(melted.skills), JSON.stringify([]), "技能已失去");
+	assertEqual(melted.currency.exp, 90, "10 + 80");
+	assertEqual(melted.pendingEvent, null, "事件收掉");
+	assert(screenText().length >= 0, "流程走完");
+	// 奇物融合炉：扣的是事件里定死的那笔经验，升的是选定的那一件
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 0, exp: 120 },
+		curios: ["energy_core"],
+		pendingEvent: {
+			id: "curio_forge",
+			choices: [
+				{ text: "把一件奇物投进炉子（消耗 120 经验）", reward: {}, action: { kind: "curioForge", costExp: 120 }, blockedText: "奇物不足，炉子里没有可以融合的东西。" },
+				{ text: "离开", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	click("把一件奇物投进炉子");
+	assertEqual(nodesWithClass("wm-rogue-curio-forge-overlay").length, 1, "应进入奇物融合炉子页");
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 120, "开子页不扣经验");
+	assert(screenText().includes("融完升为：稀有"), `卡面要预览下一档：${screenText()}`);
+	// 说明行里也写着「融合费」，按文字找会先命中那句没有监听的说明，所以直接点按钮节点
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[0]);
+	click("确定");
+	const forged = lib.storage.rogueSlots[0];
+	assertEqual(forged.currency.exp, 0, "扣掉 120 经验");
+	assertEqual(JSON.stringify(forged.curioQuality), JSON.stringify({ energy_core: "rare" }), "品质升一级");
+	assertEqual(forged.pendingEvent, null, "事件收掉");
+	return "熔炉两件：都是选定才扣";
+});
+
+await check("深渊裂隙：先确认再进场，敌人数与词缀按事件参数生成，胜利只发定死的钱且不推进关卡", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 5,
+		currency: { gold: 0, exp: 0 },
+		shopRefreshesRemaining: 0,
+		pendingEvent: {
+			id: "abyss_rift",
+			choices: [
+				{ text: "打五个（5 名敌人 · 胜利 800 金币 320 经验）", reward: {}, action: { kind: "rift", tier: 1, level: 4, enemies: 5, affixes: 1, gold: 800, exp: 320 } },
+				{ text: "我不打扰了，我走了哈", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	click("打五个");
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "战败即删档，点下去必须先确认一次");
+	assert(screenText().includes("删除"), `确认框要讲清代价：${screenText()}`);
+	click("再想想");
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "「再想想」只关询问框");
+	assert(lib.storage.rogueSlots[0].pendingEvent, "没进去之前事件仍挂着");
+	click("打五个");
+	click("进去");
+	await flush();
+	// 裂隙**不在旧会话里开打**：这一局的 game.over 已经跑过（_status.over / ui.clear），
+	// 引擎里没有「同一页面再开一局」的先例——所以走「落盘 + 整页重载 + 恢复页进入」，
+	// 与「开始下一关」逐字同一条路。真机上少了这一步就是「点了进去没反应、存档里却躺着未结算战斗」
+	assert(log.some(item => item.type === "reload"), "裂隙要落盘后整页重载，不能在打完一局的会话里直接开");
+	const entered = lib.storage.rogueSlots[0];
+	assertEqual(entered.pendingEvent, null, "进场即收掉事件");
+	assertEqual(entered.level, 5, "进场不推进关卡");
+	assertEqual(entered.currentBattle.enemies.length, 5, "裂隙指定的 5 名敌人");
+	assertEqual(entered.currentBattle.enemies.filter(entry => entry.abyss.length === 1).length, 5, "第 5 层本不该有词缀，裂隙每名敌人都要带一条");
+	assertEqual(JSON.stringify(entered.currentBattle.rift), JSON.stringify({ level: 4, enemies: 5, affixes: 1, gold: 800, exp: 320 }), "rift 参数落盘，重载后靠它把这场该发多少带回来");
+	// 重载后落在恢复页：这一场要认得出是裂隙，而不是「战斗未正常结算」
+	session();
+	const resumeText = screenText();
+	assert(resumeText.includes("深渊裂隙已开启"), `恢复页要写成裂隙：${resumeText}`);
+	assert(resumeText.includes("不计入关卡层数"), `恢复页要讲清这一场的代价：${resumeText}`);
+	assert(resumeText.includes("进入裂隙"), `按钮也要换成裂隙的说法：${resumeText}`);
+	// 说明行里也写着「进入裂隙」，按文字找会先命中那句没有监听的说明，所以直接点按钮节点
+	clickNode(nodesWithClass("wm-rogue-resume-primary")[0]);
+	await flush();
+	assertEqual(game.players.length, 1 + entered.currentBattle.enemies.length, "座位数与阵容一致（真的下场开打了）");
+	// 打赢：只发定死的倍率，关卡、事件、奇物商店、刷新次数、历史最高一律不动
+	for (const player of game.players.slice(1)) {
+		player.__alive = false;
+	}
+	lib.element.player.dieAfter.call(game.players[1]);
+	const won = lib.storage.rogueSlots[0];
+	assertEqual(won.level, 5, "裂隙不计入关卡层数");
+	assertEqual(won.currency.gold, 800, "金币 = 事件里定死的 800");
+	assertEqual(won.currency.exp, 320, "经验 = 事件里定死的 320");
+	assertEqual(won.pendingEvent, null, "裂隙胜利不嵌套触发事件");
+	assertEqual(JSON.stringify(won.curioOffers), JSON.stringify([]), "裂隙胜利不刷奇物商店");
+	assertEqual(JSON.stringify(won.curioOfferQueue), JSON.stringify([]), "也不给罗盘队列");
+	assertEqual(won.shopRefreshesRemaining, 0, "刷新次数不按「通关」补");
+	assertEqual(lib.storage.rogueBestEndless, undefined, "裂隙不写无尽历史最高");
+	assertEqual(won.currentBattle, null, "战斗标记清掉");
+	return "确认 → 5 名带词缀 → 只发定死的钱";
+});
+
+await check("经验泉的债：下一场每名敌人追加词缀，开战即兑现并清零", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		abyssDebt: 2,
+		pendingEvent: null,
+	});
+	session();
+	click("开始下一关");
+	await flush();
+	const run = lib.storage.rogueSlots[0];
+	assertEqual(run.abyssDebt, 0, "开战即把债清掉");
+	assertEqual(run.currentBattle.enemies.length, 1, "第 4 关常规 1 名敌人");
+	assertEqual(run.currentBattle.enemies[0].abyss.length, 2, "欠两个就追加两个");
+	assertEqual(new Set(run.currentBattle.enemies[0].abyss).size, 2, "追加的两个不重复");
+	assertEqual(run.currentBattle.rift, null, "普通战斗不带裂隙参数（结算照旧推进关卡、照旧掷事件）");
+	return "债在开战时兑现并清零";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

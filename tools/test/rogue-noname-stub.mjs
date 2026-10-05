@@ -3,8 +3,17 @@
 // game.addMode / game.save / game.over + lib.onover / prepareArena / gameDraw / phaseLoop /
 // createEvent + loop / element.player.dieAfter / Dialog + listen() / ui.create.div 参数解析。
 
+import { challengeStagePool } from "../../src/rogue/data/challengeStages.js";
+
 export const __log = [];
 const log = entry => __log.push(entry);
+
+/** 闯关关卡配置池引用的全部角色 id：真实游戏里由本体/其他扩展提供，桩里必须补齐，
+ *  否则抽取时全部被判不可用，闯关前 10 关永远开不了战 */
+const stagePoolCharacters = [...new Set(challengeStagePool.flatMap(config =>
+	(config.players ?? []).map(player => player?.character).filter(id => typeof id === "string" && id)
+))];
+const FIXED_CHARACTER_IDS = ["迪迦", "佐菲", "赛文", "巴尔坦星人", "死龙", ...stagePoolCharacters];
 
 export function resetState() {
 	__log.length = 0;
@@ -40,7 +49,7 @@ export function resetState() {
 		delete storage[key];
 	}
 	for (const id of Object.keys(lib.character)) {
-		if (["迪迦", "佐菲", "赛文", "巴尔坦星人", "死龙"].includes(id)) {
+		if (FIXED_CHARACTER_IDS.includes(id)) {
 			continue;
 		}
 		delete lib.character[id];
@@ -51,7 +60,10 @@ export function resetState() {
 	lib.character["赛文"] ??= { hp: 4, maxHp: 4, skills: [] };
 	lib.character["巴尔坦星人"] ??= { hp: 4, maxHp: 4, skills: [] };
 	lib.character["死龙"] ??= { hp: 34, maxHp: 34, skills: [], isHiddenBoss: true };
-	for (const id of ["迪迦", "佐菲", "赛文", "巴尔坦星人", "死龙"]) {
+	for (const id of stagePoolCharacters) {
+		lib.character[id] ??= { hp: 4, maxHp: 4, skills: [] };
+	}
+	for (const id of FIXED_CHARACTER_IDS) {
 		lib.translate[id] = id;
 	}
 }

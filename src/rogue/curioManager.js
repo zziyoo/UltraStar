@@ -14,17 +14,42 @@
 // 结算类效果（expRate/goldRate/goldRateSpread）在 reward.js 胜利结算时用 getBonus 现查。
 // 商店侧：候选与售价在战斗胜利时定死写进存档（curioOffers），本文件负责生成与购买。
 
-import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_UPGRADE_PRICE_MULTIPLIER, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_UPGRADE_PRICE_MULTIPLIER, MERCHANT_PRICE_MULTIPLIER, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { getEndlessReward } from "./data/rewards.js";
 import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 
 /**
- * effect 里已知的键：战斗内五项 + 结算两项（+ 金币波动一项）+ 刷新次数一项。
+ * effect 里已知的键：战斗内六项 + 结算两项（+ 金币波动一项）+ 刷新次数三项。
+ * 其中 unrespondableLowHp / unrespondableCardDamage 是 unrespondable 的配套键，自己不出文案行
+ * （与 dyingRecoverToRatio 之于 dyingSave 同一套做法）。
  * 数据自检保证 curios.js 不写出未知键。
  */
-export const CURIOSITY_EFFECT_KEYS = ["extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal", "expRate", "goldRate", "goldRateSpread", "extraShopRefresh"];
+export const CURIOSITY_EFFECT_KEYS = [
+	"extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
+	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
+	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
+	"expRate", "goldRate", "goldRateSpread",
+	"extraShopRefresh", "extraCurioShopChance", "goldOfHeld", "goldOnReplace",
+];
 
-/** effect 里属于战斗内的键：有任意一项才需要在建局时挂 rogue_curio 技能 */
-export const CURIOSITY_BATTLE_KEYS = ["extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal"];
+/**
+ * effect 里属于战斗内的键：有任意一项才需要在建局时挂 rogue_curio 技能。
+ * **配套键也算在这一栏里**（`dyingRecoverToRatio` 一直是这么处理的）：战斗面板按这张表把效果切成
+ * 「战斗内 / 结算时」两组分别渲染，配套键漏在栏外就会被切掉，合成句因此缺半截——
+ * 血怒核心会显示成「你使用的牌无法被响应」，把体力条件与「此牌伤害 +1」整个丢掉。
+ */
+export const CURIOSITY_BATTLE_KEYS = [
+	"extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
+	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
+	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
+];
+
+/**
+ * 需要搬进 `player.storage.rogue_curio` 的键：就是上面这张战斗内表。
+ * 新增战斗内效果只要登记进这两张表，battle.js 一个字都不用改——
+ * 那里以前是逐个键手写清单，忘了同步就是「技能挂上了、数值全是 0」，真机上表现为效果完全没生效。
+ */
+export const CURIOSITY_STORAGE_KEYS = CURIOSITY_BATTLE_KEYS;
 
 /** 品质链的终点（升到它就没有下一档了） */
 const MAX_QUALITY = CURIOSITY_QUALITY_CHAIN[CURIOSITY_QUALITY_CHAIN.length - 1];
@@ -112,18 +137,39 @@ const EFFECT_TEXT = {
 	dyingSave: (value, effects) => {
 		const ratio = effects?.dyingRecoverToRatio;
 		const target = Number.isFinite(ratio) && ratio > 0 ? `体力上限的 ${Math.round(ratio * 100)}%` : "1";
-		return `每局游戏首次进入濒死状态时，回复体力值至${target}（共 ${value} 次）`;
+		// 「首次」本身就是一次，只有真给到多次才补次数，否则每次濒死都多挂一句废话
+		const count = value > 1 ? `（共 ${value} 次）` : "";
+		return `每局游戏首次进入濒死状态时，回复体力值至${target}${count}`;
 	},
 	roundHeal: value => `每轮结束时回复 ${value} 点体力`,
 	turnHeal: value => `每回合结束时回复 ${value} 点体力`,
+	firstDamageBonus: value => `每回合首次造成伤害后，本回合你造成的伤害 +${value}`,
+	// 血怒核心：两个配套键自己不出行，合成一条句子——分成两行会读成两件不相干的事
+	unrespondable: (value, effects) => {
+		const lowHp = (effects?.unrespondableLowHp ?? 0) > 0;
+		const damage = effects?.unrespondableCardDamage ?? 0;
+		const head = lowHp ? "体力低于体力上限的一半（向上取整）时，你使用的牌无法被响应" : "你使用的牌无法被响应";
+		return damage > 0 ? `${head}，且此牌造成的伤害 +${damage}` : head;
+	},
+	hurtDamageNext: value => `当你受到伤害后，你下一次造成的伤害 +${value}`,
+	hurtDamageRound: value => `当你受到伤害后，本回合你造成的伤害 +${value}`,
+	hurtDamageGame: value => `当你受到伤害后，本局游戏你造成的伤害 +${value}`,
 	expRate: (value, effects) => rateLine("expRate", "经验", effects),
 	goldRate: (value, effects) => rateLine("goldRate", "金币", effects),
 	extraShopRefresh: value => `每场战斗结束后，额外获得 ${value} 次技能商城刷新机会`,
+	extraCurioShopChance: value => `每次战斗胜利后有 ${Math.round(Math.abs(value) * 100)}% 概率额外刷出一批奇物商店候选`,
+	// 与 goldRate 分开写：那条乘的是本关基础奖励，这条乘的是你手上已有的总额，两者会叠乘
+	goldOfHeld: value => `战斗结束后额外获得当前持有金币的 ${Math.round(Math.abs(value) * 100)}%`,
+	goldOnReplace: value => `每次替换技能时获得本层基准金币的 ${value} 倍`,
 };
 
-/** 效果总表 → 一行一条的说明，顺序按 EFFECT_TEXT 的键序稳定输出 */
-export function describeCurioEffects(effects) {
-	const lines = [];
+/**
+ * 效果总表 → 「键 / 文案」单元格。比纯文案多留一个 key：图鉴要拿它做逐档比对，
+ * 才写得出「上一档：摸牌阶段额外摸 1 张牌」这种变化注记。
+ * 单条文案生成失败不连累整张表——那一行退化成裸键值，页面照样打得开。
+ */
+function effectCells(effects) {
+	const cells = [];
 	for (const key of Object.keys(EFFECT_TEXT)) {
 		const value = effects?.[key];
 		if (!Number.isFinite(value)) {
@@ -133,9 +179,55 @@ export function describeCurioEffects(effects) {
 		if (value === 0 && !Math.abs(effects?.[`${key}Spread`] ?? 0)) {
 			continue;
 		}
-		lines.push(EFFECT_TEXT[key](value, effects));
+		let text;
+		try {
+			text = EFFECT_TEXT[key](value, effects);
+		} catch {
+			text = `${key}：${value}`;
+		}
+		cells.push({ key, text });
 	}
-	return lines;
+	return cells;
+}
+
+/** 效果总表 → 一行一条的说明，顺序按 EFFECT_TEXT 的键序稳定输出 */
+export function describeCurioEffects(effects) {
+	return effectCells(effects).map(cell => cell.text);
+}
+
+/**
+ * 图鉴用的完整升级路线：**只读奇物定义**，与玩家持有状态无关
+ * （没拥有、只升到一半，图鉴都给全链路——图鉴是资料册，不是状态面板）。
+ * 从初始品质沿 CURIOSITY_QUALITY_CHAIN 一路到链尾，负面奇物因此也一路净化到史诗。
+ * 每档 = { quality, label, lines: [{ text, prev }], changed }：prev 是上一档同一条效果的文案，
+ * 变了由界面补一句「上一档：…」，整档没变就是「与上一档相同」。
+ * 新增奇物按 curios.js 的字段填即可进图鉴，这里不维护第二份效果表。
+ */
+export function getCurioUpgradeTrack(id) {
+	const def = getCurio(id);
+	if (!def) {
+		return [];
+	}
+	const start = Math.max(0, CURIOSITY_QUALITY_CHAIN.indexOf(def.rarity));
+	const steps = [];
+	let prev = null;
+	for (const quality of CURIOSITY_QUALITY_CHAIN.slice(start)) {
+		const cells = effectCells(getCurioEffectAt(id, quality));
+		const lines = cells.map(cell => ({ text: cell.text, prev: prev?.[cell.key] ?? null }));
+		const before = prev;
+		prev = Object.fromEntries(cells.map(cell => [cell.key, cell.text]));
+		steps.push({
+			quality,
+			label: CURIOSITY_RARITY[quality] ?? quality,
+			lines,
+			// 新出现的项、删掉的项、改过的文案，都算这一档有变化
+			changed: before !== null && (
+				lines.some(line => line.prev === null || line.prev !== line.text)
+				|| Object.keys(before).some(key => !cells.some(cell => cell.key === key))
+			),
+		});
+	}
+	return steps;
 }
 
 /**
@@ -197,8 +289,9 @@ export function getCurioUpgradePrice(run, id) {
  * 能否升级：奇物存在、当前持有、还有下一档、经验够。UI 拿它决定按钮状态与价签，结算层再验一次。
  * 返回 { ok, error, cost, from, to }，任何失败都不带副作用。
  * 只有「经验不足」这一种失败会带上完整的 from/to/cost——UI 正需要照着它显示价签与下一档预览。
+ * @param {number} [priceOverride] 覆盖升级价（奇物融合炉用事件里定死的那个数，不走商店的 5× 基准价）
  */
-export function checkCurioUpgrade(run, id) {
+export function checkCurioUpgrade(run, id, priceOverride = null) {
 	const fail = error => ({ ok: false, error, cost: null, from: null, to: null });
 	if (!getCurio(id)) {
 		return fail("该奇物已下架");
@@ -211,7 +304,7 @@ export function checkCurioUpgrade(run, id) {
 	if (!to) {
 		return fail("已达最高品质");
 	}
-	const cost = getCurioUpgradePrice(run, id);
+	const cost = Number.isFinite(priceOverride) ? Math.max(0, Math.floor(priceOverride)) : getCurioUpgradePrice(run, id);
 	if ((run.currency?.exp ?? 0) < cost) {
 		return { ok: false, error: "经验不足", cost, from, to };
 	}
@@ -221,9 +314,10 @@ export function checkCurioUpgrade(run, id) {
 /**
  * 花经验把一件已拥有的奇物升一档。只改 currency.exp 与 curioQuality 两项，且绝不修改传入的 run。
  * 失败时原 run 原样返回，经验与品质都不动。
+ * @param {number} [priceOverride] 升级价覆盖值；省略时按商店价（5× 当前关奇物基准价）
  */
-export function upgradeCurio(run, id) {
-	const check = checkCurioUpgrade(run, id);
+export function upgradeCurio(run, id, priceOverride = null) {
+	const check = checkCurioUpgrade(run, id, priceOverride);
 	if (!check.ok) {
 		return { ok: false, error: check.error, run, curioId: id, from: null, to: null, cost: null };
 	}
@@ -261,10 +355,14 @@ export function getCurioPrice(level, def, rng = Math.random) {
  * 池子被排空时返回更少的候选（不重复填充、不死循环）；售价与候选一起定死，写进存档后不再重掷。
  * @param {object} run 存档（只读 run.level 与 run.curios）
  * @param {() => number} [rng] 可注入的随机源
+ * @param {string[]} [exclude] 额外排除的奇物 id：连着摇第二批时，别让同一件货在两家货架上重复出现
  */
-export function rollCurioOffers(run, rng = Math.random) {
+export function rollCurioOffers(run, rng = Math.random, exclude = []) {
 	const level = Number.isFinite(run?.level) ? run.level : 1;
 	const owned = new Set(Array.isArray(run?.curios) ? run.curios : []);
+	for (const id of Array.isArray(exclude) ? exclude : []) {
+		owned.add(id);
+	}
 	const pool = curioIds.filter(id => !owned.has(id));
 	const picked = [];
 	for (let i = pool.length - 1; i > 0; i--) {
@@ -323,7 +421,35 @@ export function buyCurio(run, offerId) {
 		next.collection.curios.push(offerId);
 	}
 	next.curioOffers = [];
+	next.curioOfferQueue = [];
+	// 黄金罗盘多给的那一批：买到即整批下架后自动提上货架，于是同一关能买两次。
+	// 队列要从传入的 run 里取（next 上刚被我们清成空表），但过滤得用 next.curios——
+	// 刚买掉的这件已经进袋了，不能再从队列里出现在货架上
+	const drained = takeNextCurioBatch({ ...run, curios: next.curios });
+	if (drained.offers.length) {
+		next.curioOffers = drained.offers;
+		next.curioOfferQueue = drained.queue;
+	}
 	return { ok: true, error: null, run: next, curioId: offerId };
+}
+
+/**
+ * 从 curioOfferQueue 里取出下一批奇物候选（黄金罗盘给的额外批次）。
+ * 逐批过一遍「已拥有 / 已下架就不上架」的清洗，空批直接跳过；返回的 offers 与 queue 都是新建数组，
+ * 不与传入的 run 共享引用（肉鸽层所有「改存档」的函数都靠这一点保证不原地污染）。
+ */
+export function takeNextCurioBatch(run) {
+	const owned = new Set(Array.isArray(run?.curios) ? run.curios : []);
+	const batches = [];
+	for (const batch of Array.isArray(run?.curioOfferQueue) ? run.curioOfferQueue : []) {
+		const offers = (Array.isArray(batch) ? batch : [])
+			.filter(offer => getCurio(offer?.id) && !owned.has(offer.id))
+			.map(offer => ({ id: offer.id, price: Math.round(Number(offer.price) || 0) }));
+		if (offers.length) {
+			batches.push(offers);
+		}
+	}
+	return { offers: batches[0] ?? [], queue: batches.slice(1) };
 }
 
 /** 是否还有「未拥有、可随机获得」的奇物（事件奖励与神秘商人跳过判定共用） */
@@ -359,6 +485,84 @@ export function grantRandomCurio(run, rng = Math.random) {
 		next.collection.curios.push(curioId);
 	}
 	return { ok: true, error: null, run: next, curioId };
+}
+
+/**
+ * 按初始品质挑一件「还没拥有」的奇物（古代遗迹三扇门在生成期定死结果用）。
+ * 纯查询、不改 run，也不落袋——落袋由结算层按定死后的具体 id 执行。池子空了返回 null，调用方据此换成经验补偿。
+ */
+export function pickUnownedCurioOfRarity(run, rarity, rng = Math.random) {
+	const owned = new Set(Array.isArray(run?.curios) ? run.curios : []);
+	const pool = curioIds.filter(id => getCurio(id)?.rarity === rarity && !owned.has(id));
+	if (!pool.length) {
+		return null;
+	}
+	return pool[Math.floor(rng() * pool.length)];
+}
+
+/**
+ * 把指定 id 的奇物放进背包（事件在生成期就定死了给哪一件，结算只负责落地）。
+ * 与 grantRandomCurio 同一条规矩：已拥有的不得再挂在奇物商店，图鉴记「曾经拥有过」。
+ * 已拥有 / 已下架时 ok:false 且不产生任何副作用。
+ */
+export function grantCurioById(run, curioId) {
+	if (!getCurio(curioId)) {
+		return { ok: false, error: "该奇物已下架", run, curioId: null };
+	}
+	if ((run?.curios ?? []).includes(curioId)) {
+		return { ok: false, error: "已拥有该奇物", run, curioId };
+	}
+	const next = {
+		...run,
+		curios: (run.curios ?? []).slice(0),
+		curioOffers: (run.curioOffers ?? []).map(item => ({ ...item })),
+		collection: {
+			events: (run.collection?.events ?? []).slice(0),
+			curios: (run.collection?.curios ?? []).slice(0),
+		},
+	};
+	next.curios.push(curioId);
+	next.curioOffers = next.curioOffers.filter(offer => offer.id !== curioId);
+	if (!next.collection.curios.includes(curioId)) {
+		next.collection.curios.push(curioId);
+	}
+	return { ok: true, error: null, run: next, curioId };
+}
+
+/**
+ * 遗忘之石「替换技能时」该发的金币 = 本层基准金币 × 效果值。
+ * 关卡取 run.level，与商店给技能定价用的是同一个「当前关卡」口径（两处数字才对得上）。
+ * 没有这块奇物（加成为 0）一律返回 0；调用方只在**真的发生了替换**（槽满让位）时才发这笔钱。
+ */
+export function getReplaceRewardGold(run) {
+	const mult = getBonus(run?.curios ?? [], "goldOnReplace", run?.curioQuality);
+	if (!(mult > 0)) {
+		return 0;
+	}
+	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
+	const base = getEndlessReward(level, ["gold"]).gold ?? 0;
+	return Math.max(0, Math.round(base * mult));
+}
+
+/** 还能往上升级的已拥有奇物（奇物融合炉的候选名单）：一件都没有、或全部已到顶，都返回空表 */
+export function getUpgradableCurios(run) {
+	return (run?.curios ?? []).filter(id => !isCurioMaxQuality(id, run?.curioQuality));
+}
+
+/** 流浪商人的恒定售价：奇物基准价 ×MERCHANT_PRICE_MULTIPLIER。不打 ±25% 波动，也不乘品质倍率 */
+export function getMerchantPrice(level = 1) {
+	return getCurioBasePrice(level) * MERCHANT_PRICE_MULTIPLIER;
+}
+
+/**
+ * 流浪商人带来的那件货：从**全部**奇物里随机，明确不排除已拥有的——
+ * 「买已经有的那件」就是这家商人的卖点（买完自动升一级），所以这里必须允许命中已拥有的。
+ */
+export function rollMerchantCurio(rng = Math.random) {
+	if (!curioIds.length) {
+		return null;
+	}
+	return curioIds[Math.floor(rng() * curioIds.length)] ?? null;
 }
 
 export { getCurio, curios, curioIds, CURIOSITY_RARITY, CURIOSITY_QUALITY_CHAIN };

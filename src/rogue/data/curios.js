@@ -30,6 +30,19 @@
 //                     goldRateSpread  与 goldRate 配套：结算时在 goldRate±spread 之间随机取值。
 //                                     goldRate 允许写 0（= 「±N%」的波动档），但必须有配套非零 spread
 //                     extraShopRefresh 每场战斗结束后额外 +N 次技能商城刷新（循环按钮 1 = 一次）
+//                     firstDamageBonus 每回合首次造成伤害后，本回合你造成的伤害 +N（战斗内，狂战徽章）
+//                     unrespondable    你使用的牌无法被响应（战斗内，血怒核心）。两个配套键都不单独出行：
+//                                        unrespondableLowHp=1 表示只在「体力低于体力上限的一半（向上取整）」时生效；
+//                                        unrespondableCardDamage=N 表示同时「此牌造成的伤害 +N」
+//                     hurtDamageNext   受到伤害后，你下一次造成的伤害 +N（战斗内，反击护符）
+//                     hurtDamageRound  受到伤害后，本回合你造成的伤害 +N（战斗内，反击护符稀有档）
+//                     hurtDamageGame   受到伤害后，本局游戏你造成的伤害 +N（战斗内，反击护符史诗档）
+//                                        上面三档都只加一层，反复受伤不会越叠越高
+//                     extraCurioShopChance
+//                                        每次战斗胜利后按 N 的概率额外刷一批奇物商店候选（结算，黄金罗盘 0.1 = 10%）
+//                     goldOfHeld       战斗结束后额外获得「当前持有金币」的 N 倍（结算，储蓄罐 0.05 = 5%）。
+//                                        与 goldRate 不是一回事：goldRate 乘的是本关基础奖励，这个乘的是手上总额
+//                     goldOnReplace    每次替换技能时额外获得「本层基准金币」的 N 倍（商店，遗忘之石 5）
 //   effect          见上：界面文案一律由这些键自动生成（没有 effectText 这类手写字段），
 //                   同一个奇物各档之间、各奇物之间句式因此是统一的
 //
@@ -123,6 +136,71 @@ export const curios = {
 			rare: { goldRate: 0.05, goldRateSpread: 0.1 },
 			epic: { goldRate: 0.2 },
 		},
+	},
+	berserker_badge: {
+		id: "berserker_badge",
+		name: "狂战徽章",
+		description: "先挨一下才有劲，越打越停不下来。",
+		image: "extension/奥特之星/assets/curios/berserker_badge.png",
+		rarity: "rare",
+		priceMultiplier: 1,
+		effect: { firstDamageBonus: 1 },
+		qualityEffects: {
+			epic: { firstDamageBonus: 2 },
+		},
+	},
+	blood_rage_core: {
+		id: "blood_rage_core",
+		name: "血怒核心",
+		description: "失血越多，它跳得越响，响到没人敢接你的牌。",
+		image: "extension/奥特之星/assets/curios/blood_rage_core.png",
+		rarity: "common",
+		priceMultiplier: 1,
+		effect: { unrespondable: 1, unrespondableLowHp: 1 },
+		qualityEffects: {
+			rare: { unrespondable: 1, unrespondableLowHp: 1, unrespondableCardDamage: 1 },
+			epic: { unrespondable: 1, unrespondableCardDamage: 1 },
+		},
+	},
+	counter_amulet: {
+		id: "counter_amulet",
+		name: "反击护符",
+		description: "挨打的那一下它替你记着，下一次还回去。",
+		image: "extension/奥特之星/assets/curios/counter_amulet.png",
+		rarity: "common",
+		priceMultiplier: 1,
+		effect: { hurtDamageNext: 1 },
+		qualityEffects: {
+			rare: { hurtDamageRound: 1 },
+			epic: { hurtDamageGame: 1 },
+		},
+	},
+	golden_compass: {
+		id: "golden_compass",
+		name: "黄金罗盘",
+		description: "指针从不指向北，只指向有货的地方。",
+		image: "extension/奥特之星/assets/curios/golden_compass.png",
+		rarity: "epic",
+		priceMultiplier: 1,
+		effect: { extraCurioShopChance: 0.1 },
+	},
+	piggy_bank: {
+		id: "piggy_bank",
+		name: "储蓄罐",
+		description: "看着是空的，摇一摇又像满的。",
+		image: "extension/奥特之星/assets/curios/piggy_bank.png",
+		rarity: "epic",
+		priceMultiplier: 1,
+		effect: { goldOfHeld: 0.05 },
+	},
+	oblivion_stone: {
+		id: "oblivion_stone",
+		name: "遗忘之石",
+		description: "被它抹掉的技能，连名字都不会留下，倒是留下点别的。",
+		image: "extension/奥特之星/assets/curios/oblivion_stone.png",
+		rarity: "epic",
+		priceMultiplier: 1,
+		effect: { goldOnReplace: 5 },
 	},
 };
 
