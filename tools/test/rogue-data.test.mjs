@@ -431,19 +431,38 @@ check("奇物配置：结构与字段合法、效果键已知", () => {
 		if (curio.priceMultiplier !== undefined && !(Number.isFinite(curio.priceMultiplier) && curio.priceMultiplier >= 0)) {
 			problems.push(`${key}: priceMultiplier 应为非负数`);
 		}
-		if (!curio.effect || typeof curio.effect !== "object") {
-			problems.push(`${key}: 缺少 effect`);
-		} else {
-			for (const [field, value] of Object.entries(curio.effect)) {
+		// effect 与 qualityEffects 共用同一套键与取值约束
+		const checkEffect = (label, effect) => {
+			if (!effect || typeof effect !== "object") {
+				problems.push(`${label}: 缺少效果对象`);
+				return;
+			}
+			for (const [field, value] of Object.entries(effect)) {
 				if (!curioManager.CURIOSITY_EFFECT_KEYS.includes(field)) {
-					problems.push(`${key}: effect 不支持的键 ${field}（可用：${curioManager.CURIOSITY_EFFECT_KEYS.join("/")}）`);
-				} else if (!(Number.isFinite(value) && value !== 0)) {
-					problems.push(`${key}: effect.${field} 应为非零数字（负面奇物用负值）`);
+					problems.push(`${label}: 不支持的键 ${field}（可用：${curioManager.CURIOSITY_EFFECT_KEYS.join("/")}）`);
+					continue;
+				}
+				if (!Number.isFinite(value)) {
+					problems.push(`${label}.${field} 应为数字（负面奇物用负值）`);
+					continue;
+				}
+				// 0 值等于没效果，唯一例外是配了波动半径的档位（-10%~+10% 这种）
+				const spread = effect[`${field}Spread`];
+				if (value === 0 && !(Number.isFinite(spread) && spread !== 0)) {
+					problems.push(`${label}.${field} 为 0 且没有配套的非零 ${field}Spread，等于没效果`);
 				}
 			}
+		};
+		checkEffect(`${key}: effect`, curio.effect);
+		const startIndex = curiosData.CURIOSITY_QUALITY_CHAIN.indexOf(curio.rarity);
+		for (const [quality, effect] of Object.entries(curio.qualityEffects ?? {})) {
+			if (curiosData.CURIOSITY_QUALITY_CHAIN.indexOf(quality) <= startIndex) {
+				problems.push(`${key}: qualityEffects.${quality} 必须在初始品质（${curio.rarity}）之后，升级只能向更高档走`);
+			}
+			checkEffect(`${key}: qualityEffects.${quality}`, effect);
 		}
-		if (!curio.effectText && !Object.keys(curio.effect ?? {}).length) {
-			problems.push(`${key}: effectText 与 effect 至少要有一项`);
+		if (!Object.keys(curio.effect ?? {}).length) {
+			problems.push(`${key}: effect 不能为空（界面文案由它自动生成，没有手写兜底字段了）`);
 		}
 	}
 	assert(!problems.length, problems.join("；"));

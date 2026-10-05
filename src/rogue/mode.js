@@ -19,7 +19,7 @@ import {
 } from "./config.js";
 import { cloneRun, createRun, mergeCollections, migrateSlots, normalizeBest, normalizeCollection, setSlot, toSerializable, updateBest } from "./state.js";
 import { buySkill, checkStatUpgrade, refreshSkillOffers, rollSkillOffers, upgradeStat } from "./shop.js";
-import { buyCurio } from "./curioManager.js";
+import { buyCurio, upgradeCurio } from "./curioManager.js";
 import { getShopPool } from "./skillPool.js";
 import { settleVictory } from "./reward.js";
 import { maybeCreatePendingEvent, resolveEventChoice } from "./eventManager.js";
@@ -35,7 +35,7 @@ import {
 } from "./endless/abyssAffixes.js";
 import { closeScreen, showChoice, showNotice, skillName } from "./ui/common.js";
 import { renderSlots, showCharacterChoice, showRunModeChoice } from "./ui/slots.js";
-import { refreshShop, showCurios, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
+import { refreshCurios, refreshShop, showCurios, showHub, showReplace, showShop, showSkills } from "./ui/hub.js";
 import { showPenaltyChoice, showResult, showResume } from "./ui/result.js";
 import { showEvent } from "./ui/event.js";
 import { showCollection } from "./ui/collection.js";
@@ -69,8 +69,7 @@ function persist() {
 	}
 	game.save(STORAGE_KEY, check.data);
 	game.save("rogueActive", context.index ?? -1);
-	// 图鉴是六个存档共有的：每次落盘顺手把本局解锁的并进公有键。
-	// 四个解锁点（买奇物/事件送奇物/触发事件/结算事件）都只改 run.collection，并集在这里统一做
+	// 图鉴公有：四个解锁点只改 run.collection，并集统一在落盘这里做
 	if (context.run) {
 		context.collection = mergeCollections(context.collection, context.run.collection);
 		game.save(COLLECTION_KEY, context.collection);
@@ -90,8 +89,7 @@ function loadSlots() {
 	const migrated = migrateSlots(lib.storage?.[STORAGE_KEY]);
 	context.slots = migrated.slots;
 	context.best = normalizeBest(lib.storage?.[BEST_ENDLESS_KEY]);
-	// 图鉴以前只跟着自己那一格走；这里把六个存档各自的图鉴并进公有键一次，
-	// 老玩家升级后不会发现自己收集过的东西凭空消失，之后删档也不再丢
+	// 一次性迁移：把各存档原本自带的图鉴并进公有键，老玩家升级后不会看着收集清零
 	let merged = normalizeCollection(lib.storage?.[COLLECTION_KEY]);
 	for (const slot of context.slots) {
 		merged = mergeCollections(merged, slot?.collection);
@@ -160,6 +158,8 @@ function openCurios() {
 	}
 	showCurios({
 		run: context.run,
+		getRun: () => context.run,
+		upgradeCurio: upgradeCurioFlow,
 		back: openShop,
 	});
 }
@@ -171,8 +171,7 @@ function openCollection() {
 		return;
 	}
 	showCollection({
-		run: context.run,
-		// 公有图鉴并上本局还没落盘的解锁项：万一某条路径没走 commit，图鉴也不会漏
+		// 并上本局还没落盘的解锁项：万一某条路径没走 commit，图鉴也不会漏
 		collection: mergeCollections(context.collection, context.run.collection),
 		back: openHub,
 	});
@@ -456,9 +455,24 @@ function buyCurioFlow(offerId) {
 	if (!commit()) {
 		return;
 	}
-	// 与技能购买同一条原位刷新路线：不重开商店，卡片状态就是反馈
 	if (!refreshShop(context.run)) {
 		openShop();
+	}
+}
+
+/** 花经验把一件已拥有的奇物升一档；与属性升级同一条「先落盘、再原位刷新」路线 */
+function upgradeCurioFlow(curioId) {
+	const result = upgradeCurio(context.run, curioId);
+	if (!result.ok) {
+		showNotice([result.error], undefined);
+		return;
+	}
+	context.run = result.run;
+	if (!commit()) {
+		return;
+	}
+	if (!refreshCurios(context.run)) {
+		openCurios();
 	}
 }
 
@@ -540,9 +554,10 @@ function openEventPage(onDone) {
 		onDone();
 	};
 	showEvent({
-		run: context.run,
 		getRun: () => context.run,
 		choose: choiceIndex => chooseEventFlow(choiceIndex, finishEvent),
+		// 事件定义缺失时的出口：不传的话那条兜底分支会抛 TypeError
+		onDone: finishEvent,
 	});
 }
 

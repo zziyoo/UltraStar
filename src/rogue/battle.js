@@ -8,7 +8,7 @@ import { sumStatEffects } from "./data/stats.js";
 import { sumCurioEffects, CURIOSITY_BATTLE_KEYS } from "./curioManager.js";
 import { normalizeAbyssIds } from "./endless/abyss.js";
 import { isEnemyUsable } from "./enemy.js";
-import { showBattleStats, showEnemyEnhance } from "./ui/common.js";
+import { showBattleCurios, showBattleStats, showEnemyAbyss, showEnemyEnhance } from "./ui/common.js";
 
 export { isEnemyUsable };
 
@@ -67,8 +67,8 @@ const STAT_BUFF_SKILL = "rogue_stat";
 const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "damageChance", "shaLimit"];
 /** 深渊词缀的标记载体技能 id（词缀本体技能另由 endless/abyssAffixes.js 提供） */
 const ABYSS_MARK_SKILL = "abyss_affix";
-/** 敌人身上可以点开「强化面板」的两枚徽记：属性强化 + 深渊词缀 */
-const ENEMY_ENHANCE_MARKS = [STAT_BUFF_SKILL, ABYSS_MARK_SKILL];
+/** 奇物的战斗内效果载体技能 id（同名 storage 由 data/skills.js 的机制技读） */
+const CURIO_SKILL = "rogue_curio";
 
 /**
  * 把一枚徽记接成「点一下就打开强化面板」。
@@ -126,7 +126,8 @@ export function grantSkills(player, skillIds, missingLabel) {
 }
 
 /** 把属性表算出的效果施加到具体 Player 上 */
-function applyEffects(player, effects, showStatEntry = false) {	if (effects.maxHp) {
+function applyEffects(player, effects, showStatEntry = false) {
+	if (effects.maxHp) {
 		player.maxHp += effects.maxHp;
 		if (effects.maxHp > 0) {
 			player.hp += effects.maxHp;
@@ -160,22 +161,27 @@ function applyEffects(player, effects, showStatEntry = false) {	if (effects.maxH
 }
 
 /**
- * 奇物的战斗内效果：curioManager.sumCurioEffects 把全部奇物的 effect 叠成总表，
- * 一次写进 player.storage.rogue_curio，由机制技 rogue_curio 统一承载（extraPhase /
- * extraDraw / dyingSave / roundHeal）。结算类效果（expRate/goldRate）不在这里处理，
+ * 奇物的战斗内效果：curioManager.sumCurioEffects 按**当前品质**把全部奇物的 effect 叠成总表，
+ * 一次写进 player.storage.rogue_curio，由机制技 rogue_curio 统一承载（extraPhase / extraDraw /
+ * dyingSave + dyingRecoverToRatio / roundHeal / turnHeal）。品质判定全在 curioManager，
+ * 这里与 reward.js 都不看 def.rarity。结算类效果（expRate/goldRate）不在这里处理，
  * 由 reward.js 胜利结算时现查。与属性强化同一条纪律：绝不写 lib.skill。
  */
-function applyCurioEffects(player, curioIds) {
-	const effects = sumCurioEffects(curioIds);
-	if (!CURIOSITY_BATTLE_KEYS.some(key => Math.floor(effects[key] ?? 0) > 0)) {
+function applyCurioEffects(player, curioIds, qualityMap) {
+	const effects = sumCurioEffects(curioIds, qualityMap);
+	if (!CURIOSITY_BATTLE_KEYS.some(key => (effects[key] ?? 0) > 0)) {
 		return false;
 	}
-	grantSkills(player, ["rogue_curio"], "奇物技能未注册");
+	grantSkills(player, [CURIO_SKILL], "奇物技能未注册");
+	// 比例类不取整：0.5 要原样进 storage，由机制技去乘体力上限
+	const ratio = effects.dyingRecoverToRatio ?? 0;
 	player.storage.rogue_curio = {
 		extraPhase: Math.max(0, Math.floor(effects.extraPhase ?? 0)),
 		extraDraw: Math.max(0, Math.floor(effects.extraDraw ?? 0)),
 		dyingSave: Math.max(0, Math.floor(effects.dyingSave ?? 0)),
+		dyingRecoverToRatio: Number.isFinite(ratio) && ratio > 0 ? ratio : 0,
 		roundHeal: Math.max(0, Math.floor(effects.roundHeal ?? 0)),
+		turnHeal: Math.max(0, Math.floor(effects.turnHeal ?? 0)),
 	};
 	player.update();
 	return true;
@@ -188,7 +194,12 @@ function applyCurioEffects(player, curioIds) {
  * 绝不写 lib.character / 全局技能。
  */
 function applyEnemyModifiers(player, entry) {
-	applyEffects(player, sumStatEffects(entry.stats));
+	const effects = sumStatEffects(entry.stats);
+	// rogue_stat 只在四项战斗键非零时才挂（hasStat），但防御给的护甲/体力上限不走那四个键——
+	// 只看它们的话，「只有防御」的敌人就没有「强化」徽记，属性面板也就点不开了。
+	// 所以这里按「面板上确实有东西可看」来决定要不要这个入口
+	const hasAnyStat = STAT_BUFF_KEYS.some(key => (effects[key] ?? 0) > 0) || (effects.armor ?? 0) > 0 || (effects.maxHp ?? 0) > 0;
+	applyEffects(player, effects, hasAnyStat);
 
 	const deltaMaxHp = Number.isFinite(entry.maxHp) ? Math.floor(entry.maxHp) : 0;
 	if (deltaMaxHp) {
@@ -220,7 +231,6 @@ function applyAbyssAffixes(player, ids) {
 		return list;
 	}
 	grantSkills(player, list, "深渊强化不存在");
-	// 赋值而不是累加：同一场战斗里重复调用只保留这一份最终结果（与 rogue_stat 同一条纪律）
 	player.storage[ABYSS_MARK_SKILL] = list;
 	grantSkills(player, [ABYSS_MARK_SKILL], "深渊标记载体未注册");
 	return list;
@@ -258,12 +268,14 @@ export async function beginBattle(event, run, enemies) {
 	assignPlayerIds();
 	game.me.init(run.characterId);
 	game.me.rogueStatRun = { openPanel: () => showBattleStats(run) };
+	game.me.rogueCurioRun = { openPanel: () => showBattleCurios(run) };
 	// 买来的技能在这里展开 group 伙伴；存档与技能槽统计始终只看 run.skills 本身
 	grantSkills(game.me, run.skills, "存档里的技能未注册");
 	const bonuses = sumStatEffects(run.stats);
 	applyEffects(game.me, bonuses, true);
-	applyCurioEffects(game.me, run.curios);
+	applyCurioEffects(game.me, run.curios, run.curioQuality);
 	bindMarkTap(game.me.marks?.[STAT_BUFF_SKILL], () => game.me.rogueStatRun.openPanel());
+	bindMarkTap(game.me.marks?.[CURIO_SKILL], () => game.me.rogueCurioRun.openPanel());
 	game.zhu = game.me;
 	markSides(game.me, game.players.slice(1));
 
@@ -274,10 +286,10 @@ export async function beginBattle(event, run, enemies) {
 		}
 		player.init(enemies[i].characterId);
 		applyEnemyModifiers(player, enemies[i]);
-		// 徽记是在 applyEnemyModifiers 里 addSkill 时才建出来的，所以绑定必须排在它后面
-		for (const markId of ENEMY_ENHANCE_MARKS) {
-			bindMarkTap(player.marks?.[markId], () => showEnemyEnhance(player));
-		}
+		// 徽记是在 applyEnemyModifiers 里 addSkill 时才建出来的，所以绑定必须排在它后面。
+		// 两枚徽记各开各的面板：属性归属性、深渊归深渊
+		bindMarkTap(player.marks?.[STAT_BUFF_SKILL], () => showEnemyEnhance(player));
+		bindMarkTap(player.marks?.[ABYSS_MARK_SKILL], () => showEnemyAbyss(player));
 	}
 	rogueBattleEnemies = game.players.slice(1, 1 + enemies.length).filter(Boolean);
 	game.me.update();
@@ -348,12 +360,14 @@ export function checkResult() {
 	if (!game.me.isAlive()) {
 		clearBattleState();
 		delete game.me.rogueStatRun;
+		delete game.me.rogueCurioRun;
 		game.over(false);
 		return;
 	}
 	if (rogueBattleEnemies.length && rogueBattleEnemies.every(player => !player.isAlive())) {
 		clearBattleState();
 		delete game.me.rogueStatRun;
+		delete game.me.rogueCurioRun;
 		game.over(true);
 	}
 }

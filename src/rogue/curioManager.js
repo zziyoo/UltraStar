@@ -1,36 +1,82 @@
-// CurioManager：奇物的效果查询与商店逻辑。纯函数，可在 Node 里直接测。
+// CurioManager：奇物的效果查询、品质升级与商店逻辑。纯函数，可在 Node 里直接测。
 //
 // 统一接口（不为每个奇物写独立代码）：
-//   sumCurioEffects(ids)   把若干奇物的 effect 对象按键叠加成一张总表
-//   getBonus(ids, type)    查某一类效果的累计值，如 getBonus(run.curios, "extraDraw") → 1
-//   describeCurioEffects   效果总表 → 玩家可读的一行一条文案（营地/商店/标记说明共用）
+//   sumCurioEffects(ids, qualityMap)   把若干奇物的「当前品质」效果按键叠加成一张总表
+//   getBonus(ids, type, qualityMap)    查某一类效果的累计值，如 getBonus(run.curios, "extraDraw", run.curioQuality) → 1
+//   describeCurioEffects               效果总表 → 玩家可读的一行一条文案（营地/商店/标记说明共用）
 //
-// 战斗内的效果（extraPhase/extraDraw/dyingSave/roundHeal）由 battle.js 建局时把总表一次性写进
-// player.storage.rogue_curio，由 data/skills.js 的机制技 rogue_curio 承载；
-// 结算类效果（expRate/goldRate）在 reward.js 胜利结算时用 getBonus 现查。
+// 品质：def.rarity 是「初始品质」，run.curioQuality[id] 是「这个存档里的当前品质」。
+// 二者必须分开——新获得的奇物永远从初始品质开始（见 getInitialQuality 的注释），
+// 升级只写 run.curioQuality。battle.js / reward.js 一律用 getCurioEffect，不自己判品质。
+//
+// 战斗内的效果（extraPhase/extraDraw/dyingSave/dyingRecoverToRatio/roundHeal/turnHeal）由 battle.js
+// 建局时把总表一次性写进 player.storage.rogue_curio，由 data/skills.js 的机制技 rogue_curio 承载；
+// 结算类效果（expRate/goldRate/goldRateSpread）在 reward.js 胜利结算时用 getBonus 现查。
 // 商店侧：候选与售价在战斗胜利时定死写进存档（curioOffers），本文件负责生成与购买。
 
-import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, SKILL_REFRESH_PER_LEVEL } from "./config.js";
-import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE } from "./data/curios.js";
-
-/** effect 里已知的键：战斗内四项 + 结算两项 + 刷新次数一项。数据自检保证 curios.json 不写出未知键 */
-export const CURIOSITY_EFFECT_KEYS = ["extraPhase", "extraDraw", "dyingSave", "roundHeal", "expRate", "goldRate", "extraShopRefresh"];
-
-/** effect 里属于战斗内的键：有任意一项才需要在建局时挂 rogue_curio 技能 */
-export const CURIOSITY_BATTLE_KEYS = ["extraPhase", "extraDraw", "dyingSave", "roundHeal"];
+import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_UPGRADE_PRICE_MULTIPLIER, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 
 /**
- * 把若干奇物的 effect 叠加成一张总表。
- * 未知键原样累加透传（getBonus 是通用接口，不把类型写死在这份清单里）。
+ * effect 里已知的键：战斗内五项 + 结算两项（+ 金币波动一项）+ 刷新次数一项。
+ * 数据自检保证 curios.js 不写出未知键。
  */
-export function sumCurioEffects(ids) {
+export const CURIOSITY_EFFECT_KEYS = ["extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal", "expRate", "goldRate", "goldRateSpread", "extraShopRefresh"];
+
+/** effect 里属于战斗内的键：有任意一项才需要在建局时挂 rogue_curio 技能 */
+export const CURIOSITY_BATTLE_KEYS = ["extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal"];
+
+/** 品质链的终点（升到它就没有下一档了） */
+const MAX_QUALITY = CURIOSITY_QUALITY_CHAIN[CURIOSITY_QUALITY_CHAIN.length - 1];
+
+/** 奇物的初始品质：定义里的 rarity。**新获得的奇物永远从这里开始**，与图鉴/别的存档无关 */
+export function getInitialQuality(id) {
+	return getCurio(id)?.rarity ?? null;
+}
+
+/**
+ * 奇物在某个存档里的当前品质：curioQuality 记了就用它，没记就是初始品质。
+ * qualityMap 就是 run.curioQuality（允许缺省，全部按初始品质算）。
+ */
+export function getCurioQuality(id, qualityMap) {
+	const raw = qualityMap?.[id];
+	return typeof raw === "string" && CURIOSITY_QUALITY_CHAIN.includes(raw) ? raw : getInitialQuality(id);
+}
+
+/** 下一档品质；已在链尾（史诗）返回 null */
+export function getNextCurioQuality(id, qualityMap) {
+	const index = CURIOSITY_QUALITY_CHAIN.indexOf(getCurioQuality(id, qualityMap));
+	return index >= 0 && index + 1 < CURIOSITY_QUALITY_CHAIN.length ? CURIOSITY_QUALITY_CHAIN[index + 1] : null;
+}
+
+export function isCurioMaxQuality(id, qualityMap) {
+	return getNextCurioQuality(id, qualityMap) === null;
+}
+
+/** 指定品质下的效果表：qualityEffects 里写了就整份替换 effect，没写就沿用初始效果 */
+export function getCurioEffectAt(id, quality) {
+	const def = getCurio(id);
+	if (!def) {
+		return {};
+	}
+	const override = def.qualityEffects?.[quality];
+	return override && typeof override === "object" ? override : (def.effect ?? {});
+}
+
+/** 当前品质下的效果表。战斗/结算一律走它，不要在 battle/reward 里自己判品质 */
+export function getCurioEffect(id, qualityMap) {
+	return getCurioEffectAt(id, getCurioQuality(id, qualityMap));
+}
+
+/**
+ * 把若干奇物的当前品质效果叠加成一张总表。
+ * @param {string[]} ids 已拥有的奇物 id
+ * @param {object} [qualityMap] run.curioQuality
+ */
+export function sumCurioEffects(ids, qualityMap) {
 	const total = {};
 	for (const id of Array.isArray(ids) ? ids : []) {
-		const def = getCurio(id);
-		if (!def || typeof def.effect !== "object" || !def.effect) {
-			continue;
-		}
-		for (const [key, value] of Object.entries(def.effect)) {
+		for (const [key, value] of Object.entries(getCurioEffect(id, qualityMap))) {
 			if (!Number.isFinite(value)) {
 				continue;
 			}
@@ -40,19 +86,38 @@ export function sumCurioEffects(ids) {
 	return total;
 }
 
-/** 查某一类效果的累计值：返回所有奇物在该键上的合计，没有则 0 */
-export function getBonus(ids, type) {
-	return sumCurioEffects(ids)[type] ?? 0;
+export function getBonus(ids, type, qualityMap) {
+	return sumCurioEffects(ids, qualityMap)[type] ?? 0;
 }
 
-/** 单键效果文案；0 值不显示，负值显示为减益（负面奇物）。与 curios.js 的 effectText 字段同源 */
+/**
+ * 百分比类效果文案：有配套的 `<key>Spread` 时写成区间（「金币获取 -10%~+10%」），
+ * 那个 key 单独不出一行——它只是 base 的波动半径。
+ */
+function rateLine(key, noun, effects) {
+	const value = effects[key];
+	const spread = Math.abs(effects[`${key}Spread`] ?? 0);
+	const pct = v => `${v >= 0 ? "+" : "-"}${Math.round(Math.abs(v) * 100)}%`;
+	return `${noun}获取 ${spread > 0 ? `${pct(value - spread)}~${pct(value + spread)}` : pct(value)}`;
+}
+
+/**
+ * 单键效果文案；0 值不显示，负值显示为减益（负面奇物）。界面文案的唯一来源就是这张表。
+ * 第二参是整张效果表：濒死回复比例、金币波动半径这类配套键要靠它才能渲染。
+ */
 const EFFECT_TEXT = {
 	extraPhase: value => `游戏开始时，获得 ${value} 个额外的出牌阶段`,
 	extraDraw: value => `摸牌阶段额外摸 ${value} 张牌`,
-	dyingSave: value => `每局游戏首次进入濒死状态时，回复体力值至 1（共 ${value} 次）`,
+	// 回复目标由 dyingRecoverToRatio 决定：写 0.5 就是「体力上限的 50%」，缺省回 1
+	dyingSave: (value, effects) => {
+		const ratio = effects?.dyingRecoverToRatio;
+		const target = Number.isFinite(ratio) && ratio > 0 ? `体力上限的 ${Math.round(ratio * 100)}%` : "1";
+		return `每局游戏首次进入濒死状态时，回复体力值至${target}（共 ${value} 次）`;
+	},
 	roundHeal: value => `每轮结束时回复 ${value} 点体力`,
-	expRate: value => `经验获取 ${value >= 0 ? "+" : "-"}${Math.round(Math.abs(value) * 100)}%`,
-	goldRate: value => `金币获取 ${value >= 0 ? "+" : "-"}${Math.round(Math.abs(value) * 100)}%`,
+	turnHeal: value => `每回合结束时回复 ${value} 点体力`,
+	expRate: (value, effects) => rateLine("expRate", "经验", effects),
+	goldRate: (value, effects) => rateLine("goldRate", "金币", effects),
 	extraShopRefresh: value => `每场战斗结束后，额外获得 ${value} 次技能商城刷新机会`,
 };
 
@@ -61,20 +126,25 @@ export function describeCurioEffects(effects) {
 	const lines = [];
 	for (const key of Object.keys(EFFECT_TEXT)) {
 		const value = effects?.[key];
-		if (Number.isFinite(value) && value !== 0) {
-			lines.push(EFFECT_TEXT[key](value));
+		if (!Number.isFinite(value)) {
+			continue;
 		}
+		// 0 值本身不出行，除非有配套波动半径（-10%~+10% 这种档位）
+		if (value === 0 && !Math.abs(effects?.[`${key}Spread`] ?? 0)) {
+			continue;
+		}
+		lines.push(EFFECT_TEXT[key](value, effects));
 	}
 	return lines;
 }
 
-/** 单个奇物的效果行：优先用作者写的 effectText，留空则按 effect 自动生成 */
-export function describeCurio(id) {
-	const def = getCurio(id);
-	if (!def) {
-		return [];
-	}
-	const lines = def.effectText ? [def.effectText] : describeCurioEffects(def.effect);
+/**
+ * 单个奇物的效果行：一律按当前品质的效果表自动生成。
+ * 不再有「作者手写文案」这条分支——同一个奇物各档之间、各奇物之间必须是同一种句式，
+ * 否则升一级就换一套措辞（「摸1张牌」→「摸 2 张牌」），读起来像两个东西。
+ */
+export function describeCurio(id, qualityMap) {
+	const lines = describeCurioEffects(getCurioEffect(id, qualityMap));
 	return lines.length ? lines : ["（该奇物暂无效果）"];
 }
 
@@ -85,11 +155,85 @@ export function getCurioBasePrice(level = 1) {
 }
 
 /**
- * 一局最多可能攒到的技能商城刷新次数：基础额度 + 全部「循环按钮」类奇物的加成。
+ * 某件奇物沿品质链能达到的最大值：取「初始品质及其之后所有档位」里该项的最大值。
+ * 存档清洗的 clamp 上限必须用它，否则循环按钮升到史诗后 +2 会被读档夹回 +1。
+ */
+export function getMaxCurioEffect(id, key) {
+	const def = getCurio(id);
+	if (!def) {
+		return 0;
+	}
+	const start = Math.max(0, CURIOSITY_QUALITY_CHAIN.indexOf(def.rarity));
+	let max = 0;
+	for (const quality of CURIOSITY_QUALITY_CHAIN.slice(start)) {
+		const value = getCurioEffectAt(id, quality)[key];
+		if (Number.isFinite(value)) {
+			max = Math.max(max, value);
+		}
+	}
+	return max;
+}
+
+/**
+ * 一局最多可能攒到的技能商城刷新次数：基础额度 + 全部「循环按钮」类奇物的**最高品质**加成。
  * 存档清洗要拿它当 clamp 上限——写死基础额度会把奇物给的额外次数读档时夹掉。
  */
 export function getMaxShopRefreshes() {
-	return SKILL_REFRESH_PER_LEVEL + curioIds.reduce((sum, id) => sum + Math.max(0, getBonus([id], "extraShopRefresh")), 0);
+	return SKILL_REFRESH_PER_LEVEL + curioIds.reduce((sum, id) => sum + Math.max(0, getMaxCurioEffect(id, "extraShopRefresh")), 0);
+}
+
+/**
+ * 奇物品质升级价：5 × round(50×√升级时的关卡)。等级越高越贵，
+ * 且永远按**当前升级时**的关卡现算，与当初买它花多少无关。
+ */
+export function getCurioUpgradePrice(run, id) {
+	if (!getCurio(id)) {
+		return null;
+	}
+	return CURIO_UPGRADE_PRICE_MULTIPLIER * getCurioBasePrice(run?.level ?? 1);
+}
+
+/**
+ * 能否升级：奇物存在、当前持有、还有下一档、经验够。UI 拿它决定按钮状态与价签，结算层再验一次。
+ * 返回 { ok, error, cost, from, to }，任何失败都不带副作用。
+ * 只有「经验不足」这一种失败会带上完整的 from/to/cost——UI 正需要照着它显示价签与下一档预览。
+ */
+export function checkCurioUpgrade(run, id) {
+	const fail = error => ({ ok: false, error, cost: null, from: null, to: null });
+	if (!getCurio(id)) {
+		return fail("该奇物已下架");
+	}
+	if (!(run?.curios ?? []).includes(id)) {
+		return fail("未拥有该奇物");
+	}
+	const from = getCurioQuality(id, run?.curioQuality);
+	const to = getNextCurioQuality(id, run?.curioQuality);
+	if (!to) {
+		return fail("已达最高品质");
+	}
+	const cost = getCurioUpgradePrice(run, id);
+	if ((run.currency?.exp ?? 0) < cost) {
+		return { ok: false, error: "经验不足", cost, from, to };
+	}
+	return { ok: true, error: null, cost, from, to };
+}
+
+/**
+ * 花经验把一件已拥有的奇物升一档。只改 currency.exp 与 curioQuality 两项，且绝不修改传入的 run。
+ * 失败时原 run 原样返回，经验与品质都不动。
+ */
+export function upgradeCurio(run, id) {
+	const check = checkCurioUpgrade(run, id);
+	if (!check.ok) {
+		return { ok: false, error: check.error, run, curioId: id, from: null, to: null, cost: null };
+	}
+	const next = {
+		...run,
+		currency: { ...run.currency, exp: Math.max(0, (run.currency?.exp ?? 0) - check.cost) },
+		curioQuality: { ...(run.curioQuality ?? {}) },
+	};
+	next.curioQuality[id] = check.to;
+	return { ok: true, error: null, run: next, curioId: id, from: check.from, to: check.to, cost: check.cost };
 }
 
 /**
@@ -217,4 +361,4 @@ export function grantRandomCurio(run, rng = Math.random) {
 	return { ok: true, error: null, run: next, curioId };
 }
 
-export { getCurio, curios, curioIds, CURIOSITY_RARITY };
+export { getCurio, curios, curioIds, CURIOSITY_RARITY, CURIOSITY_QUALITY_CHAIN };

@@ -95,7 +95,7 @@ export function showResume(api) {
 		const row = ui.create.div(".wm-rogue-resume-enemies", card);
 		for (const entry of enemies) {
 			const chip = ui.create.div(".wm-rogue-resume-enemy", row);
-			// 与商店出处头像同一套 setBackground：只读展示存档里已保存的角色，不重新随机
+			// 与商店出处头像同一套 setBackground
 			ui.create.div(".wm-rogue-shop-avatar", chip).setBackground(entry.characterId, "character");
 			ui.create.div(".wm-rogue-resume-enemy-name", translateCharacter(entry.characterId), chip);
 		}

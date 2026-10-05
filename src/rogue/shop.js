@@ -169,7 +169,7 @@ export function refreshSkillOffers(run, rng = Math.random, characterSkills = [],
 	};
 }
 
-/** 商店里是否还有买得起的候选 */
+/** 按 id 取商店候选；不存在返回 null */
 export function getOffer(run, offerId) {
 	return (run?.shopOffers ?? []).find(offer => offer.id === offerId) ?? null;
 }

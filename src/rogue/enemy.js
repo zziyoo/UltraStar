@@ -57,7 +57,7 @@ export function getExtensionCharacterIds() {
 	return ids;
 }
 
-/** 闯关模式敌方池：只从本扩展角色里随机（角色包之外的角色一概不进） */
+/** 闯关模式敌方池 */
 export function getChallengeEnemyPool() {
 	const pool = [];
 	for (const id of getExtensionCharacterIds()) {

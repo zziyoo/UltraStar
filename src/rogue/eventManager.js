@@ -76,10 +76,7 @@ export function normalizeEventReward(raw) {
 	return reward;
 }
 
-/**
- * 三项属性是否已全部满级。拿不到存档属性时按「未满」处理——
- * 不知道当前等级就不能断定升级会落空，宁可保持原奖励。
- */
+/** 三项属性是否全部满级；拿不到属性时按「未满」处理，不凭猜测改奖励 */
 function allStatsMaxed(statLevels) {
 	if (!statLevels || typeof statLevels !== "object") {
 		return false;
@@ -136,15 +133,13 @@ export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0,
 				clean[key] = STAT_IDS[Math.floor(rng() * STAT_IDS.length)];
 			}
 		}
-		// 属性全满时 statUp 结算必然「已达最高等级，未生效」，这次机遇等于空转；
-		// 生成期就换成一个随机奇物，存档里存的也就是奇物，读档恢复不会变卦
+		// 属性全满时 statUp 必然落空，换成随机奇物；放在生成期是为了随存档定死、读档不重掷
 		if (clean.statUp && allStatsMaxed(statLevels)) {
 			delete clean.statUp;
 			clean.curio = "random";
 		}
 		// 消耗类选项把价钱写进文案：倍率是按本次胜利奖励现算的，玩家点之前就该看到要花多少，
 		// 而不是结算完才发现。文案随存档定死，读档后显示不变。
-		// 带 outcomes 的赌局选项除外：负金额是预掷结果，写进按钮文案等于剧透正负面
 		const fromOutcomes = Array.isArray(choice.outcomes) && choice.outcomes.length > 0;
 		choices.push({ text: withCostText(choice.text.trim(), clean, fromOutcomes), reward: clean });
 	}

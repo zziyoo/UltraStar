@@ -27,6 +27,7 @@ const log = stub.__log;
 
 const load = rel => import(pathToFileURL(path.join(root, rel)).href);
 const cfg = await load("src/rogue/config.js");
+const eventsData = await load("src/rogue/data/events.js");
 const abyssCfg = await load("src/rogue/endless/abyssConfig.js");
 const modeModule = await load("src/rogue/mode.js");
 const battleModule = await load("src/rogue/battle.js");
@@ -335,7 +336,7 @@ await check("角色候选：真实存在、隐藏 Boss 不进候选", () => {
 	return `候选 ${roster.length}`;
 });
 
-await check("Hub：角色/关卡/货币/属性与四个按钮（不再有技能入口）", async () => {
+await check("Hub：角色/关卡/货币/属性与两行动作按钮（不再有技能入口）", async () => {
 	freshWorld();
 	session();
 	await newRunByUi("闯关模式");
@@ -352,6 +353,7 @@ await check("Hub：角色/关卡/货币/属性与四个按钮（不再有技能�
 		"暂无加成",
 		"开始下一关",
 		"商店",
+		"图鉴",
 		"返回存档",
 		"退出肉鸽模式",
 	]) {
@@ -372,7 +374,14 @@ await check("Hub：角色/关卡/货币/属性与四个按钮（不再有技能�
 		body.children.findIndex(node => node.classList?.contains?.("wm-rogue-hub-section-title")) + 1,
 		"角色名应紧跟「当前成长」标题"
 	);
-	return "营地信息齐备";
+	// 动作区分两行：第一行是「继续玩」的三个入口，第二行才是离开当前局
+	const rows = nodesWithClass("wm-rogue-hub-row");
+	assertEqual(rows.length, 2, "动作区应恰好分两行");
+	const labelsOf = row => row.children.map(node => textOf(node));
+	assertEqual(JSON.stringify(labelsOf(rows[0])), JSON.stringify(["开始下一关", "商店", "图鉴"]), `第一行：${labelsOf(rows[0])}`);
+	assertEqual(JSON.stringify(labelsOf(rows[1])), JSON.stringify(["返回存档", "退出肉鸽模式"]), `第二行：${labelsOf(rows[1])}`);
+	assert(nodesWithClass("wm-rogue-hub-index")[0], "图鉴按钮用自己的配色类");
+	return "营地信息齐备 + 动作分两行";
 });
 
 await check("开局：先落盘敌方阵容再建局，本体事件调用顺序正确", async () => {
@@ -1334,7 +1343,9 @@ await check("局内属性弹层：标题独立置顶、真实 Lv.10 效果，点
 	assert(panel, "应存在属性详情面板");
 	assertEqual(panel.children[0].classList.contains("wm-rogue-stat-title"), true, "标题必须是面板第一项");
 	assertEqual(panel.children[1].classList.contains("wm-rogue-stat-divider"), true, "标题后应有独立分隔线");
-	assertEqual(panel.children[2].classList.contains("wm-rogue-stat-detail"), true, "第一个属性不能与标题同行");
+	assertEqual(panel.children[2].classList.contains("wm-rogue-stat-body"), true, "正文要与标题分家，才能只滚正文");
+	const body = panel.children[2];
+	assertEqual(body.children[0].classList.contains("wm-rogue-stat-detail"), true, "第一个属性挂在正文条里，不与标题同行");
 	const text = screenText();
 	assert(text.includes("攻击 Lv.10") && text.includes("100%") && text.includes("出【杀】次数 +5"), "攻击 Lv.10 文案应真实显示");
 	assert(text.includes("防御 Lv.10") && text.includes("体力上限 +5") && !text.includes("体力上限 +9"), "防御 Lv.10 文案应真实显示");
@@ -1346,6 +1357,29 @@ await check("局内属性弹层：标题独立置顶、真实 Lv.10 效果，点
 	tapOverlay(overlay);
 	assertEqual(common.currentScreenNode(), null, "点框外应直接退出");
 	return "无关闭按钮，点框外退出";
+});
+
+await check("奇物面板：几十件也只滚正文条，标题与分组头留在原位", async () => {
+	// 七件奇物全带上，模拟「以后有几十件」时的样子
+	common.showBattleCurios({
+		curios: ["broken_watch", "lucky_stone", "breath_belt", "energy_core", "leftover_rice", "loop_button", "cursed_coin"],
+		curioQuality: { energy_core: "epic" },
+	});
+	const overlay = common.currentScreenNode();
+	const panel = nodesWithClass("wm-rogue-stat-panel")[0];
+	assertEqual(panel.children[0].classList.contains("wm-rogue-stat-title"), true, "标题必须是面板第一项（滚不走的只有它和分隔线）");
+	const body = nodesWithClass("wm-rogue-stat-body")[0];
+	assert(body, "面板要有独立的正文条");
+	assertEqual(body.parentNode, panel, "正文条挂在面板里");
+	const detailIn = nodes => nodes.filter(node => node.parentNode === body).length;
+	assertEqual(detailIn(nodesWithClass("wm-rogue-stat-detail")), 7, "七件奇物都挂在正文条里");
+	assertEqual(detailIn(nodesWithClass("wm-rogue-stat-title")), 0, "标题不在正文条里");
+	assertEqual(detailIn(nodesWithClass("wm-rogue-stat-divider")), 0, "分隔线不在正文条里");
+	assertEqual(detailIn(nodesWithClass("wm-rogue-stat-section-title")), 2, "两个分组头跟着正文一起滚");
+	// 滚动条只可能是正文条：面板与标题都不是滚动容器（这里只能验结构，滚动本身要真机看）
+	assertEqual(nodesWithClass("wm-rogue-stat-body").length, 1, "面板只有一个滚动容器");
+	common.closeScreen();
+	return "七件全在正文条里";
 });
 
 await check("属性升级：受最大等级与价格约束，成功即落盘", async () => {
@@ -1830,6 +1864,27 @@ await check("无尽胜利触发事件：结算页「继续」进事件页，选�
 	}
 });
 
+await check("事件定义中途下架：事件页不抛异常，直接走出口重载", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	const def = eventsData.events.lost_robot;
+	try {
+		Math.random = () => 0;
+		session();
+		await winEndlessBattle();
+		assertEqual(lib.storage.rogueSlots[0].pendingEvent.id, "lost_robot", "存档里挂着定死的事件");
+		// normalizePendingEvent 只在读档时清洗，这里模拟「写进存档之后定义才下架」，绕得过去
+		delete eventsData.events.lost_robot;
+		click("继续");
+		assertEqual(nodesWithClass("wm-rogue-event").length, 0, "没有定义就不该画事件页");
+		assert(log.some(item => item.type === "reload"), "应走出口重载（修之前这里抛 TypeError，走不到断言）");
+	} finally {
+		eventsData.events.lost_robot = def;
+		Math.random = originalRandom;
+	}
+	return "缺定义 → 走出口不崩";
+});
+
 await check("事件持久化：触发后关游戏再读档，事件页原样恢复、不重新随机", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
@@ -1940,19 +1995,74 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].curioOffers), "[]", "重载后无残留候选");
 	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 0, "重载后分区仍无残卡");
 	assert(nodesWithClass("wm-rogue-curio-section")[0].classList.contains("wm-rogue-hidden"), "重载后分区仍隐藏");
-	// 顶部「奇物 n」资源块进只读查看页：与「技能 n/3」同一套入口
+	// 顶部「奇物 n」资源块进奇物管理页：与「技能 n/3」同一套入口
 	clickNode(nodesWithClass("wm-rogue-res-curio")[0]);
-	assert(screenText().includes("奇物（1）"), `查看页标题：${screenText()}`);
-	assert(screenText().includes("能量核心"), "查看页列出已拥有奇物");
-	// 查看页点卡片：弹层只讲描述与效果，不重复名字
-	clickNode(nodesWithClass("wm-rogue-shop-card-read")[0]);
-	const popupText = dump(nodesWithClass("wm-rogue-popup")[0]);
-	assert(!popupText.includes("能量核心"), `查看页弹层不应重复奇物名：${popupText}`);
-	assert(popupText.includes("摸牌阶段额外摸一张牌"), `查看页弹层应展示效果：${popupText}`);
-	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+	assert(screenText().includes("奇物（1）"), `管理页标题：${screenText()}`);
+	const manage = nodesWithClass("wm-rogue-curio-manage")[0];
+	assert(manage, "管理页应渲染奇物卡");
+	// 刚买到的能量核心停在初始品质：当前效果 + 下一品质预览 + 按当前关卡现算的升级价
+	// （第 2 关基准 round(50×√2)=71，升级价 = 5×71 = 355；这一档 exp 为 0，所以按钮置灰）
+	const manageText = dump(manage);
+	// 当前效果与下一品质效果都按效果表自动生成，句式统一
+	for (const token of ["能量核心", "普通", "摸牌阶段额外摸 1 张牌", "下一品质：稀有", "摸牌阶段额外摸 2 张牌", "升级 355 经验（持有 0）"]) {
+		assert(manageText.includes(token), `管理页卡面应显示「${token}」：${manageText}`);
+	}
+	assert(nodesWithClass("wm-rogue-curio-up")[0].classList.contains("wm-rogue-disabled"), "经验不足时升级按钮置灰");
 	click("返回");
 	assert(screenText().includes("技能商店"), "返回应回到商店");
-	return "买 1 个 → 整批售罄 → 重载保持";
+	return "买 1 个 → 整批售罄 → 重载保持 → 管理页预览";
+});
+
+await check("奇物管理页：点升级真的升一档、原位重绘，史诗档不给按钮", async () => {
+	freshWorld();
+	// 第 31 关：升级价 = 5 × round(50×√31) = 1390，给够两次的钱
+	putRun(0, {
+		mode: "endless",
+		level: 31,
+		currency: { gold: 500, exp: 5000 },
+		curios: ["energy_core", "broken_watch"],
+	});
+	session();
+	click("商店");
+	clickNode(nodesWithClass("wm-rogue-res-curio")[0]);
+
+	const cardOf = name => nodesWithClass("wm-rogue-curio-manage").find(node => dump(node).includes(name));
+	const energy = cardOf("能量核心");
+	const upgradeBtn = nodesWithClass("wm-rogue-curio-up")[0];
+	assert(upgradeBtn && !upgradeBtn.classList.contains("wm-rogue-disabled"), "经验够时升级按钮可点");
+	clickNode(upgradeBtn);
+	await flush();
+	let saved = lib.storage.rogueSlots[0];
+	assertEqual(saved.curioQuality.energy_core, "rare", "落盘升到稀有");
+	assertEqual(saved.currency.exp, 5000 - 1390, "扣掉 1390 经验");
+	// 原位重绘：卡面自己变成稀有档的样子，没有重开页面
+	let text = dump(cardOf("能量核心"));
+	assert(text.includes("稀有") && text.includes("摸牌阶段额外摸 2 张牌"), `卡面应重绘成稀有档：${text}`);
+	assert(text.includes("下一品质：史诗") && text.includes("摸牌阶段额外摸 4 张牌"), `下一档预览跟上：${text}`);
+	assert(text.includes(`升级 ${1390 * 1} 经验`), `价签按当前档重算：${text}`);
+	assertEqual(nodesWithClass("wm-rogue-curio-manage").length, 2, "页面没被重开（还是这两张卡）");
+	// 再升一档到史诗：按钮整个拿掉，只留「已达最高品质」
+	clickNode(nodesWithClass("wm-rogue-curio-up")[0]);
+	await flush();
+	saved = lib.storage.rogueSlots[0];
+	assertEqual(saved.curioQuality.energy_core, "epic", "再升到史诗");
+	assertEqual(saved.currency.exp, 5000 - 1390 * 2, "第二次也扣钱");
+	text = dump(cardOf("能量核心"));
+	assert(text.includes("史诗") && text.includes("摸牌阶段额外摸 4 张牌"), `史诗档卡面：${text}`);
+	assert(text.includes("已达最高品质"), `链尾写「已达最高品质」：${text}`);
+	const maxBtn = nodesWithClass("wm-rogue-curio-up")[0];
+	assert(maxBtn.classList.contains("wm-rogue-hidden"), "链尾的升级按钮要藏起来（`.wm-rogue-hidden` 必须有 display:none 规则压得住按钮的 inline-flex）");
+	// 初始就是史诗的破损怀表：一样只写「已达最高品质」
+	const watch = dump(cardOf("破损怀表"));
+	assert(watch.includes("已达最高品质") && !watch.includes("下一品质"), `破损怀表直接是链尾：${watch}`);
+	// 隐藏之外再保一层：真去调它的回调也不会升级
+	clickNode(nodesWithClass("wm-rogue-curio-up")[1]);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 5000 - 1390 * 2, "点链尾的按钮不扣钱");
+	assertEqual(lib.storage.rogueSlots[0].curioQuality.energy_core, "epic", "也不改品质");
+	click("返回");
+	assert(screenText().includes("技能商店"), "返回应回到商店");
+	return "升级两次 + 链尾无按钮";
 });
 
 await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显示未发现", async () => {
@@ -2067,6 +2177,8 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	putRun(0, {
 		mode: "endless",
 		curios: ["energy_core", "lucky_stone", "broken_watch"],
+		// 能量核心升到史诗：战斗总表要按当前品质给 +4，而不是初始的 +1
+		curioQuality: { energy_core: "epic" },
 		currentBattle: {
 			status: "battle",
 			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
@@ -2078,15 +2190,32 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	assert(game.me.hasSkill("rogue_curio"), "应挂上奇物机制技");
 	assertEqual(
 		JSON.stringify(game.me.storage.rogue_curio),
-		JSON.stringify({ extraPhase: 1, extraDraw: 1, dyingSave: 0, roundHeal: 0 }),
-		"storage 是结算类之外的三项战斗效果（幸运石不进 storage）"
+		JSON.stringify({ extraPhase: 1, extraDraw: 4, dyingSave: 0, dyingRecoverToRatio: 0, roundHeal: 0, turnHeal: 0 }),
+		"storage 按当前品质写（史诗能量核心 +4；幸运石是结算类不进 storage）"
 	);
 	assertEqual(lib.hookmap.phaseBegin, true, "额外出牌阶段时机已登记");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "摸牌时机已登记");
 	assertEqual(lib.hookmap.dying, true, "濒死时机已登记");
 	assertEqual(lib.hookmap.roundEnd, true, "轮结束时机已登记");
+	assertEqual(lib.hookmap.phaseEnd, true, "回合结束时机已登记（剩饭史诗档）");
 	assert(game.me.hasSkill("rogue_stat"), "属性强化机制技不受影响");
-	return "rogue_curio + storage 三项";
+	// 点「奇物」徽记 → 自建浮层面板（不再只是本体那个灰盒子 tooltip）：逐件列出名称（当前品质）与效果
+	assert(!!game.me.marks.rogue_curio, "应挂上「奇物」徽记");
+	tapMark(game.me.marks.rogue_curio);
+	const curioText = screenText();
+	for (const token of ["奇物", "能量核心（史诗）", "摸牌阶段额外摸 4 张牌", "幸运石（稀有）", "经验获取 +10%", "破损怀表（史诗）"]) {
+		assert(curioText.includes(token), `奇物面板应显示「${token}」：${curioText.slice(0, 400)}`);
+	}
+	assertEqual(nodesWithClass("wm-rogue-stat-panel").length, 1, "奇物面板复用属性面板的版式");
+	assertEqual(nodesWithClass("wm-rogue-stat-detail").length, 3, "三件奇物各一行");
+	// 分两组：战斗里真生效的与结算才生效的分开，别让人以为诅咒金币/循环按钮这局马上能吃到
+	const splitAt = curioText.indexOf("结算时生效");
+	assert(curioText.includes("战斗内生效") && splitAt > 0, `两组标题都要在：${curioText.slice(0, 400)}`);
+	assert(curioText.indexOf("能量核心") < splitAt, `战斗类的奇物不该落到结算组：${curioText.slice(0, 400)}`);
+	assert(curioText.indexOf("破损怀表") < splitAt, `破损怀表是本局生效的：${curioText.slice(0, 400)}`);
+	assert(curioText.indexOf("幸运石") > splitAt, `幸运石只有结算加成，不该出现在战斗组：${curioText.slice(0, 400)}`);
+	common.closeScreen();
+	return "rogue_curio + storage 按品质 + 奇物面板";
 });
 
 await check("挑战模式不受影响：没有奇物商店与奇物栏，图鉴只读公有内容", async () => {
@@ -2266,8 +2395,8 @@ await check("深渊化：敌人按存档词缀挂上技能与「深渊」徽记�
 		currentBattle: {
 			status: "battle",
 			enemies: [
-				{ characterId: "佐菲", stats: { defense: 2, draw: 0, attack: 0 }, abyss: ABYSS_TEST_IDS, skills: [], maxHp: 0, hp: 0 },
-				{ characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "佐菲", stats: { defense: 2, draw: 2, attack: 2 }, abyss: ABYSS_TEST_IDS, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "赛文", stats: { defense: 3, draw: 0, attack: 0 }, abyss: [], skills: [], maxHp: 0, hp: 0 },
 			],
 		},
 	}, stateModule.createRun("endless", "迪迦", 1));
@@ -2288,23 +2417,36 @@ await check("深渊化：敌人按存档词缀挂上技能与「深渊」徽记�
 	assert(first.hasSkill("abyss_affix"), "应挂上深渊标记载体");
 	assert(!!first.marks.abyss_affix, "徽记节点应建在敌人身上");
 	assert(!second.hasSkill("abyss_affix"), "没有词缀的敌人不该出现深渊徽记");
+	// 「只有防御」的敌人也要有强化入口：防御给的是护甲/体力上限，不走 rogue_stat 那四个战斗键，
+	// 只看 hasStat 的话它会连属性面板都点不开
+	assert(!!second.marks.rogue_stat, "只有防御的敌人也该挂「强化」徽记");
+	assert(!!first.marks.rogue_stat, "有属性的敌人应挂「强化」徽记");
 	// 时机登记：坚壁走 damageBegin4、狂热走全局 roundStart，缺一个就等于技能全哑
 	assertEqual(lib.hookmap.damageBegin4, true, "受伤时机已登记");
 	assertEqual(lib.hookmap.roundStart, true, "轮开始时机已登记");
-	// 点徽记 → 敌人强化面板：属性与玩家同一套版式，词缀名和描述都在
+	// 点「深渊」徽记 → 只开深渊面板：词缀名与描述在，属性那三行不在
 	tapMark(first.marks.abyss_affix);
 	const overlay = common.currentScreenNode();
 	const text = screenText();
-	for (const token of ["深渊·坚壁", "受到的伤害-1", "深渊·狂热", "额外的回合", "防御 Lv.2", "佐菲"]) {
-		assert(text.includes(token), `面板应显示「${token}」：${text.slice(0, 400)}`);
+	for (const token of ["深渊强化", "深渊·坚壁", "受到的伤害-1", "深渊·狂热", "额外的回合", "佐菲"]) {
+		assert(text.includes(token), `深渊面板应显示「${token}」：${text.slice(0, 400)}`);
 	}
 	assert(!text.includes("深渊·不屈"), "面板只列这名敌人实际拥有的词缀");
+	assert(!text.includes("防御 Lv."), `深渊面板不该混进属性行：${text.slice(0, 400)}`);
+	assertEqual(nodesWithClass("wm-rogue-abyss-badge").length, 0, "词缀名只保留文字，不再有胶囊徽记");
+	assertEqual(nodesWithClass("wm-rogue-abyss-name").length, 2, "两个词缀各占一行紫色文字");
 	const panel = nodesWithClass("wm-rogue-stat-panel")[0];
 	const tapOverlay = target => overlay.__listeners[0]({ target });
 	tapOverlay(panel);
 	assertEqual(common.currentScreenNode(), overlay, "点面板内不应关闭");
 	tapOverlay(overlay);
 	assertEqual(common.currentScreenNode(), null, "点框外应直接退出");
+	// 点「强化」徽记 → 只开属性面板，深渊那一段不在另一页里
+	tapMark(first.marks.rogue_stat);
+	const statText = screenText();
+	assert(statText.includes("敌人强化") && statText.includes("防御 Lv.2"), `属性面板应只讲属性：${statText.slice(0, 300)}`);
+	assert(!statText.includes("深渊"), `属性面板不该出现深渊：${statText.slice(0, 300)}`);
+	common.closeScreen();
 	// 玩家自己的属性面板入口不受影响（同一套绑定逻辑，两个来源共用）
 	assert(!!game.me.marks.rogue_stat, "玩家属性徽记仍在");
 	tapMark(game.me.marks.rogue_stat);

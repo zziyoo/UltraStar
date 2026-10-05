@@ -36,7 +36,6 @@ const CSS = `
 .wm-rogue-no { padding-top: 2px; font-size: 32px; line-height: 1; font-weight: bold;
 	font-family: Impact, "Arial Black", sans-serif; color: #ff7a18;
 	text-shadow: 0 2px 3px rgba(0,0,0,0.9); }
-/* 编号与正文由卡片内的两格表格分列（见 slots.js 的 buildCardContent），不用 float/flex */
 .wm-rogue-body { min-width: 0; }
 .wm-rogue-name { font-size: 21px; font-weight: bold; color: #fff;
 	text-shadow: 0 1px 2px rgba(0,0,0,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -59,10 +58,19 @@ const CSS = `
 .wm-rogue-btn:hover { border-color: rgba(255,200,120,0.9); }
 .wm-rogue-btn.wm-rogue-small { padding: 4px 14px; font-size: 15px; }
 .wm-rogue-btn.wm-rogue-danger { background: linear-gradient(rgba(150,60,50,0.92), rgba(90,30,25,0.95)); }
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stage { padding: 20px 12px; }
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-panel { width: min(520px, calc(100% - 24px)); padding: 20px; border-radius: 8px; background: linear-gradient(rgba(28,28,28,0.96), rgba(12,12,12,0.98)); border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 24px rgba(0,0,0,0.6); }
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-title { display: block !important; margin: 0; text-align: center; font-size: 26px; line-height: 1.3; font-weight: bold; letter-spacing: 5px; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.85); }
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-divider { display: block !important; height: 1px; margin: 14px 0 18px; background: rgba(255,255,255,0.22); }
+/* 面板自身限高、正文自己滚：奇物可能有几十件，标题与分组头必须留在原位。
+   stage 给一个确定高度（height:100%，百分比 max-height 才解析得出来），
+   面板 max-height:100% 就是 stage 的内容盒高度 = 视口减去上下 padding。
+   正文条是唯一的可伸缩项：min-height:0 允许它被压缩到小于内容，overflow 才真的出滚动条 */
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stage { padding: 20px 12px; height: 100%; }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-panel { width: min(520px, calc(100% - 24px)); max-height: 100%; display: flex; flex-direction: column; padding: 20px; border-radius: 8px; background: linear-gradient(rgba(28,28,28,0.96), rgba(12,12,12,0.98)); border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 24px rgba(0,0,0,0.6); }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+/* 正文条与分隔线现在是两个盒子，外边距不再折叠——不归零的话第一条会离分隔线远 16px */
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-body > :first-child { margin-top: 0; }
+/* 主题的裸 div{position:absolute} 会把正文条拉出文档流、高度塌成 0，滚动条就没了 */
+#wm-rogue-overlay .wm-rogue-stat-body { position: static !important; }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-title { display: block !important; flex: none; margin: 0; text-align: center; font-size: 26px; line-height: 1.3; font-weight: bold; letter-spacing: 5px; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.85); }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-divider { display: block !important; flex: none; height: 1px; margin: 14px 0 18px; background: rgba(255,255,255,0.22); }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail { display: block !important; margin-top: 16px; padding-top: 0; border-top: 0; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { display: block !important; }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name { font-size: 19px; font-weight: bold; color: #ffd479; }
@@ -70,12 +78,14 @@ const CSS = `
 /* 敌人强化面板：标题下给出「敌人强化」副标题，深渊词缀单独一区 */
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-subtitle { margin-top: 4px; text-align: center; font-size: 15px; letter-spacing: 3px; color: rgba(255,255,255,0.6); }
 #wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-section-title { margin: 22px 0 2px; font-size: 21px; font-weight: bold; color: #b28cff; letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
-/* 词缀总览：一排深紫底的小徽记，与玩家面板的金色属性行分开 */
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-abyss-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
-#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-abyss-badge { display: inline-flex; align-items: center; justify-content: center;
-	padding: 3px 12px; border-radius: 12px; font-size: 15px; line-height: 1.4; color: #d8c6ff; white-space: nowrap;
-	background: linear-gradient(rgba(74,54,116,0.9), rgba(38,26,64,0.95));
-	border: 1px solid rgba(178,140,255,0.55); box-shadow: 0 0 10px rgba(140,100,220,0.22); }
+/* 深渊词缀名：与属性那套金色（wm-rogue-stat-detail-name）分开，用紫色表示「这是深渊机制」 */
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-abyss-name { color: #b28cff; }
+/* 奇物面板的条目名按当前品质着色，与图鉴/商店的品质色同一套。
+   这几条比 wm-rogue-stat-detail-name 多一个类，才压得住它的金色 */
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name.wm-rogue-rarity-epic { color: #d8a6ff; }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name.wm-rogue-rarity-rare { color: #9fd8ff; }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name.wm-rogue-rarity-common { color: #ffd479; }
+#wm-rogue-overlay.wm-rogue-stat-overlay .wm-rogue-stat-detail-name.wm-rogue-rarity-negative { color: #ff8a7a; }
 
 /* 浮层内的自建弹层：本体对话框会被浮层（z-index 9998）压住，所以浮层当前时改用自建弹层 */
 .wm-rogue-popup { position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 9999;
@@ -181,12 +191,18 @@ const CSS = `
 	letter-spacing: 4px; }
 .wm-rogue-hub-section-title { margin: 18px 0 8px; font-size: 20px; font-weight: bold; color: #fff;
 	letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
-.wm-rogue-hub-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 20px; }
+/* 动作区分两行：第一行「开始/商店/图鉴」，第二行「返回存档/退出肉鸽模式」。
+   行内自动换行兜住窄屏，行与行之间靠 actions 的 gap——想调间距只动这两个 gap */
+.wm-rogue-hub-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 20px; }
+.wm-rogue-hub-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; }
 .wm-rogue-btn.wm-rogue-hub-primary { padding: 12px 44px; font-size: 22px; border-color: rgba(255,200,120,0.8);
 	background: linear-gradient(rgba(160,110,40,0.95), rgba(110,70,20,0.95)); }
 /* 商店用蓝：与金色的「开始下一关」分开，也不再和灰色次级按钮混在一起 */
 .wm-rogue-btn.wm-rogue-hub-shop { padding: 12px 34px; font-size: 20px; border-color: rgba(150,205,255,0.75);
 	background: linear-gradient(rgba(62,116,168,0.95), rgba(30,64,104,0.95)); }
+/* 图鉴用紫：收集册的识别色（与本项目的史诗品质、深渊系列同一族），尺寸与商店一致好对齐第一行 */
+.wm-rogue-btn.wm-rogue-hub-index { padding: 12px 34px; font-size: 20px; border-color: rgba(190,150,255,0.75);
+	background: linear-gradient(rgba(108,74,168,0.95), rgba(58,36,104,0.95)); }
 /* 营地两个次级按钮：比 wm-rogue-small 更长，字号比商店（20）小两号，尺寸旋钮就这一行（padding 的左右值管长度，font-size 一起管字与高） */
 .wm-rogue-btn.wm-rogue-hub-secondary { padding: 8px 40px; font-size: 18px; }
 .wm-rogue-hub-hint { margin-top: 10px; font-size: 14px; color: #ffb347; text-align: center; }
@@ -304,7 +320,6 @@ const CSS = `
 	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
 	border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
 .wm-rogue-index-card.wm-rogue-index-known { border-color: rgba(255,200,120,0.55); }
-/* 已收录的条目点得开：给指针与悬停反馈。未发现的条目不挂这个类，也不挂监听 */
 .wm-rogue-index-card.wm-rogue-index-clickable { cursor: pointer; }
 .wm-rogue-index-card.wm-rogue-index-clickable:hover { border-color: rgba(255,200,120,0.9); box-shadow: 0 0 16px rgba(255,180,80,0.28); }
 /* 图鉴里的图位同时承载「奇物图 / 事件图 / ？？？未发现」三种 */
@@ -337,9 +352,12 @@ const CSS = `
 .wm-rogue-rarity-negative { color: #ff8a7a; border-color: rgba(255,120,100,0.65); }
 .wm-rogue-curio-effect { margin-top: 7px; font-size: 15px; line-height: 1.5; color: #9fd8ff;
 	white-space: pre-line; }
+/* 奇物管理页的「下一品质」预览：与当前效果之间用虚线分隔，一眼看出升级后变成什么样 */
+.wm-rogue-curio-next { margin-top: 7px; padding-top: 7px; font-size: 15px; line-height: 1.5;
+	color: #d8a6ff; white-space: pre-line; border-top: 1px dashed rgba(255,255,255,0.18); }
+.wm-rogue-curio-next:empty { display: none; margin: 0; padding: 0; border-top: 0; }
 /* 奇物商店分区容器：无候选时挂 .wm-rogue-hidden 整块隐藏（不留「已购买」残卡） */
 #wm-rogue-overlay .wm-rogue-curio-section { display: flex !important; flex-direction: column !important; }
-#wm-rogue-overlay .wm-rogue-curio-section.wm-rogue-hidden { display: none !important; }
 /* 商店资源行第四块「奇物 n」：与「技能 n/3」同一套入口视觉 */
 .wm-rogue-res-cell.wm-rogue-res-curio { cursor: pointer; }
 .wm-rogue-res-cell.wm-rogue-res-curio:hover { border-color: rgba(255,200,120,0.8); }
@@ -428,15 +446,15 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-resume,
 #wm-rogue-overlay .wm-rogue-event,
 #wm-rogue-overlay .wm-rogue-index,
+#wm-rogue-overlay .wm-rogue-hub-actions,
 #wm-rogue-overlay .wm-rogue-modes { display: flex !important; flex-direction: column !important; }
 #wm-rogue-overlay .wm-rogue-shop-cards,
 #wm-rogue-overlay .wm-rogue-stat-cards,
-#wm-rogue-overlay .wm-rogue-hub-actions,
+#wm-rogue-overlay .wm-rogue-hub-row,
 #wm-rogue-overlay .wm-rogue-mode-cards,
 #wm-rogue-overlay .wm-rogue-replace-cards,
 #wm-rogue-overlay .wm-rogue-resume-enemies,
 #wm-rogue-overlay .wm-rogue-index-cards,
-#wm-rogue-overlay .wm-rogue-abyss-badges,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
 #wm-rogue-overlay .wm-rogue-resume-enemy,
 #wm-rogue-overlay .wm-rogue-resume-actions,
@@ -463,6 +481,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-curio-art { display: block !important; }
 #wm-rogue-overlay .wm-rogue-shop-section-title,
 #wm-rogue-overlay .wm-rogue-shop-subtitle,
+#wm-rogue-overlay .wm-rogue-stat-body,
 #wm-rogue-overlay .wm-rogue-stat-subtitle,
 #wm-rogue-overlay .wm-rogue-stat-section-title,
 #wm-rogue-overlay .wm-rogue-shop-name,
@@ -508,12 +527,11 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-index-name,
 #wm-rogue-overlay .wm-rogue-index-desc,
 #wm-rogue-overlay .wm-rogue-curio-effect,
+#wm-rogue-overlay .wm-rogue-curio-next,
 #wm-rogue-overlay .wm-rogue-mode-name,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best { display: block !important; }
 #wm-rogue-overlay .wm-rogue-mode-go { display: inline-flex !important; align-items: center !important; justify-content: center !important; }
-/* 深渊词缀徽记：主题的裸 div{display:inline-block;position:absolute} 会把胶囊拉成绝对定位，这里钉回行内 flex */
-#wm-rogue-overlay .wm-rogue-abyss-badge { display: inline-flex !important; align-items: center !important; justify-content: center !important; position: static !important; }
 #wm-rogue-overlay .wm-rogue-hub-who { display: block !important; }
 #wm-rogue-overlay .wm-rogue-shop-desc,
 #wm-rogue-overlay .wm-rogue-shop-owner,
@@ -535,6 +553,11 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-name { white-space: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-no { white-space: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-resume-enemy-name { white-space: nowrap !important; }
+
+/* .wm-rogue-hidden 是「整块拿掉」的通用开关：奇物商店无候选时的分区、奇物管理页升到链尾时的升级按钮。
+   按钮自己的 display:inline-flex !important 在前（.wm-rogue-btn，权重 0,1,0），这条挂在 id 作用域下（1,1,0）
+   又在最末尾，权重与顺序双双压得住——两条都是 !important 时由权重决定 */
+#wm-rogue-overlay .wm-rogue-hidden { display: none !important; }
 `;
 
 export function ensureRogueStyles() {

@@ -40,7 +40,6 @@ for (const pkg of packages) {
 // 不可上架的内部技能：只对特定角色/专属机制生效（如死龙的换人控制技），买来无意义也无翻译
 const NON_SELLABLE = new Set(["slcontrol"]);
 
-/** 商店上架清单：扩展全部分包技能，价格统一 100 */
 export const pool = Object.keys(packSkill)
 	.filter(id => !NON_SELLABLE.has(id))
 	.map(id => ({ id, price: 100 }));
@@ -55,10 +54,6 @@ export const translate = {
 
 // ---------------------------------------------------------------- 机制技能
 //
-// 属性强化（data/stats.js）的数值加成载体，不进商店、不进奖励池。
-// battle.js 建局时按存档算好总数，写进 player.storage[技能名] 并 addSkill；
-// 技能本体只读 storage，不在 lib 里登记任何针对具体存档的内容。
-
 // 属性强化（data/stats.js）的数值加成载体，不进商店、不进奖励池。
 // battle.js 建局时按存档一次性算好总数，写进 player.storage.rogue_stat 并 addSkill 一次：
 // 一个技能同时承担四种效果，玩家旁边因此只有一个「强化」标记，点开能看到全部当前效果。
@@ -116,13 +111,15 @@ export const helpers = {
 			}
 		},
 	},
-	// 奇物的战斗内效果载体（curioManager.sumCurioEffects 的总表由 battle.js 建局时一次写进 storage）：
+	// 奇物的战斗内效果载体（curioManager.sumCurioEffects 按当前品质算出的总表，由 battle.js 建局时一次写进 storage）：
 	// 破损怀表（游戏开始时额外出牌阶段，照官方「当先」的 phaseList.splice 写法）、
-	// 能量核心（摸牌 +1）、气息腰带（每局首次濒死回复至 1）、剩饭（每轮结束回 1 血）。
-	// 结算类效果（幸运石的经验加成）不走这里，由 reward.js 胜利结算时用 curioManager.getBonus 现查。
+	// 能量核心（摸牌 +1）、气息腰带（每局首次濒死回复）、剩饭（每轮结束回血；升到史诗改每回合）。
+	// 结算类效果（幸运石的经验加成、诅咒金币的金币加成）不走这里，由 reward.js 胜利结算时用 curioManager.getBonus 现查。
 	rogue_curio: {
 		trigger: {
-			player: ["phaseBegin", "phaseDrawBegin2", "dying"],
+			// phaseEnd 是「这个玩家的整个回合走完」的时机（本体在 phaseList 跑完后 trigger 一次），
+			// roundEnd 才是全场一轮结束——剩饭的史诗档换的就是这两者
+			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd"],
 			global: "roundEnd",
 		},
 		forced: true,
@@ -153,6 +150,9 @@ export const helpers = {
 			if (triggername === "roundEnd") {
 				return player.isAlive() && player.hp < player.maxHp && (storage.roundHeal || 0) > 0;
 			}
+			if (triggername === "phaseEnd") {
+				return player.isAlive() && player.hp < player.maxHp && (storage.turnHeal || 0) > 0;
+			}
 			return false;
 		},
 		async content(event, trigger, player) {
@@ -167,9 +167,13 @@ export const helpers = {
 				trigger.num += storage.extraDraw || 0;
 			} else if (event.triggername === "dying") {
 				player.storage.rogue_curio_belt = true;
-				await player.recoverTo(1);
+				// 回复目标数据驱动：写了比例就回复到「体力上限 × 比例」，否则固定回 1
+				const ratio = storage.dyingRecoverToRatio || 0;
+				await player.recoverTo(ratio > 0 ? Math.ceil(player.maxHp * ratio) : 1);
 			} else if (event.triggername === "roundEnd") {
 				await player.recover(storage.roundHeal || 0);
+			} else if (event.triggername === "phaseEnd") {
+				await player.recover(storage.turnHeal || 0);
 			}
 		},
 	},

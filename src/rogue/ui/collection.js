@@ -142,7 +142,6 @@ export function showCollection(api) {
 	const body = ui.create.div(".wm-rogue-index-body", panel);
 
 	const collection = api.collection ?? {};
-	// 已发现事件：全集按 events 定义顺序排列，收录过的点亮
 	const discovered = new Set(Array.isArray(collection.events) ? collection.events : []);
 	ui.create.div(".wm-rogue-index-section", `事件（${discovered.size}/${eventIds.length}）`, body);
 	const eventRow = ui.create.div(".wm-rogue-index-cards", body);
@@ -157,7 +156,6 @@ export function showCollection(api) {
 		});
 	}
 
-	// 曾拥有过的奇物：含已丢弃的；effectText 优先，附稀有度标签
 	const owned = new Set(Array.isArray(collection.curios) ? collection.curios : []);
 	ui.create.div(".wm-rogue-index-section", `奇物（${owned.size}/${curioIds.length}）`, body);
 	const curioRow = ui.create.div(".wm-rogue-index-cards", body);

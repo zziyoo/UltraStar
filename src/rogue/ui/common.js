@@ -15,6 +15,7 @@ import { bindTap, isolateOverlayTouch } from "../../ui/overlay.js";
 import { ensureRogueStyles } from "./styles.js";
 import { STAT_IDS } from "../config.js";
 import { describeStat } from "../data/stats.js";
+import { describeCurioEffects, getCurio, getCurioEffect, getCurioQuality, CURIOSITY_BATTLE_KEYS, CURIOSITY_RARITY } from "../curioManager.js";
 import { abyssAffixInfo } from "../endless/abyssAffixes.js";
 
 /** @type {{ node: any, kind: "dialog" | "overlay", page: string } | null} */
@@ -22,7 +23,6 @@ let currentScreen = null;
 /** 上一次页面关闭时的滚动位置，只在同一页重绘后还回去（换页该从顶部开始） */
 let lastScroll = null;
 
-/** 关闭当前页面 */
 export function closeScreen() {
 	if (!currentScreen) {
 		return;
@@ -162,94 +162,165 @@ function addStatDetail(parent, info) {
 	parent.appendChild(section);
 }
 
-/** 玩家战斗里的属性强化面板 */
-export function showBattleStats(run) {
+/**
+ * 属性/奇物面板的公共外壳：标题 + 可选的副标题 + 分隔线，正文挂在一个**可独立滚动的 body** 里。
+ * 奇物以后可能有几十件，正文必须能自己上下滚、标题与分组头留在原位；面板整体高度由 CSS 限死
+ * （见 styles.js 的 .wm-rogue-stat-panel / .wm-rogue-stat-body）。
+ * @returns {{ stage, panel, body }} 正文一律往 body 里挂
+ */
+function openStatPanel(titleText, subtitle) {
 	const stage = openOverlay("wm-rogue-stat-overlay");
 	const panel = document.createElement("div");
 	panel.className = "wm-rogue-panel wm-rogue-stat-panel";
 	stage.appendChild(panel);
 	const title = document.createElement("div");
 	title.className = "wm-rogue-stat-title";
-	title.textContent = "属性强化";
+	title.textContent = titleText;
 	panel.appendChild(title);
+	if (subtitle) {
+		const sub = document.createElement("div");
+		sub.className = "wm-rogue-stat-subtitle";
+		sub.textContent = subtitle;
+		panel.appendChild(sub);
+	}
 	const divider = document.createElement("div");
 	divider.className = "wm-rogue-stat-divider";
 	panel.appendChild(divider);
-	for (const statId of STAT_IDS) {
-		addStatDetail(panel, describeStat(statId, run?.stats?.[statId]));
-	}
+	const body = document.createElement("div");
+	body.className = "wm-rogue-stat-body";
+	panel.appendChild(body);
 	// 没有「关闭」按钮：点面板以外的遮罩区域直接退出（轻触/点击都走 bindTap）
 	bindOutsideTapClose(stage.parentNode, panel);
+	return { stage, panel, body };
+}
+
+/** 玩家战斗里的属性强化面板 */
+export function showBattleStats(run) {
+	const { stage, body } = openStatPanel("属性强化");
+	for (const statId of STAT_IDS) {
+		addStatDetail(body, describeStat(statId, run?.stats?.[statId]));
+	}
 	return stage;
 }
 
 /**
- * 敌人身上「强化」徽记点开的面板：属性强化与玩家那份同一个版式，
- * 再补一段深渊词缀——先一排徽记给出「［深渊·坚壁］［深渊·狂热］」的总览，下面逐条给描述。
- * 数据全部取自这个 Player（battle.js 在 applyEnemyModifiers 里写进 rogueEnhanceInfo），
+ * 玩家战斗里的奇物面板：每个奇物一行「名称（当前品质）」+ 当前品质的效果，
+ * 名称按品质着色（与图鉴/商店的品质色同一套）。品质与效果一律问 curioManager，UI 不自己判。
+ * 与「属性强化」面板同一套版式（标题 + 分隔线 + 逐个条目），也是点徽记打开的浮层。
+ *
+ * 分成「战斗内生效」与「结算时生效」两组：诅咒金币（金币获取）、循环按钮（商城刷新）
+ * 在战斗里一点用都没有，跟真正当场生效的摸牌/回血混在一张列表里，会让人以为这局马上能吃到。
+ * 分组依据就是 curioManager 的 CURIOSITY_BATTLE_KEYS，这里不另立一份名单。
+ */
+export function showBattleCurios(run) {
+	const { stage, body } = openStatPanel("奇物");
+	const owned = Array.isArray(run?.curios) ? run.curios : [];
+	if (!owned.length) {
+		const none = document.createElement("div");
+		none.className = "wm-rogue-stat-detail-effect";
+		none.textContent = "当前没有奇物";
+		body.appendChild(none);
+	}
+	const battleKeys = new Set(CURIOSITY_BATTLE_KEYS);
+	const rows = owned.map(id => {
+		const battle = {};
+		const settle = {};
+		for (const [key, value] of Object.entries(getCurioEffect(id, run?.curioQuality))) {
+			(battleKeys.has(key) ? battle : settle)[key] = value;
+		}
+		return {
+			id,
+			quality: getCurioQuality(id, run?.curioQuality),
+			battle: describeCurioEffects(battle),
+			settle: describeCurioEffects(settle),
+		};
+	});
+
+	for (const [groupTitle, key] of [["战斗内生效", "battle"], ["结算时生效", "settle"]]) {
+		const members = rows.filter(row => row[key].length);
+		if (!members.length) {
+			continue;
+		}
+		const heading = document.createElement("div");
+		heading.className = "wm-rogue-stat-section-title";
+		heading.textContent = groupTitle;
+		body.appendChild(heading);
+		for (const row of members) {
+			const def = getCurio(row.id);
+			const section = document.createElement("div");
+			section.className = "wm-rogue-stat-detail";
+			const name = document.createElement("div");
+			name.className = `wm-rogue-stat-detail-name wm-rogue-rarity-${row.quality}`;
+			name.textContent = `${def?.name ?? row.id}（${CURIOSITY_RARITY[row.quality] ?? row.quality}）`;
+			section.appendChild(name);
+			for (const line of row[key]) {
+				const effect = document.createElement("div");
+				effect.className = "wm-rogue-stat-detail-effect";
+				effect.textContent = line;
+				section.appendChild(effect);
+			}
+			body.appendChild(section);
+		}
+	}
+	return stage;
+}
+
+/** 敌人面板：标题换成角色名，其余外壳与玩家面板共用 */
+function openEnemyPanel(player, subtitle) {
+	return openStatPanel(translateCharacter(player?.name ?? ""), subtitle);
+}
+
+/**
+ * 点敌人身上的「强化」徽记：只看三项属性，与玩家那份同一个版式。
+ * 数据取自这个 Player（battle.js 在 applyEnemyModifiers 里写进 rogueEnhanceInfo），
  * 所以异常退出恢复战斗之后，显示的内容和开战当时完全一致。
+ * 深渊词缀不在这里——它是另一枚徽记、另一页。
  * @param {object} player 敌方 Player
  */
 export function showEnemyEnhance(player) {
-	const stage = openOverlay("wm-rogue-stat-overlay");
-	const panel = document.createElement("div");
-	panel.className = "wm-rogue-panel wm-rogue-stat-panel";
-	stage.appendChild(panel);
+	const { stage, body } = openEnemyPanel(player, "敌人强化");
 	const info = player?.rogueEnhanceInfo ?? {};
-	const title = document.createElement("div");
-	title.className = "wm-rogue-stat-title";
-	title.textContent = translateCharacter(player?.name ?? "");
-	panel.appendChild(title);
-	const subtitle = document.createElement("div");
-	subtitle.className = "wm-rogue-stat-subtitle";
-	subtitle.textContent = "敌人强化";
-	panel.appendChild(subtitle);
-	const divider = document.createElement("div");
-	divider.className = "wm-rogue-stat-divider";
-	panel.appendChild(divider);
-
 	for (const statId of STAT_IDS) {
-		addStatDetail(panel, describeStat(statId, info.stats?.[statId]));
+		addStatDetail(body, describeStat(statId, info.stats?.[statId]));
 	}
+	return stage;
+}
 
-	const ids = Array.isArray(info.abyss) ? info.abyss : [];
+/**
+ * 点敌人身上的「深渊」徽记：只看深渊词缀。
+ * 与属性强化分成两页——属性回答「这敌人有多强」，词缀回答「这敌人有什么特殊机制」，
+ * 混在一页里两件事都读不清。词缀名只保留文字（不再用胶囊徽记重复一遍），紫色以示与属性的区别。
+ * @param {object} player 敌方 Player
+ */
+export function showEnemyAbyss(player) {
+	const { stage, body } = openEnemyPanel(player, null);
 	const sectionTitle = document.createElement("div");
 	sectionTitle.className = "wm-rogue-stat-section-title";
 	sectionTitle.textContent = "深渊强化";
-	panel.appendChild(sectionTitle);
+	body.appendChild(sectionTitle);
+
+	const ids = Array.isArray(player?.rogueEnhanceInfo?.abyss) ? player.rogueEnhanceInfo.abyss : [];
 	if (!ids.length) {
 		const none = document.createElement("div");
 		none.className = "wm-rogue-stat-detail-effect";
 		none.textContent = "未被深渊强化";
-		panel.appendChild(none);
-	} else {
-		// 徽记行：一眼看全这个敌人身上有哪几个词缀
-		const badges = document.createElement("div");
-		badges.className = "wm-rogue-abyss-badges";
-		for (const id of ids) {
-			const affix = abyssAffixInfo(id);
-			const badge = document.createElement("div");
-			badge.className = "wm-rogue-abyss-badge";
-			badge.textContent = `［${affix ? affix.name : id}］`;
-			badges.appendChild(badge);
-		}
-		panel.appendChild(badges);
-		for (const id of ids) {
-			const affix = abyssAffixInfo(id);
-			const section = document.createElement("div");
-			section.className = "wm-rogue-stat-detail";
-			const heading = document.createElement("div");
-			heading.className = "wm-rogue-stat-detail-name";
-			heading.textContent = affix ? affix.name : id;
-			section.appendChild(heading);
-			const effect = document.createElement("div");
-			effect.className = "wm-rogue-stat-detail-effect";
-			effect.textContent = affix ? affix.desc : "（该深渊强化已下架）";
-			section.appendChild(effect);
-			panel.appendChild(section);
-		}
+		body.appendChild(none);
+		return stage;
 	}
-	bindOutsideTapClose(stage.parentNode, panel);
+	for (const id of ids) {
+		const affix = abyssAffixInfo(id);
+		const section = document.createElement("div");
+		section.className = "wm-rogue-stat-detail";
+		const heading = document.createElement("div");
+		heading.className = "wm-rogue-stat-detail-name wm-rogue-abyss-name";
+		heading.textContent = affix ? affix.name : id;
+		section.appendChild(heading);
+		const effect = document.createElement("div");
+		effect.className = "wm-rogue-stat-detail-effect";
+		effect.textContent = affix ? affix.desc : "（该深渊强化已下架）";
+		section.appendChild(effect);
+		body.appendChild(section);
+	}
 	return stage;
 }
 
@@ -384,7 +455,6 @@ export function sanitizeSkillText(text) {
 		.replace(HTML_TAG, "");
 }
 
-/** 技能名 */
 export function skillName(id) {
 	const full = lib.translate[id];
 	return typeof full === "string" ? sanitizeSkillText(full.split("<hr>")[0]) || id : id;
@@ -426,7 +496,6 @@ function overlayPopup(lines, options) {
 	return popup;
 }
 
-/** 当前页面是否是自建浮层 */
 function isOverlayCurrent() {
 	return !!currentScreen && currentScreen.kind === "overlay";
 }

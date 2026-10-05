@@ -32,18 +32,16 @@ export const BATTLE_BGM_LIST = [
 export const STORAGE_KEY = "rogueSlots";
 /** 无尽模式历史最高记录：独立于六个存档槽，无尽失败删档也不清它 */
 export const BEST_ENDLESS_KEY = "rogueBestEndless";
-/**
- * 图鉴：公有数据，六个存档槽共用一份，删档与新建都不清它。
- * 每个 run.collection 仍然照常写（存档保持自描述），落盘时并进这个键，读档时以这个键为准。
- */
+/** 图鉴：六个存档槽共用的公有数据，删档与新建都不清；run.collection 仍各自照写，落盘时并进来 */
 export const COLLECTION_KEY = "rogueCollection";
 /**
  * 存档 schema 版本，只做单调递增迁移。
  * v2 新增 shopRefreshesRemaining（每局免费刷新次数）；v3 新增 currentBattle.enemies（进行中战斗保存完整敌方阵容）；
  * v4 新增无尽模式的 pendingEvent（待处理事件）/ collection（图鉴）/ curios（已拥有奇物）/ curioOffers（奇物商店候选）；
- * v5 给 currentBattle.enemies 的每一项新增 abyss（该敌人的深渊词缀 id 列表；旧档缺字段按「本关没有词缀」补齐，不重掷）。
+ * v5 给 currentBattle.enemies 的每一项新增 abyss（该敌人的深渊词缀 id 列表；旧档缺字段按「本关没有词缀」补齐，不重掷）；
+ * v6 新增 curioQuality（已拥有奇物的当前品质覆盖表；旧档按空表补齐 = 全部停在初始品质）。
  */
-export const RUN_VERSION = 5;
+export const RUN_VERSION = 6;
 export const SLOT_COUNT = 6;
 
 /**
@@ -115,6 +113,11 @@ export const EVENT_TRIGGER_RATE = 0.3;
  */
 export const CURIO_BASE_PRICE = 50;
 export const CURIO_PRICE_SPREAD = 0.25;
+/**
+ * 奇物品质升级价：升级费用 = CURIO_UPGRADE_PRICE_MULTIPLIER × getCurioBasePrice(升级时的 run.level)。
+ * 按「当前升级时」的关卡现算，与购买时的价格无关；等级越高越贵（31 层 1390、100 层 2500、234 层 3825）。
+ */
+export const CURIO_UPGRADE_PRICE_MULTIPLIER = 5;
 /** 每批奇物候选的个数 */
 export const CURIO_OFFER_COUNT = 3;
 /**

@@ -17,7 +17,7 @@ import {
 	STAT_IDS,
 } from "../config.js";
 import { getRefreshesRemaining } from "../shop.js";
-import { describeCurio, getCurio, getCurioOffer, CURIOSITY_RARITY } from "../curioManager.js";
+import { checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getNextCurioQuality, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
@@ -37,6 +37,9 @@ const moneyName = key => CURRENCY_LABEL[key] ?? key;
 /** 商店页的活节点，供购买/升级后原位刷新 */
 let shopView = null;
 
+/** 奇物管理页的活节点，供升级后原位刷新 */
+let curioView = null;
+
 /** 某项属性升到 level 后的累计效果，一行一条；文案在 data/stats.js，与战斗中的「强化」标记共用 */
 function statEffectLines(statId, level) {
 	const lines = describeStatEffects(sumStatEffects({ [statId]: level }));
@@ -45,7 +48,6 @@ function statEffectLines(statId, level) {
 
 export function showHub(api) {
 	const run = api.run;
-	// 肉鸽营地：与商店、技能页同一套自建浮层视觉语言
 	const stage = openOverlay("wm-rogue-hub-overlay");
 	const panel = ui.create.div(".wm-rogue-hub", stage);
 
@@ -72,14 +74,17 @@ export function showHub(api) {
 		buildStatSummary(statRow, run, statId);
 	}
 
+	// 动作区分两行：第一行是「继续玩」（开始/商店/图鉴），第二行才是离开当前局（返回存档/退出）
 	const actions = ui.create.div(".wm-rogue-hub-actions", body);
+	const mainRow = ui.create.div(".wm-rogue-hub-row", actions);
+	const exitRow = ui.create.div(".wm-rogue-hub-row", actions);
 	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
-	addOverlayButton(fightLabel, actions, () => api.startBattle(), "wm-rogue-hub-primary");
-	addOverlayButton("商店", actions, () => api.openShop(), "wm-rogue-hub-shop");
+	addOverlayButton(fightLabel, mainRow, () => api.startBattle(), "wm-rogue-hub-primary");
+	addOverlayButton("商店", mainRow, () => api.openShop(), "wm-rogue-hub-shop");
 	// 图鉴是六个存档共有的收集册：闯关自己不产出内容，但照样能翻开看别的存档解锁了什么
-	addOverlayButton("图鉴", actions, () => api.openCollection(), "wm-rogue-hub-secondary");
-	addOverlayButton("返回存档", actions, () => api.backToSlots(), "wm-rogue-hub-secondary");
-	addOverlayButton("退出肉鸽模式", actions, () => api.leaveMode(), "wm-rogue-hub-secondary");
+	addOverlayButton("图鉴", mainRow, () => api.openCollection(), "wm-rogue-hub-index");
+	addOverlayButton("返回存档", exitRow, () => api.backToSlots(), "wm-rogue-hub-secondary");
+	addOverlayButton("退出肉鸽模式", exitRow, () => api.leaveMode(), "wm-rogue-hub-secondary");
 	if (!canFight) {
 		ui.create.div(".wm-rogue-hub-hint", "关卡数已超过配置的总关卡数，请检查 config.js 的 CHALLENGE_TOTAL_LEVELS。", body);
 	}
@@ -109,43 +114,108 @@ export function showSkills(api) {
 	}
 }
 
-/** 只读的奇物查看页（入口在商店顶部的「奇物」资源块）：展示已拥有奇物，不买卖、不写存档。
- * 与技能查看页同一版式：卡面 = 方形配图 + 名字 + 稀有度 + 描述 + 效果行，点卡片弹描述与效果（不重复名字）。 */
+/**
+ * 奇物管理页（入口在商店顶部的「奇物」资源块）：花经验把已拥有的奇物逐级升品质。
+ * 每张卡给出「当前品质 + 当前效果」与「下一品质 + 下一品质效果 + 升级费用」；
+ * 品质、效果与费用一律问 curioManager，UI 不自己算（升级后原地重画就是反馈）。
+ * 史诗已达到链尾，只写「已达最高品质」、不给按钮；负面奇物照样能升，按钮不隐藏。
+ */
 export function showCurios(api) {
 	const run = api.run;
-	const curios = Array.isArray(run.curios) ? run.curios : [];
+	const owned = Array.isArray(run.curios) ? run.curios : [];
 	const stage = openOverlay("wm-rogue-curios-overlay");
 	const panel = ui.create.div(".wm-rogue-curios", stage);
 
 	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
-	ui.create.div(".wm-rogue-title", `奇物（${curios.length}）`, titlebar);
+	ui.create.div(".wm-rogue-title", `奇物（${owned.length}）`, titlebar);
 	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.back());
 
 	const body = ui.create.div(".wm-rogue-curios-body", panel);
-	if (!curios.length) {
+	if (!owned.length) {
 		ui.create.div(".wm-rogue-skills-empty", "当前没有奇物", body);
 		ui.create.div(".wm-rogue-skills-hint", "每关胜利后有 10% 概率刷新奇物商店，事件也可能送奇物。", body);
 		return;
 	}
 	const cardRow = ui.create.div(".wm-rogue-shop-cards", body);
-	for (const id of curios) {
-		const def = getCurio(id);
-		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-shop-card-read.wm-rogue-curio-card", cardRow);
-		const top = ui.create.div(".wm-rogue-shop-top", card);
-		const art = ui.create.div(".wm-rogue-curio-art", top);
-		if (def?.image) {
-			art.style.backgroundImage = `url("${def.image}")`;
-		}
-		ui.create.div(".wm-rogue-shop-name", def?.name ?? id, top);
-		addCurioRarity(top, def);
-		const desc = ui.create.div(".wm-rogue-shop-desc", def?.description ?? "", card);
-		if (def?.description) {
-			desc.title = def.description;
-		}
-		const lines = describeCurio(id);
-		ui.create.div(".wm-rogue-curio-effect", lines.join("\n"), card);
-		bindOverlayTap(card, () => showNotice([def?.description ?? "", ...lines].filter(Boolean)));
+	const rows = owned.map(id => buildCurioManageCard(cardRow, id, api));
+	curioView = { node: currentScreenNode(), paint: current => rows.forEach(row => paintCurioManage(row, current)) };
+	curioView.paint(run);
+}
+
+/**
+ * 原位刷新奇物管理页（升级后不重开窗口，重开会把滚动位置甩回顶部）。
+ * @returns {boolean} 页面还是当初那个管理页、已刷新为 true；否则 false，调用方退回整页重绘
+ */
+export function refreshCurios(run) {
+	if (!curioView || currentScreenNode() !== curioView.node) {
+		curioView = null;
+		return false;
 	}
+	curioView.paint(run);
+	return true;
+}
+
+/** 管理页的一张奇物卡：品质标签 + 描述 + 当前效果 + 下一品质预览 + 升级价与按钮 */
+function buildCurioManageCard(parent, id, api) {
+	const def = getCurio(id);
+	const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-curio-card.wm-rogue-curio-manage", parent);
+	const top = ui.create.div(".wm-rogue-shop-top", card);
+	const art = ui.create.div(".wm-rogue-curio-art", top);
+	if (def?.image) {
+		art.style.backgroundImage = `url("${def.image}")`;
+	}
+	ui.create.div(".wm-rogue-shop-name", def?.name ?? id, top);
+	const rarity = addCurioRarity(top, def);
+	const desc = ui.create.div(".wm-rogue-shop-desc", def?.description ?? "", card);
+	if (def?.description) {
+		desc.title = def.description;
+	}
+	const effect = ui.create.div(".wm-rogue-curio-effect", "", card);
+	const next = ui.create.div(".wm-rogue-curio-next", "", card);
+	const foot = ui.create.div(".wm-rogue-shop-foot", card);
+	const price = ui.create.div(".wm-rogue-shop-price", "", foot);
+	const row = { id, card, rarity, effect, next, price, button: null };
+	row.button = addOverlayButton("升级", foot, () => {
+		if (paintCurioManage(row, api.getRun()).ok) {
+			api.upgradeCurio(id);
+		}
+	}, "wm-rogue-curio-up");
+	return row;
+}
+
+/** 画一张奇物卡，返回升级检查结果（ok 为假时按钮点不动，与属性升级同一套口径） */
+function paintCurioManage(row, run) {
+	const check = checkCurioUpgrade(run, row.id);
+	paintCurioRarity(row.rarity, getCurioQuality(row.id, run.curioQuality));
+	row.effect.textContent = describeCurio(row.id, run.curioQuality).join("\n");
+	const nextQuality = getNextCurioQuality(row.id, run.curioQuality);
+	if (!nextQuality) {
+		// 链尾：没有下一档可看，也不给按钮——这是「练满了」，不是「买不起」，所以不把卡片置灰
+		row.next.textContent = "";
+		row.price.innerHTML = "已达最高品质";
+		row.button.classList.add("wm-rogue-hidden");
+		return check;
+	}
+	row.next.textContent = [`下一品质：${CURIOSITY_RARITY[nextQuality]}`, ...describeCurioEffects(getCurioEffectAt(row.id, nextQuality))].join("\n");
+	row.button.classList.remove("wm-rogue-hidden");
+	const money = moneyName(STAT_CURRENCY);
+	const held = run.currency[STAT_CURRENCY] ?? 0;
+	row.price.innerHTML = check.ok ? `升级 ${check.cost} ${money}` : `升级 ${check.cost} ${money}（持有 ${held}）`;
+	row.button.innerHTML = check.ok ? "升级" : `${money}不足`;
+	setBuyable(row, check.ok);
+	return check;
+}
+
+/** 品质标签就地改档：先摘掉所有档位的类，再挂上新的（商店/图鉴按初始品质画，不走这里） */
+function paintCurioRarity(node, quality) {
+	if (!node) {
+		return;
+	}
+	for (const tier of Object.keys(CURIOSITY_RARITY)) {
+		node.classList.remove(`wm-rogue-rarity-${tier}`);
+	}
+	node.classList.add(`wm-rogue-rarity-${quality}`);
+	node.textContent = CURIOSITY_RARITY[quality] ?? quality;
 }
 
 export function showShop(api) {
@@ -257,7 +327,6 @@ export function showShop(api) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
 		paintRefresh(refreshButton, current, soldOut);
-		// 无候选（未刷新/买到即下架/已集齐）时整个分区隐藏，不留残卡
 		if (curioSection) {
 			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
 			curioSection.classList[offers.length ? "remove" : "add"]("wm-rogue-hidden");

@@ -13,6 +13,7 @@ export function showEvent(api) {
 	const event = getEvent(pendingEvent?.id);
 	// 存档挂了事件但定义已下架：理论上 normalizePendingEvent 拦得住，这里兜底直接走出口
 	if (!pendingEvent || !event) {
+		console.warn(`[rogue] 事件页无可用定义，直接走出口：${pendingEvent?.id ?? "缺 pendingEvent"}`);
 		api.onDone();
 		return;
 	}

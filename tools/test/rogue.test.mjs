@@ -1613,10 +1613,15 @@ check("循环按钮：每场战斗结束额外补一次技能商城刷新", () =
 	const withLoop = { ...base, curios: ["loop_button"] };
 	const won = reward.settleVictory(withLoop, NOW, () => 0);
 	assertEqual(won.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 1, "循环按钮 +1 次");
-	// 读档不得把多出来的次数夹掉（上限随奇物池走）
+	// 读档不得把多出来的次数夹掉：上限按奇物**最高品质**放宽（循环按钮史诗档是 +2）
 	const cap = curioManager.getMaxShopRefreshes();
-	assert(cap > cfg.SKILL_REFRESH_PER_LEVEL, "上限已按奇物池放宽");
-	assertEqual(state.normalizeRun(won.run).shopRefreshesRemaining, cap, "额外次数可持久化");
+	assertEqual(cap, cfg.SKILL_REFRESH_PER_LEVEL + 2, "上限按奇物最高品质放宽");
+	assertEqual(state.normalizeRun(won.run).shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 1, "稀有档额外次数原样读回，不被夹掉");
+	// 升到史诗后 +2，读档同样放得下
+	const epicLoop = { ...withLoop, curioQuality: { loop_button: "epic" } };
+	const epicWon = reward.settleVictory(epicLoop, NOW, () => 0);
+	assertEqual(epicWon.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 2, "史诗循环按钮 +2");
+	assertEqual(state.normalizeRun(epicWon.run).shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 2, "史诗档不会被上限夹掉");
 	// 攒着不花：连续两场战斗各 +1（每场都重置，不累积成 4）
 	assertEqual(reward.settleVictory(won.run, NOW, () => 0).run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 1, "每场重置为 3，不累积");
 	// 真的能多刷一次：基础额度只有 2 次，循环按钮让第 3 次也能刷
@@ -2199,6 +2204,206 @@ check("深渊标记：徽记说明按存档里的词缀 id 列出名称与描述
 	assert(empty.includes("无深渊强化"), "空列表要有兜底文案");
 	assertEqual(abyssAffixes.abyssAffixLines(["abyss_not_exists"]).length, 0, "下架词缀不进说明");
 	return "两枚词缀进说明 / 空列表兜底";
+});
+
+check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality」", () => {
+	assertEqual(JSON.stringify(curiosData.CURIOSITY_QUALITY_CHAIN), JSON.stringify(["negative", "common", "rare", "epic"]), "品质链");
+	assertEqual(curioManager.getCurioQuality("energy_core", {}), "common", "没记品质就是初始品质");
+	assertEqual(curioManager.getCurioQuality("energy_core", undefined), "common", "缺省的 qualityMap 也按初始品质");
+	assertEqual(curioManager.getCurioQuality("cursed_coin", { cursed_coin: "rare" }), "rare", "记了就用记的");
+	assertEqual(curioManager.getNextCurioQuality("energy_core", {}), "rare", "普通 → 稀有");
+	assertEqual(curioManager.getNextCurioQuality("cursed_coin", {}), "common", "负面 → 普通");
+	assertEqual(curioManager.getNextCurioQuality("broken_watch", {}), null, "史诗没有下一档");
+	assert(curioManager.isCurioMaxQuality("broken_watch", {}), "破损怀表已是链尾");
+	assert(!curioManager.isCurioMaxQuality("cursed_coin", {}), "负面奇物照样升得动");
+	// 费用 = 5 × round(50×√关卡)，按「升级时」的关卡现算
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 31 }, "energy_core"), 1390, "31 层：基准 278 → 1390");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 100 }, "energy_core"), 2500, "100 层：基准 500 → 2500");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 234 }, "energy_core"), 3825, "234 层：基准 765 → 3825");
+	assertEqual(
+		curioManager.getCurioUpgradePrice({ level: 50 }, "cursed_coin"),
+		curioManager.getCurioUpgradePrice({ level: 50 }, "energy_core"),
+		"同层同价，与是哪件奇物无关"
+	);
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 31 }, "不存在的奇物"), null, "不存在的奇物没有价格");
+	// 升级：只改 currency.exp 与 curioQuality，原 run 一个字节都不动
+	const run = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 100, exp: 5000 }, curios: ["energy_core"] };
+	const first = curioManager.upgradeCurio(run, "energy_core");
+	assert(first.ok, first.error ?? "升级应成功");
+	assertEqual(first.run.currency.exp, 5000 - 1390, "扣掉当层费用");
+	assertEqual(first.run.currency.gold, 100, "金币不动");
+	assertEqual(first.run.curioQuality.energy_core, "rare", "品质写进 curioQuality");
+	assertEqual(run.currency.exp, 5000, "原 run 的经验没被扣");
+	assertEqual(JSON.stringify(run.curioQuality), "{}", "原 run 的品质没被写");
+	assertEqual(JSON.stringify(run.curios), JSON.stringify(["energy_core"]), "持有列表不动");
+	const second = curioManager.upgradeCurio(first.run, "energy_core");
+	assertEqual(second.run.curioQuality.energy_core, "epic", "稀有 → 史诗");
+	const top = curioManager.upgradeCurio(second.run, "energy_core");
+	assert(!top.ok && top.error.includes("最高"), `史诗不能再升：${top.error}`);
+	assertEqual(top.run.currency.exp, second.run.currency.exp, "被拒时不扣经验");
+	// 负面奇物一路净化到史诗
+	let coin = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1390 * 3 }, curios: ["cursed_coin"] };
+	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
+	assertEqual(coin.curioQuality.cursed_coin, "common", "负面 → 普通");
+	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
+	assertEqual(coin.curioQuality.cursed_coin, "rare", "普通 → 稀有");
+	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
+	assertEqual(coin.curioQuality.cursed_coin, "epic", "稀有 → 史诗");
+	// 幸运石：稀有 → 史诗
+	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1390 }, curios: ["lucky_stone"] };
+	assertEqual(curioManager.upgradeCurio(stone, "lucky_stone").run.curioQuality.lucky_stone, "epic", "幸运石 稀有 → 史诗");
+	// 经验差一点都不行
+	const broke = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1389 }, curios: ["energy_core"] };
+	const denied = curioManager.upgradeCurio(broke, "energy_core");
+	assert(!denied.ok && denied.error.includes("经验不足"), `差 1 点也要拒：${denied.error}`);
+	assertEqual(denied.run, broke, "失败时原样返回传入的 run");
+	assertEqual(denied.run.currency.exp, 1389, "经验不变");
+	assertEqual(JSON.stringify(denied.run.curioQuality), "{}", "品质不变");
+	// 未拥有 / 已下架
+	const notOwned = curioManager.upgradeCurio({ ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 9999 }, curios: [] }, "energy_core");
+	assert(!notOwned.ok && notOwned.error.includes("未拥有"), `没持有就升不了：${notOwned.error}`);
+	const gone = curioManager.upgradeCurio({ ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 9999 }, curios: ["幽灵奇物"] }, "幽灵奇物");
+	assert(!gone.ok && gone.error.includes("下架"), `下架的奇物升不了：${gone.error}`);
+	return "品质链 + 三段费用 + 只改两字段";
+});
+
+check("奇物品质：七件奇物的逐档效果与文案", () => {
+	const at = (id, quality) => curioManager.getCurioEffect(id, { [id]: quality });
+	// 能量核心：普通 1 → 稀有 2 → 史诗 4
+	assertEqual(at("energy_core", "common").extraDraw, 1, "能量核心 普通 +1");
+	assertEqual(at("energy_core", "rare").extraDraw, 2, "能量核心 稀有 +2");
+	assertEqual(at("energy_core", "epic").extraDraw, 4, "能量核心 史诗 +4");
+	// 剩饭：1 → 2（每轮）→ 2（每回合），史诗换的是时机，不是叠加
+	assertEqual(at("leftover_rice", "common").roundHeal, 1, "剩饭 普通每轮 1");
+	assertEqual(at("leftover_rice", "rare").roundHeal, 2, "剩饭 稀有每轮 2");
+	assertEqual(at("leftover_rice", "epic").turnHeal, 2, "剩饭 史诗改成每回合 2");
+	assertEqual(at("leftover_rice", "epic").roundHeal ?? 0, 0, "史诗不再每轮回血（整份替换，不是叠加）");
+	// 幸运石 10% → 20%
+	assertEqual(at("lucky_stone", "rare").expRate, 0.1, "幸运石 稀有 +10%");
+	assertEqual(at("lucky_stone", "epic").expRate, 0.2, "幸运石 史诗 +20%");
+	// 气息腰带：回 1 → 回上限一半
+	assertEqual(at("breath_belt", "rare").dyingRecoverToRatio ?? 0, 0, "气息腰带 稀有没有比例（回 1）");
+	assertEqual(at("breath_belt", "epic").dyingRecoverToRatio, 0.5, "气息腰带 史诗回上限一半");
+	assertEqual(at("breath_belt", "epic").dyingSave, 1, "史诗仍只有一次濒死保护");
+	// 循环按钮 +1 → +2
+	assertEqual(at("loop_button", "rare").extraShopRefresh, 1, "循环按钮 稀有 +1");
+	assertEqual(at("loop_button", "epic").extraShopRefresh, 2, "循环按钮 史诗 +2");
+	// 诅咒金币：-10% → ±10% → -5%~+15% → +20%
+	assertEqual(at("cursed_coin", "negative").goldRate, -0.1, "诅咒金币 负面 -10%");
+	assertEqual(at("cursed_coin", "common").goldRate, 0, "普通中心 0");
+	assertEqual(at("cursed_coin", "common").goldRateSpread, 0.1, "普通 ±10%");
+	assertEqual(at("cursed_coin", "rare").goldRate, 0.05, "稀有中心 +5%");
+	assertEqual(at("cursed_coin", "rare").goldRateSpread, 0.1, "稀有 ±10%（即 -5%~+15%）");
+	assertEqual(at("cursed_coin", "epic").goldRate, 0.2, "史诗 +20%");
+	assertEqual(at("cursed_coin", "epic").goldRateSpread ?? 0, 0, "史诗不再波动");
+	// 破损怀表：史诗且不可升级
+	assertEqual(at("broken_watch", "epic").extraPhase, 1, "破损怀表 +1 出牌阶段");
+	assert(curioManager.isCurioMaxQuality("broken_watch", {}), "破损怀表不能升级");
+	// 文案：波动档写成区间、比例档写进濒死那一行
+	assertEqual(curioManager.describeCurioEffects({ goldRate: 0, goldRateSpread: 0.1 })[0], "金币获取 -10%~+10%", "波动档文案");
+	assertEqual(curioManager.describeCurioEffects({ goldRate: 0.05, goldRateSpread: 0.1 })[0], "金币获取 -5%~+15%", "偏移波动档文案");
+	assertEqual(
+		curioManager.describeCurioEffects({ dyingSave: 1, dyingRecoverToRatio: 0.5 })[0],
+		"每局游戏首次进入濒死状态时，回复体力值至体力上限的 50%（共 1 次）",
+		"比例档文案"
+	);
+	// 文案一律自动生成（没有手写兜底字段），同一个奇物各档之间句式因此统一
+	assertEqual(curioManager.describeCurio("energy_core", {})[0], "摸牌阶段额外摸 1 张牌", "初始档按效果生成");
+	assertEqual(curioManager.describeCurio("energy_core", { energy_core: "epic" })[0], "摸牌阶段额外摸 4 张牌", "升级档同样生成，句式一致");
+	assertEqual(curioManager.describeCurio("broken_watch", {})[0], "游戏开始时，获得 1 个额外的出牌阶段", "没有手写文案可回退");
+	return "七件奇物 × 逐档效果 + 文案";
+});
+
+check("奇物品质：战斗与结算都按当前品质算，最高档与存档清洗也对齐", () => {
+	// 战斗内总表（battle.js 写进 storage 的那张表）
+	assertEqual(curioManager.sumCurioEffects(["energy_core"], { energy_core: "epic" }).extraDraw, 4, "史诗能量核心进总表 +4");
+	assertEqual(curioManager.sumCurioEffects(["breath_belt"], { breath_belt: "epic" }).dyingRecoverToRatio, 0.5, "史诗气息腰带把比例带进总表");
+	assertEqual(curioManager.sumCurioEffects(["leftover_rice"], { leftover_rice: "epic" }).turnHeal, 2, "史诗剩饭带的是每回合回血");
+	assertEqual(curioManager.getBonus(["lucky_stone"], "expRate", { lucky_stone: "epic" }), 0.2, "getBonus 吃 qualityMap");
+	// 循环按钮：最高档 +2，且上限按最高档放宽
+	assertEqual(curioManager.getMaxCurioEffect("loop_button", "extraShopRefresh"), 2, "循环按钮最高档 +2");
+	assertEqual(curioManager.getMaxShopRefreshes(), cfg.SKILL_REFRESH_PER_LEVEL + 2, "刷新上限按最高品质算");
+	const epicLoop = { ...freshRun(cfg.RUN_MODE.endless), level: 8, curios: ["loop_button"], curioQuality: { loop_button: "epic" } };
+	assertEqual(reward.settleVictory(epicLoop, NOW, () => 0).run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL + 2, "史诗循环按钮每战 +2");
+	// 结算：幸运石（经验）与诅咒金币（金币，含波动）
+	const level = 10;
+	const noCurio = reward.settleVictory({ ...freshRun(cfg.RUN_MODE.endless), level }, NOW, () => 0).gained;
+	const expOf = quality => reward.settleVictory(
+		{ ...freshRun(cfg.RUN_MODE.endless), level, curios: ["lucky_stone"], curioQuality: quality ? { lucky_stone: quality } : {} },
+		NOW, () => 0
+	).gained.exp;
+	assertEqual(expOf(null), Math.round(noCurio.exp * 1.1), "不写品质就是初始档（稀有）+10%");
+	assertEqual(expOf("rare"), expOf(null), "显式写 rare 与初始档一致");
+	assertEqual(expOf("epic"), Math.round(noCurio.exp * 1.2), "史诗幸运石 +20%");
+	const goldOf = (quality, rng) => reward.settleVictory(
+		{ ...freshRun(cfg.RUN_MODE.endless), level, curios: ["cursed_coin"], curioQuality: quality ? { cursed_coin: quality } : {} },
+		NOW, rng
+	).gained.gold;
+	assertEqual(goldOf(null, () => 0), Math.round(noCurio.gold * 0.9), "诅咒金币 负面 -10%");
+	assertEqual(goldOf("common", () => 0), Math.round(noCurio.gold * 0.9), "普通波动下界 -10%");
+	assertEqual(goldOf("common", () => 1), Math.round(noCurio.gold * 1.1), "普通波动上界 +10%");
+	assertEqual(goldOf("rare", () => 0), Math.round(noCurio.gold * 0.95), "稀有波动下界 -5%");
+	assertEqual(goldOf("rare", () => 1), Math.round(noCurio.gold * 1.15), "稀有波动上界 +15%");
+	assertEqual(goldOf("epic", () => 0), Math.round(noCurio.gold * 1.2), "史诗固定 +20%，不消耗 rng 也照样算");
+	// 存档：升级结果能原样读回，脏数据一律清掉
+	let saved = { ...freshRun(cfg.RUN_MODE.endless), level: 5, currency: { gold: 0, exp: 99999 }, curios: ["energy_core", "cursed_coin"] };
+	saved = curioManager.upgradeCurio(saved, "energy_core").run;
+	saved = curioManager.upgradeCurio(saved, "energy_core").run;
+	assertEqual(saved.curioQuality.energy_core, "epic", "先升到史诗");
+	assertEqual(state.normalizeRun(saved).curioQuality.energy_core, "epic", "读档仍是史诗");
+	assertEqual(state.cloneRun(saved).curioQuality.energy_core, "epic", "cloneRun 仍是史诗");
+	const roundTrip = state.normalizeRun(saved);
+	assertEqual(JSON.stringify(state.normalizeRun(roundTrip).curioQuality), JSON.stringify(roundTrip.curioQuality), "清洗幂等");
+	const dirty = state.normalizeRun({
+		...saved,
+		curios: ["energy_core", "cursed_coin"],
+		curioQuality: {
+			幽灵奇物: "epic",
+			broken_watch: "epic",
+			energy_core: "legendary",
+			cursed_coin: "negative",
+		},
+	});
+	assertEqual(JSON.stringify(dirty.curioQuality), "{}", "不存在的奇物 / 未持有 / 非法品质 / 等于初始品质全部清掉");
+	const downgraded = state.normalizeRun({ ...saved, curios: ["energy_core"], curioQuality: { energy_core: "negative" } });
+	assertEqual(JSON.stringify(downgraded.curioQuality), "{}", "普通奇物写成负面 = 反向降级，清掉");
+	const kept = state.normalizeRun({ ...saved, curios: ["cursed_coin"], curioQuality: { cursed_coin: "common", energy_core: "epic" } });
+	assertEqual(JSON.stringify(kept.curioQuality), JSON.stringify({ cursed_coin: "common" }), "合法的保留，未持有的剔除");
+	return "战斗/结算按品质 + 上限 + 清洗";
+});
+
+check("奇物品质：新获得的奇物一律回到初始品质（与图鉴/旧品质无关）", () => {
+	// 先拥有一件并升到史诗，再丢弃
+	let run = { ...freshRun(cfg.RUN_MODE.endless), level: 5, currency: { gold: 0, exp: 99999 }, curios: ["energy_core"] };
+	run = curioManager.upgradeCurio(run, "energy_core").run;
+	run = curioManager.upgradeCurio(run, "energy_core").run;
+	assertEqual(run.curioQuality.energy_core, "epic", "先升到史诗");
+	// 丢弃：curios 去掉，品质记录由读档清洗一并剔除（图鉴保留 id）
+	const dropped = state.normalizeRun({ ...run, curios: [], collection: { events: [], curios: ["energy_core"] } });
+	assertEqual(JSON.stringify(dropped.curioQuality), "{}", "未持有 → 品质记录剔除");
+	assertEqual(JSON.stringify(dropped.collection.curios), JSON.stringify(["energy_core"]), "图鉴保留 id");
+	assertEqual(JSON.stringify(dropped.collection), JSON.stringify({ events: [], curios: ["energy_core"] }), `图鉴里不该出现任何品质信息：${JSON.stringify(dropped.collection)}`);
+	// 重新拿到：随机获得走的是初始品质（候选池按定义顺序，energy_core 是第 4 个）
+	const again = curioManager.grantRandomCurio(dropped, () => 0.5);
+	assertEqual(JSON.stringify(again.run.curios), JSON.stringify(["energy_core"]), "重新拿回能量核心");
+	assertEqual(JSON.stringify(again.run.curioQuality), "{}", "新获得不带任何品质记录");
+	assertEqual(curioManager.getCurioQuality("energy_core", again.run.curioQuality), "common", "回到普通");
+	// 诅咒金币：史诗丢失后重新获得是负面
+	let coin = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1390 * 3 }, curios: ["cursed_coin"] };
+	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
+	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
+	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
+	assertEqual(coin.curioQuality.cursed_coin, "epic", "诅咒金币先升到史诗");
+	const coinDropped = state.normalizeRun({ ...coin, curios: [] });
+	const coinAgain = curioManager.grantRandomCurio(coinDropped, () => 0.99);
+	assertEqual(coinAgain.curioId, "cursed_coin", "重新拿到诅咒金币");
+	assertEqual(curioManager.getCurioQuality("cursed_coin", coinAgain.run.curioQuality), "negative", "回到负面");
+	// 商店：已拥有的不进候选，所以候选永远按初始品质展示与定价
+	const offers = curioManager.rollCurioOffers({ ...freshRun(cfg.RUN_MODE.endless), level: 5, curios: ["energy_core"] }, makeRng(4));
+	assert(!offers.some(offer => offer.id === "energy_core"), "已拥有的奇物不进候选");
+	const offerText = offers.flatMap(offer => curioManager.describeCurio(offer.id));
+	assert(!offerText.some(line => line.includes("4 张牌")), `候选展示用的是初始品质：${offerText.join(" / ")}`);
+	return "史诗丢弃 → 重新获得回初始品质";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

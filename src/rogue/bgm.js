@@ -13,7 +13,6 @@ let lobbyOn = false;
 let battleBgm = null;
 /** 战斗 BGM 当前曲目路径：真机上 audio.src 会被解析成绝对 URL 不能反查，自己记着做「不与刚放完的重复」 */
 let battleBgmPath = null;
-/** 当前是不是战斗在出声 */
 let battleOn = false;
 /** 本体自己的背景音乐被我们按成静音：只放回音量，不动它的播放状态 */
 let engineMuted = false;

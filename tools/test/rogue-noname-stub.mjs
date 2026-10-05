@@ -122,12 +122,17 @@ export function makeNode(tag) {
 		get: () => node.__html,
 		set: value => {
 			node.__html = String(value);
+			// 真 DOM 里 innerHTML 会替换掉原有文本节点，桩也照做：
+			// 否则「先 innerHTML 建节点、再改 textContent」的节点会留着旧文案，
+			// textOf/dump 读的是 __html || __text，就会读到过期值
+			node.__text = "";
 		},
 	});
 	Object.defineProperty(node, "textContent", {
 		get: () => node.__text ?? "",
 		set: value => {
 			node.__text = String(value);
+			node.__html = "";
 		},
 	});
 	Object.defineProperty(node, "firstChild", { get: () => node.children[0] ?? null });

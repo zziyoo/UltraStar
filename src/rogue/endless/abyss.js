@@ -37,7 +37,6 @@ export function getAbyssAffixDefs(context = {}) {
 	});
 }
 
-/** 词缀池里当前可随机的 id */
 export function getAbyssPoolIds(context) {
 	return getAbyssAffixDefs(context).map(item => item.id);
 }
@@ -47,10 +46,6 @@ export function isAbyssAffixId(id, context) {
 	return getAbyssPoolIds(context).includes(id);
 }
 
-/**
- * 层数是否已经进入深渊化区间。
- * 闯关模式（以及任何非无尽）传进来的 mode 会在这里挡掉，普通模式完全不受影响。
- */
 export function isAbyssStage(level, mode) {
 	if (!ABYSS_ENABLED || mode !== RUN_MODE.endless) {
 		return false;

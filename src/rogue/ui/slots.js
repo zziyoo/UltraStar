@@ -62,7 +62,6 @@ function formatTime(timestamp) {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-/** 顶部标题栏：居中的标题 + 右上角返回 */
 function buildTitlebar(parent, title, onBack) {
 	const bar = ui.create.div(".wm-rogue-titlebar", parent);
 	ui.create.div(".wm-rogue-title", title, bar);
@@ -228,7 +227,6 @@ export function showRunModeChoice(api) {
 	});
 }
 
-/** 玩法卡：整张卡可点 */
 function buildModeCard(parent, info) {
 	const card = ui.create.div(".wm-rogue-mode-card", parent);
 	ui.create.div(".wm-rogue-mode-name", info.name, card);

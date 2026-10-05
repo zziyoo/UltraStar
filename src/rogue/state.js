@@ -16,7 +16,7 @@ import {
 } from "./config.js";
 import { getEnemyGroup } from "./data/enemyGroups.js";
 import { getEvent } from "./data/events.js";
-import { getCurio } from "./data/curios.js";
+import { getCurio, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 import { getMaxShopRefreshes } from "./curioManager.js";
 import { normalizeEventReward } from "./eventManager.js";
 import { normalizeAbyssIds } from "./endless/abyss.js";
@@ -69,13 +69,13 @@ function normalizeBattleEnemy(entry) {
 		const maxLevel = Number.isFinite(stats[key]?.maxLevel) ? Math.max(0, Math.floor(stats[key].maxLevel)) : 0;
 		statLevels[key] = clampInt(entry.stats?.[key], 0, maxLevel, 0);
 	}
-		const skills = [];
-		for (const id of Array.isArray(entry.skills) ? entry.skills : []) {
-			const skillId = sanitizeString(id);
-			if (skillId && !isDeprecatedSkill(skillId)) {
-				skills.push(skillId);
-			}
+	const skills = [];
+	for (const id of Array.isArray(entry.skills) ? entry.skills : []) {
+		const skillId = sanitizeString(id);
+		if (skillId && !isDeprecatedSkill(skillId)) {
+			skills.push(skillId);
 		}
+	}
 	return {
 		characterId,
 		stats: statLevels,
@@ -186,10 +186,7 @@ export function normalizeCollection(raw) {
 	return collection;
 }
 
-/**
- * 图鉴并集：把两份图鉴合成一份（公有图鉴 ∪ 某个存档的图鉴）。
- * 去重与「只认还存在的 id」都复用 normalizeCollection，所以下架的事件/奇物会被自然剔掉。
- */
+/** 图鉴并集：去重与「只认还存在的 id」都复用 normalizeCollection，下架条目会被自然剔掉 */
 export function mergeCollections(a, b) {
 	const left = normalizeCollection(a);
 	const right = normalizeCollection(b);
@@ -212,6 +209,33 @@ function normalizeCurios(raw) {
 		list.push(clean);
 	}
 	return list;
+}
+
+/**
+ * 奇物当前品质覆盖表：只记「高于初始品质」的档位，与初始品质相同就不记（存档精简）。
+ * 这份数据属于当前 run（不进图鉴、不跨存档）。这里只做清洗，**绝不因为读到旧档就把奇物升级**：
+ * 低于初始品质的（负向降级）、等于初始品质的、未拥有的、不认识的品质一律清掉。
+ */
+function normalizeCurioQuality(raw, owned = []) {
+	const map = {};
+	if (!isPlainObject(raw)) {
+		return map;
+	}
+	const ownedSet = new Set(Array.isArray(owned) ? owned : []);
+	for (const [id, value] of Object.entries(raw)) {
+		const def = getCurio(id);
+		if (!def || !ownedSet.has(id) || typeof value !== "string") {
+			continue;
+		}
+		const start = CURIOSITY_QUALITY_CHAIN.indexOf(def.rarity);
+		const index = CURIOSITY_QUALITY_CHAIN.indexOf(value);
+		// 链上、且严格高于初始品质；index > start 同时挡掉了「等于初始品质」与「反向降级」
+		if (start < 0 || index <= start) {
+			continue;
+		}
+		map[id] = value;
+	}
+	return map;
 }
 
 /**
@@ -253,19 +277,19 @@ export function normalizeRun(raw) {
 		currency[key] = clampInt(raw.currency?.[key], 0, Number.MAX_SAFE_INTEGER, 0);
 	}
 
-		const seen = new Set();
-		const skills = [];
-		for (const id of Array.isArray(raw.skills) ? raw.skills : []) {
-			const skillId = sanitizeString(id);
-			if (!skillId || seen.has(skillId) || isDeprecatedSkill(skillId)) {
-				continue;
-			}
-			seen.add(skillId);
-			skills.push(skillId);
-			if (skills.length >= SKILL_SLOTS) {
-				break;
-			}
+	const seen = new Set();
+	const skills = [];
+	for (const id of Array.isArray(raw.skills) ? raw.skills : []) {
+		const skillId = sanitizeString(id);
+		if (!skillId || seen.has(skillId) || isDeprecatedSkill(skillId)) {
+			continue;
 		}
+		seen.add(skillId);
+		skills.push(skillId);
+		if (skills.length >= SKILL_SLOTS) {
+			break;
+		}
+	}
 
 	const statLevels = {};
 	for (const key of STAT_IDS) {
@@ -277,14 +301,14 @@ export function normalizeRun(raw) {
 
 	const curios = normalizeCurios(raw.curios);
 
-		const shopOffers = [];
-		for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
-			const id = sanitizeString(offer?.id);
-			if (!id || isDeprecatedSkill(id)) {
-				continue;
-			}
-			shopOffers.push({ id, price: clampInt(offer?.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer?.sold });
+	const shopOffers = [];
+	for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
+		const id = sanitizeString(offer?.id);
+		if (!id || isDeprecatedSkill(id)) {
+			continue;
 		}
+		shopOffers.push({ id, price: clampInt(offer?.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer?.sold });
+	}
 
 	const totalLevels = mode === RUN_MODE.endless
 		? 0
@@ -311,6 +335,8 @@ export function normalizeRun(raw) {
 		pendingEvent: normalizePendingEvent(raw.pendingEvent),
 		collection: normalizeCollection(raw.collection),
 		curios,
+		// v6：奇物品质升级。旧档（v5 及更早）没有这个字段时按空表补齐 = 全部停在初始品质
+		curioQuality: normalizeCurioQuality(raw.curioQuality, curios),
 		curioOffers: normalizeCurioOffers(raw.curioOffers, curios),
 		cleared: !!raw.cleared,
 		createdAt: Math.max(0, toInt(raw.createdAt, 0)),

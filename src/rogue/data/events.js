@@ -107,7 +107,6 @@ export const events = {
 				],
 			},
 			{
-				// 中档：50% 概率拿回 10 倍
 				text: "中额许愿",
 				outcomes: [
 					{ chance: 0.5, reward: { goldPct: 20, goldPayout: 10 } },
