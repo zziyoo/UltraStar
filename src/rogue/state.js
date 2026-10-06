@@ -3,6 +3,7 @@
 
 import {
 	BATTLE_STATUS,
+	CHALLENGE_COMBO_LEVELS,
 	CHALLENGE_STAGE_LEVELS,
 	CHALLENGE_TOTAL_LEVELS,
 	CURRENCIES,
@@ -294,13 +295,13 @@ function normalizeCurioOffers(raw, owned = []) {
 }
 
 /**
- * 闯关前 10 关的敌方配置抽取结果（v8）：一次抽取、随档落盘、只清不掷。
- * 这里只把数据洗成干净的字符串数组——**不按配置池校验、不剔「不在池里」的 id、不去重**：
- * challengeStages 是「第 N 关 → 第 N 个配置」的位置表，剔掉任何一项都会让后面的关卡整体前移，
- * 读档就等于换敌人（规格明令禁止）；配置被改/删的关卡由开战时明确报错，而不是悄悄换人。
- * 只有非字符串（损坏数据）才剔除，超过前 10 关的截断。
+ * 「第 N 关 → 第 N 个配置/组合」位置表的通用清洗（v8 challengeStages / v10 challengeComboStages 共用）：
+ * 只把数据洗成干净的字符串数组——**不按配置池校验、不剔「不在池里」的 id、不去重**：
+ * 这是位置表，剔掉任何一项都会让后面的关卡整体前移，读档就等于换敌人（规格明令禁止）；
+ * 配置被改/删的关卡由开战时明确报错，而不是悄悄换人。
+ * 只有非字符串（损坏数据）才剔除，超过关数上限的截断。
  */
-function normalizeChallengeStages(raw) {
+function normalizeStageIdList(raw, cap) {
 	const stages = [];
 	for (const id of Array.isArray(raw) ? raw : []) {
 		if (typeof id !== "string") {
@@ -310,11 +311,25 @@ function normalizeChallengeStages(raw) {
 		if (clean) {
 			stages.push(clean);
 		}
-		if (stages.length >= CHALLENGE_STAGE_LEVELS) {
+		if (stages.length >= cap) {
 			break;
 		}
 	}
 	return stages;
+}
+
+/** v8：闯关前 10 关的关卡配置抽取结果（enemy.ensureChallengeStages 生成，本层只清洗） */
+function normalizeChallengeStages(raw) {
+	return normalizeStageIdList(raw, CHALLENGE_STAGE_LEVELS);
+}
+
+/**
+ * v10：闯关第 11~30 关的双人组合抽取结果（enemy.ensureChallengeComboStages 生成，本层只清洗）。
+ * 第 21~30 关复用第 11~20 关的抽取结果，所以这份表永远只有 CHALLENGE_COMBO_LEVELS 项；
+ * 与 challengeStages 同一条纪律：只清不掷，旧档缺字段按空数组补齐，首次进入 11~30 关时补抽。
+ */
+function normalizeChallengeComboStages(raw) {
+	return normalizeStageIdList(raw, CHALLENGE_COMBO_LEVELS);
 }
 
 /**
@@ -377,7 +392,14 @@ export function normalizeRun(raw, options = {}) {
 			// 已下架 / 肉鸽不兼容 / 定义已消失：这一格干脆不还原，玩家看到的是更少的候选而不是坏候选
 			continue;
 		}
-		shopOffers.push({ id, price: clampInt(offer?.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer?.sold });
+		// carried：收藏家的橱窗留到下一关的「已购买」那张——只占货架、不吃新的一局的购买额度，
+		// 读档必须原样带回来，否则重进商店它就又算成本局买过的，整排货架被锁死
+		shopOffers.push({
+			id,
+			price: clampInt(offer?.price, 0, Number.MAX_SAFE_INTEGER, 0),
+			sold: !!offer?.sold,
+			carried: !!offer?.carried,
+		});
 	}
 
 	const totalLevels = mode === RUN_MODE.endless
@@ -410,6 +432,8 @@ export function normalizeRun(raw, options = {}) {
 		totalLevels,
 		// v8：闯关前 10 关的敌方配置抽取结果（challenge 模式专用；由 enemy.ensureChallengeStages 生成，本层只清洗）
 		challengeStages: normalizeChallengeStages(raw.challengeStages),
+		// v10：闯关第 11~30 关的双人组合抽取结果（同上由 enemy.ensureChallengeComboStages 生成；旧档按空数组补齐）
+		challengeComboStages: normalizeChallengeComboStages(raw.challengeComboStages),
 		currency,
 		skills,
 		stats: statLevels,
@@ -482,6 +506,51 @@ export function updateBest(best, level, characterId, now) {
 		return current;
 	}
 	return { level: won, characterId: sanitizeString(characterId), updatedAt: now };
+}
+
+/**
+ * 闯关模式历史最高记录：与无尽同一套「独立存储键、删档不清」，但记的是**资源**而不是关卡数——
+ * 金币与经验各取各的历史最大（用户定稿：「金币 100 经验 10」与「金币 50 经验 20」并成
+ * 最高金币 100 / 最高经验 20）。两项都不是正数（= 没通过过闯关）返回 null，界面就不画那一行。
+ */
+export function normalizeBestChallenge(raw) {
+	if (!isPlainObject(raw)) {
+		return null;
+	}
+	const gold = clampInt(raw.gold, 0, Number.MAX_SAFE_INTEGER, 0);
+	const exp = clampInt(raw.exp, 0, Number.MAX_SAFE_INTEGER, 0);
+	if (gold <= 0 && exp <= 0) {
+		return null;
+	}
+	return {
+		gold,
+		exp,
+		characterId: sanitizeString(raw.characterId),
+		updatedAt: Math.max(0, toInt(raw.updatedAt, 0)),
+	};
+}
+
+/**
+ * 只在「刚好打通最后一关」那一刻调用（通关后的重复挑战由调用方挡在这里之外）。
+ * 两项都没涨时原样返回传进来的 best——调用方靠引用是否变化决定要不要落盘；
+ * 涨了就只换涨的那一项，另一项保住历史最大，角色记破纪录这一把用的那个人。
+ */
+export function updateBestChallenge(best, currency, characterId, now) {
+	const current = normalizeBestChallenge(best);
+	const gold = clampInt(currency?.gold, 0, Number.MAX_SAFE_INTEGER, 0);
+	const exp = clampInt(currency?.exp, 0, Number.MAX_SAFE_INTEGER, 0);
+	if (!current) {
+		return gold > 0 || exp > 0 ? { gold, exp, characterId: sanitizeString(characterId), updatedAt: now } : best;
+	}
+	if (current.gold >= gold && current.exp >= exp) {
+		return best;
+	}
+	return {
+		gold: Math.max(current.gold, gold),
+		exp: Math.max(current.exp, exp),
+		characterId: sanitizeString(characterId),
+		updatedAt: now,
+	};
 }
 
 /**

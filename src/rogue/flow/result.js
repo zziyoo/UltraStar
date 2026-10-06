@@ -5,8 +5,8 @@ import { RUN_MODE } from "../config.js";
 import { settleVictory } from "../reward.js";
 import { maybeCreatePendingEvent } from "../eventManager.js";
 import { loseSkill, lowerStat, settleDefeat } from "../penalty.js";
-import { setSlot, updateBest } from "../state.js";
-import { commit, context, now, persist, reloadNow, saveBest } from "../runtime.js";
+import { setSlot, updateBest, updateBestChallenge } from "../state.js";
+import { commit, context, now, persist, reloadNow, saveBest, saveBestChallenge } from "../runtime.js";
 import { showNotice, skillName } from "../ui/common.js";
 import { showPenaltyChoice, showResult } from "../ui/result.js";
 
@@ -20,6 +20,10 @@ export function createResultFlow(host) {
 		// 刚打赢的那一关要先记下来：胜利结算会把 level 推进到下一关，而事件奖励的
 		// 「胜利奖励基准」也按这一关算
 		const wonLevel = context.run.level;
+		// 通关之后再点「重复挑战」时 cleared 本来就是 true：那些场次一律不算新的通关，
+		// 否则反复重打最后一关就能把钱包刷大来灌水记录（用户定稿：只记刚好通过最后一关那一刻，
+		// 重复挑战不重复记录）
+		const alreadyCleared = !!context.run.cleared;
 		const result = settleVictory(context.run, now(), Math.random);
 		let run = result.run;
 		if (run.mode === RUN_MODE.endless) {
@@ -27,6 +31,13 @@ export function createResultFlow(host) {
 			const best = updateBest(context.best, wonLevel, run.characterId, now());
 			if (best !== context.best) {
 				saveBest(best);
+			}
+		}
+		if (run.mode === RUN_MODE.challenge && run.cleared && !alreadyCleared) {
+			// 刚好打通最后一关的这一刻：把此刻手上的金币与经验记进历史最高（两项各取各的最大）
+			const best = updateBestChallenge(context.bestChallenge, run.currency, run.characterId, now());
+			if (best !== context.bestChallenge) {
+				saveBestChallenge(best);
 			}
 		}
 		// 无尽模式按概率触发事件：事件与随机结果在此定死写进存档，中途关游戏也不重掷

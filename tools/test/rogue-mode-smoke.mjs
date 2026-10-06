@@ -31,6 +31,7 @@ const eventsData = await load("src/rogue/data/events.js");
 const curiosData = await load("src/rogue/data/curios.js");
 const eventManager = await load("src/rogue/eventManager.js");
 const stagesData = await load("src/rogue/data/challengeStages.js");
+const combosData = await load("src/rogue/data/challengeCombos.js");
 const abyssCfg = await load("src/rogue/endless/abyssConfig.js");
 const modeModule = await load("src/rogue/mode.js");
 const battleModule = await load("src/rogue/battle.js");
@@ -817,8 +818,66 @@ await check("无尽最高记录：通关才更新，闯关不更新，失败删�
 	}
 });
 
-await check("选择玩法页：自建浮层 + 两张玩法卡 + 无尽历史最高记录", async () => {
+await check("闯关最高记录：刚好通关最后一关才记，重复挑战不重复记，金币与经验各取各的最大", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	Math.random = () => 0.9;
+	/** 打完当前这一关：把所有敌人打死，触发胜利结算 */
+	const winBattle = async label => {
+		click(label);
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+	};
+	try {
+		// 第一把：打通第 30 关（最后一关）→ 记下这一刻手上的金币与经验
+		putRun(0, { mode: "challenge", characterId: "迪迦", level: cfg.CHALLENGE_TOTAL_LEVELS, currency: { gold: 100, exp: 10 } });
+		session();
+		await winBattle("开始下一关");
+		let slot = lib.storage.rogueSlots[0];
+		assert(slot.cleared, "打通最后一关应置为已通关");
+		let best = lib.storage.rogueBestChallenge;
+		assert(best, "应写入闯关历史最高");
+		assertEqual(best.gold, slot.currency.gold, "记的就是通关那一刻手上的金币");
+		assertEqual(best.exp, slot.currency.exp, "记的就是通关那一刻手上的经验");
+		assertEqual(best.characterId, "迪迦", "记角色");
+		const firstGold = best.gold;
+		click("返回营地");
+
+		// 重复挑战：钱包更大了，但记录一个字都不动（用户定稿：重复挑战不重复记录）
+		session();
+		await winBattle("重复挑战");
+		slot = lib.storage.rogueSlots[0];
+		assert(slot.currency.gold > firstGold, `重复挑战一场又多一笔钱：${firstGold} → ${slot.currency.gold}`);
+		assertEqual(lib.storage.rogueBestChallenge.gold, firstGold, "重复挑战不重复记录（否则重打最后一关就能灌水）");
+		click("返回营地");
+
+		// 第二把（新存档）：金币更少、经验更多 → 金币保住历史最高，经验单独抬上去
+		putRun(0, { mode: "challenge", characterId: "赛文", level: cfg.CHALLENGE_TOTAL_LEVELS, currency: { gold: 20, exp: 5000 } });
+		session();
+		await winBattle("开始下一关");
+		slot = lib.storage.rogueSlots[0];
+		best = lib.storage.rogueBestChallenge;
+		assertEqual(best.gold, firstGold, "金币没超过上一把 → 保留最高金币");
+		assertEqual(best.exp, slot.currency.exp, "经验更高 → 只抬经验（两项各取各的最大）");
+		assertEqual(best.characterId, "赛文", "记破纪录这一把的角色");
+
+		// 记在独立键上：六个存档全清空也还在
+		lib.storage.rogueSlots = [null, null, null, null, null, null];
+		lib.storage.rogueActive = -1;
+		session();
+		assertEqual(lib.storage.rogueBestChallenge.gold, firstGold, "删档不清闯关历史最高");
+		return `最高金币 ${best.gold} / 最高经验 ${best.exp}（重复挑战不涨）`;
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("选择玩法页：自建浮层 + 两张玩法卡 + 无尽与闯关的历史最高记录", async () => {
 	lib.storage.rogueBestEndless = { level: 27, characterId: "迪迦", updatedAt: 1 };
+	lib.storage.rogueBestChallenge = { gold: 100, exp: 20, characterId: "迪迦", updatedAt: 1 };
 	session();
 	click("空存档");
 	let text = screenText();
@@ -833,12 +892,15 @@ await check("选择玩法页：自建浮层 + 两张玩法卡 + 无尽历史最�
 		assert(text.includes(token), `玩法卡应显示「${token}」：${text}`);
 	}
 	assert(text.includes("最高记录：第 27 关（迪迦）"), `应显示最高记录：${text}`);
+	assert(text.includes("最高金币记录：100 最高经验记录：20"), `应显示闯关最高金币/经验：${text}`);
 	click("返回");
 	lib.storage.rogueBestEndless = null;
+	lib.storage.rogueBestChallenge = null;
 	session();
 	click("空存档");
 	text = screenText();
-	assert(text.includes("最高记录：暂无"), `无记录时应显示暂无：${text}`);
+	assert(text.includes("最高记录：暂无"), `无尽无记录时应显示暂无：${text}`);
+	assert(!text.includes("最高金币记录"), `没通过过闯关就不显示那一行：${text}`);
 	// 点整张卡即选中：点无尽卡进入选将
 	click("无尽模式");
 	assert(screenText().includes("点击武将即完成选择"), "点卡片应进入选将页");
@@ -923,6 +985,78 @@ await check("取消恢复：返回存档页不删进度并标出未完成战斗"
 	assert(lib.storage.rogueSlots[0] !== null, "正在进行的存档不得被删除");
 	assert(text.includes("有未完成战斗"), "槽位卡片应标出未完成战斗");
 	return "进度保留";
+});
+
+await check("闯关 11~20 关：首次开战抽 10 个组合落盘，敌人按 challengeComboStages[level-11] 的双人组合生成", async () => {
+	freshWorld();
+	putRun(0, { level: 11, challengeStages: [] });
+	session();
+	const before = log.length;
+	click("开始下一关");
+	await flush();
+	// 首次进入 11~30 关：开战前一次性抽出 10 个组合并立刻落盘（先 save 再开局）
+	assert(log.slice(before).filter(item => item.type === "save").length >= 1, "抽取结果应立刻落盘");
+	const saved = lib.storage.rogueSlots[0];
+	const combos = saved.challengeComboStages;
+	assert(Array.isArray(combos) && combos.length === cfg.CHALLENGE_COMBO_LEVELS, `应一次性抽出 10 个组合，实际 ${combos?.length}`);
+	assertEqual(new Set(combos).size, combos.length, "10 个组合互不重复");
+	assert(combos.every(id => combosData.getChallengeComboConfig(id)), "每个 id 都能取回组合配置");
+	// 第 11 关 = 第 0 个组合，双人按 players 顺序
+	const combo = combosData.getChallengeComboConfig(combos[0]);
+	const enemies = saved.currentBattle.enemies;
+	assertEqual(enemies.length, 2, "第 11 关应有 2 个敌人（双人组合）");
+	assertEqual(enemies[0].characterId, combo.players[0].character, "左角色在前");
+	assertEqual(enemies[1].characterId, combo.players[1].character, "右角色在后");
+	assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
+		+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack, 11,
+		"shared 预算：两人总点数等于关卡数");
+	// 打到第 12 关再开战（模拟推进后重进）：用第 1 个组合，且组合表绝不重抽
+	putRun(0, { level: 12, challengeComboStages: combos, currentBattle: null });
+	session();
+	click("开始下一关");
+	await flush();
+	const next = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(next.challengeComboStages), JSON.stringify(combos), "组合表沿用原抽取结果");
+	const combo2 = combosData.getChallengeComboConfig(combos[1]);
+	assertEqual(next.currentBattle.enemies[0].characterId, combo2.players[0].character, `第 12 关左角色来自「${combo2.id}」`);
+	assertEqual(next.currentBattle.enemies[1].characterId, combo2.players[1].character, "第 12 关右角色顺序不变");
+	return `第 11 关 = ${combo.id}、第 12 关 = ${combo2.id}（10 组合已定死）`;
+});
+
+await check("闯关 21~30 关：双人组合 + 扩展池第三人，第三人随 currentBattle 落盘、恢复战斗绝不重掷", async () => {
+	// 直接给一份已抽定的组合表（等价于已经打过 11~20 关），第 21 关必须复用第 0 项
+	const combos = combosData.challengeComboPool.slice(0, cfg.CHALLENGE_COMBO_LEVELS).map(config => config.id);
+	putRun(0, { level: 21, challengeComboStages: combos, challengeStages: [] });
+	session();
+	click("开始下一关");
+	await flush();
+	const saved = lib.storage.rogueSlots[0];
+	const combo = combosData.getChallengeComboConfig(combos[0]);
+	const [left, right] = combo.players.map(player => player.character);
+	const enemies = saved.currentBattle.enemies;
+	assertEqual(enemies.length, 3, "第 21 关应有 3 个敌人（双人组合 + 第三人）");
+	const leftIndex = enemies.findIndex(entry => entry.characterId === left);
+	const rightIndex = enemies.findIndex(entry => entry.characterId === right);
+	const thirdEntry = enemies.find(entry => entry.characterId !== left && entry.characterId !== right);
+	assert(leftIndex >= 0 && rightIndex >= 0 && thirdEntry, "组合两名角色与第三人都在阵容里");
+	assert(leftIndex < rightIndex, "左角色永远在右角色之前");
+	const pool = enemyModule.getChallengeEnemyPool();
+	assert(pool.includes(thirdEntry.characterId), `第三人 ${thirdEntry.characterId} 应来自扩展角色池`);
+	assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
+		+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack
+		+ enemies[2].stats.defense + enemies[2].stats.draw + enemies[2].stats.attack, 21,
+		"3 人 shared 预算：队伍总点数等于关卡数");
+	const thirdBefore = thirdEntry.characterId;
+	// 模拟中途刷新：重新加载页面走恢复流程，第三人必须原样沿用
+	session();
+	assert(screenText().includes("战斗未正常结算"), "应有恢复页");
+	click("重新挑战这一关");
+	await flush();
+	const after = lib.storage.rogueSlots[0].currentBattle.enemies;
+	assertEqual(after.length, 3, "恢复后仍是 3 个敌人");
+	assertEqual(JSON.stringify(after.map(entry => entry.characterId)), JSON.stringify(enemies.map(entry => entry.characterId)), "恢复战斗沿用同一套阵容（含第三人），绝不重掷");
+	assertEqual(after.find(entry => entry.characterId !== left && entry.characterId !== right).characterId, thirdBefore, "第三人还是同一个");
+	return `第 21 关 = ${combo.id} + 第三人 ${thirdBefore}（恢复不重掷）`;
 });
 
 await check("商店：浮层骨架——固定标题与资源栏 + 三张技能卡 + 三张属性卡", async () => {
@@ -2647,7 +2781,7 @@ await check("收藏家的橱窗：锁图标只在该出现时出现，点一下�
 	return "0 枚 → 1 枚（稀有）→ 2 枚（史诗）并各自落盘";
 });
 
-await check("商店锁结算：技能锁保住候选并清零已购买，奇物锁保住整批不再掷刷新", async () => {
+await check("商店锁结算：技能锁保住候选（买过的那张留货显示已购买），奇物锁保住整批不再掷刷新", async () => {
 	const originalRandom = Math.random;
 	try {
 		// rng 钉在 0.999：正常路径下技能候选清空、奇物商店掷不中会置空，两处都靠锁挡住
@@ -2673,7 +2807,13 @@ await check("商店锁结算：技能锁保住候选并清零已购买，奇物�
 		lib.element.player.dieAfter.call(game.players[1]);
 		let run = lib.storage.rogueSlots[0];
 		assertEqual(run.shopOffers.map(offer => `${offer.id}:${offer.price}`).join(","), "rogue_extra:66,owned_skill:44", "锁着的候选连价格一起保留");
-		assert(run.shopOffers.every(offer => !offer.sold), "已购买标记清零：新一局等于新的一次进店");
+		assertEqual(
+			run.shopOffers.map(offer => `${offer.sold ? "已购买" : "可售"}${offer.carried ? "+留货" : ""}`).join(","),
+			"已购买+留货,可售",
+			"买过的那张仍留在货架上、和正常购买一样显示已购买（用户定稿），并打上留货标记"
+		);
+		const shopModule = await load("src/rogue/shop.js");
+		assertEqual(shopModule.getPurchasedCount(run), 0, "留货的已购买不吃新的一局的购买额度（否则另一张与刷新一起被锁死）");
 		assertEqual(run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "免费的刷新次数照常刷新（规格原话：只是三个技能不刷新）");
 		click("返回营地");
 		// 没锁 → 照旧清空（与原来逐字一致）
@@ -2706,7 +2846,59 @@ await check("商店锁结算：技能锁保住候选并清零已购买，奇物�
 		run = lib.storage.rogueSlots[0];
 		assertEqual(run.curioOffers.map(offer => offer.id).join(","), "lucky_stone", "奇物商店既不刷新也不置空");
 		assertEqual(run.curioOffers[0].price, 66, "连价定死的那一份也保留");
-		return "技能三项保留（sold 清零、刷新补满）+ 奇物整批保留";
+		return "技能三项保留（买过的留货显示已购买、刷新补满）+ 奇物整批保留";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("橱窗留货的已购买：下一关仍在货架上、点不动，另外两张连同刷新都是新的一局", async () => {
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		freshWorld();
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			curios: ["collector_showcase"],
+			skillShopLocked: true,
+			currency: { gold: 999, exp: 0 },
+			shopOffers: [
+				{ id: "own_one", price: 66, sold: true },
+				{ id: "rogue_extra", price: 44, sold: false },
+				{ id: "own_two", price: 45, sold: false },
+			],
+			shopRefreshesRemaining: 0,
+		});
+		session();
+		click("开始下一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		click("返回营地");
+		session();
+		click("商店");
+		const buttons = nodesWithClass("wm-rogue-shop-buy");
+		assertEqual(buttons.length, 3, "三张候选一张不少（用户要的就是下次刷新时那个技能仍保留）");
+		assertEqual(textOf(buttons[0]), "已购买", "留货的那张显示与正常购买一样的「已购买」");
+		assert(buttons[0].classList.contains("wm-rogue-disabled"), "留货的那张按钮置灰");
+		assertEqual(textOf(buttons[1]), "购买", "另外两张在新的一关照常可买（留货不吃本局购买额度）");
+		const refresh = nodesWithClass("wm-rogue-shop-refresh")[0];
+		assertEqual(textOf(refresh), `刷新 ${cfg.SKILL_REFRESH_PER_LEVEL}/${cfg.SKILL_REFRESH_PER_LEVEL}`, "刷新次数照常补满，没被留货那张锁死");
+		assert(!refresh.classList.contains("wm-rogue-disabled"), "刷新按钮可用");
+		clickNode(buttons[0]);
+		await flush();
+		assertEqual(lib.storage.rogueSlots[0].skills.length, 0, "点已购买那张不成交（不会再走替换页）");
+		clickNode(buttons[1]);
+		await flush();
+		const bought = lib.storage.rogueSlots[0];
+		assert(bought.skills.includes("rogue_extra"), `另外那张买得动：${bought.skills.join(",")}`);
+		assertEqual(bought.shopOffers.map(offer => `${offer.id}:${offer.sold ? "已购买" : "可售"}${offer.carried ? "+留货" : ""}`).join(","),
+			"own_one:已购买+留货,rogue_extra:已购买,own_two:可售", "这次买的算本局额度（留货那张不算）");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-buy")[2]), "本次商店已售罄", "本局额度用光后另一张才售罄");
+		return "留货显示已购买 / 点不动 / 另外两张与刷新都是新的一局";
 	} finally {
 		Math.random = originalRandom;
 	}

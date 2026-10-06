@@ -54,6 +54,7 @@ const penalty = await load("src/rogue/penalty.js");
 const common = await load("src/rogue/ui/common.js");
 const groups = await load("src/rogue/data/enemyGroups.js");
 const stagesData = await load("src/rogue/data/challengeStages.js");
+const combosData = await load("src/rogue/data/challengeCombos.js");
 const statsData = await load("src/rogue/data/stats.js");
 const skillsData = await load("src/rogue/data/skills.js");
 const skillPool = await load("src/rogue/skillPool.js");
@@ -877,6 +878,130 @@ check("新局流程（mode.js 同款调用）：createRun + ensure 后逐关可�
 	return `第 1~10 关逐关解析通过：${run.challengeStages.join("、")}`;
 });
 
+// ---------------------------------------------------------------- 闯关第 11~30 关：双人组合池
+
+check("组合抽取（ensureChallengeComboStages）：首次进入第 11 关一次性抽 10 个并存档，之后绝不重抽", () => {
+	const always = () => true;
+	const created = enemy.ensureChallengeComboStages({ ...freshRun(), level: 11 }, makeRng(21), always);
+	assertEqual(created.status, enemy.CHALLENGE_STAGE_STATE.generated, "第 11 关首次进入应生成");
+	assertEqual(created.run.challengeComboStages.length, cfg.CHALLENGE_COMBO_LEVELS, "一次生成 10 个组合");
+	assertEqual(new Set(created.run.challengeComboStages).size, cfg.CHALLENGE_COMBO_LEVELS, "10 个组合互不重复");
+	assert(created.run.challengeComboStages.every(id => combosData.getChallengeComboConfig(id)), "全部来自组合池");
+	const untouched = enemy.ensureChallengeComboStages(created.run, makeRng(22), always);
+	assertEqual(untouched.status, enemy.CHALLENGE_STAGE_STATE.ready, "已有抽取结果不再生成");
+	assertEqual(JSON.stringify(untouched.run.challengeComboStages), JSON.stringify(created.run.challengeComboStages), "读档/重进/进入 21~30 关都沿用原结果，不重抽");
+	return `第 11~20 关顺序：${created.run.challengeComboStages.join(" → ")}`;
+});
+
+check("组合抽取（ensureChallengeComboStages）：第 1~10 关 / 第 31 关外 / 无尽一律不生成", () => {
+	const always = () => true;
+	const early = enemy.ensureChallengeComboStages(freshRun(), makeRng(23), always);
+	assertEqual(early.status, enemy.CHALLENGE_STAGE_STATE.skipped, "前 10 关不需要组合");
+	assertEqual(early.run.challengeComboStages.length, 0, "前 10 关不写组合字段");
+	const endless = enemy.ensureChallengeComboStages(freshRun(cfg.RUN_MODE.endless), makeRng(24), always);
+	assertEqual(endless.status, enemy.CHALLENGE_STAGE_STATE.skipped, "无尽模式不生成");
+	assertEqual(endless.run.challengeComboStages.length, 0, "无尽模式不写组合字段");
+	return "只在「闯关 + 11~30 关 + 尚无结果」时生成一次";
+});
+
+check("组合映射：第 N 关（11~30）取 challengeComboStages[(N-11) % 10]，21~30 与 11~20 一一对应", () => {
+	// 与 flow/battle.js 同一条映射公式
+	const comboAt = (run, level) => combosData.getChallengeComboConfig(run.challengeComboStages[(level - 1 - cfg.CHALLENGE_STAGE_LEVELS) % cfg.CHALLENGE_COMBO_LEVELS]);
+	const run = enemy.ensureChallengeComboStages({ ...freshRun(), level: 11 }, makeRng(25), () => true).run;
+	for (let i = 0; i < cfg.CHALLENGE_COMBO_LEVELS; i++) {
+		const first = comboAt(run, cfg.CHALLENGE_STAGE_LEVELS + 1 + i);
+		const second = comboAt(run, cfg.CHALLENGE_STAGE_LEVELS + cfg.CHALLENGE_COMBO_LEVELS + 1 + i);
+		assert(first, `第 ${cfg.CHALLENGE_STAGE_LEVELS + 1 + i} 关应能取到组合`);
+		assert(second, `第 ${cfg.CHALLENGE_STAGE_LEVELS + cfg.CHALLENGE_COMBO_LEVELS + 1 + i} 关应能取到组合`);
+		assertEqual(second.id, first.id, `第 ${21 + i} 关应复用第 ${11 + i} 关的组合`);
+	}
+	return `第 21~30 关严格复用第 11~20 关的组合（${comboAt(run, 21).id} 等）`;
+});
+
+check("组合 → 阵容：双人组合按 players 顺序生成，左右顺序永远不变", () => {
+	const combo = combosData.challengeComboPool[0];
+	const [left, right] = combo.players.map(player => player.character);
+	for (let seed = 1; seed <= 10; seed++) {
+		const enemies = enemy.createStageEnemyConfigs(combo, 15, makeRng(seed));
+		assertEqual(enemies.length, 2, "双人组合生成 2 个敌人");
+		assertEqual(enemies[0].characterId, left, "左角色在前（顺序 1）");
+		assertEqual(enemies[1].characterId, right, "右角色在后（顺序 2）");
+		assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
+			+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack, 15,
+			"shared 预算：两人总点数等于关卡数（不随人数膨胀）");
+	}
+	return `${combo.id}：顺序固定 + shared 预算（10 个种子全部一致）`;
+});
+
+check("第三人：来自扩展池、不与固定两人重复、三个位置都可能出现且左右顺序不变", () => {
+	const combo = combosData.challengeComboPool[0];
+	const [left, right] = combo.players.map(player => player.character);
+	const pool = ["迪迦", "佐菲", "赛文", "巴尔坦星人"];
+	const seenPositions = new Set();
+	for (let seed = 1; seed <= 60; seed++) {
+		const built = enemy.createChallengeComboConfigs(combo, 25, makeRng(seed), { pool });
+		assert(built.ok, `种子 ${seed} 应能生成第三人`);
+		assert(pool.includes(built.third), "第三人来自注入的扩展池");
+		assert(built.third !== left && built.third !== right, "第三人不得与固定两人重复");
+		const enemies = built.enemies;
+		assertEqual(enemies.length, 3, "阵容为 3 人");
+		seenPositions.add(built.position);
+		const leftIndex = enemies.findIndex(entry => entry.characterId === left);
+		const rightIndex = enemies.findIndex(entry => entry.characterId === right);
+		const thirdIndex = enemies.findIndex(entry => entry.characterId === built.third);
+		assert(leftIndex >= 0 && rightIndex >= 0 && thirdIndex >= 0, "三人都在阵容里");
+		assert(leftIndex < rightIndex, "左角色永远在右角色之前");
+		assert([0, 1, 2].includes(built.position), "插入位只能是三个空位之一");
+		assertEqual(thirdIndex, built.position, "position 与实际插入位一致");
+		assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
+			+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack
+			+ enemies[2].stats.defense + enemies[2].stats.draw + enemies[2].stats.attack, 25,
+			"3 人 shared 预算：队伍总点数等于关卡数");
+	}
+	assert(seenPositions.size === 3, `三个位置都应出现过，实际 ${seenPositions.size} 种`);
+	// 组合里两个同名角色（夏侯徽×夏侯徽的极端情况）：第三人仍不得是夏侯徽
+	const mirror = { id: "镜像组合", type: "group", players: [{ character: left }, { character: left }] };
+	const built = enemy.createChallengeComboConfigs(mirror, 21, makeRng(3), { pool: [left, "迪迦"] });
+	assert(built.ok && built.third === "迪迦", "组合撞名时第三人仍排除该角色");
+	// 池子里只剩固定角色自己：明确失败，绝不复制固定角色凑数
+	const empty = enemy.createChallengeComboConfigs(combo, 21, makeRng(3), { pool: [left, right] });
+	assert(!empty.ok, "没有合法第三人时明确返回失败");
+	return `60 个种子覆盖 3 个插入位；第三人 ${built.third}（镜像组合）`;
+});
+
+check("challengeComboStages 存档（v10）：白名单清洗、位置稳定、cloneRun 读档不重掷、旧档补空", () => {
+	const combos = combosData.drawChallengeComboIds(makeRng(31), () => true);
+	const run = state.normalizeRun({ ...freshRun(), challengeComboStages: combos });
+	assertEqual(JSON.stringify(run.challengeComboStages), JSON.stringify(combos), "合法抽取结果原样落档");
+	assertEqual(JSON.stringify(state.cloneRun(run).challengeComboStages), JSON.stringify(combos), "cloneRun（读档路径）原样还原");
+	const dirty = state.normalizeRun({ ...freshRun(), challengeComboStages: [42, null, "  威董卓×侯昭宁  ", "已删除的组合", ""] });
+	assertEqual(JSON.stringify(dirty.challengeComboStages), JSON.stringify(["威董卓×侯昭宁", "已删除的组合"]), "只剔除非字符串与空白，字符串原位保留");
+	const legacy = state.normalizeRun({ ...freshRun() });
+	assertEqual(legacy.challengeComboStages.length, 0, "旧档（v9 及更早）没有字段时按空数组补齐（首次进入 11~30 关再补抽）");
+	const overflow = state.normalizeRun({ ...freshRun(), challengeComboStages: [...combos, "extra_a"] });
+	assertEqual(overflow.challengeComboStages.length, cfg.CHALLENGE_COMBO_LEVELS, "超出 10 项的截断");
+	return "位置表随存档固定，读档绝不重掷";
+});
+
+check("v9 → v10 迁移：challengeStages 原样保留、challengeComboStages 补空、currentBattle 不受影响、无尽不受影响", () => {
+	const stages = stagesData.drawChallengeStageIds(makeRng(41), () => true);
+	const legacy = {
+		...state.normalizeRun({ ...freshRun(), challengeStages: stages, level: 25 }),
+		version: 9,
+		challengeComboStages: undefined,
+	};
+	const migrated = state.migrateSlots([legacy, null, null, null, null, null]);
+	const run = migrated.slots[0];
+	assert(run, "v9 档应迁移成功");
+	assertEqual(run.version, cfg.RUN_VERSION, "迁移后标成当前版本");
+	assertEqual(JSON.stringify(run.challengeStages), JSON.stringify(stages), "前 10 关的抽取结果绝不重抽");
+	assertEqual(run.challengeComboStages.length, 0, "组合字段按空数组补齐，首次进入 11~30 关时补抽");
+	assert(migrated.errors.some(error => error.includes("迁移")), "要提示做过版本迁移");
+	const endless = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), challengeComboStages: ["威董卓×侯昭宁"] });
+	assertEqual(endless.challengeComboStages.length, 1, "无尽档里的组合字段原样保留（永不使用，不影响任何流程）");
+	return `v9 → v${cfg.RUN_VERSION}：闯关旧档前 10 关不变、11~30 关首次开战时补抽组合`;
+});
+
 check("废弃技能清理：已下架的肉鸽专属技能在读档时从存档各处清除", () => {
 	const run = state.normalizeRun({
 		...freshRun(),
@@ -980,6 +1105,24 @@ check("无尽最高记录：只记成功通关过的最高一关，且与存档�
 	assertEqual(state.normalizeBest({ level: "12", characterId: " 迪迦 " }).level, 12, "脏数据可修复");
 	assertEqual(state.updateBest(best, 0, "迪迦", NOW).level, 5, "非法关卡不改记录");
 	return `最高第 ${best.level} 关`;
+});
+
+check("闯关最高记录：金币与经验各取各的历史最大，没通过过就是没有记录", () => {
+	assertEqual(state.normalizeBestChallenge(undefined), null, "初始没有记录");
+	assertEqual(state.normalizeBestChallenge({ gold: 0, exp: 0 }), null, "两项都是 0 视为没通过（界面不显示）");
+	assertEqual(state.normalizeBestChallenge({ gold: 300, exp: -5 }).gold, 300, "负数按 0 处理");
+	assertEqual(state.normalizeBestChallenge({ gold: "100", exp: " 10 ", characterId: " 迪迦 " }).exp, 10, "脏数据可修复");
+	let best = state.updateBestChallenge(null, { gold: 100, exp: 10 }, "迪迦", NOW);
+	assertEqual(`${best.gold}/${best.exp}`, "100/10", "第一次通关：照记");
+	// 用户给的例子：一把「金币 100 经验 10」、一把「金币 50 经验 20」→ 最高金币 100、最高经验 20
+	best = state.updateBestChallenge(best, { gold: 50, exp: 20 }, "赛文", NOW);
+	assertEqual(`${best.gold}/${best.exp}`, "100/20", "两项各取各的最大（金币留 100、经验抬到 20）");
+	assertEqual(best.characterId, "赛文", "记破纪录这一把的角色");
+	best = state.updateBestChallenge(best, { gold: 10, exp: 5 }, "佐菲", NOW);
+	assertEqual(`${best.gold}/${best.exp}`, "100/20", "两项都没涨 → 记录不动");
+	assert(state.updateBestChallenge(best, { gold: 10, exp: 5 }, "佐菲", NOW) === best, "没涨时返回同一个对象（调用方据此不落盘）");
+	assert(state.updateBestChallenge(best, undefined, "佐菲", NOW) === best, "拿不到货币时原样返回");
+	return `最高金币 ${best.gold} / 最高经验 ${best.exp}`;
 });
 
 check("无尽奖励：floor(√n × 系数)（金币 50 / 经验 20），按刚完成的关卡编号结算", () => {
@@ -2118,6 +2261,11 @@ function makeAbyssPlayer(options) {
 			rec.blocker.push({ op: "remove", id });
 		},
 		judge: () => ({ forResult: async () => ({ color: options.judgeColor ?? "black" }) }),
+		addGaintag: (card, tag) => {
+			if (card && typeof card.addGaintag === "function") {
+				card.addGaintag(tag);
+			}
+		},
 		insertPhase: skill => {
 			const phase = { skill, _noTurnOver: false, phaseList: null };
 			rec.insertPhase.push(phase);
@@ -2129,7 +2277,22 @@ function makeAbyssPlayer(options) {
 
 /** 本体契约：content 的第二个参数才是基事件 */
 const abyssSkillEvent = (timing, base) => ({ triggername: timing, _trigger: base });
-const realCard = name => ({ name, __realCard: true, __type: name === "tao" ? "basic" : name === "sha" ? "basic" : "vcard" });
+// gaintag 记在牌对象上：深渊·污染会往被锁的牌面挂标记，桩要能记下来才能断言
+const realCard = name => ({
+	name,
+	__realCard: true,
+	__type: name === "tao" ? "basic" : name === "sha" ? "basic" : "vcard",
+	__gaintags: [],
+	hasGaintag(tag) {
+		return this.__gaintags.includes(tag);
+	},
+	addGaintag(tag) {
+		this.__gaintags.push(tag);
+	},
+	removeGaintag(tag) {
+		this.__gaintags = this.__gaintags.filter(item => item !== tag);
+	},
+});
 const virtualCard = name => ({ name });
 
 check("深渊词缀池配置：池子项数、id 唯一、与技能定义和翻译一一对应", () => {
@@ -2418,47 +2581,37 @@ await checkAsync("深渊·镜像：任何伤害都按等量反弹给来源，反
 	return "等量反弹（含技能伤害）/ 标记挡住互相反弹";
 });
 
-await checkAsync("深渊·污染：玩家用牌后把手牌换成牌堆里的任意一张，换进来的那张不能用不能打也不能弃", async () => {
+await checkAsync("深渊·污染：玩家对持有者用牌后随机锁一张手牌，换进来的那张不能用不能打也不能弃", async () => {
 	const info = abyssAffixes.affix.abyss_wuran;
 	const lock = abyssAffixes.abyssHelperSkills.abyss_wuran_lock;
-	const piles = { cardPile: [], discardPile: [] };
-	// 新版取牌不限类别，本体那边传的是 pattern=true（「随便一张」），桩要照本体的口径写
-	mockGet.cardPile = (pattern, position) => {
-		const pile = piles[position] ?? [];
-		if (!pile.length) {
-			return null;
-		}
-		return pattern === true ? pile[0] : pile.find(card => pattern(card)) ?? null;
-	};
 	const holder = makeAbyssPlayer({ playerid: "holder" });
 	const played = realCard("sha");
 	const spare = realCard("install");
 	const hand = [played, spare];
 	const victim = makeAbyssPlayer({ rogueSide: 0, hand });
-	const doomed = realCard("jiu");
-	piles.cardPile.push(doomed);
-	const used = makeEvent("useCard", { player: victim.player, card: played });
-	assert(info.filter(used, holder.player, "useCardAfter"), "玩家用牌且牌堆有牌时应触发");
+	// 「对你使用牌」：这张牌的目标里得有词缀持有者自己
+	const used = makeEvent("useCard", { player: victim.player, card: played, targets: [holder.player] });
+	assert(info.filter(used, holder.player, "useCardAfter"), "玩家用牌且手牌里有可锁的牌时应触发");
 	await info.content(abyssSkillEvent("useCardAfter", used), used, holder.player);
-	assertEqual(victim.rec.discard.length, 1, "弃掉一张手牌");
-	assertEqual(victim.rec.gain[0], doomed, "换进的是牌堆里现拿的那张");
-	assert(victim.player.abyssWuranLocked.includes(doomed), "换进来的牌被记成被污染的牌");
+	assertEqual(victim.rec.discard.length, 0, "污染只锁牌不弃牌");
+	// 刚使用的那张牌不算候选：手牌里可锁的只剩 spare，锁的必是它
+	assert(victim.player.abyssWuranLocked.includes(spare), "随机锁掉一张手牌");
+	assert(!victim.player.abyssWuranLocked.includes(played), "刚使用的那张牌不算候选");
+	assert(spare.hasGaintag("abyss_wuran"), "被污染的牌面上有污染标记");
 	assertEqual(victim.rec.addSkill[0], "abyss_wuran_lock", "封牌载体挂在玩家自己身上（checkMod 只读执行者）");
 
-	assertEqual(lock.mod.cardEnabled2(doomed, victim.player, null, "unchanged"), false, "被污染的牌不能用");
-	assertEqual(lock.mod.cardRespondable(doomed, victim.player, "unchanged"), false, "被污染的牌不能打出");
-	assertEqual(lock.mod.cardDiscardable(doomed, victim.player, "phaseDiscard", "unchanged"), false, "被污染的牌不能自己弃置");
-	assertEqual(lock.mod.cardEnabled2(spare, victim.player, null, "unchanged"), "unchanged", "别的牌照常能用");
-	assertEqual(lock.mod.cardDiscardable(spare, victim.player, "phaseDiscard", "unchanged"), "unchanged", "别的牌照常能弃");
+	assertEqual(lock.mod.cardEnabled2(spare, victim.player, null, "unchanged"), false, "被污染的牌不能用");
+	assertEqual(lock.mod.cardRespondable(spare, victim.player, "unchanged"), false, "被污染的牌不能打出");
+	assertEqual(lock.mod.cardDiscardable(spare, victim.player, "phaseDiscard", "unchanged"), false, "被污染的牌不能自己弃置");
+	assertEqual(lock.mod.cardEnabled2(played, victim.player, null, "unchanged"), "unchanged", "别的牌照常能用");
+	assertEqual(lock.mod.cardDiscardable(played, victim.player, "phaseDiscard", "unchanged"), "unchanged", "别的牌照常能弃");
 
-	piles.cardPile.length = 0;
-	assert(!info.filter(used, holder.player, "useCardAfter"), "两处都没有牌时不该空转");
-	piles.discardPile.push(realCard("tao"));
-	assert(info.filter(used, holder.player, "useCardAfter"), "牌堆空了还能从弃牌堆拿");
+	// 剩下的手牌全是刚用的牌或已被锁的牌：不再空转
+	assert(!info.filter(used, holder.player, "useCardAfter"), "没有可锁的手牌时不该空转");
 	const enemyUser = makeAbyssPlayer({ playerid: "enemy_user", rogueSide: 1 });
-	assert(!info.filter(makeEvent("useCard", { player: enemyUser.player }), holder.player, "useCardAfter"), "敌人用牌不受污染");
-	delete mockGet.cardPile;
-	return "换任意一张牌 / 使用·打出·弃置三处锁死 / 无牌可换不触发";
+	assert(!info.filter(makeEvent("useCard", { player: enemyUser.player, targets: [holder.player] }), holder.player, "useCardAfter"), "敌人用牌不受污染");
+	assert(!info.filter(makeEvent("useCard", { player: victim.player, card: played, targets: ["别人"] }), holder.player, "useCardAfter"), "目标不含持有者时不触发");
+	return "锁一张手牌（已用的牌除外）/ 使用·打出·弃置三处锁死 / 无牌可锁不触发";
 });
 
 await checkAsync("深渊·永恒：任意角色回合开始都补满体力，满血与阵亡不空转", async () => {
@@ -2967,7 +3120,8 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("hungry_box", "epic").length, 1, "史诗档只剩经验一行");
 	assertEqual(lines("hungry_box", "epic")[0], "经验获取 +20%", "史诗档经验 +20%");
 	assertEqual(lines("collector_showcase").join(" / "), "你可以锁定技能商店，锁定后下一场战斗不再刷新技能商店的候选", "橱窗稀有档只锁技能商店");
-	assertEqual(lines("collector_showcase", "epic").length, 2, "橱窗史诗档技能与奇物两条都有");
+	assertEqual(lines("collector_showcase", "epic").length, 1, "橱窗史诗档合成一条");
+	assertEqual(lines("collector_showcase", "epic")[0], "你可以锁定技能或奇物商店，锁定后下一场战斗不再刷新技能或奇物商店的候选", "橱窗史诗档两店都能锁");
 	return "十一件文案齐备 + 配套键不出行";
 });
 
@@ -3323,7 +3477,7 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	assert(off.ok && off.locked === false && off.run.skillShopLocked === false, "再切一下解锁");
 	assert(!curioManager.toggleShopLock(rare, "curio").ok, "稀有档切奇物锁被拒");
 	assert(!curioManager.isShopLocked({ ...rare, skillShopLocked: true, curios: [] }, "skill"), "没有对应能力的锁定字段一律不算锁着");
-	// 结算：技能锁 → 候选连价保留、sold 清零、免费刷新次数照常刷新
+	// 结算：技能锁 → 候选连价保留、买过的那张继续显示「已购买」、免费刷新次数照常刷新
 	const locked = {
 		...rare,
 		level: BASE_LEVEL,
@@ -3334,9 +3488,48 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	};
 	const kept = reward.settleVictory(locked, NOW, () => 0.999).run;
 	assertEqual(kept.shopOffers.map(offer => `${offer.id}:${offer.price}`).join(","), `${SKILL_B}:40,${SKILL_C}:50`, "锁着的技能商店不刷新（连价保留）");
-	assert(kept.shopOffers.every(offer => !offer.sold), "已购买标记清零：新的一局等于新的一次进店");
+	assertEqual(
+		kept.shopOffers.map(offer => `${offer.id}:${offer.sold ? "已购买" : "可售"}${offer.carried ? "+留货" : ""}`).join(","),
+		`${SKILL_B}:已购买+留货,${SKILL_C}:可售`,
+		"买过的那张留在货架上继续显示已购买，并打上留货标记"
+	);
+	assertEqual(shop.getPurchasedCount(kept), 0, "留货的已购买不算本局购买数（否则一张残卡就把整排货架连同刷新锁死）");
+	assert(shop.checkSkillPurchase(kept, SKILL_C).ok, "留下来的另一张在新的一关仍然买得动");
 	assertEqual(kept.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "免费的刷新次数照常刷新（规格原话：只是三个技能不刷新）");
 	assertEqual(reward.settleVictory({ ...locked, skillShopLocked: false }, NOW, () => 0.999).run.shopOffers.length, 0, "没锁就照旧清空（与原来逐字一致）");
+	// 用户定稿（2026-10-06）：买了 A 再锁 → 下一关 A 仍在货架上，和正常购买一样显示「已购买」、点不动，
+	// 另外两张连同刷新额度都是新的一局（旧写法把 sold 一律清零，才会出现「已拥有的技能显示成可购买」）
+	const boughtThenLocked = {
+		...rare,
+		level: BASE_LEVEL,
+		skills: [SKILL_A],
+		shopOffers: [
+			{ id: SKILL_A, price: 40, sold: true },
+			{ id: SKILL_B, price: 50, sold: false },
+			{ id: SKILL_C, price: 60, sold: false },
+		],
+		skillShopLocked: true,
+	};
+	const afterBuy = reward.settleVictory(boughtThenLocked, NOW, () => 0.999).run;
+	assertEqual(afterBuy.shopOffers.map(offer => `${offer.id}:${offer.price}`).join(","), `${SKILL_A}:40,${SKILL_B}:50,${SKILL_C}:60`, "三张候选一张不少、价格原样（下次刷新时那个技能仍保留）");
+	assertEqual(afterBuy.shopOffers.map(offer => (offer.sold ? "已购买" : "可售")).join(","), "已购买,可售,可售", "买过的 A 显示成与正常购买一样的已购买");
+	assert(!shop.checkSkillPurchase(afterBuy, SKILL_A).ok, "A 买不动（不会再进替换页被「已拥有该技能」挡回来）");
+	assert(shop.checkSkillPurchase(afterBuy, SKILL_B).ok, "留下的候选在新的一关确实买得动");
+	// 新的一关再买 B：额度用光 → C 被挡；再通关时 A、B 都算留货，第三关又是新的一次进店
+	const boughtAgain = shop.buySkill(afterBuy, SKILL_B, null, { isSkillAllowed: () => true }).run;
+	assertEqual(shop.getPurchasedCount(boughtAgain), 1, "本局买过 B → 购买额度用光");
+	assertEqual(shop.checkSkillPurchase(boughtAgain, SKILL_C).error, `本局最多只能购买 ${cfg.SKILL_PURCHASE_COUNT} 个技能`, "C 被本局额度挡住");
+	const secondKeep = reward.settleVictory(boughtAgain, NOW, () => 0.999).run;
+	assertEqual(
+		secondKeep.shopOffers.map(offer => `${offer.id}:${offer.sold ? "已购买" : "可售"}${offer.carried ? "+留货" : ""}`).join(","),
+		`${SKILL_A}:已购买+留货,${SKILL_B}:已购买+留货,${SKILL_C}:可售`,
+		"两关各自买掉的都留货、都不吃新的一局的额度"
+	);
+	assertEqual(shop.getPurchasedCount(secondKeep), 0, "第三关又是新的一次进店");
+	// 读档清洗必须原样带回留货标记，否则重进商店它又算成本局买的、整排货架被锁死
+	const reloadedKeep = state.normalizeRun(secondKeep, { isSkillAllowed: () => true });
+	assertEqual(reloadedKeep.shopOffers.map(offer => `${offer.id}:${offer.carried ? "留货" : "新"}`).join(","), `${SKILL_A}:留货,${SKILL_B}:留货,${SKILL_C}:新`, "normalizeRun 原样带回 carried");
+	assertEqual(shop.getPurchasedCount(reloadedKeep), 0, "重载后留货的仍然不算本局购买数");
 	// 结算：奇物锁 → 整批不掷不置空（rng 钉在 0.999，正常路径会把旧批次清空）
 	const curioLocked = {
 		...epic,
@@ -3363,7 +3556,7 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	assertEqual(noneCleaned.skillShopLocked, false, "没橱窗时技能锁清零");
 	assertEqual(noneCleaned.curioShopLocked, false, "没橱窗时奇物锁清零");
 	assertEqual(freshRun(cfg.RUN_MODE.endless).skillShopLocked, false, "旧档（缺字段）默认未锁定");
-	return "能力闸门 / 切换不变异 / 两类商店的结算保留 / 清洗按能力闸门";
+	return "能力闸门 / 切换不变异 / 两类商店的结算保留（买过的留货并显示已购买） / 清洗按能力闸门";
 });
 
 check("新增四事件：倍率按刚打赢那关的基准换算成固定值，消耗写进文案", () => {

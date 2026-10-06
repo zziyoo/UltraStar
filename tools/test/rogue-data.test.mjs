@@ -62,6 +62,7 @@ const packSkills = new Set(Object.keys(pack.skill.skill ?? {}));
 const cfg = await load("src/rogue/config.js");
 const groupsData = await load("src/rogue/data/enemyGroups.js");
 const stagesData = await load("src/rogue/data/challengeStages.js");
+const combosData = await load("src/rogue/data/challengeCombos.js");
 const skillsData = await load("src/rogue/data/skills.js");
 const statsData = await load("src/rogue/data/stats.js");
 const rewardsData = await load("src/rogue/data/rewards.js");
@@ -95,6 +96,15 @@ function assertEqual(actual, expected, msg) {
 	if (actual !== expected) {
 		throw new Error(`${msg ?? "断言失败"}：期望 ${JSON.stringify(expected)}，实际 ${JSON.stringify(actual)}`);
 	}
+}
+
+/** 固定的伪随机（与 rogue.test.mjs 的 makeRng 同一条公式），保证抽取断言可复现 */
+function makeRng2(seed) {
+	let value = seed;
+	return () => {
+		value = (value * 1103515245 + 12345) % 2147483648;
+		return value / 2147483648;
+	};
 }
 
 const OVERRIDE_KEYS = ["hp", "maxHp", "defense", "draw", "attack"];
@@ -301,6 +311,135 @@ check("闯关关卡配置池：角色 id 在当前游戏环境中存在（找不
 	return missing.length
 		? `扫描 ${scanned} 个文件，${characters.size - missing.length}/${characters.size} 个角色 id 已确认；未找到（抽取时自动跳过）：${missing.join("、")}`
 		: `扫描 ${scanned} 个文件，${characters.size} 个角色 id 全部已确认`;
+});
+
+check("闯关双人组合池：结构合法、id 唯一、恰好 31 个组合且均为两名成员", () => {
+	const pool = combosData.challengeComboPool;
+	assert(Array.isArray(pool), "challengeComboPool 应为数组");
+	assertEqual(pool.length, 31, "双人组合池应有 31 个组合");
+	const problems = [];
+	const seen = new Set();
+	for (const [index, config] of pool.entries()) {
+		const label = `#${index + 1}${config?.id ? `「${config.id}」` : ""}`;
+		if (!config || typeof config.id !== "string" || !config.id.trim()) {
+			problems.push(`${label}: 缺少 id（存档唯一标识，必须是稳定字符串）`);
+			continue;
+		}
+		if (seen.has(config.id)) {
+			problems.push(`${label}: id 重复`);
+		}
+		seen.add(config.id);
+		if (config.type !== "group") {
+			problems.push(`${config.id}: type 应为 group，实际 ${JSON.stringify(config.type)}`);
+		}
+		if (!Array.isArray(config.players) || config.players.length !== 2) {
+			problems.push(`${config.id}: 双人组合的 players 应恰好 2 名，实际 ${config.players?.length}`);
+			continue;
+		}
+		for (const [memberIndex, player] of config.players.entries()) {
+			const member = `${config.id} 第${memberIndex + 1}名成员`;
+			if (!player || typeof player.character !== "string" || !player.character.trim()) {
+				problems.push(`${member}: 缺少 character（真实角色 id，官方包是拼音式 id，不能照抄显示名）`);
+			}
+			for (const field of ["stats", "skills", "maxHp", "hp"]) {
+				if (player?.[field] !== undefined) {
+					problems.push(`${member}: 组合是固定关卡配置，不应指定 ${field}（属性/技能一律走常规生成）`);
+				}
+			}
+		}
+	}
+	assert(!problems.length, problems.join("；"));
+	for (const config of pool) {
+		assert(combosData.getChallengeComboConfig(config.id) === config, `${config.id}: getChallengeComboConfig 应能按 id 取回`);
+	}
+	assert(combosData.getChallengeComboConfig("不存在的组合") === null, "未知 id 应返回 null");
+	return `31 个组合、62 个成员位全部合法`;
+});
+
+check("闯关双人组合池：角色 id 在当前游戏环境中存在（找不到的只提醒不拦截）", () => {
+	const appRoot = path.resolve(root, "..", "..");
+	const characterRoot = path.join(appRoot, "character");
+	if (!fs.existsSync(characterRoot)) {
+		return "跳过（未找到游戏本体目录，无法核对角色 id）";
+	}
+	const characters = new Set();
+	for (const config of combosData.challengeComboPool) {
+		for (const player of config.players ?? []) {
+			if (player?.character) {
+				characters.add(player.character);
+			}
+		}
+	}
+	// 组合池文件本身含有这些 id 字面量，扫它等于自己证明自己，必须排除
+	const selfPath = path.join(root, "src", "rogue", "data", "challengeCombos.js");
+	const patterns = [...characters].map(id => ({
+		id,
+		regex: /^[A-Za-z0-9_]+$/.test(id) ? new RegExp(`\\b${id}\\b`) : new RegExp(`["']${id}["']`),
+	}));
+	let scanned = 0;
+	const hits = new Map([...characters].map(id => [id, false]));
+	const scan = dir => {
+		let entries;
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (entry.name === "node_modules" || entry.name === ".git") {
+					continue;
+				}
+				scan(full);
+			} else if (entry.isFile() && entry.name.endsWith(".js")) {
+				if (full === selfPath) {
+					continue;
+				}
+				scanned++;
+				let text;
+				try {
+					text = fs.readFileSync(full, "utf8");
+				} catch {
+					continue;
+				}
+				for (const { id, regex } of patterns) {
+					if (!hits.get(id) && regex.test(text)) {
+						hits.set(id, true);
+					}
+				}
+			}
+		}
+	};
+	scan(characterRoot);
+	scan(path.join(appRoot, "extension"));
+	const missing = patterns.filter(({ id }) => !hits.get(id)).map(({ id }) => id);
+	assert(scanned > 0, "没有扫描到任何 js 文件");
+	// 缺失不判失败：组合对应的角色可能来自尚未安装的包，抽取闸门会自动跳过该组合
+	return missing.length
+		? `扫描 ${scanned} 个文件，${characters.size - missing.length}/${characters.size} 个角色 id 已确认；未找到（组合抽取时自动跳过）：${missing.join("、")}`
+		: `扫描 ${scanned} 个文件，${characters.size} 个角色 id 全部已确认`;
+});
+
+check("闯关双人组合池抽取：31 选 10、互不重复、同一 rng 可复现、不足时明确返回不足", () => {
+	const poolIds = new Set(combosData.challengeComboPool.map(config => config.id));
+	const drawn = combosData.drawChallengeComboIds(makeRng2(42), () => true);
+	assertEqual(drawn.length, cfg.CHALLENGE_COMBO_LEVELS, "应恰好抽出 10 个组合（对应第 11~20 关）");
+	assertEqual(new Set(drawn).size, drawn.length, "10 个组合互不重复");
+	assert(drawn.every(id => poolIds.has(id)), "全部来自组合池，没有 undefined / 未知 id");
+	assertEqual(JSON.stringify(combosData.drawChallengeComboIds(makeRng2(42), () => true)), JSON.stringify(drawn), "同一 rng 序列结果一致（可复现）");
+	const orders = new Set();
+	for (let seed = 1; seed <= 20; seed++) {
+		orders.add(JSON.stringify(combosData.drawChallengeComboIds(makeRng2(seed), () => true)));
+	}
+	assert(orders.size > 1, "不同 rng 应产生不同的抽取顺序（不写死固定顺序）");
+	const filtered = combosData.drawChallengeComboIds(makeRng2(7), config => config.id !== drawn[0]);
+	assert(filtered.every(id => id !== drawn[0]), "被判定不可用的组合不参与抽取");
+	const tail = combosData.challengeComboPool.slice(0, 4).map(config => config.id);
+	const short = combosData.drawChallengeComboIds(makeRng2(7), config => tail.includes(config.id));
+	assertEqual(short.length, tail.length, "可用不足 10 个时按可用条数返回，绝不循环补齐");
+	assertEqual(combosData.drawChallengeComboIds(makeRng2(7), () => false).length, 0, "全部不可用时返回空数组交上层报错");
+	return `第 11~20 关顺序：${drawn.join(" → ")}`;
 });
 
 check("商店技能池：id 规范、定义与翻译齐备", () => {

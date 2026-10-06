@@ -1344,6 +1344,10 @@ export const skills = {
 					return silong && !silong.isDead();
 				},
 				async content(event, trigger, player) {
+					if (get.mode() === "aozhan_rogue") {
+						game.checkResult();
+						return;
+					}
 					const friendSide = player.side;
 					const enemiesAlive = game.players.filter(p => p.side !== friendSide && !p.isDead());
 					if (enemiesAlive.length === 0) {
@@ -2010,6 +2014,10 @@ export const skills = {
 						game.dead.splice(deadIndex, 1);
 					}
 					player.remove();
+					if (get.mode() === "aozhan_rogue") {
+						game.checkResult();
+						return;
+					}
 					const friendSide = player.side;
 					const friendliesAlive = game.players.filter(p => p.side === friendSide && !p.isDead());
 					const enemiesAlive = game.players.filter(p => p.side !== friendSide && !p.isDead());

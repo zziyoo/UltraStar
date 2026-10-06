@@ -208,11 +208,17 @@ export function showRunModeChoice(api) {
 	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.cancel());
 
 	const cards = ui.create.div(".wm-rogue-mode-cards", panel);
-	buildModeCard(cards, {
+	// 闯关历史最高（刚好打通最后一关那一刻的金币/经验）：没通过过一次就整行不画，不放「暂无」占位
+	const bestChallenge = api.bestChallenge;
+	const challengeCard = {
 		name: RUN_MODE_LABEL[RUN_MODE.challenge],
 		lines: [`固定总关卡数：${CHALLENGE_TOTAL_LEVELS} 关`, "失败：损失部分货币"],
 		onPick: () => api.pickMode(RUN_MODE.challenge),
-	});
+	};
+	if (bestChallenge) {
+		challengeCard.extra = `最高金币记录：${bestChallenge.gold} 最高经验记录：${bestChallenge.exp}`;
+	}
+	buildModeCard(cards, challengeCard);
 	// 无尽历史最高记录：独立存储、删档不清，所以这里始终能看到最好成绩
 	const best = api.best;
 	buildModeCard(cards, {

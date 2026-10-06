@@ -17,8 +17,9 @@ import { getBonus, isShopLocked, rollCurioOffers } from "./curioManager.js";
  * 无尽：关卡无上限地推进；胜利后先掷奇物商店（CURIO_SHOP_RATE，mode.js 里随后的
  * 事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中清空（不留旧批次）。
  * 两种玩法都会清掉 currentBattle 与上一次的商店候选；唯一例外是收藏家的橱窗锁住的那一类：
- * 技能商店锁着就保留三项候选（清掉「已购买」标记，购买额度与免费刷新次数照常刷新），
- * 奇物商店锁着就整批留货（不再掷 CURIO_SHOP_RATE、不置空）；锁着但货架本来就是空的一律照常走原流程。
+ * 技能商店锁着就保留这批候选（买过的那张继续挂在货架上显示「已购买」，只是打上 carried 不再吃
+ * 新的一局的购买额度，免费刷新次数照常刷新），奇物商店锁着就整批留货（不再掷 CURIO_SHOP_RATE、不置空）；
+ * 锁着但货架本来就是空的一律照常走原流程。
  * 免费刷新次数只在「真的通关并进入下一局」时恢复：失败还是同一关，次数必须保持原样，
  * 否则玩家可以靠反复失败白刷商店。
  */
@@ -38,11 +39,14 @@ export function settleVictory(run, now, rng = Math.random) {
 	const next = {
 		...run,
 		currency: { ...run.currency },
-		// 收藏家的橱窗锁着技能商店：这一批候选连价格一起留到下一关，只把「已购买」标记清掉——
-		// 新的一局等于新的一次进店，购买额度照常重置（规格：免费的刷新次数要刷新，只是三个技能不刷新）。
+		// 收藏家的橱窗锁着技能商店：这一批候选连价格一起留到下一关，**买过的那张也留在货架上，
+		// 照旧显示「已购买」**（用户定稿：下次刷新时那个技能仍要保留，和正常购买一样显示已购买）。
+		// 但留货不能连购买额度一起留：新的一局等于新的一次进店，所以本关买掉的那些打上 carried，
+		// 由 shop.js 的 getPurchasedCount 排除在「本局购买数」之外，别把整排货架锁死
+		// （规格原话：免费的刷新次数要刷新，只是三个技能不刷新）。
 		// 没锁 / 锁着但候选本来就是空的，一律照旧清空（下次进店现摇），与原来逐字一致
 		shopOffers: isShopLocked(run, "skill") && (run.shopOffers ?? []).length
-			? run.shopOffers.map(offer => ({ ...offer, sold: false }))
+			? run.shopOffers.map(offer => ({ ...offer, carried: offer.sold === true }))
 			: [],
 		// 循环按钮：每场战斗结束额外补一次刷新（只看开战前已持有的奇物，本局换到的不算）
 		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL + getBonus(run.curios, "extraShopRefresh", quality),

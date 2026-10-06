@@ -230,7 +230,7 @@ export const curios = {
 	broken_crown: {
 		id: "broken_crown",
 		name: "破碎王冠",
-		description: "裂了的王冠只剩一条规矩：倒下的人越多，戴它的人越壮。",
+		description: "倒下的人越多，戴它的人越壮。",
 		image: "extension/奥特之星/assets/curios/broken_crown.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -243,7 +243,7 @@ export const curios = {
 	gluttonous_box: {
 		id: "gluttonous_box",
 		name: "贪食魔盒",
-		description: "它不挑食，喂进去的旧技能越多，吐回来的心得越多。",
+		description: "它不挑食，喂进去的越多，吐回来的越多。",
 		image: "extension/奥特之星/assets/curios/gluttonous_box.png",
 		rarity: "epic",
 		priceMultiplier: 1,
@@ -252,7 +252,7 @@ export const curios = {
 	hungry_box: {
 		id: "hungry_box",
 		name: "饥饿之匣",
-		description: "它簌簌地啃钱，啃完吐给你一点心得。",
+		description: "它簌簌地啃钱。",
 		image: "extension/奥特之星/assets/curios/hungry_box.png",
 		rarity: "negative",
 		priceMultiplier: 1,
@@ -266,7 +266,7 @@ export const curios = {
 	collector_showcase: {
 		id: "collector_showcase",
 		name: "收藏家的橱窗",
-		description: "上了锁的橱窗，货还是那批货，只是没人能趁你不在时换走。",
+		description: "上了锁的橱窗，没人能趁你不在时换走那批货。",
 		image: "extension/奥特之星/assets/curios/collector_showcase.png",
 		rarity: "rare",
 		priceMultiplier: 1,

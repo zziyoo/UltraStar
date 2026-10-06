@@ -537,6 +537,8 @@ export function refreshShop(run) {
 /**
  * 本局购买额度是否已用光：次数上限由 SKILL_PURCHASE_COUNT 真正驱动（与 buySkill 同一套记数），
  * 用光后其余候选一律显示「本次商店已售罄」。改常量即可改上限，不用再动这里。
+ * 橱窗留货过来的那张「已购买」不算在本局额度里（记数在 shop.getPurchasedCount），
+ * 否则留一张就把整排货架连同刷新按钮一起锁死。
  */
 function isSoldOut(run) {
 	return getPurchasedCount(run) >= SKILL_PURCHASE_COUNT;

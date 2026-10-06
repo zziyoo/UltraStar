@@ -315,27 +315,25 @@ export const skills = {
 						.set("ai", () => {
 							const player = get.player();
 							const choices = get.event().choices;
-							const stat = player.getStat("skill");
+							// 与 ai.result.player 同一判断口径：有合法目标且使用收益为正的牌才算“值得使用”
+							const hasValuableDamage = player.hasCard(card => get.tag(card, "damage") && player.getUseValue(card, null, true) > 0, "h");
 							if (player.hasSkill("djfuhe")) {
-								const usedFuh = stat.djfuhe ?? 0;
-								if (usedFuh < 2 && player.hasCards("h")) {
-									return choices.randomGet();
-								}
-								const hasDamage = player.hasCard(card => get.tag(card, "damage"), "h");
-								if (hasDamage) return "强力";
+								if (hasValuableDamage) return "强力";
 								return "空中";
 							}
 							if (player.hasSkill("djqiangli")) {
-								const hasDamage = player.hasCard(card => get.tag(card, "damage"), "h");
-								if (hasDamage) return choices.randomGet();
-								return "复合";
+								// 强力已无值得继续使用的伤害牌：优先切回复合（回合外可转无懈），不可选时退而选空中
+								if (choices.includes("复合")) return "复合";
+								if (choices.includes("空中")) return "空中";
+								return choices[0];
 							}
 							if (player.hasSkill("djkongzhong")) {
-								const hasSha = player.hasCard(card => card.name === "sha", "h");
-								if (hasSha) return choices.randomGet();
-								return "复合";
+								// 空中已无值得继续使用的【杀】：手里仍有值得使用的伤害牌则转强力，否则切回复合
+								if (hasValuableDamage) return "强力";
+								if (choices.includes("复合")) return "复合";
+								return choices[0];
 							}
-							return choices.randomGet();
+							return choices[0];
 						})
 						.forResult();
 					if (result.control) {
@@ -371,22 +369,24 @@ export const skills = {
 							const usedSwitch = stat.djsj_switch ?? 0;
 							if (usedSwitch >= 3) return 0;
 							if (player.hasSkill("djfuhe")) {
+								// 复合仍有剩余次数且有手牌：先发挥复合价值，不急于切换
 								const usedFuh = stat.djfuhe ?? 0;
-								if (usedFuh >= 2 || !player.hasCards("h")) return 10;
-								return 0;
-							}
-							if (usedSwitch === 0) {
-								return 10;
+								if (usedFuh < 2 && player.hasCards("h")) return 0;
+								// 复合次数已用尽：仅当仍有值得执行的攻击时切换；
+								// 否则保留复合——次数每回合刷新，且保留回合外转无懈的价值
+								const hasAttack = player.hasCard(card => get.tag(card, "damage") && player.getUseValue(card, null, true) > 0, "h");
+								return hasAttack ? 10 : 0;
 							}
 							if (player.hasSkill("djqiangli")) {
-								const hasDamage = player.hasCard(card => get.tag(card, "damage"), "h");
-								if (!hasDamage) return 10;
-								return 0;
+								// 强力：只有存在合法目标且收益为正的伤害牌才保持；
+								// 残留无目标、无法使用或无收益的伤害牌不得阻止切换
+								const hasDamage = player.hasCard(card => get.tag(card, "damage") && player.getUseValue(card, null, true) > 0, "h");
+								return hasDamage ? 0 : 10;
 							}
 							if (player.hasSkill("djkongzhong")) {
-								const hasSha = player.hasCard(card => card.name === "sha", "h");
-								if (!hasSha) return 10;
-								return 0;
+								// 空中：只有值得继续使用的【杀】才保持，否则切回复合
+								const hasSha = player.hasCard(card => card.name === "sha" && player.getUseValue(card, null, true) > 0, "h");
+								return hasSha ? 0 : 10;
 							}
 							return 0;
 						},

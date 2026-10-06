@@ -5,8 +5,14 @@
 // （createStageEnemyConfigs，single/group 统一按 players 解析）。随机只发生在抽取那一刻，
 // 之后读档/重进/失败重战都沿用存档里已定死的结果，绝不重掷。
 //
+// 闯关第 11~30 关：敌人来自 data/challengeCombos.js 双人组合池——首次进入 11~30 关时一次性
+// 不重复抽出 10 个组合存进 run.challengeComboStages（ensureChallengeComboStages，存档 v10）。
+// 第 11~20 关按 challengeComboStages[level-11] 生成双人阵容；第 21~30 关不重新抽，复用同一
+// 结果：第 N 关 = challengeComboStages[N-21] 的双人组合 + 扩展角色池随机第三人
+// （createChallengeComboConfigs，第三人位置随机但保持组合的左右顺序，随 currentBattle.enemies
+// 一起落盘，恢复战斗绝不重掷）。
+//
 // 其余关卡两张池，绝不混用：
-//   闯关（第 11 关起）= 只从本扩展（奥特之星）实际注册的角色里随机；
 //   无尽 = 本体全部未禁用角色（运行时从 lib.character 全集扣除本扩展角色得到，不复制静态名单）。
 //
 // 敌人的 Roguelike 属性与玩家同一套定义（data/stats.js）：这里只负责把「总点数」随机分配成
@@ -16,8 +22,9 @@ import { lib } from "../../../../noname.js";
 
 import { packages } from "../core/loader.js";
 import { appendAbyssAffixes, isAbyssStage, rollAbyssAffixes } from "./endless/abyss.js";
-import { CHALLENGE_STAGE_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
+import { CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
 import { drawChallengeStageIds } from "./data/challengeStages.js";
+import { drawChallengeComboIds } from "./data/challengeCombos.js";
 import { getBannedCharacterIds } from "./skillPool.js";
 
 /** 单项属性上限，与 data/stats.js 各属性的 maxLevel 一致 */
@@ -270,6 +277,89 @@ export function ensureChallengeStages(run, rng = Math.random, isAvailable = isSt
 		run: { ...run, challengeStages: drawn },
 		generated: true,
 		status: CHALLENGE_STAGE_STATE.generated,
+	};
+}
+
+// ---------------------------------------------------------------- 闯关第 11~30 关：双人组合池
+
+/**
+ * 建局时一次性抽出闯关第 11~20 关的双人组合并写进 run.challengeComboStages（存档 v10 字段）。
+ *
+ * 只在「闯关模式 + 当前关卡在 11~30 关内」时考虑生成（21~30 关复用同一份抽取结果，
+ * 所以进入 21 关前它必然已存在）。两种需要生成的情况：
+ *   1. 新局一路打到第 11 关（challengeComboStages 还是空的）；
+ *   2. 只有 1~9 项——**这是残缺存档**（与 challengeStages 同一条纪律），明确判为损坏
+ *      并重新抽一次，绝不因为它「非空」就当作已经抽好（那样第 20 关会永远开不了战）。
+ * 抽满之后读档、重进、失败重战都原样沿用，本函数与随机流程都不再碰它。
+ *
+ * 可用组合不足 10 个时**不写回**任何东西：返回 insufficient 与可用条数，交给上层提示玩家补配置。
+ * isAvailable 可注入（Node 测试用），默认 isStageConfigDrawable（与关卡配置同一条闸门：
+ * 只看成员角色是否存在，禁将不拦——battle.js 的 resolveBattle 对固定配置这一路以 allowBanned 放行）。
+ * @returns {{ run: object, generated: boolean, status: string, available?: number }}
+ */
+export function ensureChallengeComboStages(run, rng = Math.random, isAvailable = isStageConfigDrawable) {
+	if (!run || run.mode !== RUN_MODE.challenge) {
+		return { run, generated: false, status: CHALLENGE_STAGE_STATE.skipped };
+	}
+	const level = Math.floor(Number(run.level) || 0);
+	if (!(level > CHALLENGE_STAGE_LEVELS && level <= CHALLENGE_TOTAL_LEVELS)) {
+		return { run, generated: false, status: CHALLENGE_STAGE_STATE.skipped };
+	}
+	const current = Array.isArray(run.challengeComboStages) ? run.challengeComboStages : [];
+	if (current.length >= CHALLENGE_COMBO_LEVELS) {
+		return { run, generated: false, status: CHALLENGE_STAGE_STATE.ready };
+	}
+	// 走到这里：0 项（打到第 11 关的旧档/新局）或 1~9 项（残缺）——一律重抽，绝不循环补齐
+	const drawn = drawChallengeComboIds(rng, isAvailable);
+	if (drawn.length < CHALLENGE_COMBO_LEVELS) {
+		return {
+			run,
+			generated: false,
+			status: CHALLENGE_STAGE_STATE.insufficient,
+			available: drawn.length,
+		};
+	}
+	return {
+		run: { ...run, challengeComboStages: drawn },
+		generated: true,
+		status: CHALLENGE_STAGE_STATE.generated,
+	};
+}
+
+/**
+ * 第 21~30 关的敌方阵容：对应双人组合 + 扩展角色池随机第三人。
+ *
+ * 第三人的规则（缺一不可）：
+ *   · 来自本扩展的角色池（getChallengeEnemyPool，已含存在性与 isEnemyUsable 判定），
+ *     options.pool 可注入（Node 测试用），传数组用数组、传函数用返回值；
+ *   · 不得与组合的两名固定角色重复（就算组合自己撞名也一样）；
+ *   · 位置在 [第三人,左,右] / [左,第三人,右] / [左,右,第三人] 里随机，但左右相对顺序永远不变；
+ *   · 找不到合法第三人时明确返回失败，由上层阻止本关开始——绝不偷偷复制固定角色凑数。
+ * 生成后由调用方随 currentBattle.enemies 一起落盘：中途刷新/崩溃恢复沿用原第三人，绝不重掷。
+ * 属性分配走 createStageEnemyConfigs 的原路径：3 人默认 shared 预算，队伍总点数与单人关卡持平。
+ * @returns {{ ok: true, enemies: object[], third: string, position: number }
+ *           | { ok: false, error: string }}
+ */
+export function createChallengeComboConfigs(config, level, rng = Math.random, options = {}) {
+	const players = Array.isArray(config?.players) ? config.players : [];
+	const fixed = players
+		.map(player => (typeof player?.character === "string" ? player.character.trim() : ""))
+		.filter(id => id);
+	const source = typeof options.pool === "function" ? options.pool() : options.pool;
+	const candidates = (Array.isArray(source) ? source : getChallengeEnemyPool()).filter(id => !fixed.includes(id));
+	if (!candidates.length) {
+		return { ok: false, error: "扩展角色池里没有能当第三人的可用角色（都被禁用或与固定角色重复）" };
+	}
+	const third = candidates[Math.floor(rng() * candidates.length) % candidates.length];
+	// 三个空位随机：0 = 最前、1 = 中间、2 = 最后；splice 不移动已有的相对顺序
+	const position = Math.floor(rng() * 3) % 3;
+	const ordered = players.slice();
+	ordered.splice(Math.min(position, ordered.length), 0, { character: third });
+	return {
+		ok: true,
+		third,
+		position,
+		enemies: createStageEnemyConfigs({ ...config, players: ordered }, level, rng, options),
 	};
 }
 

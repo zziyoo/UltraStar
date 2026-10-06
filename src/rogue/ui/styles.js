@@ -497,6 +497,10 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-shop-card,
 #wm-rogue-overlay .wm-rogue-stat-card,
 #wm-rogue-overlay .wm-rogue-hub,
+/* 属性/奇物/敌人强化面板必须钉回 flex 列：它靠「面板限高 + 正文条压缩后自己滚」来兜住长列表，
+   而上面的 .wm-rogue-panel{display:block !important}（同权重、在前）会把 flex 压成 block——
+   正文条于是拿不到可压缩的高度，内容直接画到框外面去（真机实录：奇物多了，最后一条漏在框下） */
+#wm-rogue-overlay .wm-rogue-stat-panel,
 #wm-rogue-overlay .wm-rogue-skills,
 #wm-rogue-overlay .wm-rogue-curios,
 #wm-rogue-overlay .wm-rogue-replace,

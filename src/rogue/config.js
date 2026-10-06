@@ -32,6 +32,12 @@ export const BATTLE_BGM_LIST = [
 export const STORAGE_KEY = "rogueSlots";
 /** 无尽模式历史最高记录：独立于六个存档槽，无尽失败删档也不清它 */
 export const BEST_ENDLESS_KEY = "rogueBestEndless";
+/**
+ * 闯关模式历史最高记录：与无尽同一套「独立存储键、删档不清」。
+ * 记的是**刚好打通最后一关那一刻**手上的金币与经验，两项各取各的历史最大；
+ * 通关后重复挑战不再记第二次（判据见 flow/result.js）。
+ */
+export const BEST_CHALLENGE_KEY = "rogueBestChallenge";
 /** 图鉴：六个存档槽共用的公有数据，删档与新建都不清；run.collection 仍各自照写，落盘时并进来 */
 export const COLLECTION_KEY = "rogueCollection";
 /**
@@ -46,9 +52,15 @@ export const COLLECTION_KEY = "rogueCollection";
  * 的配置池抽出并落盘，读档/重进/失败重战都原样沿用；旧档缺字段按空数组补齐，首次开战时补抽一次，之后绝不重掷）。
  * v9 新增 skillShopLocked / curioShopLocked（技能商店与奇物商店的锁定开关，来源是「收藏家的橱窗」奇物；
  * 旧档按未锁定补齐，且只有当前确实持有对应锁定能力时才保留——稀有只锁技能、史诗两个都能锁）。
+ * 同一版本内 shopOffers 的每一项可多一个 carried（橱窗留到下一关的那张「已购买」残卡：继续占货架、
+ * 但不再吃新的一局的购买额度）；缺这一项一律按没留货处理，不需要抬版本号。
+ * v10 新增 challengeComboStages（闯关模式第 11~30 关的双人组合抽取结果：首次进入 11~30 关时
+ * 一次性从 data/challengeCombos.js 的组合池抽出 10 个并落盘，第 11~20 关按位使用，
+ * 第 21~30 关复用同一结果再加扩展池随机第三人；旧档缺字段按空数组补齐，首次需要时补抽一次，
+ * 之后绝不重掷）。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 9;
+export const RUN_VERSION = 10;
 export const SLOT_COUNT = 6;
 
 /**
@@ -70,9 +82,16 @@ export const CHALLENGE_TOTAL_LEVELS = 30;
 /**
  * 闯关模式走「关卡配置池」的关数（前 10 关）：这些关的敌人不再按扩展角色池随机，
  * 而是用建局时从 data/challengeStages.js 配置池里不重复抽出的配置生成（run.challengeStages）。
- * 第 11 关起恢复原有的按池随机（enemy.js），无尽模式不使用这张表。
+ * 第 11 关起改走「双人组合池」（见 CHALLENGE_COMBO_LEVELS），无尽模式不使用这两张表。
  */
 export const CHALLENGE_STAGE_LEVELS = 10;
+/**
+ * 闯关模式走「双人组合池」的关数（第 11~20 关）：首次进入 11~30 关时一次性从
+ * data/challengeCombos.js 的组合池不重复抽出 10 个组合存进 run.challengeComboStages，
+ * 第 N 关（11~20）用 challengeComboStages[N-11]；第 21~30 关不重新抽，
+ * 复用同一结果——第 N 关（21~30）= challengeComboStages[N-21] 的双人组合 + 扩展池随机第三人。
+ */
+export const CHALLENGE_COMBO_LEVELS = 10;
 
 /** 战斗状态机：主界面 ↔ 战斗中 */
 export const BATTLE_STATUS = {

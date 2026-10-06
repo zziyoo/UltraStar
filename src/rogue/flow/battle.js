@@ -4,9 +4,17 @@
 
 import { game } from "../../../../../noname.js";
 
-import { BATTLE_STATUS, CHALLENGE_STAGE_LEVELS, RUN_MODE } from "../config.js";
-import { CHALLENGE_STAGE_STATE, createEnemyConfigs, createStageEnemyConfigs, ensureChallengeStages } from "../enemy.js";
+import { BATTLE_STATUS, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE } from "../config.js";
+import {
+	CHALLENGE_STAGE_STATE,
+	createChallengeComboConfigs,
+	createEnemyConfigs,
+	createStageEnemyConfigs,
+	ensureChallengeComboStages,
+	ensureChallengeStages,
+} from "../enemy.js";
 import { getChallengeStageConfig } from "../data/challengeStages.js";
+import { getChallengeComboConfig } from "../data/challengeCombos.js";
 import { beginBattle, resolveBattle } from "../battle.js";
 import { commit, context } from "../runtime.js";
 import { playBattleBgm, stopBattleBgm, stopLobbyBgm } from "../bgm.js";
@@ -25,7 +33,7 @@ export function createBattleFlow(host) {
 		// 闯关前 10 关：敌人由建局时一次性抽定的关卡配置生成（challengeStages[level-1]）。
 		// 旧档（v8 之前）没有抽取结果、或结果不完整（1~9 项）时在这里重抽一次并立刻落盘，
 		// 之后读档/重进/失败重战都沿用，绝不因重新进入关卡而重新随机；
-		// 第 11 关起与无尽模式走原有的按池随机，互不影响。
+		// 无尽模式此调用原样返回，不生成任何东西。
 		const ensured = ensureChallengeStages(run, Math.random);
 		run = ensured.run;
 		if (ensured.status === CHALLENGE_STAGE_STATE.insufficient) {
@@ -42,12 +50,41 @@ export function createBattleFlow(host) {
 				return;
 			}
 		}
-		const stageConfig = run.mode === RUN_MODE.challenge && run.level <= CHALLENGE_STAGE_LEVELS
-			? getChallengeStageConfig(run.challengeStages[run.level - 1])
+		// 闯关 11~30 关：双人组合（challengeComboStages，存档 v10）。首次进入这个区间时一次性
+		// 抽出 10 个组合并立刻落盘；第 11~20 关按位使用，第 21~30 关复用同一结果加随机第三人。
+		// 旧档已进入 11~30 关但缺字段的，在这里补抽一次，之后绝不重掷。
+		const ensuredCombos = ensureChallengeComboStages(run, Math.random);
+		run = ensuredCombos.run;
+		if (ensuredCombos.status === CHALLENGE_STAGE_STATE.insufficient) {
+			showNotice([
+				`闯关第 ${CHALLENGE_STAGE_LEVELS + 1}~${CHALLENGE_STAGE_LEVELS + CHALLENGE_COMBO_LEVELS} 关的敌方组合不足：当前只有 ${ensuredCombos.available} 条可用组合，需要 ${CHALLENGE_COMBO_LEVELS} 条。`,
+				"请在 data/challengeCombos.js 里补齐组合（或确认组合里的角色 id 都还存在）后再开始本关。",
+			]);
+			return;
+		}
+		if (ensuredCombos.generated) {
+			context.run = run;
+			if (!commit()) {
+				return;
+			}
+		}
+		const level = Math.floor(Number(run.level) || 0);
+		// 前两种是固定关卡配置（前 10 关 single 配置 / 11~30 关双人组合），只有都不是时才走普通随机
+		const stageConfig = run.mode === RUN_MODE.challenge && level <= CHALLENGE_STAGE_LEVELS
+			? getChallengeStageConfig(run.challengeStages[level - 1])
 			: null;
-		if (run.mode === RUN_MODE.challenge && run.level <= CHALLENGE_STAGE_LEVELS && !stageConfig) {
+		if (run.mode === RUN_MODE.challenge && level <= CHALLENGE_STAGE_LEVELS && !stageConfig) {
 			// 抽取结果里出现了配置池中不存在的 id（配置被改/删过）：明确报错，绝不悄悄换人
-			showNotice([`第 ${run.level} 关的敌方配置「${run.challengeStages[run.level - 1] ?? "缺失"}」在配置池里已不存在，无法开始本关。请核对 data/challengeStages.js 后再试。`]);
+			showNotice([`第 ${level} 关的敌方配置「${run.challengeStages[level - 1] ?? "缺失"}」在配置池里已不存在，无法开始本关。请核对 data/challengeStages.js 后再试。`]);
+			return;
+		}
+		// 第 N 关（11~30）对应 challengeComboStages 的第 (N-11) % 10 项：11~20 顺次用完 10 个，
+		// 21~30 再从第 0 项开始复用（第 21 关 = 第 11 关的组合 + 第三人，以此类推）
+		const comboConfig = run.mode === RUN_MODE.challenge && level > CHALLENGE_STAGE_LEVELS && level <= CHALLENGE_TOTAL_LEVELS
+			? getChallengeComboConfig(run.challengeComboStages[(level - 1 - CHALLENGE_STAGE_LEVELS) % CHALLENGE_COMBO_LEVELS])
+			: null;
+		if (run.mode === RUN_MODE.challenge && level > CHALLENGE_STAGE_LEVELS && level <= CHALLENGE_TOTAL_LEVELS && !comboConfig) {
+			showNotice([`第 ${level} 关的敌方组合「${run.challengeComboStages[(level - 1 - CHALLENGE_STAGE_LEVELS) % CHALLENGE_COMBO_LEVELS] ?? "缺失"}」在组合池里已不存在，无法开始本关。请核对 data/challengeCombos.js 后再试。`]);
 			return;
 		}
 		// 先把本关敌方阵容（随机角色 + 随机属性分配）定死并写进存档，再开局：
@@ -55,19 +92,38 @@ export function createBattleFlow(host) {
 		// 经验泉「再饮一口」欠的债在这里兑现：每名敌人追加同样数量的词缀，然后立刻清零
 		// （追加走的是与常规随机同一条不放回规则，所以多出来的永远是新的强化）
 		const debt = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
-		const enemies = stageConfig
-			? createStageEnemyConfigs(stageConfig, run.level, Math.random, { extraAffixes: debt })
-			: createEnemyConfigs(run.level, run.mode, Math.random, { extraAffixes: debt });
+		let enemies;
+		if (stageConfig) {
+			enemies = createStageEnemyConfigs(stageConfig, level, Math.random, { extraAffixes: debt });
+		} else if (comboConfig) {
+			if (level > CHALLENGE_STAGE_LEVELS + CHALLENGE_COMBO_LEVELS) {
+				// 21~30 关：双人组合 + 扩展池随机第三人（第三人随 currentBattle.enemies 一起落盘）
+				const built = createChallengeComboConfigs(comboConfig, level, Math.random, { extraAffixes: debt });
+				if (!built.ok) {
+					// 没有合法第三人：明确阻止本关开始，而不是偷偷复制固定角色凑数
+					showNotice([`第 ${level} 关无法生成第三人：${built.error}`]);
+					return;
+				}
+				enemies = built.enemies;
+			} else {
+				enemies = createStageEnemyConfigs(comboConfig, level, Math.random, { extraAffixes: debt });
+			}
+		} else {
+			enemies = createEnemyConfigs(level, run.mode, Math.random, { extraAffixes: debt });
+		}
 		if (!enemies.length) {
 			showNotice([stageConfig
 				? `关卡配置「${stageConfig.id}」没有可用的成员角色，请检查 data/challengeStages.js。`
-				: run.mode === RUN_MODE.endless
-					? "本体角色池为空：请检查游戏角色数据与禁将配置。"
-					: "扩展角色池为空：请检查扩展角色包是否正常注册。"]);
+				: comboConfig
+					? `敌方组合「${comboConfig.id}」没有可用的成员角色，请检查 data/challengeCombos.js。`
+					: run.mode === RUN_MODE.endless
+						? "本体角色池为空：请检查游戏角色数据与禁将配置。"
+						: "扩展角色池为空：请检查扩展角色包是否正常注册。"]);
 			return;
 		}
-		// 闯关前 10 关按定稿放行禁将角色（只要角色存在就照打）；其余战斗维持 isEnemyUsable 口径
-		const resolved = resolveBattle(run, enemies, stageConfig ? { allowBanned: true } : undefined);
+		// 固定关卡配置（前 10 关与 11~30 关组合）按定稿放行禁将角色（只要角色存在就照打）；
+		// 其余战斗维持 isEnemyUsable 口径
+		const resolved = resolveBattle(run, enemies, stageConfig || comboConfig ? { allowBanned: true } : undefined);
 		if (!resolved.ok) {
 			showNotice([resolved.error]);
 			return;
@@ -85,10 +141,11 @@ export function createBattleFlow(host) {
 
 	function startFromSavedBattle(enemies) {
 		// 恢复战斗沿用存档里已保存的敌方阵容：闭包直取 currentBattle.enemies，绝不重掷。
-		// 闯关前 10 关的战斗与开战同一条口径（禁将也照打）；其余战斗维持 isEnemyUsable 判定
+		// 闯关全程（前 10 关卡配置 + 11~30 关固定组合）都与开战同一条口径（禁将也照打）；
+		// 其余战斗维持 isEnemyUsable 判定
 		const run = context.run;
-		const stageLevel = run.mode === RUN_MODE.challenge && run.level <= CHALLENGE_STAGE_LEVELS;
-		const resolved = resolveBattle(run, enemies, { allowBanned: stageLevel });
+		const fixedLevel = run.mode === RUN_MODE.challenge && run.level <= CHALLENGE_TOTAL_LEVELS;
+		const resolved = resolveBattle(run, enemies, { allowBanned: fixedLevel });
 		if (!resolved.ok) {
 			context.run = { ...context.run, currentBattle: null };
 			commit();

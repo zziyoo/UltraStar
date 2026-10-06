@@ -159,6 +159,8 @@ function draftApi(index) {
 	return {
 		/** 无尽历史最高记录（独立存储，删档不清） */
 		best: context.best,
+		/** 闯关历史最高金币/经验（独立存储，删档不清；没通过过就是 null，界面不显示） */
+		bestChallenge: context.bestChallenge,
 			pickMode(mode) {
 				showCharacterChoice({
 					pickCharacter(characterId) {

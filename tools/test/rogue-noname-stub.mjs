@@ -4,6 +4,7 @@
 // createEvent + loop / element.player.dieAfter / Dialog + listen() / ui.create.div 参数解析。
 
 import { challengeStagePool } from "../../src/rogue/data/challengeStages.js";
+import { challengeComboPool } from "../../src/rogue/data/challengeCombos.js";
 
 export const __log = [];
 const log = entry => __log.push(entry);
@@ -13,7 +14,11 @@ const log = entry => __log.push(entry);
 const stagePoolCharacters = [...new Set(challengeStagePool.flatMap(config =>
 	(config.players ?? []).map(player => player?.character).filter(id => typeof id === "string" && id)
 ))];
-const FIXED_CHARACTER_IDS = ["迪迦", "佐菲", "赛文", "巴尔坦星人", "死龙", ...stagePoolCharacters];
+/** 闯关双人组合池引用的角色 id：同样补齐，否则 11~30 关的组合抽取全部被判不可用 */
+const comboPoolCharacters = [...new Set(challengeComboPool.flatMap(config =>
+	(config.players ?? []).map(player => player?.character).filter(id => typeof id === "string" && id)
+))];
+const FIXED_CHARACTER_IDS = ["迪迦", "佐菲", "赛文", "巴尔坦星人", "死龙", ...stagePoolCharacters, ...comboPoolCharacters];
 
 export function resetState() {
 	__log.length = 0;
@@ -61,6 +66,9 @@ export function resetState() {
 	lib.character["巴尔坦星人"] ??= { hp: 4, maxHp: 4, skills: [] };
 	lib.character["死龙"] ??= { hp: 34, maxHp: 34, skills: [], isHiddenBoss: true };
 	for (const id of stagePoolCharacters) {
+		lib.character[id] ??= { hp: 4, maxHp: 4, skills: [] };
+	}
+	for (const id of comboPoolCharacters) {
 		lib.character[id] ??= { hp: 4, maxHp: 4, skills: [] };
 	}
 	for (const id of FIXED_CHARACTER_IDS) {

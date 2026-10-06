@@ -120,9 +120,10 @@ export function rollSkillOffers(run, rng = Math.random, characterSkills = [], ca
 		return ALLOW_DUPLICATE_SKILLS && owned.has(entry.id);
 	});
 	// 售价在生成候选时随机定死并写进存档：重载、重进商店、刷新 UI 都不再重掷。
-	// 基准价按模式取（闯关固定 50，无尽 floor(50×√当前关)），只带 ±25% 浮动
+	// 基准价按模式取（闯关固定 50，无尽 floor(50×√当前关)），只带 ±25% 浮动。
+	// carried 与读档清洗后的候选同形（新摇出来的当然不是橱窗留货），免得存档里两种形状的候选混在一起
 	const picked = shuffle(pickedFrom, rng).slice(0, Math.max(0, SKILL_OFFER_COUNT));
-	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(run, rng), sold: false }));
+	return picked.map(entry => ({ id: entry.id, price: getRandomSkillPrice(run, rng), sold: false, carried: false }));
 }
 
 /** 剩余免费刷新次数：缺字段（旧档没这一项）按每局满额算，已经刷成 0 的原样返回 */
@@ -170,11 +171,15 @@ export function refreshSkillOffers(run, rng = Math.random, characterSkills = [],
 	};
 }
 
-/** 本局商店已经买了几个技能（按候选上的 sold 记数，旧档缺 sold 字段按没买算） */
+/**
+ * 本局商店（= 本次进店）已经买了几个技能：按候选上的 sold 记数，旧档缺 sold 字段按没买算。
+ * 收藏家的橱窗锁着技能商店时，上一关留下的那张带 carried 标记——它继续显示「已购买」，
+ * 但不再吃新的一局的额度（否则留一张就把整排货架连同刷新一起锁死了）。
+ */
 export function getPurchasedCount(run) {
 	let count = 0;
 	for (const offer of Array.isArray(run?.shopOffers) ? run.shopOffers : []) {
-		if (offer?.sold) {
+		if (offer?.sold && !offer?.carried) {
 			count++;
 		}
 	}
@@ -200,7 +205,8 @@ export function checkSkillPurchase(run, offerId, options = {}) {
 		return { ok: false, error: "该技能不在本次商店候选中" };
 	}
 	if (offer.sold) {
-		return { ok: false, error: "本次商店已购买过技能" };
+		// 橱窗留着的那批里买过的那张：说清楚是「早先那一关已经买掉了」，不是本次商店的额度问题
+		return { ok: false, error: offer.carried ? "橱窗留着的那件已经买过了" : "本次商店已购买过技能" };
 	}
 	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
 		return { ok: false, error: `本局最多只能购买 ${SKILL_PURCHASE_COUNT} 个技能` };

@@ -1,11 +1,11 @@
-// 肉鸽运行状态控制：会话内存态（六个存档槽 / 当前 run / 图鉴 / 无尽历史最高）与落盘。
+// 肉鸽运行状态控制：会话内存态（六个存档槽 / 当前 run / 图鉴 / 无尽与闯关的历史最高）与落盘。
 // 从 mode.js 拆出来的唯一目的就是让 mode.js 不再往里堆业务——这里不碰页面、不碰战斗。
 // 所有会改存档的动作都遵守同一条纪律：先改内存里的 context.run，再走 commit() 落盘。
 
 import { lib, game } from "../../../../noname.js";
 
-import { BEST_ENDLESS_KEY, COLLECTION_KEY, SLOT_COUNT, STORAGE_KEY } from "./config.js";
-import { mergeCollections, migrateSlots, normalizeBest, normalizeCollection, setSlot, toSerializable } from "./state.js";
+import { BEST_CHALLENGE_KEY, BEST_ENDLESS_KEY, COLLECTION_KEY, SLOT_COUNT, STORAGE_KEY } from "./config.js";
+import { mergeCollections, migrateSlots, normalizeBest, normalizeBestChallenge, normalizeCollection, setSlot, toSerializable } from "./state.js";
 import { isRogueSkillAllowed } from "./skillPool.js";
 import { showNotice } from "./ui/common.js";
 
@@ -15,6 +15,8 @@ export const context = {
 	run: null,
 	/** 无尽模式历史最高记录（独立存储键，删档不清） */
 	best: null,
+	/** 闯关模式历史最高金币/经验记录（独立存储键，删档不清） */
+	bestChallenge: null,
 	/** 图鉴（独立存储键，六个存档共用一份公有数据，删档与新建都不清） */
 	collection: { events: [], curios: [] },
 	settled: true,
@@ -65,6 +67,7 @@ export function loadSlots() {
 	const migrated = migrateSlots(lib.storage?.[STORAGE_KEY], skillGate);
 	context.slots = migrated.slots;
 	context.best = normalizeBest(lib.storage?.[BEST_ENDLESS_KEY]);
+	context.bestChallenge = normalizeBestChallenge(lib.storage?.[BEST_CHALLENGE_KEY]);
 	// 一次性迁移：把各存档原本自带的图鉴并进公有键，老玩家升级后不会看着收集清零
 	let merged = normalizeCollection(lib.storage?.[COLLECTION_KEY]);
 	for (const slot of context.slots) {
@@ -79,6 +82,12 @@ export function loadSlots() {
 export function saveBest(next) {
 	context.best = next;
 	game.save(BEST_ENDLESS_KEY, next);
+}
+
+/** 闯关的历史最高金币/经验：同样存在独立键上，删档与新建存档都不清它 */
+export function saveBestChallenge(next) {
+	context.bestChallenge = next;
+	game.save(BEST_CHALLENGE_KEY, next);
 }
 
 /** 重载回本模式：directstart 让本体跳过模式选择界面，直接跑我们的 start() */

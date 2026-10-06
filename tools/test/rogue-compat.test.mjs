@@ -121,6 +121,7 @@ const shop = await load("src/rogue/shop.js");
 const skillPool = await load("src/rogue/skillPool.js");
 const skillCompat = await load("src/rogue/skillCompat.js");
 const stagesData = await load("src/rogue/data/challengeStages.js");
+const combosData = await load("src/rogue/data/challengeCombos.js");
 const enemy = await load("src/rogue/enemy.js");
 const packSkills = await load("packages/misc/skills.js");
 const rogueSkills = await load("src/rogue/data/skills.js");
@@ -551,6 +552,85 @@ check("challengeStages：1~9 项的残缺存档判为需重新生成，满 10 �
 	const endless = { ...base, mode: cfg.RUN_MODE.endless, challengeStages: [] };
 	assertEqual(enemy.ensureChallengeStages(endless, makeRng(9), () => true).status, enemy.CHALLENGE_STAGE_STATE.skipped, "无尽模式不抽");
 	return "5 项 → 重抽 / 10 项 → ready / 越界与无尽 → skipped";
+});
+
+// ---------------------------------------------------------------- 5.5 双人组合抽取（第 11~30 关）
+
+check("challengeComboStages：可用组合不足 10 条时判为组合不足并阻止生成", () => {
+	const tail = combosData.challengeComboPool.slice(0, 4);
+	const ids = tail.map(config => config.id);
+	const onlyTail = config => ids.includes(config?.id);
+	// 抽取层：只返回可用的 4 条，不循环补齐
+	const drawn = combosData.drawChallengeComboIds(makeRng(7), onlyTail);
+	assertEqual(drawn.length, 4, "不足时按可用条数返回");
+	assertEqual(new Set(drawn).size, 4, "绝不重复同一份组合");
+	// ensure 层：明确判为 insufficient，且**不写回任何东西**
+	const fresh = { ...state.createRun(cfg.RUN_MODE.challenge, "迪迦", NOW), level: 11 };
+	const ensured = enemy.ensureChallengeComboStages(fresh, makeRng(7), onlyTail);
+	assertEqual(ensured.status, enemy.CHALLENGE_STAGE_STATE.insufficient, "应判为组合不足");
+	assertEqual(ensured.generated, false, "组合不足时不算生成过");
+	assertEqual(ensured.available, 4, "回报可用条数");
+	assertEqual(ensured.run.challengeComboStages.length, 0, "组合不足时不得写回半截结果");
+	assert(ensured.run === fresh, "组合不足时原 run 一个字段都不动");
+	// 全部不可用：可用条数为 0，同样是 insufficient
+	const none = enemy.ensureChallengeComboStages(fresh, makeRng(7), () => false);
+	assertEqual(none.status, enemy.CHALLENGE_STAGE_STATE.insufficient, "全部不可用也是组合不足");
+	assertEqual(none.available, 0, "可用条数 0");
+	return "4 条可用 → insufficient，不循环补齐、不写回";
+});
+
+check("challengeComboStages：1~9 项的残缺存档判为需重新生成，满 10 项才是 ready；旧档首次进入 11 关补抽一次", () => {
+	const full = combosData.challengeComboPool.slice(0, cfg.CHALLENGE_COMBO_LEVELS).map(config => config.id);
+	const base = { ...state.createRun(cfg.RUN_MODE.challenge, "迪迦", NOW), level: 15 };
+	// 1) 残缺（5 项）：重抽，不当作「已经生成」
+	const partial = { ...base, challengeComboStages: full.slice(0, 5) };
+	const fixed = enemy.ensureChallengeComboStages(partial, makeRng(9), () => true);
+	assertEqual(fixed.status, enemy.CHALLENGE_STAGE_STATE.generated, "残缺存档应重抽");
+	assertEqual(fixed.generated, true, "重抽算生成");
+	assertEqual(fixed.run.challengeComboStages.length, cfg.CHALLENGE_COMBO_LEVELS, `重抽后应满 ${cfg.CHALLENGE_COMBO_LEVELS} 项`);
+	assertEqual(new Set(fixed.run.challengeComboStages).size, cfg.CHALLENGE_COMBO_LEVELS, "重抽结果互不重复");
+	// 2) 满 10 项：ready，一个字节都不动（21~30 关复用同一份，也不重抽）
+	const ready = { ...base, challengeComboStages: full };
+	const kept = enemy.ensureChallengeComboStages(ready, makeRng(9), () => true);
+	assertEqual(kept.status, enemy.CHALLENGE_STAGE_STATE.ready, "满额存档应判为 ready");
+	assertEqual(kept.generated, false, "ready 不算生成");
+	assert(kept.run === ready, "ready 时原 run 原样返回，绝不重掷");
+	const lateReady = enemy.ensureChallengeComboStages({ ...ready, level: 27 }, makeRng(9), () => true);
+	assertEqual(lateReady.status, enemy.CHALLENGE_STAGE_STATE.ready, "第 21~30 关复用同一份结果，不重抽");
+	// 3) 旧档（v9 升上来的闯关档）打到第 11 关才第一次需要组合：补抽一次
+	const legacy = { ...base, level: 11, challengeComboStages: [] };
+	const firstTime = enemy.ensureChallengeComboStages(legacy, makeRng(9), () => true);
+	assertEqual(firstTime.status, enemy.CHALLENGE_STAGE_STATE.generated, "旧档首次进入 11~30 关应补抽");
+	const again = enemy.ensureChallengeComboStages(firstTime.run, makeRng(10), () => true);
+	assertEqual(JSON.stringify(again.run.challengeComboStages), JSON.stringify(firstTime.run.challengeComboStages), "补抽一次之后绝不重掷");
+	// 4) 前 10 关 / 第 31 关外 / 无尽：完全不参与
+	const early = { ...base, level: 5, challengeComboStages: [] };
+	assertEqual(enemy.ensureChallengeComboStages(early, makeRng(9), () => true).status, enemy.CHALLENGE_STAGE_STATE.skipped, "前 10 关不抽组合");
+	const over = { ...base, level: 31, challengeComboStages: [] };
+	assertEqual(enemy.ensureChallengeComboStages(over, makeRng(9), () => true).status, enemy.CHALLENGE_STAGE_STATE.skipped, "闯关没有第 31 关");
+	const endless = { ...base, mode: cfg.RUN_MODE.endless, level: 15, challengeComboStages: [] };
+	assertEqual(enemy.ensureChallengeComboStages(endless, makeRng(9), () => true).status, enemy.CHALLENGE_STAGE_STATE.skipped, "无尽模式不抽");
+	return "5 项 → 重抽 / 10 项 → ready / 旧档首进 11 关补抽一次 / 越界与无尽 → skipped";
+});
+
+check("challengeComboStages：第三人生成失败必须明确报错，绝不复制固定角色凑数", () => {
+	const combo = combosData.challengeComboPool[0];
+	const fixed = combo.players.map(player => player.character);
+	// 池子里只剩组合自己的两名角色（都被禁将时可能发生）：明确失败而不是第三人撞名
+	const empty = enemy.createChallengeComboConfigs(combo, 21, makeRng(5), { pool: fixed });
+	assertEqual(empty.ok, false, "没有合法第三人时返回失败");
+	assert(empty.error.includes("第三人"), "失败要说清楚是第三人没生成出来");
+	// 池子里有一个合法角色：必选它，且位置总在三个空位之一、左右顺序不变
+	const pool = [...fixed, "迪迦"];
+	for (let seed = 1; seed <= 30; seed++) {
+		const built = enemy.createChallengeComboConfigs(combo, 22, makeRng(seed), { pool });
+		assert(built.ok, `种子 ${seed} 应能生成`);
+		assertEqual(built.third, "迪迦", "第三人来自池子里唯一合法的角色");
+		const leftIndex = built.enemies.findIndex(entry => entry.characterId === fixed[0]);
+		const rightIndex = built.enemies.findIndex(entry => entry.characterId === fixed[1]);
+		assert(leftIndex < rightIndex, "左右顺序永不变");
+	}
+	return "池空 → 明确失败；有合法角色 → 稳定生成且顺序保持";
 });
 
 console.log(`\nrogue-compat.test: passed=${passed} failed=${failures.length}`);

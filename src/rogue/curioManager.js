@@ -189,9 +189,13 @@ const EFFECT_TEXT = {
 	goldOfHeld: value => `战斗结束后额外获得当前持有金币的 ${Math.round(Math.abs(value) * 100)}%`,
 	goldOnReplace: value => `每次替换技能时获得本层基准金币的 ${value} 倍`,
 	expOnReplace: value => `每次替换技能时获得本层基准经验的 ${value} 倍`,
-	// 收藏家的橱窗：锁定是开关不是数值，两档各出一条（史诗档两条都在）
-	lockSkillShop: () => "你可以锁定技能商店，锁定后下一场战斗不再刷新技能商店的候选",
-	lockCurioShop: () => "你可以锁定奇物商店，锁定后下一场战斗不再刷新奇物商店的候选",
+	// 收藏家的橱窗：锁定是开关不是数值，合成一条——稀有档只锁技能商店，史诗档（lockCurioShop 在场）两店都能锁
+	lockSkillShop: (value, effects) => {
+		const both = (effects?.lockCurioShop ?? 0) > 0;
+		return both
+			? "你可以锁定技能或奇物商店，锁定后下一场战斗不再刷新技能或奇物商店的候选"
+			: "你可以锁定技能商店，锁定后下一场战斗不再刷新技能商店的候选";
+	},
 };
 
 /**
