@@ -164,6 +164,7 @@ export default [
 	"assets/curios/oblivion_stone.png",
 	"assets/events/wishing_pool.png",
 	"assets/curios/loop_button.png",
+	"assets/events/wormhole.png",
 	"assets/camp/yv.png",
 	"assets/audio/chigui1.mp3",
 	"assets/audio/chigui2.mp3",

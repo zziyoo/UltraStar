@@ -2454,7 +2454,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	putRun(0, {
 		mode: "endless",
 		collection: {
-			events: ["abyss_rift", "ancient_ruins", "wandering_merchant", "curio_forge", "skill_forge", "spring_of_wisdom", "stat_training_ground"],
+			events: ["abyss_rift", "ancient_ruins", "wandering_merchant", "curio_forge", "skill_forge", "spring_of_wisdom", "stat_training_ground", "wormhole"],
 			curios: [],
 		},
 	});
@@ -2504,6 +2504,12 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 		`训练场的全满注记应引自 blockedText：${training.join(" / ")}`);
 	assert(!training.some(line => line.includes("改送一个随机奇物")),
 		`训练场不该写「改送随机奇物」：${training.join(" / ")}`);
+	// 虫洞：跳关与奖励口径照实写在图鉴里（数字读事件数据，不在这里抄第二份）
+	const wormhole = openDetail("虫洞");
+	const skipLevels = eventsData.events.wormhole.choices[0].reward.skipLevels;
+	assert(wormhole.some(line => line.includes(`跳过 ${skipLevels} 关`) && line.includes("并获得期间的全部金币与经验")),
+		`虫洞应写明跳关与奖励口径：${wormhole.join(" / ")}`);
+	assert(!wormhole.includes("无奖励"), `虫洞不该显示无奖励：${wormhole.join(" / ")}`);
 	click("返回");
 	return "裂隙 3 档 + 遗迹 3 门 + 5 个交互选项全部有说明";
 });
@@ -3161,6 +3167,59 @@ await check("事件页置灰仍按「付不起」：经验不够时选项置灰�
 	assertEqual(lib.storage.rogueSlots[0].currency.exp, 5, "经验不动");
 	assert(lib.storage.rogueSlots[0].pendingEvent, "事件仍挂着，可以改选别的");
 	return "钱不够 = 静默不可点";
+});
+
+await check("属性训练场满级：按钮不标价、缺经验也不置灰，点了只弹作者那句", async () => {
+	freshWorld();
+	const maxed = {};
+	for (const id of cfg.STAT_IDS) {
+		maxed[id] = statsData.stats[id].maxLevel;
+	}
+	// 走真实构建路径（生产路径会给完整存档）：满级时「接受训练」不再是「要花 20 经验」的样子
+	const base = stateModule.createRun("endless", "迪迦", 1);
+	const pending = eventManager.buildPendingEvent("stat_training_ground", 4, () => 0, 1, {
+		level: 5, statLevels: maxed, curios: [], run: { ...base, level: 5, stats: maxed },
+	});
+	putRun(0, { mode: "endless", level: 5, stats: maxed, currency: { gold: 0, exp: 5 }, pendingEvent: pending });
+	session();
+	const choice = nodesWithClass("wm-rogue-event-choice")[0];
+	assert(!textOf(choice).includes("经验"), `满级时按钮不写价钱：${textOf(choice)}`);
+	assert(!choice.classList.contains("wm-rogue-disabled"), "缺经验也不该置灰——这类选项本来就不花钱");
+	click("接受训练");
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "点了要弹提示");
+	assert(screenText().includes("你太厉害了"), `弹的是作者那句：${screenText()}`);
+	click("确定");
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 5, "一分不扣");
+	return "满级不标价 / 缺经验不置灰 / 弹提示";
+});
+
+await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记录记到跳过的最后一关", async () => {
+	freshWorld();
+	const base = stateModule.createRun("endless", "迪迦", 1);
+	const pending = eventManager.buildPendingEvent("wormhole", 4, () => 0, 1, {
+		level: 5, statLevels: base.stats, curios: [], run: { ...base, level: 5 },
+	});
+	const expect = { gold: pending.choices[0].reward.gold, exp: pending.choices[0].reward.exp };
+	// 这一局是从存档页进来的（读档优先回事件页）：先把纪录摆在第 4 关，好验「记到跳过的最后一关」
+	lib.storage.rogueBestEndless = { level: 4, characterId: "迪迦", updatedAt: 1 };
+	putRun(0, { mode: "endless", level: 5, currency: { gold: 0, exp: 0 }, pendingEvent: pending });
+	session();
+	const text = screenText();
+	assert(text.includes("虫洞") && text.includes("蔚蓝色的虫洞引人注目"), `事件页应展示虫洞：${text.slice(0, 240)}`);
+	assertEqual(nodesWithClass("wm-rogue-event-choice").length, 2, "进入 / 离开 两个选项");
+	click("进入");
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "结果走浮层内弹层");
+	assert(screenText().includes("跳过 10 关"), `要写明跳了几关：${screenText()}`);
+	click("确定");
+	// 事件办完回营地：关卡已经跳到第 15 关
+	assert(screenText().includes("第 15 关"), `营地应显示第 15 关：${screenText()}`);
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.level, 15, "存档里的关卡推进十关");
+	assertEqual(slot.currency.gold, expect.gold, "期间金币一次性入账");
+	assertEqual(slot.currency.exp, expect.exp, "期间经验一次性入账");
+	assertEqual(slot.pendingEvent, null, "事件收掉");
+	assertEqual(lib.storage.rogueBestEndless.level, 14, "最高记录记到跳过的最后一关");
+	return `第 5 关 → 第 15 关（${expect.gold} 金币 / ${expect.exp} 经验，记录 14）`;
 });
 
 await check("流浪商人：买没买过的入袋，已拥有的买回去升一级，练满了才弹提示", async () => {

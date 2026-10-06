@@ -596,6 +596,9 @@ check("奖励配置：闯关固定 50 金币 + 经验表；无尽金币系数 50
 const EVENT_REWARD_KEYS = [
 	"gold", "exp", "goldByWin", "expByWin", "goldPct", "goldPayout",
 	"curio", "skill", "statUp", "statDown",
+	// 跳关（虫洞）：构建期把「接下来 N 关」的基础奖励并进 gold/exp，结算层按它推关卡；
+	// 它会连同定死的 gold/exp 一起写进存档
+	"skipLevels",
 	// 只在构建期出现的两个键：掷定给哪一件奇物、掷不到时补几倍基准经验，
 	// 落档前一定被展开成 curio(具体 id) + 固定 exp，不会进存档
 	"curioRarity", "expIfNoCurioByWin",
@@ -674,6 +677,10 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 				const fallback = reward?.expIfNoCurioByWin;
 				if (fallback !== undefined && !(Number.isFinite(fallback) && fallback >= 0)) {
 					problems.push(`${key} 第${index + 1}个选项: expIfNoCurioByWin 应为非负数（掷不到奇物时补几倍基准经验）`);
+				}
+				const skip = reward?.skipLevels;
+				if (skip !== undefined && !(Number.isInteger(skip) && skip > 0)) {
+					problems.push(`${key} 第${index + 1}个选项: skipLevels 应为正整数（跳过几关）`);
 				}
 				// 掷奇物的门同时消耗经验是自我矛盾的：落空分支会把负数抬成正数，
 				// 玩家点之前看到的「要花多少」与实际结算的方向相反

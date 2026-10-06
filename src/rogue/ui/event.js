@@ -8,7 +8,7 @@
 //     点下去由结算层弹作者写的那一句，钱一分不扣。
 
 import { getEvent } from "../data/events.js";
-import { isChoiceAffordable } from "../eventManager.js";
+import { getBlockedMessage, isChoiceAffordable } from "../eventManager.js";
 import { ui } from "../../../../../noname.js";
 import { addOverlayButton, addResBar, openOverlay } from "./common.js";
 
@@ -38,21 +38,26 @@ export function showEvent(api) {
 
 	const actions = ui.create.div(".wm-rogue-event-actions", panel);
 	for (const [index, choice] of pendingEvent.choices.entries()) {
+		// 「没有可作用的对象」（属性已满 / 没技能 / 没奇物）优先于「付不起」：这类选项点下去本来就是
+		// 弹作者那一句、一个钱都不扣（结算层也是先判 blocked 再看钱），所以不能因为钱不够就把提示
+		// 挡在置灰按钮后面。判据与结算层共用 getBlockedMessage 一份，现读存档
+		const blocked = !!getBlockedMessage(run, choice);
 		// 奇物已集齐时「随机给奇物」的选项不花钱（结算走跳过分支），不能按货币不足置灰
-		const affordable = isChoiceAffordable(run, choice.reward);
+		const usable = blocked || isChoiceAffordable(run, choice.reward);
 		// 余额不足：置灰并写明原因，点了没有任何反应——与商店的「金币不足」按钮同款（结算层
 		// 自身还会再验一次，见 resolveEventChoice），不做「点了再弹一句拒绝」的两步交互
 		const button = addOverlayButton(
-			affordable ? choice.text : `${choice.text} · 货币不足`,
+			usable ? choice.text : `${choice.text} · 货币不足`,
 			actions,
 			() => {
-				if (isChoiceAffordable(api.getRun(), choice.reward)) {
+				const current = api.getRun();
+				if (getBlockedMessage(current, choice) || isChoiceAffordable(current, choice.reward)) {
 					api.choose(index);
 				}
 			},
 			"wm-rogue-event-choice"
 		);
-		if (!affordable) {
+		if (!usable) {
 			button.classList.add("wm-rogue-disabled");
 		}
 	}

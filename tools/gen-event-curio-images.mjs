@@ -1532,6 +1532,48 @@ const draw = {
 		// 立柱上的指针偏向经验那一侧：这一头给得多
 		cv.segment(c, c * 0.98, c + s * 0.06, c * 0.84, s * 0.012, P.warm, 0.9);
 	},
+	wormhole(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		const RX = s * 0.3;
+		const RY = s * 0.245;
+		// 洞口：主色圆盘 → 内圈压暗 → 近黑的核，三层同心椭圆构成「往里陷」的漏斗。
+		// 整幅打光晕会读成「一颗蓝球」（裂隙踩过同一个坑），光只能从洞里透出来。
+		cv.inked(() => cv.ellipse(c, c, RX, RY, BODY), 0.75);
+		cv.ellipse(c, c, RX - s * 0.026, RY - s * 0.021, mix(hue, P.ink, 0.82), 1);
+		cv.ellipse(c, c, RX - s * 0.058, RY - s * 0.047, mix(hue, P.ink, 0.95), 1);
+		cv.glow(c, c, s * 0.2, hue, 0.42);
+		// 螺旋臂：三条同旋向的螺线、越到中心越细——「漩涡」与「一口井」的区别全在这三条上。
+		// 总转角压在一圈半以内，三条臂才不会自己绕成一团黑
+		for (const [offset, tint, alpha] of [
+			[0, P.warm, 0.95],
+			[(Math.PI * 2) / 3, hue, 0.9],
+			[(Math.PI * 4) / 3, P.pale, 0.8],
+		]) {
+			let prev = null;
+			for (let i = 0; i <= 30; i++) {
+				const t = i / 30;
+				const r = 0.92 - 0.72 * t;
+				const a = offset + t * Math.PI * 1.5;
+				const px = c + Math.cos(a) * RX * r;
+				const py = c + Math.sin(a) * RY * r;
+				if (prev) {
+					cv.segment(prev[0], prev[1], px, py, s * 0.024 * (1 - t * 0.7), tint, alpha * (1 - t * 0.25));
+				}
+				prev = [px, py];
+			}
+		}
+		// 核：一颗亮点，视线有落点
+		cv.dot(c, c, s * 0.018, [1, 1, 1], 0.95);
+		// 被吸进去的星屑：沿盘面从外到内三颗，最小的那颗已经快进洞了
+		for (const [a, r, size, alpha] of [[-0.6, 1.16, 0.02, 0.9], [2.6, 1.02, 0.015, 0.8], [0.9, 0.7, 0.011, 0.7]]) {
+			cv.dot(c + Math.cos(a) * RX * r, c + Math.sin(a) * RY * r, s * size, P.warm, alpha);
+		}
+		// 盘外两粒星：虫洞悬在星空里，不是桌子上的一口锅
+		cv.dot(c - s * 0.37, c * 0.24, s * 0.012, [1, 1, 1], 0.8);
+		cv.dot(c + s * 0.35, c * 1.76, s * 0.01, [1, 1, 1], 0.7);
+	},
 };
 
 // ---------------------------------------------------------------- 生成
@@ -1574,6 +1616,7 @@ const IMAGES = [
 	["events", "veteran_training", "#ff6a8a"],
 	["events", "gold_vein", "#e8a83c"],
 	["events", "exp_merchant", "#b06aff"],
+	["events", "wormhole", "#4fa8ff"],
 ];
 
 /** 盒式降采样：把 size×size 的 RGBA 收成 to×to。用来还原奇物在界面上的真实尺寸（64px） */
@@ -1608,7 +1651,7 @@ function shrink(pixels, size, to) {
 const PREVIEW = process.argv.includes("--preview");
 const PREVIEW_TILE = 64;
 const PREVIEW_ZOOM = 2;
-// 6 列 × 6 行、每格放大两倍 → 768×768；全部条目（16 事件 + 18 奇物 = 34 张）一张放完
+// 6 列 × 6 行、每格放大两倍 → 768×768；全部条目（17 事件 + 18 奇物 = 35 张）一张放完
 const PREVIEW_COLS = 6;
 const SHEET = PREVIEW_COLS * PREVIEW_TILE * PREVIEW_ZOOM;
 const sheet = PREVIEW ? new Uint8Array(SHEET * SHEET * 4).fill(24) : null;

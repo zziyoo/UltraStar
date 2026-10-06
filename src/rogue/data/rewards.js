@@ -86,3 +86,20 @@ export function getEndlessReward(level, currencies) {
 	}
 	return gain;
 }
+
+/**
+ * 连续 count 关的无尽基础奖励之和（虫洞「跳过十关」用）：从 from 关起逐关累加 getEndlessReward。
+ * 基础口径、不吃奇物加成——与深渊裂隙同一条「胜利加成不生效」；数字是纯函数，事件构建期算一次定死。
+ */
+export function sumEndlessRewards(from, count) {
+	const start = Math.max(1, Math.floor(Number(from) || 1));
+	const total = Math.max(0, Math.floor(Number(count) || 0));
+	const gain = {};
+	for (let n = start; n < start + total; n++) {
+		const step = getEndlessReward(n, Object.keys(endlessReward));
+		for (const [key, value] of Object.entries(step)) {
+			gain[key] = (gain[key] ?? 0) + value;
+		}
+	}
+	return gain;
+}

@@ -2915,6 +2915,28 @@ check("属性训练场：半层基准经验换随机属性，全满时只弹提�
 	assertEqual(blocked.run.currency.exp, 999, "被拦下时不扣经验");
 	assertEqual(JSON.stringify(blocked.run.stats), JSON.stringify(maxed), "属性不动");
 	assertEqual(blocked.run.pendingEvent, null, "事件照样收掉");
+	// 生产路径会给完整存档：满级的那一项按钮上不再标价（点了本来就不花钱），
+	// 而且经验不够也不会被「货币不足」挡下——否则作者那句提示永远看不到
+	const liveRun = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL + 1, stats: { ...maxed }, curios: [] };
+	const live = eventManager.buildPendingEvent("stat_training_ground", BASE_LEVEL, () => 0, NOW, {
+		level: liveRun.level, statLevels: liveRun.stats, curios: liveRun.curios, run: liveRun,
+	});
+	assert(!live.choices[0].text.includes("经验"), `满级时不再写价钱：${live.choices[0].text}`);
+	const poor = { ...liveRun, currency: { gold: 0, exp: 5 }, pendingEvent: live };
+	assertEqual(eventManager.getBlockedMessage(poor, live.choices[0]), live.choices[0].blockedText, "满级是「没对象」，优先于「付不起」");
+	const told = eventManager.resolveEventChoice(poor, 0, {}, () => 0);
+	assertEqual(told.lines[0], live.choices[0].blockedText, "缺经验也照弹提示，而不是被拒绝");
+	assertEqual(told.run.currency.exp, 5, "一分不扣");
+	// 随机属性只在「还能升」的属性里掷：两项满级时必给剩下的那一项（抽中已满项 = 白付经验）
+	const partial = { ...maxed, [cfg.STAT_IDS[0]]: 0 };
+	const partialRun = { ...liveRun, stats: { ...partial }, currency: { gold: 0, exp: 999 } };
+	const ground2 = eventManager.buildPendingEvent("stat_training_ground", BASE_LEVEL, () => 0.999, NOW, {
+		level: partialRun.level, statLevels: partialRun.stats, curios: [], run: partialRun,
+	});
+	assertEqual(ground2.choices[0].reward.statUp, cfg.STAT_IDS[0], "两项满级 → 只掷得到还能升的那一项");
+	const trained2 = eventManager.resolveEventChoice({ ...partialRun, pendingEvent: ground2 }, 0, {}, () => 0);
+	assertEqual(trained2.run.stats[cfg.STAT_IDS[0]], 1, "花了经验就必然 +1");
+	assertEqual(trained2.run.currency.exp, 999 - Math.round(BASE_EXP * 0.5), "扣的还是半层基准经验");
 	// 没满：正常扣钱升一级
 	const firstStat = cfg.STAT_IDS[0];
 	const trained = eventManager.resolveEventChoice({ ...rich, stats: { ...maxed, [firstStat]: 0 } }, 0, {}, () => 0);
@@ -2925,7 +2947,46 @@ check("属性训练场：半层基准经验换随机属性，全满时只弹提�
 	// 未知实验室没写 blockedText，满级时照旧改送随机奇物（两条规则互不影响）
 	const lab = eventManager.buildPendingEvent("unknown_lab", BASE_LEVEL, () => 0, NOW, { statLevels: maxed, curios: [] });
 	assertEqual(lab.choices[0].reward.curio, "random", "无 blockedText 的 statUp 仍被改写成随机奇物");
-	return "满级弹提示不扣钱 / 未满正常生效";
+	return "满级弹提示不扣钱 / 只掷还能升的那一项 / 未满正常生效";
+});
+
+check("虫洞：跳过十关，期间的基础金币与经验一次性入账", () => {
+	const from = BASE_LEVEL + 1;                       // 刚打赢第 4 关 → 接下来该打第 5 关
+	const expect = rewardsData.sumEndlessRewards(from, 10);
+	const run = { ...freshRun(cfg.RUN_MODE.endless), level: from, currency: { gold: 0, exp: 0 }, curios: [] };
+	const pending = eventManager.buildPendingEvent("wormhole", BASE_LEVEL, () => 0, NOW, {
+		level: run.level, statLevels: run.stats, curios: run.curios, run,
+	});
+	assertEqual(pending.id, "wormhole", "待处理事件只存 id（名字由事件页现读定义）");
+	assertEqual(pending.choices.length, 2, "进入 / 离开 两个选项");
+	assertEqual(pending.choices[0].reward.skipLevels, 10, "跳过十关");
+	assertEqual(pending.choices[0].reward.gold, expect.gold, "构建期就把第 5~14 关的金币求和定死");
+	assertEqual(pending.choices[0].reward.exp, expect.exp, "构建期就把第 5~14 关的经验求和定死");
+	assertEqual(JSON.stringify(pending.choices[1].reward), "{}", "离开没有奖励");
+	// 基础口径：拿着会砍金币的奇物也不会因此缩水（与裂隙同一条「胜利加成不生效」）
+	const hungry = { ...run, curios: ["hungry_box"] };
+	const boosted = eventManager.buildPendingEvent("wormhole", BASE_LEVEL, () => 0, NOW, {
+		level: hungry.level, statLevels: hungry.stats, curios: hungry.curios, run: hungry,
+	});
+	assertEqual(boosted.choices[0].reward.gold, expect.gold, "带饥饿之匣也只发基础口径");
+	// 结算：关卡一次性推进十关、期间奖励入账、文案写明跳到第几关
+	const settled = eventManager.resolveEventChoice({ ...run, pendingEvent: pending }, 0, {}, () => 0);
+	assertEqual(settled.run.level, from + 10, "关卡推进十关");
+	assertEqual(settled.run.currency.gold, expect.gold, "期间金币一次性入账");
+	assertEqual(settled.run.currency.exp, expect.exp, "期间经验一次性入账");
+	assert(settled.lines.some(line => line.includes(`第 ${from + 10} 关`)), `文案写明跳到第几关：${settled.lines.join(" / ")}`);
+	assertEqual(settled.run.pendingEvent, null, "事件收掉");
+	// 存档往返：skipLevels 与已经定死的金额原样读回（读档不重算、不重掷）
+	const roundTrip = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: from, pendingEvent: pending });
+	const kept = roundTrip.pendingEvent.choices[0].reward;
+	assertEqual(kept.skipLevels, 10, "跳关参数随存档定死");
+	assertEqual(kept.gold, expect.gold, "金币金额读档不重算");
+	assertEqual(kept.exp, expect.exp, "经验金额读档不重算");
+	// 「离开」：关卡与钱包一动不动
+	const left = eventManager.resolveEventChoice({ ...run, pendingEvent: pending }, 1, {}, () => 0);
+	assertEqual(left.run.level, from, "离开不推关卡");
+	assertEqual(left.run.currency.gold, 0, "离开不发钱");
+	return `第 ${from}~${from + 9} 关共 ${expect.gold} 金币 / ${expect.exp} 经验`;
 });
 
 check("技能熔炉：交回 mode.js 且一个钱都不扣，没有技能时弹提示", () => {

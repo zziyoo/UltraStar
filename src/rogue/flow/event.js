@@ -8,7 +8,8 @@ import { createEnemyConfigs } from "../enemy.js";
 import { applyEventCurrency, pickRandomSkillId, resolveEventChoice } from "../eventManager.js";
 import { loseSkill } from "../penalty.js";
 import { getShopPool } from "../skillPool.js";
-import { commit, context, now, reloadNow } from "../runtime.js";
+import { updateBest } from "../state.js";
+import { commit, context, now, reloadNow, saveBest } from "../runtime.js";
 import { closeScreen, showChoice, showNotice, skillName } from "../ui/common.js";
 import { showCurioForge, showMerchant, showSkillForge } from "../ui/hub.js";
 import { showEvent } from "../ui/event.js";
@@ -35,6 +36,7 @@ export function createEventFlow() {
 
 	/** 玩家在事件页点了某个选项：结算事件奖励并落盘，弹层展示结果后走 finishEvent 出口 */
 	function chooseEventFlow(choiceIndex, finishEvent) {
+		const levelBefore = Math.max(0, Math.floor(Number(context.run?.level) || 0));
 		const ctx = {
 			characterSkills: characterSkillIds(context.run.characterId),
 			candidates: getShopPool(),
@@ -54,6 +56,16 @@ export function createEventFlow() {
 		context.run = result.run;
 		if (!commit()) {
 			return;
+		}
+		// 虫洞这类「一次跨过好几关」的选项要写进无尽最高记录：记到跳过的最后一关（新关卡数 - 1），
+		// 与「打赢 X 关记 X」同一条语义——否则玩家死在第 15 关时，纪录还停在第 4 关。
+		// 普通事件一关都不推，这个分支不会被触发
+		const reached = Math.max(0, Math.floor(Number(result.run.level) || 0));
+		if (reached > levelBefore + 1) {
+			const best = updateBest(context.best, reached - 1, result.run.characterId, now());
+			if (best !== context.best) {
+				saveBest(best);
+			}
 		}
 		const lines = result.lines.slice(0);
 		if (result.skillId) {

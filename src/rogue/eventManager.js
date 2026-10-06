@@ -28,7 +28,7 @@ import {
 } from "./config.js";
 import { events, getEvent, eventIds } from "./data/events.js";
 import { getCurio, CURIOSITY_RARITY } from "./data/curios.js";
-import { getEndlessReward } from "./data/rewards.js";
+import { getEndlessReward, sumEndlessRewards } from "./data/rewards.js";
 import { stats } from "./data/stats.js";
 import {
 	getCurioQuality,
@@ -156,7 +156,19 @@ export function normalizeEventReward(raw) {
 			reward[key] = value;
 		}
 	}
+	// 跳关（虫洞）：正整数才有意义，夹到 99；0 与非法值一律剔除（等于没写这个键）
+	if (Number.isFinite(Number(raw.skipLevels))) {
+		const skip = Math.floor(Number(raw.skipLevels));
+		if (skip > 0) {
+			reward.skipLevels = Math.min(99, skip);
+		}
+	}
 	return reward;
+}
+
+/** 某项属性此刻是否还没满（还能再 +1） */
+function statHasRoom(statLevels, id) {
+	return (Number(statLevels?.[id]) || 0) < (stats[id]?.maxLevel ?? 0);
 }
 
 /** 三项属性是否全部满级；拿不到属性时按「未满」处理，不凭猜测改奖励 */
@@ -164,7 +176,7 @@ export function allStatsMaxed(statLevels) {
 	if (!statLevels || typeof statLevels !== "object") {
 		return false;
 	}
-	return STAT_IDS.every(id => (Number(statLevels[id]) || 0) >= (stats[id]?.maxLevel ?? 0));
+	return STAT_IDS.every(id => !statHasRoom(statLevels, id));
 }
 
 /**
@@ -256,8 +268,10 @@ function withActionText(text, action) {
  * @param {number} wonLevel 刚刚打赢的关卡编号（奖励基准 = 该关的无尽胜利奖励）
  * @param {() => number} [rng] 可注入的随机源
  * @param {number} [now] createdAt 时间戳
- * @param {{ statLevels?: object, curios?: string[] }} [context] 玩家当前属性等级与已拥有奇物：
- *        属性全满、某品质奇物全拥有这两件事都在这里现查，好把结果当场定死
+ * @param {{ level?: number, statLevels?: object, curios?: string[], run?: object }} [context]
+ *        玩家当前关卡、属性等级与已拥有奇物：属性全满、某品质奇物全拥有这两件事都在这里现查，
+ *        好把结果当场定死；run（完整存档）只有生产路径会给，用来判「此刻有没有可作用的对象」
+ *        （没有的选项不该在按钮上标价）——测试里只塞 statLevels/curios 的场合照旧不做这一步
  */
 export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0, context = null) {
 	const event = getEvent(eventId);
@@ -268,6 +282,9 @@ export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0,
 	const base = getEndlessReward(level, ["gold", "exp"]);
 	const statLevels = isObject(context) ? context.statLevels : context;
 	const ownedCurios = Array.isArray(isObject(context) ? context.curios : null) ? context.curios : [];
+	// 跳关的起跳点 = 接下来要打的那一关（刚打赢 level 之后就是 level + 1）
+	const nextLevel = Math.max(1, Math.floor(Number(context?.level) || level + 1));
+	const runLike = isObject(context?.run) ? context.run : null;
 	const choices = [];
 	for (const choice of event.choices) {
 		if (!choice || typeof choice.text !== "string" || !choice.text.trim()) {
@@ -295,12 +312,28 @@ export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0,
 		// 最后走白名单清洗：存档里只允许出现固定值，绝不保存倍率、品质名与随机态
 		const scaled = resolveCurioRarity(scaleReward(reward, base), base, ownedCurios, rng);
 		const clean = normalizeEventReward(scaled);
+		// 跳关（虫洞）：把「接下来 N 关」的无尽基础奖励逐关求和，并进 gold/exp 固定值——与裂隙同一套
+		// 「构建期定死、读档不重掷」，基础口径、不吃奇物加成。skipLevels 本身也留着，结算层按它推关卡
+		if (clean.skipLevels) {
+			const gain = sumEndlessRewards(nextLevel, clean.skipLevels);
+			for (const [key, value] of Object.entries(gain)) {
+				clean[key] = (Number(clean[key]) || 0) + value;
+			}
+		}
 		// statUp/statDown 的 "random" 就地解析成具体属性（消费 rng），与 outcomes 预掷同属生成期随机，
 		// 存档里只保存定死后的属性 id，读档不重掷
 		for (const key of ["statUp", "statDown"]) {
-			if (clean[key] === "random") {
-				clean[key] = STAT_IDS[Math.floor(rng() * STAT_IDS.length)];
+			if (clean[key] !== "random") {
+				continue;
 			}
+			// statUp 只从「还能升」的属性里掷：抽中已满项等于让玩家白付代价（训练场要扣经验）。
+			// 三项全满时没有候选、退回全体——结果无所谓：写了 blockedText 的会被拦下弹提示，
+			// 没写的一律在下面被改写成随机奇物。statDown 保持全体：它是惩罚向，掷空对玩家有利
+			const pool = key === "statUp" && isObject(statLevels)
+				? STAT_IDS.filter(id => statHasRoom(statLevels, id))
+				: [];
+			const list = pool.length ? pool : STAT_IDS;
+			clean[key] = list[Math.floor(rng() * list.length)];
 		}
 		const blockedText = typeof choice.blockedText === "string" ? choice.blockedText.trim() : "";
 		// 属性全满时 statUp 必然落空，换成随机奇物；放在生成期是为了随存档定死、读档不重掷。
@@ -310,20 +343,24 @@ export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0,
 			clean.curio = "random";
 		}
 		const action = buildEventAction(choice.action, base, level, rng);
-		// 消耗类选项把价钱写进文案：倍率是按本次胜利奖励现算的，玩家点之前就该看到要花多少，
-		// 而不是结算完才发现。文案随存档定死，读档后显示不变。
-		const fromOutcomes = Array.isArray(choice.outcomes) && choice.outcomes.length > 0;
-		let text = withCostText(choice.text.trim(), clean, fromOutcomes);
-		if (action) {
-			text = withActionText(text, action);
-		}
-		const built = { text, reward: clean };
+		const built = { text: choice.text.trim(), reward: clean };
 		if (action) {
 			built.action = action;
 		}
 		if (blockedText) {
 			built.blockedText = blockedText;
 		}
+		// 「此刻没有可作用的对象」（属性已满 / 没技能 / 没奇物）的选项点下去一个钱都不扣，
+		// 所以也不该在按钮上标价——标了等于骗玩家点。判据与事件页、结算层共用 getBlockedMessage 一份
+		const blockedNow = runLike ? !!getBlockedMessage(runLike, built) : false;
+		// 消耗类选项把价钱写进文案：倍率是按本次胜利奖励现算的，玩家点之前就该看到要花多少，
+		// 而不是结算完才发现。文案随存档定死，读档后显示不变。
+		const fromOutcomes = Array.isArray(choice.outcomes) && choice.outcomes.length > 0;
+		let text = blockedNow ? built.text : withCostText(built.text, clean, fromOutcomes);
+		if (action && !blockedNow) {
+			text = withActionText(text, action);
+		}
+		built.text = text;
 		choices.push(built);
 	}
 	if (!choices.length) {
@@ -391,7 +428,12 @@ export function maybeCreatePendingEvent(run, wonLevel, now, rng = Math.random) {
 		return run;
 	}
 	const eventId = rollEventId(rng);
-	const pendingEvent = buildPendingEvent(eventId, wonLevel, rng, now, { statLevels: run.stats, curios: run.curios });
+	const pendingEvent = buildPendingEvent(eventId, wonLevel, rng, now, {
+		level: run.level,
+		statLevels: run.stats,
+		curios: run.curios,
+		run,
+	});
 	if (!pendingEvent) {
 		return run;
 	}
@@ -667,6 +709,14 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	if (choice.action?.kind === "abyssDebt" && choice.action.perEnemy > 0) {
 		next.abyssDebt = (Number(run.abyssDebt) || 0) + choice.action.perEnemy;
 		lines.push(`下一场战斗每个敌人获得 ${next.abyssDebt} 个随机深渊强化`);
+	}
+
+	// 虫洞跳关：关数在结算这一刻一次性推进——跳过的那几关不落任何账、也不触发事件与奇物商店；
+	// 期间该拿的金币与经验已在构建期并进 reward，上面照常入账。读的是存档里定死的 skipLevels，
+	// 起跳点是 run.level（事件挂着的期间关卡不会变：读档恢复先回事件页，见 mode.js 的页面路由）
+	if (Number.isFinite(reward.skipLevels) && reward.skipLevels > 0) {
+		next.level = Math.max(1, Math.floor(Number(next.level) || 1)) + reward.skipLevels;
+		lines.push(`跳过 ${reward.skipLevels} 关，直接来到第 ${next.level} 关`);
 	}
 
 	next.pendingEvent = null;

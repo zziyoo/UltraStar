@@ -42,8 +42,14 @@
 //                     （奇物已集齐时整个选项不结算：不扣货币、相当于跳过，写明原因）
 //     skill           "random" = 随机获得一个商店技能（槽满或池空则落空，但其余奖励照常结算）
 //     statUp / statDown   "random" = 随机一项属性 +1 / -1（越界按已达上限/下限处理，写明哪项在生成时定死）；
-//                       玩家三项属性全满时，生成期会把 statUp 就地换成 curio:"random"
-//                       （否则结算必然「已达最高等级，未生效」），statDown 不受影响
+//                       statUp 的 "random" 只在**还没满**的属性里掷（抽中已满项等于白花代价），
+//                       三项全满时没有候选：有 blockedText 的选项照常挂着弹提示，没写的一律被生成期换成
+//                       curio:"random"；statDown 不受影响（它是惩罚向，掷空对玩家有利）
+//     skipLevels      跳过 N 关（正整数）：构建期把「接下来 N 关」的无尽基础奖励
+//                     （floor(√n×50) 金币 / floor(√n×20) 经验）逐关求和并进 gold/exp 固定值，
+//                     结算时 run.level += N。基础口径、不吃奇物加成（与深渊裂隙同一条「胜利加成不生效」）。
+//                     例：第 4 关打赢后触发 → 跳过第 5~14 关、直接接着打第 15 关，
+//                     无尽最高记录记到跳过的最后一关（第 14 关）
 //     curioRarity + expIfNoCurioByWin
 //                     按**初始品质**掷一件「还没拥有」的奇物（"common" / "rare" / "epic" / "negative"）：
 //                     掷得到就把那个具体 id 写进 curio（构建期定死，读档不重掷）；
@@ -400,6 +406,24 @@ export const events = {
 			},
 			{
 				text: "我不需要，谢谢",
+				reward: {},
+			},
+		],
+	},
+	// ---------------------------------------------------------------- 本轮新增：跳关（skipLevels）
+	wormhole: {
+		id: "wormhole",
+		name: "虫洞",
+		description: "蔚蓝色的虫洞引人注目",
+		image: "extension/奥特之星/assets/events/wormhole.png",
+		choices: [
+			{
+				// 跳过十关并拿走期间的全部金币与经验（基础口径，构建期求和定死；细节见文件头 skipLevels）
+				text: "进入",
+				reward: { skipLevels: 10 },
+			},
+			{
+				text: "离开",
 				reward: {},
 			},
 		],

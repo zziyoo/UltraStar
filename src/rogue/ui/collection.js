@@ -43,6 +43,9 @@ function rewardBrief(reward, choice = null) {
 	if (Number.isFinite(reward.expByWin)) {
 		parts.push(byWin(reward.expByWin, "经验"));
 	}
+	if (Number.isFinite(reward.skipLevels) && reward.skipLevels > 0) {
+		parts.push(`跳过 ${reward.skipLevels} 关，并获得期间的全部金币与经验`);
+	}
 	if (Number.isFinite(reward.goldPct) && reward.goldPct) {
 		const wager = `投入当前金币的 ${Math.abs(reward.goldPct)}%`;
 		const payout = reward.goldPayout;
