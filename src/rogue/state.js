@@ -321,11 +321,20 @@ function normalizeChallengeStages(raw) {
  * 把任意来路的数据重建为合法存档。
  * 采用白名单重建而非展开原对象，保证结果只含 JSON 可序列化的标量与数组，
  * Player / Card / 函数 / 循环引用都进不了存档。
+ *
+ * @param {object} raw
+ * @param {{ isSkillAllowed?: (id: string) => boolean }} [options]
+ *        isSkillAllowed 由调用方注入（mode.js 传技能池的判定；不传就只做形状清洗）。
+ *        存档里的 shopOffers 可能来自旧版本/被改过：技能可能已下架、被判肉鸽不兼容、
+ *        甚至根本不存在——读档这里先清一遍，免得过期候选绕过技能池规则。
+ *        只清 shopOffers，**不动 skills**：已买到的技能属于玩家既有进度，
+ *        就算后来被判不兼容也得继续带着（商店规则变了不该回头抢走玩家手里的东西）。
  */
-export function normalizeRun(raw) {
+export function normalizeRun(raw, options = {}) {
 	if (!isPlainObject(raw)) {
 		return null;
 	}
+	const isSkillAllowed = typeof options.isSkillAllowed === "function" ? options.isSkillAllowed : null;
 
 	const mode = RUN_MODE_KEYS.includes(raw.mode) ? raw.mode : RUN_MODE.challenge;
 
@@ -362,6 +371,10 @@ export function normalizeRun(raw) {
 	for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
 		const id = sanitizeString(offer?.id);
 		if (!id || isDeprecatedSkill(id)) {
+			continue;
+		}
+		if (isSkillAllowed && !isSkillAllowed(id)) {
+			// 已下架 / 肉鸽不兼容 / 定义已消失：这一格干脆不还原，玩家看到的是更少的候选而不是坏候选
 			continue;
 		}
 		shopOffers.push({ id, price: clampInt(offer?.price, 0, Number.MAX_SAFE_INTEGER, 0), sold: !!offer?.sold });
@@ -468,7 +481,7 @@ export function updateBest(best, level, characterId, now) {
  * 版本迁移：只允许单步前进，缺迁移函数时报错而不是崩溃。
  * 返回 { slots, errors }，errors 供上层提示玩家。
  */
-export function migrateSlots(raw) {
+export function migrateSlots(raw, options = {}) {
 	const errors = [];
 	const list = Array.isArray(raw) ? raw : [];
 	const slots = [];
@@ -489,7 +502,7 @@ export function migrateSlots(raw) {
 			errors.push(`存档${i + 1}：版本(${version})高于当前支持的版本(${RUN_VERSION})，请更新扩展后再读取`);
 			continue;
 		}
-		const run = normalizeRun(data);
+		const run = normalizeRun(data, options);
 		if (run && !run.characterId) {
 			slots.push(null);
 			errors.push(`存档${i + 1}：缺少角色，已按空存档处理`);
@@ -521,8 +534,8 @@ export function setSlot(slots, index, run, now) {
 }
 
 /** 深拷贝，避免结算时把内存中的 run 与存档容器指向同一个对象 */
-export function cloneRun(run) {
-	return run ? normalizeRun(run) : null;
+export function cloneRun(run, options = {}) {
+	return run ? normalizeRun(run, options) : null;
 }
 
 /** 存档写入前的最后一道关：确认整份数据 JSON 可序列化 */

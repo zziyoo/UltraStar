@@ -39,6 +39,7 @@ const statsData = await load("src/rogue/data/stats.js");
 const common = await load("src/rogue/ui/common.js");
 const bgmSystem = await load("src/systems/bgm.js");
 const rogueBgm = await load("src/rogue/bgm.js");
+const packSkills = await load("src/rogue/data/skills.js");
 
 /**
  * 当前最上层页面：优先取本体对话框栈顶（提示框/确认框都走这条路），
@@ -162,6 +163,21 @@ function session() {
 		/* 首次尚无页面 */
 	}
 	stub.resetState();
+	// 真实游戏里商店候选 = 分包技能 + 全体武将技能，桩里必须把分包技能注册进 lib.skill/lib.translate，
+	// 否则 getShopPool() 恒为空，商店相关用例（候选数/排除规则/刷新）全都验不到东西
+	Object.assign(lib.skill, packSkills.skill);
+	Object.assign(lib.translate, packSkills.translate);
+	// 冒烟用的假技能：真机上由本体/扩展提供。id 与 id_info 两个翻译键都要给——
+	// 读档清洗的技能合法性闸门按本体的 skillDisabled 口径判，缺 _info 会被当成「已失效技能」清掉
+	for (const id of [
+		"rogue_extra",
+		"own_one", "own_two", "own_three", "own_four", "own_five",
+		"own_long", "own_poptip", "owned_skill",
+	]) {
+		lib.skill[id] ??= { forced: true, trigger: { player: "phaseDrawBegin2" } };
+		lib.translate[id] ??= id;
+		lib.translate[`${id}_info`] ??= "冒烟测试用技能。";
+	}
 	// 部分用例需要一个「池子之外」的测试技能：带触发时机，用来验证 hookmap 登记
 	lib.skill.rogue_extra = { forced: true, trigger: { player: "phaseDrawBegin2" } };
 	lib.translate.rogue_extra = "额外<hr>测试用技能。";
@@ -2112,10 +2128,9 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 		return lines;
 	};
 	const coin = openDetail("幸运硬币");
-	assertEqual(coin[0], "幸运硬币", "详情首行是事件名");
-	assert(coin[1].includes("闪耀的硬币"), `第二行是描述：${coin.join(" / ")}`);
+	// 详情只列选项与结果：名称/介绍卡片上已有，弹层里不再重复
 	assertEqual(
-		JSON.stringify(coin.slice(2)),
+		JSON.stringify(coin),
 		JSON.stringify(["「拾取」", "　50%：获得 1 倍胜利金币", "　50%：消耗 0.4 倍胜利金币", "「观察」", "　无奖励"]),
 		`幸运硬币逐行版式：${coin.join(" / ")}`
 	);
@@ -2127,7 +2142,7 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 	// 许愿池：只列拿得到东西的那支，落空不写
 	const pool = openDetail("许愿池");
 	assertEqual(
-		JSON.stringify(pool.slice(2)),
+		JSON.stringify(pool),
 		JSON.stringify([
 			"「小额许愿」",
 			"　10%：投入当前金币的 10%，愿望达成按 100 倍返还",
@@ -2229,11 +2244,10 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 		return {
 			names: nodesWithClass("wm-rogue-detail-step-name").map(textOf),
 			effects: nodesWithClass("wm-rogue-detail-effect").map(textOf),
-			prevs: nodesWithClass("wm-rogue-detail-prev").map(textOf),
 			text: dump(box),
 		};
 	};
-	// 数值成长：普通 1 张 → 稀有 2 张 → 史诗 4 张，逐档给最终值并注记上一档
+	// 数值成长：普通 1 张 → 稀有 2 张 → 史诗 4 张，逐档给该档的实际值
 	const core = detailOf("能量核心");
 	assertEqual(
 		JSON.stringify(core.names),
@@ -2245,11 +2259,6 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 		JSON.stringify(["摸牌阶段额外摸 1 张牌", "摸牌阶段额外摸 2 张牌", "摸牌阶段额外摸 4 张牌"]),
 		`每档的实际数值：${core.effects.join(" / ")}`,
 	);
-	assertEqual(
-		JSON.stringify(core.prevs),
-		JSON.stringify(["上一档：摸牌阶段额外摸 1 张牌", "上一档：摸牌阶段额外摸 2 张牌"]),
-		`变化注记：${core.prevs.join(" / ")}`,
-	);
 	assert(core.text.includes("能量核心") && core.text.includes("初始品质：普通"), `头部有名称与初始品质：${core.text}`);
 	// 负面奇物：从「金币 -10%」一路净化到「+20%」，四档全给
 	const coin = detailOf("诅咒金币");
@@ -2259,7 +2268,6 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 	// 链尾起手只有一档：不伪造升级档
 	const watch = detailOf("破损怀表");
 	assertEqual(watch.names.length, 1, `史诗起手没有后续档位：${watch.names.join(" / ")}`);
-	assert(!watch.prevs.length, `没有上一档就不写注记：${watch.text}`);
 	// 连点不同奇物：不叠层、不串台
 	assertEqual(nodesWithClass("wm-rogue-detail-popup").length, 1, "任何时刻只有一个详情弹层");
 	assert(!watch.text.includes("诅咒金币"), `详情内容不串台：${watch.text}`);

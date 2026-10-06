@@ -57,6 +57,7 @@ const stagesData = await load("src/rogue/data/challengeStages.js");
 const statsData = await load("src/rogue/data/stats.js");
 const skillsData = await load("src/rogue/data/skills.js");
 const skillPool = await load("src/rogue/skillPool.js");
+const skillCompat = await load("src/rogue/skillCompat.js");
 const rewardsData = await load("src/rogue/data/rewards.js");
 const enemy = await load("src/rogue/enemy.js");
 const battle = await load("src/rogue/battle.js");
@@ -727,16 +728,18 @@ check("关卡配置抽取：一次抽满前 10 关、互不重复、全部来自
 	return first.join(" → ");
 });
 
-check("关卡配置抽取（注入判定）：被剔配置绝不出现；可用不足 10 个时循环补齐兜底", () => {
+check("关卡配置抽取（注入判定）：被剔配置绝不出现；可用不足 10 个时明确返回不足而不是循环补齐", () => {
 	const excluded = stagesData.challengeStagePool[0].id;
 	const filtered = stagesData.drawChallengeStageIds(makeRng(7), config => config.id !== excluded);
 	assert(filtered.every(id => id !== excluded), "被判定不可用的配置不参与抽取");
+	assertEqual(new Set(filtered).size, filtered.length, "可用配置够时前 10 关互不重复");
 	const tail = stagesData.challengeStagePool.slice(0, 4).map(config => config.id);
 	const short = stagesData.drawChallengeStageIds(makeRng(7), config => tail.includes(config.id));
-	assertEqual(short.length, cfg.CHALLENGE_STAGE_LEVELS, "可用不足 10 个时仍保证每关有配置");
-	assert(short.every(id => tail.includes(id)), "补齐的配置来自可用集合（允许重复）");
+	assertEqual(short.length, tail.length, "可用不足 10 个时按可用条数返回，绝不循环补齐");
+	assert(short.every(id => tail.includes(id)), "返回的都在可用集合里");
+	assertEqual(new Set(short).size, short.length, "不为凑数而重复同一份配置");
 	assertEqual(stagesData.drawChallengeStageIds(makeRng(7), () => false).length, 0, "全部不可用时返回空数组交上层报错");
-	return `可用 4 个时第 1~10 关：${short.join("、")}`;
+	return `可用 4 个时只返回 ${short.length} 条：${short.join("、")}`;
 });
 
 check("关卡配置抽取默认闸门：只看角色是否存在，禁将的照抽照打", () => {
@@ -809,13 +812,42 @@ check("关卡配置 → 阵容：single 与 group 统一按 players 解析，指
 	const many = enemy.createStageEnemyConfigs(group, 8, makeRng(4));
 	assertEqual(many.length, 3, "group 按成员数生成敌人");
 	assertEqual(many[0].characterId, "角色A", "逐个成员解析");
-	assertEqual(many[0].stats.defense + many[0].stats.draw + many[0].stats.attack, 8, "未指定属性的成员按关卡数分配");
+	assertEqual(many[0].stats.defense + many[0].stats.draw + many[0].stats.attack, 4,
+		"多人组合默认共吃一份预算：8 点按 2 个随机分配的成员切成 4+4");
 	assertEqual(JSON.stringify(many[1].stats), JSON.stringify({ defense: 3, draw: 1, attack: 0 }), "指定属性原样生效（缺省键按 0）");
 	assertEqual(many[1].stats.defense + many[1].stats.draw + many[1].stats.attack, 4, "指定属性不再随机分配");
 	assertEqual(many[2].skills.join(","), SKILL_A, "指定技能进入阵容");
 	assertEqual(many[2].maxHp, 2, "体力覆盖进入阵容");
 	assertEqual(JSON.stringify(enemy.createStageEnemyConfigs(single, 5, makeRng(3))), JSON.stringify(one), "同一 rng 可复现");
 	return `${single.id}（single）与 ${group.id}（group）走同一条生成路径`;
+});
+
+check("组合预算：多人默认 shared（总点数不随人数膨胀），单人/each 与原行为逐位相同", () => {
+	assertEqual(enemy.resolveStageBudget({ players: [{}] }, 1), "each", "单人默认 each");
+	assertEqual(enemy.resolveStageBudget({ players: [{}, {}] }, 2), "shared", "多人默认 shared");
+	assertEqual(enemy.resolveStageBudget({ players: [{}, {}], budget: "each" }, 2), "each", "显式 each 照旧");
+	// 切份：均分 + 余数散给随机成员，总和恒等于 min(等级, 30)
+	for (const [level, count] of [[10, 2], [9, 2], [30, 3], [30, 4], [4, 3], [1, 3]]) {
+		const shares = enemy.splitTeamPoints(level, count, makeRng(3));
+		assertEqual(shares.length, count, `${count} 个人切成 ${count} 份`);
+		assertEqual(shares.reduce((a, b) => a + b, 0), Math.min(level, cfg.ENEMY_TOTAL_MAX ?? 30), `${level} 点分给 ${count} 人，总和不变`);
+	}
+	assertEqual(JSON.stringify(enemy.splitTeamPoints(7, 1, makeRng(1))), JSON.stringify([7]), "单人切份就是原值");
+	// 2 人组合的总点数 = 单人总点数（8 而不是 16）
+	const pair = { id: "两人", type: "group", players: [{ character: "角色A" }, { character: "角色B" }] };
+	const shared = enemy.createStageEnemyConfigs(pair, 8, makeRng(4));
+	const each = enemy.createStageEnemyConfigs({ ...pair, budget: "each" }, 8, makeRng(4));
+	const total = list => list.reduce((sum, e) => sum + e.stats.defense + e.stats.draw + e.stats.attack, 0);
+	assertEqual(total(shared), 8, "shared：整队共吃 8 点");
+	assertEqual(total(each), 16, "each：每人各吃 8 点（历史行为，仍可用但会线性膨胀）");
+	assertEqual(shared.length, 2, "组合仍是 2 个敌人");
+	// 写了固定属性的成员不占队里的份额：队伍总点数仍等于关卡点数
+	const mixed = {
+		id: "混合", type: "group",
+		players: [{ character: "角色A", stats: { defense: 5, draw: 5, attack: 0 } }, { character: "角色B" }, { character: "角色C" }],
+	};
+	assertEqual(total(enemy.createStageEnemyConfigs(mixed, 9, makeRng(4))), 5 + 5 + 9, "固定属性那人不扣别人的预算");
+	return "shared 8 / each 16 / 固定属性不占份额";
 });
 
 check("challengeStages 存档：白名单清洗、位置稳定、cloneRun 读档不重掷", () => {
@@ -1188,8 +1220,16 @@ check("候选池：并上全体武将技能，禁用武将的技能与其衍生�
 	assert(!ids.has("pool_derived"), "禁用武将技能的衍生技不该进池");
 	assert(!ids.has("pool_boss"), "玩家选不到的 Boss 技能不该进池");
 	assert(!ids.has("pool_internal"), "本体判为不可选用的内部技能不该进池");
-	assert(curated.every(id => ids.has(id)), `作者上架清单 ${curated.length} 条要全数保留`);
-	return `池 ${ids.size} 条 / 作者清单 ${curated.length} 条`;
+	// 作者清单只说明「作者想卖」，不说明「挂到别人身上安全」：兼容性校验一样要过。
+	// 明确禁止的那几条必须不在池里，其余一条都不能少。
+	const denied = curated.filter(id => skillCompat.ROGUE_SKILL_DENY.has(id));
+	assert(denied.length > 0, "兼容性禁止名单要在作者清单里真的命中几条（否则这条断言没在测东西）");
+	for (const id of denied) {
+		assert(!ids.has(id), `肉鸽不兼容技能不该进池：${id}`);
+	}
+	const expected = curated.filter(id => !skillCompat.ROGUE_SKILL_DENY.has(id));
+	assert(expected.every(id => ids.has(id)), `作者上架清单里兼容的 ${expected.length} 条要全数保留`);
+	return `池 ${ids.size} 条 / 作者清单 ${curated.length} 条（禁入 ${denied.length} 条）`;
 });
 
 check("免费刷新次数：新档给满、逐次扣到 0、第三次拒绝，且重开与重载都不补次数", () => {

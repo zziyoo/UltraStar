@@ -147,10 +147,8 @@ function choiceLines(choice) {
 }
 
 function eventLines(def) {
-	const lines = [def.name];
-	if (def.description) {
-		lines.push(def.description);
-	}
+	// 详情只列选项与结果：名称/介绍卡片上已有，弹层里不再重复
+	const lines = [];
 	for (const choice of def.choices ?? []) {
 		lines.push(...choiceLines(choice));
 	}
@@ -197,10 +195,6 @@ function showCurioDetail(id) {
 		}
 		for (const line of step.lines) {
 			ui.create.div(".wm-rogue-detail-effect", line.text, section);
-			// 逐档对比注记：数值型奇物一眼看出「由 1 张变成 2 张」，而不是一句「每级提升」
-			if (line.prev !== null && line.prev !== line.text) {
-				ui.create.div(".wm-rogue-detail-prev", `上一档：${line.prev}`, section);
-			}
 		}
 		if (index > 0 && !step.changed) {
 			ui.create.div(".wm-rogue-detail-same", "（与上一档相同）", section);

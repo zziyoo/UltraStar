@@ -4,6 +4,7 @@
 
 import { lib } from "../../../../noname.js";
 import { isPlayerUsable } from "./battle.js";
+import { checkRogueSkillCompat } from "./skillCompat.js";
 import { pool } from "./data/skills.js";
 
 /** 角色的技能表：本体注册后是数组第 3 项，扩展原始数据里是 skills 字段，两种形态都收 */
@@ -42,21 +43,66 @@ function derivationsOf(skillId) {
 	return Array.isArray(value) ? value.filter(id => typeof id === "string" && id) : [];
 }
 
-/** 能不能上架：本体筛「这条技能能不能挂到别人身上」用的就是同一个判断 */
+/**
+ * 能不能上架：本体筛「这条技能能不能挂到别人身上」用的就是同一个判断。
+ * **fail-closed**：本体过滤器不存在、抛异常、返回非布尔，一律按「不可上架」处理——
+ * 判不出来就别往商店里塞，肉鸽一局买了拆不掉。
+ */
 function isSellable(skillId) {
 	if (!lib.skill?.[skillId]) {
 		return false;
 	}
 	const filter = lib.filter?.skillDisabled;
 	if (typeof filter !== "function") {
-		return true;
+		console.error("[rogue] 本体缺少 lib.filter.skillDisabled，按不可上架处理：", skillId);
+		return false;
 	}
 	try {
 		return !filter(skillId);
 	} catch (error) {
-		console.error("[rogue] 技能可用性过滤失败，按可上架处理：", skillId, error);
-		return true;
+		console.error("[rogue] 技能可用性过滤失败，按不可上架处理：", skillId, error);
+		return false;
 	}
+}
+
+/** 兼容性判定的缓存：一次进店要扫上千条技能定义，源码正则只跑一次。定义被换掉（测试/热更）会自动失效 */
+const compatCache = new Map();
+
+/**
+ * 这条技能现在**允许进入肉鸽池**吗。
+ * 两道关：本体口径（有没有翻译、是不是内部技）+ 肉鸽自己的兼容性/安全校验层
+ * （身份/主公、角色专属状态、特殊 mode、全局 UI 与全局变量、副作用明显 —— 见 skillCompat.js）。
+ * 作者上架清单与武将技能一视同仁：谁判不过都不进池。
+ *
+ * 只缓存**兼容性**那一层（它只依赖技能定义，定义不变结果就不变）；
+ * 本体口径那一层每次现算——lib.filter.skillDisabled 是可能被别处替换掉的（本体缺陷开关、
+ * 其它扩展的过滤器），缓存它会把一次异常当成永久结论。
+ */
+export function isRogueSkillAllowed(skillId) {
+	if (typeof skillId !== "string" || !skillId) {
+		return false;
+	}
+	const def = lib.skill?.[skillId];
+	if (!def) {
+		return false;
+	}
+	const cached = compatCache.get(skillId);
+	let compatible;
+	if (cached && cached.def === def) {
+		compatible = cached.compatible;
+	} else {
+		try {
+			compatible = checkRogueSkillCompat(skillId, def).ok;
+		} catch (error) {
+			console.error("[rogue] 技能兼容性校验失败，按不可上架处理：", skillId, error);
+			compatible = false;
+		}
+		compatCache.set(skillId, { def, compatible });
+	}
+	if (!compatible) {
+		return false;
+	}
+	return isSellable(skillId);
 }
 
 /**
@@ -64,7 +110,9 @@ function isSellable(skillId) {
  * 组成：作者上架清单（分包技能） + 全体可选武将的技能。
  * 排除：玩家禁用过的武将的技能，以及这些技能声明过的衍生技；
  *       同一个技能只要还有别的未禁用武将拥有，就继续上架。
- * 本体判为不可选用的技能（没翻译、内部技）不进池；作者清单在 rogue-data 自检里已经逐条验过，不再重筛。
+ * 本体判为不可选用的技能（没翻译、内部技）与肉鸽兼容性校验不过的技能都不进池；
+ * 作者清单在 rogue-data 自检里已经逐条验过存在性，但**一样要过兼容性校验**——
+ * 上架清单只说明「作者想卖」，不说明「挂到别人身上安全」。
  * price 只是作者标注位，实际售价由 shop.js 按模式基准价 ±25% 随机生成（闯关恒 50、无尽随 √关增长），floor 取整。
  */
 export function getShopPool() {
@@ -91,8 +139,12 @@ export function getShopPool() {
 		}
 	}
 
-	const curated = new Set(pool.map(item => item?.id));
-	const ids = new Set(curated);
+	const ids = new Set();
+	for (const item of pool) {
+		if (item?.id) {
+			ids.add(item.id);
+		}
+	}
 	for (const skill of usable) {
 		ids.add(skill);
 	}
@@ -101,7 +153,7 @@ export function getShopPool() {
 		if (blocked.has(id) && !usable.has(id)) {
 			continue;
 		}
-		if (!curated.has(id) && !isSellable(id)) {
+		if (!isRogueSkillAllowed(id)) {
 			continue;
 		}
 		list.push({ id, price: 100 });

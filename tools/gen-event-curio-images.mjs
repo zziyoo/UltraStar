@@ -2,9 +2,11 @@
 //   加 --preview 顺手导出一张「每条目的真实 64px 样子」拼表（tools/preview-sheet.png），
 //   奇物卡面上只有 64px，看原图会一路绿灯、进游戏全是糊的，验收只看这张拼表。
 //
-// 用纯 Node（zlib + 手写 PNG 编码）生成 assets/events/*.png（512x512）与 assets/curios/*.png（256x256）。
-// 风格：粗描边徽章/贴纸风 —— 每个条目一套专属对角双色底 + 斜切亮带 + 彩色粒子 + 暗角 + 徽章框，
-// 主体为「深色外轮廓 + 左上亮→右下暗的渐变填充 + 明确高光」，缩到 64px（奇物卡实际显示尺寸）仍然抢眼。
+// 极简 flat 风：单色底 + 一圈徽章框，主体保留深色外轮廓，缩到 96px（界面真实尺寸）仍然认得出。
+// 斜切亮带 / 粒子 / 四芒星 / 暗角全去掉：那几样在 96px 上只剩噪点，还是 PNG 压不动的头号元凶。
+//
+// 输出统一 SIZE×SIZE：界面上最大只显示 104px（详情图），192 够 2 倍屏清晰。
+const SIZE = 192;
 // 正式美术资源到位后直接覆盖同名文件即可，代码不用改；重跑本脚本会把占位图再生成一遍。
 //
 // 生成后记得把新文件登记进 data/assets.js（node tools/update-manifest.mjs <文件...>）。
@@ -24,16 +26,10 @@ const CURIOS_DIR = path.join(root, "assets", "curios");
 // 整体变浓变淡只改这里，不必逐个图形动坐标。数值都是「占画面宽度比例」。
 
 const STYLE = {
-	ink: 0.019, // 贴纸外轮廓厚度：0.019 → 256px 图上约 5px，缩到 64px 仍留 1px 线
+	ink: 0.019, // 贴纸外轮廓厚度：0.019 → 192px 图上约 3.7px，缩到 96px 仍留 1px 线
 	inkColor: "#08050f", // 外轮廓 / 内凹阴影色
 	gradLight: 0.26, // 主体渐变亮端：向白混合的比例（调高会变粉彩、掉饱和）
-	gradDark: 0.58, // 主体渐变暗端：向 ink 混合的比例（越大越立体，越大越脏）
-	band: 0.1, // 背景斜切亮带强度
-	particles: 40, // 背景粒子数量
-	sparkles: 3, // 背景四芒闪光星数量
-	vignette: 0.7, // 暗角强度
-	glow: 0.3, // 背景主色光晕强度
-	bgTint: 0.34, // 背景吃主色的比例。过高会让黄变芥末、橙变棕，且同色主体糊进底里
+	gradDark: 0.45, // 主体渐变暗端：向 ink 混合的比例（越大越立体，越大越脏）
 };
 
 // ---------------------------------------------------------------- 极简画布
@@ -147,42 +143,13 @@ class Canvas {
 		}
 	}
 
-	/** 全幅线性渐变底：从 (ax,ay) 的 a 到 (bx,by) 的 b */
-	linear(ax, ay, bx, by, a, b) {
+	/** 全幅平涂单一底色（背景不再有任何渐变与噪声） */
+	flat(color) {
 		const data = this.data;
-		const w = this.w;
-		const dx = bx - ax;
-		const dy = by - ay;
-		const inv = 1 / (dx * dx + dy * dy || 1);
-		for (let y = 0; y < w; y++) {
-			for (let x = 0; x < w; x++) {
-				const t = clamp01(((x + 0.5 - ax) * dx + (y + 0.5 - ay) * dy) * inv);
-				const i = (y * w + x) * 4;
-				data[i] = a[0] + (b[0] - a[0]) * t;
-				data[i + 1] = a[1] + (b[1] - a[1]) * t;
-				data[i + 2] = a[2] + (b[2] - a[2]) * t;
-			}
-		}
-	}
-
-	/** 暗角：离中心越远压得越暗，把视线收回徽章中央 */
-	vignette(strength) {
-		const data = this.data;
-		const w = this.w;
-		const c = w / 2;
-		const max = Math.hypot(c, c);
-		for (let y = 0; y < w; y++) {
-			for (let x = 0; x < w; x++) {
-				const d = Math.hypot(x + 0.5 - c, y + 0.5 - c) / max;
-				const k = 1 - strength * Math.pow(clamp01((d - 0.4) / 0.6), 2);
-				if (k >= 1) {
-					continue;
-				}
-				const i = (y * w + x) * 4;
-				data[i] *= k;
-				data[i + 1] *= k;
-				data[i + 2] *= k;
-			}
+		for (let i = 0; i < data.length; i += 4) {
+			data[i] = color[0];
+			data[i + 1] = color[1];
+			data[i + 2] = color[2];
 		}
 	}
 
@@ -340,21 +307,102 @@ function chunk(type, data) {
 	return Buffer.concat([length, body, crc]);
 }
 
+/**
+ * 每行挑一个滤波器（None / Sub / Up），平涂底 + 少量边缘的图全用 Up：整行变成一串 0，
+ * deflate 直接吃下。差值取模 256，解压端自会还原。
+ */
+function filterRows(pixels, size, stride, bpp) {
+	const raw = Buffer.alloc((stride + 1) * size);
+	const candidates = [Buffer.allocUnsafe(stride), Buffer.allocUnsafe(stride), Buffer.allocUnsafe(stride)];
+	for (let y = 0; y < size; y++) {
+		const row = y * stride;
+		const up = row - stride;
+		let none = 0;
+		let sub = 0;
+		let upSum = 0;
+		for (let x = 0; x < stride; x++) {
+			const v = pixels[row + x];
+			const left = x >= bpp ? pixels[row + x - bpp] : 0;
+			const above = y > 0 ? pixels[up + x] : 0;
+			candidates[0][x] = v;
+			candidates[1][x] = (v - left) & 255;
+			candidates[2][x] = (v - above) & 255;
+			none += candidates[0][x] < 128 ? candidates[0][x] : 256 - candidates[0][x];
+			sub += candidates[1][x] < 128 ? candidates[1][x] : 256 - candidates[1][x];
+			upSum += candidates[2][x] < 128 ? candidates[2][x] : 256 - candidates[2][x];
+		}
+		let best = 0;
+		let bestSum = none;
+		if (sub < bestSum) {
+			best = 1;
+			bestSum = sub;
+		}
+		if (upSum < bestSum) {
+			best = 2;
+		}
+		raw[y * (stride + 1)] = best;
+		candidates[best].copy(raw, y * (stride + 1) + 1, 0, stride);
+	}
+	return raw;
+}
+
+// 色彩量化步长：16 → 每通道 16 级。量化后单图颜色数落在 200 以内，能走下面的调色板 PNG；
+// 再粗（32）在主体渐变上会压出可见台阶。
+const STEP = 16;
+
+/**
+ * 先试试调色板 PNG（1 字节/像素）：量化后颜色数 ≤256 就走这条，
+ * 否则退回 RGB（3 字节/像素）。全部像素不透明，所以不要 alpha 通道。
+ */
+function packPixels(pixels, size) {
+	const total = size * size;
+	const keys = new Map();
+	const idx = new Uint8Array(total);
+	let colors = [];
+	for (let i = 0; i < total; i++) {
+		const key = ((pixels[i * 4] >> 4) << 8) | ((pixels[i * 4 + 1] >> 4) << 4) | (pixels[i * 4 + 2] >> 4);
+		let slot = keys.get(key);
+		if (slot === undefined) {
+			if (colors.length >= 256) {
+				return packRGB(pixels, size); // 颜色太多：退回转 RGB
+			}
+			slot = colors.length;
+			keys.set(key, slot);
+			colors.push([pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2]]);
+		}
+		idx[i] = slot;
+	}
+	const palette = Buffer.alloc(colors.length * 3);
+	colors.forEach(([r, g, b], i) => {
+		palette[i * 3] = r;
+		palette[i * 3 + 1] = g;
+		palette[i * 3 + 2] = b;
+	});
+	return { pixels: idx, stride: size, bpp: 1, type: 3, extra: chunk("PLTE", palette) };
+}
+
+function packRGB(pixels, size) {
+	const rgb = Buffer.alloc(size * size * 3);
+	for (let i = 0; i < size * size; i++) {
+		rgb[i * 3] = pixels[i * 4];
+		rgb[i * 3 + 1] = pixels[i * 4 + 1];
+		rgb[i * 3 + 2] = pixels[i * 4 + 2];
+	}
+	return { pixels: rgb, stride: size * 3, bpp: 3, type: 2, extra: Buffer.alloc(0) };
+}
+
 function encodePNG(pixels, size) {
+	const packed = packPixels(pixels, size);
 	const ihdr = Buffer.alloc(13);
 	ihdr.writeUInt32BE(size, 0);
 	ihdr.writeUInt32BE(size, 4);
 	ihdr[8] = 8; // bit depth
-	ihdr[9] = 6; // RGBA
-	const raw = Buffer.alloc((size * 4 + 1) * size);
-	for (let y = 0; y < size; y++) {
-		raw[y * (size * 4 + 1)] = 0; // filter: none
-		pixels.copy ? pixels.copy(raw, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4)
-			: raw.set(pixels.subarray(y * size * 4, (y + 1) * size * 4), y * (size * 4 + 1) + 1);
-	}
+	ihdr[9] = packed.type; // 3 = 调色板 / 2 = RGB
+	const raw = filterRows(packed.pixels, size, packed.stride, packed.bpp);
 	return Buffer.concat([
 		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
 		chunk("IHDR", ihdr),
+		packed.extra,
 		chunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
 		chunk("IEND", Buffer.alloc(0)),
 	]);
@@ -362,63 +410,19 @@ function encodePNG(pixels, size) {
 
 // ---------------------------------------------------------------- 公共底图与图标
 
-/** 确定性伪随机（星星位置固定，重跑不变化） */
-function makeRng(seed) {
-	let value = seed;
-	return () => {
-		value = (value * 1103515245 + 12345) % 2147483648;
-		return value / 2147483648;
-	};
-}
-
 /**
- * 徽章底：对角双色渐变 + 主色光晕 + 斜切亮带 + 彩色粒子 + 四芒星 + 暗角 + 徽章框。
- * 每个条目吃自己的主色，12 张图不再共用同一个深紫底。
+ * 徽章底：一整块主色压暗的平涂 + 一圈徽章框。
+ * 旧版的对角渐变 / 光晕 / 斜切亮带 / 40 颗随机粒子 / 星芒 / 暗角全部砍掉：
+ * 它们在 96px 卡片上读不出层次，却让每张图多出几百 KB 压不动的噪声。
  */
 function backdrop(canvas, hue, seed) {
 	const s = canvas.w;
 	const c = s / 2;
 	const P = canvas.p;
-	canvas.linear(0, 0, s, s, P.bgA, P.bgB);
-	// 光源偏左上：光晕、渐变、高光三处方向必须一致，否则立体感互相打架
-	canvas.glow(c * 0.88, c * 0.78, s * 0.54, hue, STYLE.glow);
-
-	// 斜切亮带：沿 45° 扫过画面，给纯渐变底一个方向
-	const R = Math.SQRT1_2;
-	const band = (off, half, color, alpha) => {
-		const ox = c + R * off;
-		const oy = c + R * off;
-		const L = s * 1.5;
-		canvas.polygon(
-			[[-L, -half], [L, -half], [L, half], [-L, half]].map(([u, v]) => [ox + R * (u + v), oy + R * (v - u)]),
-			color, alpha);
-	};
-	band(-s * 0.17, s * 0.12, P.pale, STYLE.band * 0.45);
-	band(s * 0.21, s * 0.03, P.warm, STYLE.band);
-
-	const rng = makeRng(seed);
-	// 粒子：数量比旧版多但都小，配合暗角收成「星尘」而不是噪点
-	for (let i = 0; i < STYLE.particles; i++) {
-		const x = rng() * s;
-		const y = rng() * s;
-		const r = (0.45 + rng() * 1.7) * canvas.ss;
-		canvas.dot(x, y, r, rng() < 0.5 ? P.pale : [1, 1, 1], 0.18 + rng() * 0.5);
-	}
-	// 四芒闪光星：十字细条 + 亮心，比一片白点更像「发光」
-	for (let i = 0; i < STYLE.sparkles; i++) {
-		const x = s * (0.1 + rng() * 0.8);
-		const y = s * (0.08 + rng() * 0.34);
-		const L = s * (0.018 + rng() * 0.02);
-		canvas.segment(x - L, y, x + L, y, s * 0.0045, P.warm, 0.85);
-		canvas.segment(x, y - L, x, y + L, s * 0.0045, P.warm, 0.85);
-		canvas.dot(x, y, s * 0.0085, [1, 1, 1], 1);
-	}
-	canvas.vignette(STYLE.vignette);
-
-	// 徽章框：深色底槽 + 亮线 + 外细环。用明度而不是同色同亮和主体区分，避免框和主体糊成一块
-	canvas.ring(c, c, s * 0.44, canvas.ss * 2.6, P.deep, 0.85);
-	canvas.ring(c, c, s * 0.44, canvas.ss * 1.2, P.pale, 0.6);
-	canvas.ring(c, c, s * 0.478, canvas.ss * 0.8, hue, 0.4);
+	canvas.flat(mix(hue, P.ink, 0.86));
+	// 徽章框：亮线靠明度和主体区分，避免框和主体糊成一块
+	canvas.ring(c, c, s * 0.44, canvas.ss * 1.4, P.pale, 0.55);
+	canvas.ring(c, c, s * 0.478, canvas.ss * 0.9, hue, 0.45);
 }
 
 /**
@@ -581,45 +585,38 @@ const draw = {
 		const s = cv.w;
 		const c = s / 2;
 		const P = cv.p;
-		// 按钮：粗外环 + 内凹盘一起描边，得到完整徽章剪影
+		// 键帽：圆角方按钮 + 顶面内凹。旧版画成一枚圆环章，读不出「按钮」
 		cv.inked(() => {
-			cv.ring(c, c, s * 0.33, s * 0.055, BODY);
-			cv.dot(c, c, s * 0.275, mix(hue, P.ink, 0.78));
+			cv.roundBox(c, c * 1.04, s * 0.27, s * 0.27, s * 0.1, BODY);
+			cv.roundBox(c, c * 1.04, s * 0.21, s * 0.21, s * 0.08, mix(hue, P.ink, 0.62));
 		});
-		cv.ring(c, c, s * 0.275, s * 0.014, P.pale, 0.6);
-		// 循环箭头：两段粗圆弧 + 两个实心三角箭头，缺口在右上与左下
-		const R = s * 0.2;
+		cv.roundBox(c, c * 1.04, s * 0.24, s * 0.24, s * 0.09, P.pale, 0.28);
+		// 循环箭头：两段粗弧 + 大号三角头，占满键帽顶面——按钮上唯一的字就是它
+		const R = s * 0.135;
 		const arc = (from, to) => {
-			const steps = 34;
+			const steps = 30;
 			for (let i = 0; i <= steps; i++) {
 				const a = from + ((to - from) * i) / steps;
-				cv.dot(c + Math.cos(a) * R, c + Math.sin(a) * R, s * 0.028, P.warm, 1);
+				cv.dot(c + Math.cos(a) * R, c * 1.04 + Math.sin(a) * R, s * 0.032, P.warm, 1);
 			}
 		};
 		const head = angle => {
 			const x = c + Math.cos(angle) * R;
-			const y = c + Math.sin(angle) * R;
+			const y = c * 1.04 + Math.sin(angle) * R;
 			const t = angle + Math.PI / 2;
 			cv.polygon([
-				[x + Math.cos(angle) * s * 0.05, y + Math.sin(angle) * s * 0.05],
-				[x + Math.cos(t + 2.3) * s * 0.085, y + Math.sin(t + 2.3) * s * 0.085],
-				[x + Math.cos(t - 2.3) * s * 0.085, y + Math.sin(t - 2.3) * s * 0.085],
+				[x + Math.cos(angle) * s * 0.055, y + Math.sin(angle) * s * 0.055],
+				[x + Math.cos(t + 2.1) * s * 0.095, y + Math.sin(t + 2.1) * s * 0.095],
+				[x + Math.cos(t - 2.1) * s * 0.095, y + Math.sin(t - 2.1) * s * 0.095],
 			], P.warm, 1);
 		};
-		arc(Math.PI * 0.32, Math.PI * 1.32);
-		head(Math.PI * 1.32);
-		arc(Math.PI * 1.32, Math.PI * 0.32 + Math.PI * 2);
-		head(Math.PI * 2.32);
-		// 中心闪电：明确表达「电力 / 能量」
-		cv.inked(() => cv.polygon([
-			[c + s * 0.03, c - s * 0.1],
-			[c - s * 0.06, c + s * 0.015],
-			[c - s * 0.005, c + s * 0.015],
-			[c - s * 0.035, c + s * 0.11],
-			[c + s * 0.065, c - s * 0.02],
-			[c + s * 0.005, c - s * 0.02],
-		], [1, 0.92, 0.35]), 0.35);
-		cv.dot(c - s * 0.16, c - s * 0.19, s * 0.038, [1, 1, 1], 0.5);
+		arc(-Math.PI * 0.18, Math.PI * 0.82);
+		head(Math.PI * 0.82);
+		arc(Math.PI * 0.82, Math.PI * 1.82);
+		head(Math.PI * 1.82);
+		// 键帽左上高光 + 右下投影，立起「按键」的厚度
+		cv.dot(c - s * 0.16, c * 0.82, s * 0.032, [1, 1, 1], 0.5);
+		cv.roundBox(c + s * 0.04, c * 1.42, s * 0.16, s * 0.02, s * 0.01, mix(hue, P.ink, 0.5), 0.7);
 	},
 	unknown_lab(cv, hue) {
 		const s = cv.w;
@@ -703,39 +700,48 @@ const draw = {
 		const s = cv.w;
 		const c = s / 2;
 		const P = cv.p;
-		// 不规则石块：七个顶点打乱对称，看起来像天然石头而不是菱形宝石。
-		// 整体尺寸按 64px 缩略图定 —— 石形一旦小于画面一半就整个丢掉
-		const stone = [
-			[c, c * 0.6],
-			[c + s * 0.24, c * 0.8],
-			[c + s * 0.285, c * 1.13],
-			[c + s * 0.115, c * 1.38],
-			[c - s * 0.135, c * 1.36],
-			[c - s * 0.285, c * 1.09],
-			[c - s * 0.22, c * 0.78],
-		];
-		cv.inked(() => cv.polygon(stone, BODY));
-		// 受光面：左上内缩多边形，做出切面的体积感
+		// 一块占满画面的卵石：十一个顶点的不规则轮廓，靠切面和裂缝读出「石头」。
+		// 旧版石头只占一半，四片白色圆点糊满整张脸，读成「绿色团 + 四个球」
+		cv.inked(() => cv.polygon([
+			[c - s * 0.03, c * 0.56], [c + s * 0.17, c * 0.68], [c + s * 0.29, c * 0.9],
+			[c + s * 0.3, c * 1.1], [c + s * 0.2, c * 1.32], [c + s * 0.02, c * 1.44],
+			[c - s * 0.18, c * 1.4], [c - s * 0.31, c * 1.2], [c - s * 0.33, c * 0.96],
+			[c - s * 0.22, c * 0.72], [c - s * 0.14, c * 0.62],
+		], BODY));
+		// 左上受光切面 / 右下背光切面：两块多边形把石头劈出体积
 		cv.polygon([
-			[c, c * 0.72],
-			[c + s * 0.17, c * 0.88],
-			[c + s * 0.11, c * 1.15],
-			[c - s * 0.09, c * 1.22],
-			[c - s * 0.19, c * 1.04],
-			[c - s * 0.15, c * 0.84],
-		], P.warm, 0.28);
-		// 四叶草：改成亮色叶瓣并放大。深绿四叶压在绿石面上，缩到 64px 只剩一团暗斑
-		const leaf = (dx, dy) => cv.dot(c + s * dx, c * 1.02 + s * dy, s * 0.086, P.warm);
+			[c - s * 0.14, c * 0.78], [c + s * 0.05, c * 0.68], [c + s * 0.2, c * 0.84],
+			[c + s * 0.1, c * 1.04], [c - s * 0.08, c * 1.1], [c - s * 0.22, c * 0.98],
+		], P.pale, 0.3);
+		cv.polygon([
+			[c + s * 0.3, c * 1.1], [c + s * 0.2, c * 1.32], [c + s * 0.02, c * 1.44], [c - s * 0.02, c * 1.24],
+		], mix(hue, P.ink, 0.55), 0.85);
+		// 两道裂缝：石头不是宝石，得有裂
+		cv.segment(c - s * 0.1, c * 1.16, c + s * 0.04, c * 1.24, s * 0.008, P.ink, 0.7);
+		cv.segment(c + s * 0.04, c * 1.24, c + s * 0.02, c * 1.36, s * 0.008, P.ink, 0.7);
+		// 四叶草：贴在石头正中，四瓣改成「双圆爱心」形 + 明显的瓣缝与茎，
+		// 亮绿压深绿才浮得出来。旧版四颗近白圆点读不出叶
+		const leafColor = mix(hue, [1, 1, 1], 0.5);
+		const cx = c - s * 0.02;
+		const cy = c * 1.02;
 		cv.inked(() => {
-			leaf(-0.09, -0.09);
-			leaf(0.09, -0.09);
-			leaf(-0.09, 0.09);
-			leaf(0.09, 0.09);
-			cv.segment(c, c * 1.09, c, c * 1.3, s * 0.016, P.warm);
-		}, 0.45);
-		cv.dot(c, c * 1.02, s * 0.026, mix(P.warm, P.ink, 0.5), 1);
-		// 左上高光
-		cv.dot(c - s * 0.14, c * 0.76, s * 0.05, [1, 1, 1], 0.5);
+			for (const a of [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75]) {
+				const ux = Math.cos(a);
+				const uy = Math.sin(a);
+				cv.dot(cx + ux * s * 0.055, cy + uy * s * 0.055, s * 0.05, leafColor);
+				cv.dot(cx + ux * s * 0.105, cy + uy * s * 0.1, s * 0.03, leafColor);
+			}
+			cv.segment(cx, cy + s * 0.06, cx + s * 0.05, cy + s * 0.2, s * 0.012, leafColor);
+		}, 0.5);
+		cv.dot(cx, cy, s * 0.02, P.ink, 0.9);
+		// 两颗星光：右上 + 左下，交代「运气」
+		for (const [dx, dy, r] of [[0.22, 0.66, 0.024], [-0.24, 1.3, 0.018]]) {
+			const sx = c + s * dx;
+			const sy = c * dy;
+			cv.dot(sx, sy, s * r * 0.55, [1, 1, 1], 1);
+			cv.segment(sx - s * r * 2.4, sy, sx + s * r * 2.4, sy, s * 0.005, P.warm, 0.9);
+			cv.segment(sx, sy - s * r * 2.4, sx, sy + s * r * 2.4, s * 0.005, P.warm, 0.9);
+		}
 	},
 	breath_belt(cv, hue) {
 		const s = cv.w;
@@ -838,48 +844,48 @@ const draw = {
 		const s = cv.w;
 		const c = s / 2;
 		const P = cv.p;
-		// 尖刺和币体同批描边：炸开的棱角与圆币连成一个剪影，才读得出「诅咒之物」
+		// 先铺一层暗红光晕，币才有「不祥」的底色
+		cv.glow(c, c, s * 0.36, hue, 0.45);
+		// 圆币本体，崩口后面再咬
+		cv.inked(() => cv.dot(c, c, s * 0.28, BODY));
+		// 两个崩口：用背景色把币缘咬掉两块（背景是平涂，同色盖回去就是「缺」）。
+		// 旧版八根外刺把圆币读成了船舵
+		const bg = mix(hue, P.ink, 0.86);
+		const bite = (angle, depth) => {
+			cv.polygon([
+				[c + Math.cos(angle) * s * (0.28 - depth), c + Math.sin(angle) * s * (0.28 - depth)],
+				[c + Math.cos(angle + 0.42) * s * 0.33, c + Math.sin(angle + 0.42) * s * 0.33],
+				[c + Math.cos(angle - 0.42) * s * 0.33, c + Math.sin(angle - 0.42) * s * 0.33],
+			], bg, 1);
+		};
+		bite(-Math.PI * 0.32, 0.12);
+		bite(Math.PI * 0.62, 0.1);
+		// 币面内凹：压暗一圈
+		cv.dot(c, c * 1.0, s * 0.22, mix(hue, P.ink, 0.68), 1);
+		cv.ring(c, c * 1.0, s * 0.205, s * 0.01, P.warm, 0.4);
+		// 鬼脸：亮脸盘 + 黑眼窝 + 黄瞳 + 锯齿嘴（沿用旧版五官，问题不在脸）
+		cv.inked(() => cv.dot(c, c * 1.0, s * 0.165, mix(hue, [1, 1, 1], 0.34)), 0.4);
 		cv.inked(() => {
-			for (let i = 0; i < 8; i++) {
-				const a = (Math.PI * 2 * i) / 8 + Math.PI / 8;
-				cv.segment(
-					c + Math.cos(a) * s * 0.3,
-					c + Math.sin(a) * s * 0.3,
-					c + Math.cos(a) * s * 0.4,
-					c + Math.sin(a) * s * 0.4,
-					s * 0.016,
-					BODY
-				);
-			}
-			cv.dot(c, c, s * 0.29, BODY);
-		});
-		// 币面：暗盘 + 一圈齿纹
-		cv.dot(c, c, s * 0.245, mix(hue, P.ink, 0.72), 1);
-		for (let i = 0; i < 16; i++) {
-			const a = (Math.PI * 2 * i) / 16;
-			cv.dot(c + Math.cos(a) * s * 0.268, c + Math.sin(a) * s * 0.268, s * 0.013, [1, 0.55, 0.45], 0.6);
-		}
-		// 鬼面：亮脸盘 + 深色五官（反过来画才看得清，深脸配深眼在小图上糊成一团）
-		cv.inked(() => cv.dot(c, c, s * 0.2, mix(hue, [1, 1, 1], 0.34)), 0.4);
-		cv.inked(() => {
-			cv.ellipse(c - s * 0.075, c * 0.95, s * 0.05, s * 0.062, P.ink, 0.96);
-			cv.ellipse(c + s * 0.075, c * 0.95, s * 0.05, s * 0.062, P.ink, 0.96);
+			cv.ellipse(c - s * 0.062, c * 0.93, s * 0.042, s * 0.052, P.ink, 0.96);
+			cv.ellipse(c + s * 0.062, c * 0.93, s * 0.042, s * 0.052, P.ink, 0.96);
 		}, 0.3);
-		cv.dot(c - s * 0.075, c * 0.945, s * 0.024, [1, 0.85, 0.2], 1);
-		cv.dot(c + s * 0.075, c * 0.945, s * 0.024, [1, 0.85, 0.2], 1);
-		// 嘴：上下各一排锯齿，读作「鬼脸」而不是一个洞
+		cv.dot(c - s * 0.062, c * 0.925, s * 0.02, [1, 0.85, 0.2], 1);
+		cv.dot(c + s * 0.062, c * 0.925, s * 0.02, [1, 0.85, 0.2], 1);
 		cv.inked(() => {
 			for (let i = -2; i <= 2; i++) {
 				cv.polygon([
-					[c + s * (i * 0.042 - 0.02), c * 1.09],
-					[c + s * (i * 0.042 + 0.02), c * 1.09],
-					[c + s * i * 0.042, c * 1.15],
+					[c + s * (i * 0.035 - 0.017), c * 1.06],
+					[c + s * (i * 0.035 + 0.017), c * 1.06],
+					[c + s * i * 0.035, c * 1.11],
 				], P.ink, 0.96);
 			}
-			cv.roundBox(c, c * 1.1, s * 0.105, s * 0.02, s * 0.008, P.ink, 0.92);
+			cv.roundBox(c, c * 1.07, s * 0.088, s * 0.016, s * 0.007, P.ink, 0.92);
 		}, 0.3);
+		// 币面裂缝：从崩口一路裂到眼角
+		cv.segment(c - s * 0.21, c * 1.12, c - s * 0.09, c * 1.04, s * 0.008, P.ink, 0.85);
+		cv.segment(c - s * 0.09, c * 1.04, c - s * 0.05, c * 0.86, s * 0.008, P.ink, 0.85);
 		// 左上高光
-		cv.dot(c - s * 0.15, c * 0.82, s * 0.04, [1, 0.8, 0.8], 0.4);
+		cv.dot(c - s * 0.13, c * 0.78, s * 0.034, [1, 0.85, 0.85], 0.5);
 	},
 	// ---------------------------------------------------------------- 本轮新增：七个事件图
 	spring_of_wisdom(cv, hue) {
@@ -1140,8 +1146,14 @@ const draw = {
 			cv.dot(c + s * 0.12, c * 0.84, s * 0.14, BODY);
 			cv.polygon([[c - s * 0.24, c * 0.92], [c + s * 0.24, c * 0.92], [c, c * 1.42]], BODY);
 		});
-		cv.dot(c, c * 1.02, s * 0.12, P.warm, 1);
-		cv.dot(c, c * 1.02, s * 0.05, [1, 1, 1], 1);
+		// 中央嵌一颗菱形能量核：亮红宝石 + 白高光。旧版一颗白圆球读成蛋白蛋
+		cv.inked(() => cv.polygon([
+			[c, c * 0.86], [c + s * 0.11, c * 1.02], [c, c * 1.18], [c - s * 0.11, c * 1.02],
+		], [1, 0.32, 0.38]), 0.45);
+		cv.polygon([
+			[c, c * 0.9], [c + s * 0.055, c * 1.02], [c, c * 1.14], [c - s * 0.055, c * 1.02],
+		], [1, 0.62, 0.6], 1);
+		cv.dot(c - s * 0.02, c * 0.97, s * 0.018, [1, 1, 1], 0.95);
 		// 裂纹：从顶端炸开的两条折线
 		for (const [ax, ay, bx, by, cx2, cy2] of [[-0.1, 0.68, -0.01, 0.9, -0.05, 0.8], [0.12, 0.72, 0.05, 0.94, 0.11, 0.84]]) {
 			cv.segment(c + s * ax, c * ay, c + s * bx, c * by, s * 0.013, P.ink, 0.95);
@@ -1157,26 +1169,36 @@ const draw = {
 		const s = cv.w;
 		const c = s / 2;
 		const P = cv.p;
-		// 挂链：顶上一排由中间向两侧抬高的环
-		for (let i = -2; i <= 2; i++) {
-			cv.dot(c + s * 0.032 * i, c * 0.62 + s * Math.abs(i) * 0.012, s * 0.014, P.warm, 0.9);
-		}
-		// 符体：一圈向外的尖刺 + 粗环，与「破损怀表」那种素圆环区分
+		// 挂绳：从徽章顶两角吊下来的 V 形，坠子在正中——先立住「挂件」这个身份。
+		// 旧版一圈外刺读成了齿轮
 		cv.inked(() => {
-			for (let i = 0; i < 12; i++) {
-				const a = (Math.PI * 2 * i) / 12;
-				cv.segment(
-					c + Math.cos(a) * s * 0.24, c * 1.08 + Math.sin(a) * s * 0.24,
-					c + Math.cos(a) * s * 0.3, c * 1.08 + Math.sin(a) * s * 0.3,
-					s * 0.013, BODY);
-			}
-			cv.ring(c, c * 1.08, s * 0.21, s * 0.05, BODY);
+			cv.segment(c - s * 0.3, c * 0.5, c, c * 0.72, s * 0.012, mix(hue, P.ink, 0.5));
+			cv.segment(c + s * 0.3, c * 0.5, c, c * 0.72, s * 0.012, mix(hue, P.ink, 0.5));
+			cv.dot(c, c * 0.72, s * 0.022, mix(hue, P.ink, 0.4));
 		});
-		cv.dot(c, c * 1.08, s * 0.165, mix(hue, P.ink, 0.78), 1);
-		cv.ring(c, c * 1.08, s * 0.165, s * 0.011, P.pale, 0.55);
-		// 符面中央那根「还回去」的尖刺：菱形竖着放
-		cv.inked(() => cv.polygon([[c, c * 0.9], [c + s * 0.075, c * 1.14], [c, c * 1.28], [c - s * 0.075, c * 1.14]], P.warm), 0.35);
-		cv.dot(c, c * 1.09, s * 0.03, [1, 1, 1], 1);
+		// 镜坠：金属外框 + 亮玻璃面。镜面才是「反弹」的本体
+		cv.inked(() => cv.dot(c, c * 1.08, s * 0.2, BODY));
+		cv.dot(c, c * 1.08, s * 0.15, mix(hue, [1, 1, 1], 0.62), 1);
+		// 玻璃上的斜高光
+		cv.segment(c - s * 0.07, c * 0.97, c + s * 0.02, c * 1.16, s * 0.02, [1, 1, 1], 0.75);
+		cv.segment(c + s * 0.03, c * 0.96, c + s * 0.07, c * 1.03, s * 0.01, [1, 1, 1], 0.6);
+		// 来袭的箭从右上扎进来，被镜面弹回左上：一进一出才读得出「反击」
+		const arrow = (ax, ay, bx, by, headAtB) => {
+			cv.segment(ax, ay, bx, by, s * 0.016, P.warm);
+			const [hx, hy, tx, ty] = headAtB ? [bx, by, ax, ay] : [ax, ay, bx, by];
+			const a = Math.atan2(hy - ty, hx - tx);
+			cv.polygon([
+				[hx + Math.cos(a) * s * 0.045, hy + Math.sin(a) * s * 0.045],
+				[hx + Math.cos(a + 2.5) * s * 0.05, hy + Math.sin(a + 2.5) * s * 0.05],
+				[hx + Math.cos(a - 2.5) * s * 0.05, hy + Math.sin(a - 2.5) * s * 0.05],
+			], P.warm, 1);
+		};
+		cv.inked(() => {
+			arrow(c + s * 0.33, c * 0.66, c + s * 0.075, c * 1.02, true);
+			arrow(c - s * 0.075, c * 1.02, c - s * 0.33, c * 0.66, true);
+		}, 0.5);
+		// 镜框挂环
+		cv.inked(() => cv.ring(c, c * 0.86, s * 0.028, s * 0.01, BODY), 0.5);
 	},
 	golden_compass(cv, hue) {
 		const s = cv.w;
@@ -1234,60 +1256,70 @@ const draw = {
 		const s = cv.w;
 		const c = s / 2;
 		const P = cv.p;
-		// 一块顶部被啃掉的不规则石碑
-		cv.inked(() => cv.polygon([
-			[c - s * 0.22, c * 0.74], [c - s * 0.04, c * 0.6], [c + s * 0.07, c * 0.7], [c + s * 0.22, c * 0.8],
-			[c + s * 0.18, c * 1.36], [c - s * 0.19, c * 1.38],
-		], BODY));
+		// 一块斜置的碎石：三块碎块拼出「正在崩解」的大石头。
+		// 旧版整石碑 + 白横条读成了垃圾桶
+		cv.inked(() => {
+			cv.polygon([
+				[c - s * 0.26, c * 0.86], [c + s * 0.02, c * 0.66], [c + s * 0.14, c * 0.76], [c + s * 0.05, c * 1.1], [c - s * 0.2, c * 1.24],
+			], BODY);
+			cv.polygon([
+				[c + s * 0.18, c * 0.8], [c + s * 0.32, c * 0.9], [c + s * 0.24, c * 1.2], [c + s * 0.08, c * 1.12],
+			], mix(hue, P.ink, 0.4));
+			cv.polygon([
+				[c - s * 0.16, c * 1.28], [c + s * 0.04, c * 1.18], [c + s * 0.1, c * 1.34], [c - s * 0.06, c * 1.44],
+			], mix(hue, P.ink, 0.3));
+		});
+		// 主块上的受光切面
 		cv.polygon([
-			[c - s * 0.16, c * 0.84], [c + s * 0.15, c * 0.92], [c + s * 0.12, c * 1.3], [c - s * 0.13, c * 1.3],
-		], mix(hue, P.ink, 0.76), 1);
-		// 碑面三行字只剩淡痕：被抹掉的技能连名字都不留
-		for (const [dy, len] of [[1.0, 0.22], [1.1, 0.18], [1.2, 0.2]]) {
-			cv.roundBox(c - s * 0.02, c * dy, s * len, s * 0.011, s * 0.006, P.pale, 0.32);
+			[c - s * 0.2, c * 0.9], [c - s * 0.02, c * 0.76], [c + s * 0.02, c * 0.9], [c - s * 0.12, c * 1.04],
+		], P.pale, 0.3);
+		// 主块中心被掏出的虚空：黑洞 + 外圈旋涡弧。湮灭的本体就是那个洞
+		cv.glow(c - s * 0.05, c * 0.94, s * 0.16, hue, 0.4);
+		cv.dot(c - s * 0.05, c * 0.94, s * 0.06, P.ink, 1);
+		for (const [r, from, to, a] of [[0.085, 0.2, 2.6, 0.9], [0.115, 2.4, 4.9, 0.65], [0.145, 4.6, 7.0, 0.4]]) {
+			for (let i = 0; i <= 16; i++) {
+				const ang = from + ((to - from) * i) / 16;
+				cv.dot(c - s * 0.05 + Math.cos(ang) * s * r, c * 0.94 + Math.sin(ang) * s * r * 0.82, s * 0.008, P.warm, a);
+			}
 		}
-		// 一道横扫的擦痕压在字上，才是「抹掉」这个动作本身
-		cv.inked(() => cv.polygon([
-			[c - s * 0.24, c * 1.04], [c + s * 0.24, c * 0.96], [c + s * 0.24, c * 1.02], [c - s * 0.24, c * 1.1],
-		], P.warm), 0.3);
-		// 飘走的灰烬：越往上越小越淡
-		for (const [dx, dy, r] of [[-0.1, 0.5, 0.02], [0.03, 0.42, 0.016], [0.14, 0.5, 0.013], [0.06, 0.34, 0.01]]) {
-			cv.dot(c + s * dx, c * dy, s * r, P.warm, 0.6);
+		// 被吸进去的碎屑：沿旋涡越靠洞越小
+		for (const [dx, dy, r] of [[0.16, 0.8, 0.014], [0.1, 0.7, 0.01], [-0.2, 0.78, 0.009]]) {
+			cv.dot(c + s * dx, c * dy, s * r, P.pale, 0.8);
 		}
-		cv.dot(c - s * 0.12, c * 0.76, s * 0.035, [1, 1, 1], 0.45);
 	},
 };
 
 // ---------------------------------------------------------------- 生成
 
+// [目录, 条目名, 主色]
 // 主色一律选高饱和亮色：底色吃同色相的暗调，主体靠明度跨度 + 深色外轮廓跳出来，
-// 缩小到 64px（奇物卡的显示尺寸）也认得出形状。
+// 缩小到 96px（界面上的真实尺寸）也认得出形状。
 const IMAGES = [
-	["events", 512, "lost_robot", "#5ce1ff", 11],
-	["events", 512, "mystery_merchant", "#c08cff", 23],
-	["events", 512, "lucky_coin", "#ffd23f", 37],
-	["events", 512, "unknown_lab", "#5fff9e", 41],
-	["events", 512, "wishing_pool", "#54c8ff", 43],
-	["curios", 256, "broken_watch", "#ff7a8a", 53],
-	["curios", 256, "lucky_stone", "#4fe06a", 67],
-	["curios", 256, "breath_belt", "#ff8a5c", 71],
-	["curios", 256, "energy_core", "#4d9bff", 83],
-	["curios", 256, "leftover_rice", "#ffb63f", 97],
-	["curios", 256, "cursed_coin", "#ff5470", 109],
-	["curios", 256, "loop_button", "#3fe8b0", 113],
-	["events", 512, "spring_of_wisdom", "#59f2d0", 131],
-	["events", 512, "skill_forge", "#ff9440", 137],
-	["events", 512, "stat_training_ground", "#a8e05c", 149],
-	["events", 512, "abyss_rift", "#8c6cff", 157],
-	["events", 512, "wandering_merchant", "#ffd97a", 163],
-	["events", 512, "curio_forge", "#c86cff", 173],
-	["events", 512, "ancient_ruins", "#9fd8ff", 181],
-	["curios", 256, "berserker_badge", "#ff5c3c", 191],
-	["curios", 256, "blood_rage_core", "#ff3c6c", 197],
-	["curios", 256, "counter_amulet", "#7ac8ff", 211],
-	["curios", 256, "golden_compass", "#ffc93c", 223],
-	["curios", 256, "piggy_bank", "#ffa8c8", 227],
-	["curios", 256, "oblivion_stone", "#a0a8c8", 233],
+	["events", "lost_robot", "#5ce1ff"],
+	["events", "mystery_merchant", "#c08cff"],
+	["events", "lucky_coin", "#ffd23f"],
+	["events", "unknown_lab", "#5fff9e"],
+	["events", "wishing_pool", "#54c8ff"],
+	["curios", "broken_watch", "#ff7a8a"],
+	["curios", "lucky_stone", "#4fe06a"],
+	["curios", "breath_belt", "#ff8a5c"],
+	["curios", "energy_core", "#4d9bff"],
+	["curios", "leftover_rice", "#ffb63f"],
+	["curios", "cursed_coin", "#ff5470"],
+	["curios", "loop_button", "#3fe8b0"],
+	["events", "spring_of_wisdom", "#59f2d0"],
+	["events", "skill_forge", "#ff9440"],
+	["events", "stat_training_ground", "#a8e05c"],
+	["events", "abyss_rift", "#8c6cff"],
+	["events", "wandering_merchant", "#ffd97a"],
+	["events", "curio_forge", "#c86cff"],
+	["events", "ancient_ruins", "#9fd8ff"],
+	["curios", "berserker_badge", "#ff5c3c"],
+	["curios", "blood_rage_core", "#ff3c6c"],
+	["curios", "counter_amulet", "#7ac8ff"],
+	["curios", "golden_compass", "#ffc93c"],
+	["curios", "piggy_bank", "#ffa8c8"],
+	["curios", "oblivion_stone", "#a0a8c8"],
 ];
 
 /** 盒式降采样：把 size×size 的 RGBA 收成 to×to。用来还原奇物在界面上的真实尺寸（64px） */
@@ -1328,21 +1360,21 @@ const SHEET = PREVIEW_COLS * PREVIEW_TILE * PREVIEW_ZOOM;
 const sheet = PREVIEW ? new Uint8Array(SHEET * SHEET * 4).fill(24) : null;
 
 let index = 0;
-for (const [dir, size, name, colorText, seed] of IMAGES) {
+for (const [dir, name, colorText] of IMAGES) {
 	const color = hex(colorText);
-	const canvas = new Canvas(size, size > 400 ? 3 : 4);
+	const canvas = new Canvas(SIZE, 4);
 	canvas.p = palette(color);
-	backdrop(canvas, color, seed);
+	backdrop(canvas, color);
 	draw[name](canvas, color);
 	const pixels = canvas.pixels();
-	const png = encodePNG(pixels, size);
+	const png = encodePNG(pixels, SIZE);
 	const outDir = dir === "events" ? EVENTS_DIR : CURIOS_DIR;
 	fs.mkdirSync(outDir, { recursive: true });
 	const file = path.join(outDir, `${name}.png`);
 	fs.writeFileSync(file, png);
-	console.log(`生成 ${path.relative(root, file)}（${size}x${size}，${png.length} 字节）`);
+	console.log(`生成 ${path.relative(root, file)}（${SIZE}x${SIZE}，${png.length} 字节）`);
 	if (PREVIEW) {
-		const tiny = shrink(pixels, size, PREVIEW_TILE);
+		const tiny = shrink(pixels, SIZE, PREVIEW_TILE);
 		const ox = (index % PREVIEW_COLS) * PREVIEW_TILE * PREVIEW_ZOOM;
 		const oy = Math.floor(index / PREVIEW_COLS) * PREVIEW_TILE * PREVIEW_ZOOM;
 		for (let y = 0; y < PREVIEW_TILE; y++) {

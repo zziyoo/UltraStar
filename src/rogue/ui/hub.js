@@ -16,7 +16,7 @@ import {
 	STAT_CURRENCY,
 	STAT_IDS,
 } from "../config.js";
-import { getRefreshesRemaining } from "../shop.js";
+import { getPurchasedCount, getRefreshesRemaining } from "../shop.js";
 import { checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getNextCurioQuality, getUpgradableCurios, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
@@ -348,7 +348,7 @@ export function showShop(api) {
 	paint(run);
 }
 
-/** 刷新按钮的文字与可用性：本局买过技能就彻底锁死——重掷会把 sold 换成 false，放行等于绕过一局限买一个 */
+/** 刷新按钮的文字与可用性：本局购买额度用光就彻底锁死——重掷会把 sold 换成 false，放行等于绕过一局购买上限 */
 function paintRefresh(node, run, soldOut) {
 	const remaining = getRefreshesRemaining(run);
 	node.innerHTML = soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
@@ -495,9 +495,12 @@ export function refreshShop(run) {
 	return true;
 }
 
-/** 本次商店是否已买过技能（SKILL_PURCHASE_COUNT=1 时其余候选算已售罄） */
+/**
+ * 本局购买额度是否已用光：次数上限由 SKILL_PURCHASE_COUNT 真正驱动（与 buySkill 同一套记数），
+ * 用光后其余候选一律显示「本次商店已售罄」。改常量即可改上限，不用再动这里。
+ */
 function isSoldOut(run) {
-	return SKILL_PURCHASE_COUNT <= 1 && run.shopOffers.some(offer => offer.sold);
+	return getPurchasedCount(run) >= SKILL_PURCHASE_COUNT;
 }
 
 /** 画一张技能卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buySkill 返回的是新对象，握住旧引用会永远读不到 sold */

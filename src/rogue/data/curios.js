@@ -4,7 +4,7 @@
 //   id              奇物 id，一旦发布就不要改（存档 curios 与图鉴只存 id）
 //   name            奇物名
 //   description     奇物风味描述
-//   image           奇物配图（assets/curios/ 下 256x256，需登记进 data/assets.js 清单）
+//   image           奇物配图（assets/curios/ 下 192x192，需登记进 data/assets.js 清单）
 //   rarity          初始品质，决定售价倍率（CURIOSITY_RARITY_PRICE）与标签颜色：
 //                     "common"   普通 ×2
 //                     "rare"     稀有 ×5

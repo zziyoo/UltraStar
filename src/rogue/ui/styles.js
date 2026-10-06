@@ -403,8 +403,6 @@ const CSS = `
 /* 档位名按品质着色（与图鉴卡片、商店同一套 .wm-rogue-rarity-*） */
 .wm-rogue-detail-step-name { font-size: 19px; font-weight: bold; letter-spacing: 2px; color: #ffd479; }
 .wm-rogue-detail-effect { margin-top: 5px; font-size: 16px; line-height: 1.55; color: rgba(255,255,255,0.9); }
-/* 变化注记：上一档同一条效果的原文，让玩家看出「由 1 张变成 2 张」 */
-.wm-rogue-detail-prev { margin-top: 3px; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.5); }
 .wm-rogue-detail-same { margin-top: 4px; font-size: 14px; color: rgba(255,255,255,0.45); }
 
 /* ---- 加固块 ----
@@ -584,7 +582,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-detail-step,
 #wm-rogue-overlay .wm-rogue-detail-step-name,
 #wm-rogue-overlay .wm-rogue-detail-effect,
-#wm-rogue-overlay .wm-rogue-detail-prev,
 #wm-rogue-overlay .wm-rogue-detail-same { display: block !important; }
 /* 详情弹层的盒是 flex 列（头部/正文/按钮三段），正文条 min-height:0 才真的滚得起来；
    这条排在 .wm-rogue-popup-box 的 block 之后，靠顺序取胜 */
@@ -594,7 +591,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-detail-rarity { display: inline-flex !important; }
 #wm-rogue-overlay .wm-rogue-detail-desc,
 #wm-rogue-overlay .wm-rogue-detail-effect,
-#wm-rogue-overlay .wm-rogue-detail-prev,
 #wm-rogue-overlay .wm-rogue-detail-same { white-space: normal !important; overflow-wrap: break-word !important; }
 #wm-rogue-overlay .wm-rogue-mode-go { display: inline-flex !important; align-items: center !important; justify-content: center !important; }
 #wm-rogue-overlay .wm-rogue-hub-who { display: block !important; }

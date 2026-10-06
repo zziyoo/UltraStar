@@ -215,27 +215,61 @@ export function isStageConfigDrawable(config) {
 }
 
 /**
+ * 抽取结果的状态：
+ *   ready         —— 已经有完整的前 10 关结果，什么都不用做；
+ *   generated     —— 本次真的抽了（新局建好 / 旧档补抽）；
+ *   insufficient   —— 可用配置不足 CHALLENGE_STAGE_LEVELS：明确判为配置不足，
+ *                     不生成、不循环补齐，由调用方提示并阻止开局；
+ *   skipped       —— 无尽模式 / 关卡不在前 10 关内，本函数不参与。
+ */
+export const CHALLENGE_STAGE_STATE = {
+	ready: "ready",
+	generated: "generated",
+	insufficient: "insufficient",
+	skipped: "skipped",
+};
+
+/**
  * 建局时一次性抽出闯关前 10 关的配置并写进 run.challengeStages（存档 v8 字段）。
- * 只在「闯关模式 + 还没有抽取结果 + 当前关卡在前 10 关内」时生成一次：
- * 新局（createRun 之后）立即生成，v8 之前的旧档在首次开战时补生成一次——
- * 之后读档、重进、失败重战都原样沿用，本函数与随机流程都不再碰它。
+ *
+ * 只在「闯关模式 + 当前关卡在前 10 关内」时考虑生成。两种需要生成的情况：
+ *   1. 新局（createRun 之后）challengeStages 还是空的；
+ *   2. challengeStages 只有 1~9 项——**这是残缺存档**（旧版本写了一半、被外部改过、
+ *      或者上一次就是在「配置不足」的状态下存的），明确判为损坏并重新抽一次，
+ *      绝不因为它「非空」就当作已经抽好（那样第 10 关会永远开不了战，玩家只看到一句莫名的报错）。
+ * 抽满之后读档、重进、失败重战都原样沿用，本函数与随机流程都不再碰它。
+ *
+ * 可用配置不足 10 个时**不写回**任何东西：返回 insufficient 与可用条数，交给上层提示玩家补配置。
  * isAvailable 可注入（Node 测试用），默认 isStageConfigDrawable。
- * @returns {{ run: object, generated: boolean }} generated = 本次是否真的抽了
+ * @returns {{ run: object, generated: boolean, status: string, available?: number }}
+ *          generated = 本次是否真的抽了；status 见 CHALLENGE_STAGE_STATE
  */
 export function ensureChallengeStages(run, rng = Math.random, isAvailable = isStageConfigDrawable) {
 	if (!run || run.mode !== RUN_MODE.challenge) {
-		return { run, generated: false };
-	}
-	if (Array.isArray(run.challengeStages) && run.challengeStages.length) {
-		return { run, generated: false };
+		return { run, generated: false, status: CHALLENGE_STAGE_STATE.skipped };
 	}
 	const level = Math.floor(Number(run.level) || 0);
 	if (!(level >= 1 && level <= CHALLENGE_STAGE_LEVELS)) {
-		return { run, generated: false };
+		return { run, generated: false, status: CHALLENGE_STAGE_STATE.skipped };
+	}
+	const current = Array.isArray(run.challengeStages) ? run.challengeStages : [];
+	if (current.length >= CHALLENGE_STAGE_LEVELS) {
+		return { run, generated: false, status: CHALLENGE_STAGE_STATE.ready };
+	}
+	// 走到这里：0 项（旧档/新局）或 1~9 项（残缺）——一律重抽，绝不循环补齐
+	const drawn = drawChallengeStageIds(rng, isAvailable);
+	if (drawn.length < CHALLENGE_STAGE_LEVELS) {
+		return {
+			run,
+			generated: false,
+			status: CHALLENGE_STAGE_STATE.insufficient,
+			available: drawn.length,
+		};
 	}
 	return {
-		run: { ...run, challengeStages: drawChallengeStageIds(rng, isAvailable) },
+		run: { ...run, challengeStages: drawn },
 		generated: true,
+		status: CHALLENGE_STAGE_STATE.generated,
 	};
 }
 
@@ -251,9 +285,59 @@ function fixedPlayerStats(raw) {
 }
 
 /**
+ * 组合关卡的属性预算分法（config.budget）：
+ *   "each"   —— 每个成员各吃一份完整等级预算（**历史行为**，2~3 人组合强度会线性膨胀）；
+ *   "shared" —— 整队共吃一份：把等级预算按人数切成几份再各自分配，人数越多每人越弱，
+ *                队伍总点数恒等于单人时的点数。
+ * 不写这个字段时按人数自动选：单人 = each（与现在逐位相同），多人组合 = shared。
+ */
+export const STAGE_BUDGET = {
+	each: "each",
+	shared: "shared",
+};
+
+/** 组合用哪种预算分法：写了就认，没写按人数兜底（单人不变、多人共享） */
+export function resolveStageBudget(config, memberCount) {
+	const raw = typeof config?.budget === "string" ? config.budget.trim() : "";
+	if (raw === STAGE_BUDGET.each || raw === STAGE_BUDGET.shared) {
+		return raw;
+	}
+	return memberCount > 1 ? STAGE_BUDGET.shared : STAGE_BUDGET.each;
+}
+
+/**
+ * 把一份总点数切成 memberCount 份（尽量均分，余数给前几名）：
+ * 组合关卡用 shared 预算时靠它把「一关的总强度」摊到每个成员身上，
+ * 于是 2~3 人组合的总点数与单人关卡完全持平，而不是人数 × 单人。
+ */
+export function splitTeamPoints(totalPoints, memberCount, rng = Math.random) {
+	const count = Math.max(1, Math.floor(Number(memberCount) || 1));
+	const total = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(totalPoints) || 0)));
+	if (count === 1) {
+		return [total];
+	}
+	const base = Math.floor(total / count);
+	const shares = Array.from({ length: count }, () => base);
+	let rest = total - base * count;
+	// 余数散给随机几个成员，别每次都便宜第一个
+	const order = shares.map((_, index) => index);
+	for (let i = order.length - 1; i > 0; i--) {
+		const j = Math.floor(rng() * (i + 1)) % (i + 1);
+		[order[i], order[j]] = [order[j], order[i]];
+	}
+	for (let i = 0; rest > 0; i++, rest--) {
+		shares[order[i % order.length]] += 1;
+	}
+	return shares;
+}
+
+/**
  * 关卡配置 → 敌方阵容：single 与 group 统一按 players 逐个生成，随机系统不感知配置类型，
  * 未来加组合 / 指定属性 / 指定技能都只改 data/challengeStages.js 的数据，不改这里。
- * 成员没写 stats 就按关卡数随机分配（与 createEnemyConfigs 完全同一条 allocateEnemyStats）；
+ * 成员没写 stats 就按关卡数随机分配（与 createEnemyConfigs 完全同一条 allocateEnemyStats）：
+ *   · 单人（或 budget:"each"）—— 每人各吃完整等级预算，与现在逐位相同；
+ *   · 多人组合（默认 budget:"shared"）—— 整队共吃一份，先 splitTeamPoints 切份再各自分配，
+ *     队伍总点数不随人数增长（写了固定 stats 的成员不占队里的份额）。
  * 深渊词缀与常规随机同一条路径（闯关恒为空数组；经验泉的债照常透传，闯关正常恒为 0）。
  * @param {object} config data/challengeStages.js 里的一个配置（getChallengeStageConfig 的返回值）
  * @returns {object[]} 形状与 createEnemyConfigs 一致的敌方阵容，直接进 currentBattle.enemies 落盘
@@ -262,15 +346,30 @@ export function createStageEnemyConfigs(config, level, rng = Math.random, option
 	const players = Array.isArray(config?.players) ? config.players : [];
 	const points = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(level) || 0)));
 	const extra = Math.floor(Number(options?.extraAffixes));
+	// 需要随机分配属性的成员（写了固定 stats 的不占队里的预算）
+	const randomMembers = players.filter(player => !(player?.stats && typeof player.stats === "object"));
+	const budget = resolveStageBudget(config, players.length);
+	const shares = budget === STAGE_BUDGET.shared
+		? splitTeamPoints(points, randomMembers.length || 1, rng)
+		: null;
+	let shareIndex = 0;
 	const enemies = [];
 	for (const player of players) {
 		const characterId = typeof player?.character === "string" ? player.character.trim() : "";
 		if (!characterId) {
 			continue;
 		}
+		let stats;
+		if (player.stats && typeof player.stats === "object") {
+			stats = fixedPlayerStats(player.stats);
+		} else if (shares) {
+			stats = allocateEnemyStats(shares[shareIndex++], rng);
+		} else {
+			stats = allocateEnemyStats(points, rng);
+		}
 		enemies.push({
 			characterId,
-			stats: player.stats && typeof player.stats === "object" ? fixedPlayerStats(player.stats) : allocateEnemyStats(points, rng),
+			stats,
 			abyss: rollEnemyAffixes(level, RUN_MODE.challenge, false, extra, rng),
 			skills: Array.isArray(player.skills) ? player.skills.filter(id => typeof id === "string" && id) : [],
 			maxHp: Number.isFinite(Number(player.maxHp)) ? Math.floor(Number(player.maxHp)) : 0,

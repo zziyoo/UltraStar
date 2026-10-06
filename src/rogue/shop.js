@@ -10,6 +10,7 @@ import {
 	SKILL_CURRENCY,
 	SKILL_OFFER_COUNT,
 	SKILL_PRICE_SPREAD,
+	SKILL_PURCHASE_COUNT,
 	SKILL_REFRESH_PER_LEVEL,
 	SKILL_SLOTS,
 	STAT_CURRENCY,
@@ -151,7 +152,7 @@ export function refreshSkillOffers(run, rng = Math.random, characterSkills = [],
 		return { ok: false, error: "本局免费刷新次数已经用完" };
 	}
 	const current = Array.isArray(run?.shopOffers) ? run.shopOffers : [];
-	if (current.some(offer => offer?.sold)) {
+	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
 		return { ok: false, error: "本局已经购买过技能，不能继续刷新" };
 	}
 	const previousIds = current.map(offer => offer?.id).filter(id => typeof id === "string" && id);
@@ -169,16 +170,31 @@ export function refreshSkillOffers(run, rng = Math.random, characterSkills = [],
 	};
 }
 
+/** 本局商店已经买了几个技能（按候选上的 sold 记数，旧档缺 sold 字段按没买算） */
+export function getPurchasedCount(run) {
+	let count = 0;
+	for (const offer of Array.isArray(run?.shopOffers) ? run.shopOffers : []) {
+		if (offer?.sold) {
+			count++;
+		}
+	}
+	return count;
+}
+
 /** 按 id 取商店候选；不存在返回 null */
 export function getOffer(run, offerId) {
 	return (run?.shopOffers ?? []).find(offer => offer.id === offerId) ?? null;
 }
 
 /**
- * 购买技能。槽位满时必须给出合法的 replaceId（已有技能之一）。
- * 返回 { ok, error, run }；失败时 run 与传入的 run 是同一份未修改数据。
+ * 买技能前的最后一道合法性与次数校验，与 buySkill 同源，UI 可以先问一次再决定怎么提示。
+ * @param {object} run
+ * @param {string} offerId
+ * @param {{ isSkillAllowed?: (id: string) => boolean }} [options]
+ *        isSkillAllowed 由调用方（mode.js）注入——本文件保持纯逻辑，不去读本体的 lib.skill：
+ *        「技能现在还在不在池子里」只有技能池答得出来。不传就跳过这一项。
  */
-export function buySkill(run, offerId, replaceId = null) {
+export function checkSkillPurchase(run, offerId, options = {}) {
 	const offer = getOffer(run, offerId);
 	if (!offer) {
 		return { ok: false, error: "该技能不在本次商店候选中" };
@@ -186,6 +202,33 @@ export function buySkill(run, offerId, replaceId = null) {
 	if (offer.sold) {
 		return { ok: false, error: "本次商店已购买过技能" };
 	}
+	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
+		return { ok: false, error: `本局最多只能购买 ${SKILL_PURCHASE_COUNT} 个技能` };
+	}
+	const allowed = options.isSkillAllowed;
+	if (typeof allowed === "function" && !allowed(offerId)) {
+		// 存档里的 shopOffers 可能来自旧版本 / 被改过：技能可能已经下架、被判不兼容、甚至根本不存在。
+		// 这里统一挡掉，避免过期候选绕过技能池规则。
+		return { ok: false, error: "该技能已下架或不再可售，换个别的吧" };
+	}
+	return { ok: true, error: null, offer };
+}
+
+/**
+ * 购买技能。槽位满时必须给出合法的 replaceId（已有技能之一）。
+ * 三道闸门：
+ *   1. 本局购买次数上限由 SKILL_PURCHASE_COUNT 真正驱动（不再只是刷新时的旁敲侧击）；
+ *   2. 技能合法性最终校验：技能存在、当前仍允许进入肉鸽池、不是已禁用/已失效技能；
+ *   3. 货币、重复持有、槽位等原有规则。
+ * 返回 { ok, error, run }；失败时 run 与传入的 run 是同一份未修改数据。
+ * @param {{ isSkillAllowed?: (id: string) => boolean }} [options] 见 checkSkillPurchase
+ */
+export function buySkill(run, offerId, replaceId = null, options = {}) {
+	const check = checkSkillPurchase(run, offerId, options);
+	if (!check.ok) {
+		return { ok: false, error: check.error };
+	}
+	const offer = check.offer;
 	if (!Number.isFinite(offer.price) || !hasCurrency(run, SKILL_CURRENCY, offer.price)) {
 		return { ok: false, error: `${SKILL_CURRENCY_NAME}不足` };
 	}

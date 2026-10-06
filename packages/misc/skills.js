@@ -3,6 +3,21 @@ import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 export const skills = {
 	mcpxingshang: {
 		getLimit: 9,
+		_aiEffect: null,
+		evaluateOption(effect, target, player) {
+			const previous = this._aiEffect;
+			try {
+				this._aiEffect = effect;
+				return get.effect(target, "mcpxingshang_aiSkill", player, player);
+			} finally {
+				this._aiEffect = previous;
+			}
+		},
+		optionAiResult(key, args) {
+			const result = this._aiEffect?.ai?.result;
+			const fn = result?.[key];
+			return typeof fn === "function" ? fn(...args) ?? 0 : 0;
+		},
 		getList: [
 			{
 				cost: 2,
@@ -157,8 +172,7 @@ export const skills = {
 							return true;
 						})
 						.map(target => {
-							game.broadcastAll(effect => (lib.skill["mcpxingshang_aiSkill"].ai = effect.ai), effect);
-							return get.effect(target, "mcpxingshang_aiSkill", player, player);
+							return skills.mcpxingshang.evaluateOption(effect, target, player);
 						})
 				);
 			},
@@ -208,8 +222,7 @@ export const skills = {
 										return true;
 									})
 									.map(target => {
-										game.broadcastAll(effect => (lib.skill["mcpxingshang_aiSkill"].ai = effect.ai), effect);
-										return get.effect(target, "mcpxingshang_aiSkill", player, player);
+										return skills.mcpxingshang.evaluateOption(effect, target, player);
 									})
 							);
 						})
@@ -219,7 +232,18 @@ export const skills = {
 		},
 		group: "mcpxingshang_gain",
 		subSkill: {
-			aiSkill: {},
+			aiSkill: {
+				ai: {
+					result: {
+						player(...args) {
+							return skills.mcpxingshang.optionAiResult("player", args);
+						},
+						target(...args) {
+							return skills.mcpxingshang.optionAiResult("target", args);
+						},
+					},
+				},
+			},
 			backup: {},
 			gain: {
 				audio: ["ext:奥特之星/assets/audio/xingshang1", "ext:奥特之星/assets/audio/xingshang2"],
@@ -386,8 +410,7 @@ export const skills = {
 							return true;
 						})
 						.map(target => {
-							game.broadcastAll(effect => (lib.skill["mcpxingshang_aiSkill"].ai = effect.ai), effect);
-							return get.effect(target, "mcpxingshang_aiSkill", player, player);
+							return skills.mcpxingshang.evaluateOption(effect, target, player);
 						})
 				);
 			},
@@ -438,8 +461,7 @@ export const skills = {
 										return true;
 									})
 									.map(target => {
-										game.broadcastAll(effect => (lib.skill["mcpxingshang_aiSkill"].ai = effect.ai), effect);
-										return get.effect(target, "mcpxingshang_aiSkill", player, player);
+										return skills.mcpxingshang.evaluateOption(effect, target, player);
 									})
 							);
 						})
@@ -576,6 +598,10 @@ export const skills = {
 		init(player, skill) {
 			game.broadcastAll(
 				(player, skill) => {
+					if (player._yaoyaoyi_observer) {
+						player._yaoyaoyi_observer.disconnect();
+						delete player._yaoyaoyi_observer;
+					}
 					player._yaoyaoyi_observer = new MutationObserver(mutationsList => {
 						for (const mutation of mutationsList) {
 							if (mutation.type === "childList") {
@@ -645,7 +671,12 @@ export const skills = {
 							}
 						});
 					}
-					const { card, blank, ...others } = ui.create.buttonPresets;
+					const presets = ui.create.buttonPresets ?? {};
+					if (presets.__yaoyaoyi_wrapped === skill) {
+						presets.__yaoyaoyi_holders = (presets.__yaoyaoyi_holders ?? 1) + 1;
+						return;
+					}
+					const { card, blank, ...others } = presets;
 					ui.create.buttonPresets = {
 						...others,
 						card(item, ...args) {
@@ -660,6 +691,9 @@ export const skills = {
 							}
 							return blank(item, ...args);
 						},
+						__yaoyaoyi_wrapped: skill,
+						__yaoyaoyi_holders: 1,
+						__yaoyaoyi_backup: presets,
 					};
 				},
 				player,
@@ -674,6 +708,15 @@ export const skills = {
 			}
 			game.broadcastAll(
 				(player, skill) => {
+					const wrapped = ui.create.buttonPresets;
+					if (wrapped && wrapped.__yaoyaoyi_wrapped === skill) {
+						const holders = Math.max(0, (wrapped.__yaoyaoyi_holders ?? 1) - 1);
+						if (holders > 0) {
+							wrapped.__yaoyaoyi_holders = holders;
+						} else {
+							ui.create.buttonPresets = wrapped.__yaoyaoyi_backup ?? wrapped;
+						}
+					}
 					player.node.handcards1.classList.remove(skill);
 					player.node.handcards2.classList.remove(skill);
 					delete player.node.handcards1.cardMod[skill];

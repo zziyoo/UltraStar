@@ -12,6 +12,10 @@
 //   players  成员列表，character 写**真实角色 id**。注意本体官方包（手杀 mobile / 十周年 shiji /
 //            势 bingshi / 限定 xianding / 荟萃 huicui / sp / 界 refresh 等）的角色 id 是拼音式
 //            （如 mb_caomao），游戏里看到的中文名只是显示名（lib.translate），所以这里不能照抄显示名。
+//   budget   多成员组合的属性预算分法（见 enemy.js 的 STAGE_BUDGET）：
+//            "each"   每个成员各吃一份完整关卡预算（强度随人数线性膨胀，**一般不这么写**）；
+//            "shared" 整队共吃一份，先按人数切份再各自分配，总点数与单人关卡持平。
+//            不写时按人数兜底：单人 = each（与当前全部配置逐位相同），多人组合 = shared。
 //
 // 成员可选的扩展字段（不写就是走常规随机，未来加「指定属性/技能」的组合时直接用）：
 //   stats: { defense, draw, attack }  指定该成员的属性等级（缺省键按 0，不再随机分配）；
@@ -79,11 +83,14 @@ export function getChallengeStageConfig(id) {
  * 抽前 10 关的配置 id：把可用配置洗成随机序后按位取用——
  * 可用配置 ≥ CHALLENGE_STAGE_LEVELS 时前 10 关必然互不重复（一关一个、各用一次）；
  * 同一 rng 序列结果可复现（Node 自检与测试用）。
- * isAvailable(config) 返回 false 的配置不参与抽取（角色当前不可用的配置抽进来只会让那一关开不了战）；
- * 可用配置不足时循环补齐，保证每关都有配置（此时会出现重复，属极端兜底，正常到不了）。
+ * isAvailable(config) 返回 false 的配置不参与抽取（角色当前不可用的配置抽进来只会让那一关开不了战）。
+ *
+ * **可用配置不足时绝不循环补齐**：循环补齐会让「第 7 关和第 2 关是同一个配置」这种重复悄悄发生，
+ * 玩家看着像随机坏了；配置不够就是配置不够，返回不足 10 条，由 ensureChallengeStages 明确判成
+ * 「配置不足」并阻止生成（宁可开不了战，也不假装够用）。
  * @param {() => number} [rng]
  * @param {(config: object) => boolean} [isAvailable]
- * @returns {string[]} 长度 CHALLENGE_STAGE_LEVELS 的配置 id（池子整体不可用时是空数组，交上层报错）
+ * @returns {string[]} 长度 ≤ CHALLENGE_STAGE_LEVELS 的配置 id（不足即配置不足，交上层报错）
  */
 export function drawChallengeStageIds(rng = Math.random, isAvailable = null) {
 	const eligible = challengeStagePool.filter(config => typeof isAvailable !== "function" || isAvailable(config));
@@ -92,12 +99,5 @@ export function drawChallengeStageIds(rng = Math.random, isAvailable = null) {
 		const j = Math.floor(rng() * (i + 1)) % (i + 1);
 		[bag[i], bag[j]] = [bag[j], bag[i]];
 	}
-	const picked = [];
-	for (let i = 0; i < CHALLENGE_STAGE_LEVELS; i++) {
-		if (!bag.length) {
-			break;
-		}
-		picked.push(bag[i % bag.length].id);
-	}
-	return picked;
+	return bag.slice(0, CHALLENGE_STAGE_LEVELS).map(config => config.id);
 }

@@ -4,7 +4,7 @@
 //   id          事件 id，一旦发布就不要改（存档 pendingEvent 与图鉴只存 id）
 //   name        事件名
 //   description 事件描述（进入事件页时展示）
-//   image       事件配图（assets/events/ 下 512x512，需登记进 data/assets.js 清单）
+//   image       事件配图（assets/events/ 下 192x192，需登记进 data/assets.js 清单）
 //   choices[]   选项，每个选项：
 //     text      选项文字
 //     reward    固定奖励对象（三选一的第一种写法）
