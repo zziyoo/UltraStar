@@ -43,6 +43,18 @@
 //                     goldOfHeld       战斗结束后额外获得「当前持有金币」的 N 倍（结算，储蓄罐 0.05 = 5%）。
 //                                        与 goldRate 不是一回事：goldRate 乘的是本关基础奖励，这个乘的是手上总额
 //                     goldOnReplace    每次替换技能时额外获得「本层基准金币」的 N 倍（商店，遗忘之石 5）
+//                     expOnReplace     每次替换技能时额外获得「本层基准经验」的 N 倍（商店，贪食魔盒 5）
+//                     dyingRecallChance
+//                                        进入濒死状态时按 N 的概率（1 = 必定）获得本局游戏你使用过、
+//                                        且当前位于弃牌堆的实体牌（战斗内，回响之铃 0.5/0.75/1）
+//                     killGainMaxHp    你杀死一名角色后，体力上限 +N（战斗内，破碎王冠的主键，整句由它生成；
+//                                        下面三个配套键与 dyingRecoverToRatio 同例，自己不出文案行）：
+//                                          killHeal=1          并回复 1 点体力
+//                                          killHealToMax=1     改成回复体力至上限（写了它就不看 killHeal）
+//                                          killDrawToMaxHp=1   然后摸牌至手牌数达到体力上限
+//                                          killDrawMaxHp=1     改成摸「体力上限」张牌（写了它就不看 killDrawToMaxHp）
+//                     lockSkillShop    可以锁定技能商店：锁定后，下次战斗结束不刷新技能商店的候选（商店，收藏家的橱窗）
+//                     lockCurioShop    可以锁定奇物商店：锁定后，下次战斗结束不刷新奇物商店的候选（商店，收藏家的橱窗史诗档）
 //   effect          见上：界面文案一律由这些键自动生成（没有 effectText 这类手写字段），
 //                   同一个奇物各档之间、各奇物之间句式因此是统一的
 //
@@ -201,6 +213,67 @@ export const curios = {
 		rarity: "epic",
 		priceMultiplier: 1,
 		effect: { goldOnReplace: 5 },
+	},
+	echo_bell: {
+		id: "echo_bell",
+		name: "回响之铃",
+		description: "摇响它，这一路打出去的牌都会循声回来。",
+		image: "extension/奥特之星/assets/curios/echo_bell.png",
+		rarity: "common",
+		priceMultiplier: 1,
+		effect: { dyingRecallChance: 0.5 },
+		qualityEffects: {
+			rare: { dyingRecallChance: 0.75 },
+			epic: { dyingRecallChance: 1 },
+		},
+	},
+	broken_crown: {
+		id: "broken_crown",
+		name: "破碎王冠",
+		description: "裂了的王冠只剩一条规矩：倒下的人越多，戴它的人越壮。",
+		image: "extension/奥特之星/assets/curios/broken_crown.png",
+		rarity: "common",
+		priceMultiplier: 1,
+		effect: { killGainMaxHp: 1, killHeal: 1 },
+		qualityEffects: {
+			rare: { killGainMaxHp: 1, killHeal: 1, killDrawToMaxHp: 1 },
+			epic: { killGainMaxHp: 1, killHealToMax: 1, killDrawMaxHp: 1 },
+		},
+	},
+	gluttonous_box: {
+		id: "gluttonous_box",
+		name: "贪食魔盒",
+		description: "它不挑食，喂进去的旧技能越多，吐回来的心得越多。",
+		image: "extension/奥特之星/assets/curios/gluttonous_box.png",
+		rarity: "epic",
+		priceMultiplier: 1,
+		effect: { expOnReplace: 5 },
+	},
+	hungry_box: {
+		id: "hungry_box",
+		name: "饥饿之匣",
+		description: "它簌簌地啃钱，啃完吐给你一点心得。",
+		image: "extension/奥特之星/assets/curios/hungry_box.png",
+		rarity: "negative",
+		priceMultiplier: 1,
+		effect: { goldRate: -0.15, expRate: 0.05 },
+		qualityEffects: {
+			common: { goldRate: -0.1, expRate: 0.1 },
+			rare: { goldRate: -0.05, expRate: 0.15 },
+			epic: { expRate: 0.2 },
+		},
+	},
+	collector_showcase: {
+		id: "collector_showcase",
+		name: "收藏家的橱窗",
+		description: "上了锁的橱窗，货还是那批货，只是没人能趁你不在时换走。",
+		image: "extension/奥特之星/assets/curios/collector_showcase.png",
+		rarity: "rare",
+		priceMultiplier: 1,
+		effect: { lockSkillShop: 1 },
+		qualityEffects: {
+			epic: { lockSkillShop: 1, lockCurioShop: 1 },
+		},
 	},
 };
 

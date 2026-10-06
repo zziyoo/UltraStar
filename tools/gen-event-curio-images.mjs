@@ -1287,6 +1287,251 @@ const draw = {
 			cv.dot(c + s * dx, c * dy, s * r, P.pale, 0.8);
 		}
 	},
+	echo_bell(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 铃身：提梁 + 钟形 + 铃口横条 + 铃舌，先立住「铃」的剪影
+		cv.inked(() => {
+			cv.roundBox(c, c * 0.72, s * 0.028, s * 0.018, s * 0.009, BODY);
+			cv.polygon([
+				[c - s * 0.08, c * 0.82], [c + s * 0.08, c * 0.82],
+				[c + s * 0.19, c * 1.2], [c - s * 0.19, c * 1.2],
+			], BODY);
+			cv.roundBox(c, c * 1.24, s * 0.215, s * 0.045, s * 0.022, BODY);
+			cv.dot(c, c * 1.34, s * 0.045, BODY);
+		});
+		// 铃口内侧的暗线 + 一条左侧高光：别让钟形糊成一块死色
+		cv.roundBox(c, c * 1.155, s * 0.165, s * 0.012, s * 0.006, mix(hue, P.ink, 0.55), 0.9);
+		cv.segment(c - s * 0.075, c * 0.94, c - s * 0.13, c * 1.14, s * 0.018, [1, 1, 1], 0.5);
+		// 声波：左右各两道弧——「回响」全靠它读出来
+		for (const side of [-1, 1]) {
+			for (const [r, a] of [[0.3, 0.9], [0.38, 0.5]]) {
+				for (let i = 0; i <= 14; i++) {
+					const ang = -0.6 + (1.2 * i) / 14;
+					cv.dot(c + side * Math.cos(ang) * s * r, c * 1.0 + Math.sin(ang) * s * r, s * 0.017, P.warm, a);
+				}
+			}
+		}
+	},
+	broken_crown(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 五尖被崩成三尖的王冠：底带 + 左/中/右三个尖，中间最高、谷压得深（缩到 64px 才看得出是王冠）
+		cv.inked(() => {
+			cv.polygon([
+				[c - s * 0.3, c * 1.24], [c - s * 0.33, c * 0.78], [c - s * 0.17, c * 1.06],
+				[c, c * 0.56], [c + s * 0.17, c * 1.06], [c + s * 0.33, c * 0.78],
+				[c + s * 0.3, c * 1.24],
+			], BODY);
+			cv.roundBox(c, c * 1.26, s * 0.35, s * 0.085, s * 0.024, BODY);
+		});
+		// 底带压暗 + 三颗宝石
+		cv.roundBox(c, c * 1.26, s * 0.35, s * 0.085, s * 0.024, mix(hue, P.ink, 0.55), 0.95);
+		for (const dx of [-0.2, 0, 0.2]) {
+			cv.dot(c + s * dx, c * 1.26, s * 0.033, P.warm, 0.95);
+		}
+		// 裂缝：从中间的尖一路裂到底带；右侧再崩掉一块（描边色啃掉一角）
+		for (const [ax, ay, bx, by] of [[0.0, 0.86, 0.05, 1.02], [0.05, 1.02, -0.02, 1.16], [-0.02, 1.16, 0.06, 1.3]]) {
+			cv.segment(c + s * ax, c * ay, c + s * bx, c * by, s * 0.011, P.ink, 0.95);
+		}
+		cv.dot(c + s * 0.32, c * 0.88, s * 0.055, P.ink, 0.92);
+		cv.dot(c - s * 0.21, c * 0.72, s * 0.036, P.ink, 0.9);
+		// 两颗崩飞的碎屑
+		cv.dot(c + s * 0.41, c * 0.62, s * 0.022, P.pale, 0.85);
+		cv.dot(c + s * 0.36, c * 0.5, s * 0.014, P.pale, 0.6);
+	},
+	gluttonous_box(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 盒体（下）+ 掀开仰起的盖（上），中间一条黑缝就是嘴——「会吃」全靠这条缝读
+		cv.inked(() => {
+			cv.polygon([
+				[c - s * 0.28, c * 1.06], [c + s * 0.28, c * 1.06],
+				[c + s * 0.23, c * 1.4], [c - s * 0.23, c * 1.4],
+			], BODY);
+			cv.polygon([
+				[c - s * 0.26, c * 0.98], [c + s * 0.26, c * 0.98],
+				[c + s * 0.17, c * 0.6], [c - s * 0.17, c * 0.6],
+			], mix(hue, P.ink, 0.3));
+		});
+		// 嘴缝：暗底 + 一排上牙
+		cv.roundBox(c, c * 1.02, s * 0.265, s * 0.05, s * 0.02, P.ink, 0.95);
+		for (let i = 0; i < 5; i++) {
+			const x = c - s * 0.2 + s * 0.1 * i;
+			cv.polygon([[x - s * 0.04, c * 0.985], [x + s * 0.04, c * 0.985], [x, c * 1.055]], [1, 1, 1], 0.95);
+		}
+		// 盒面锁扣 + 左侧高光
+		cv.roundBox(c, c * 1.2, s * 0.035, s * 0.05, s * 0.014, P.warm, 0.95);
+		cv.segment(c - s * 0.2, c * 1.12, c - s * 0.2, c * 1.34, s * 0.016, [1, 1, 1], 0.4);
+		// 被它吞掉的「心得」飞屑：盖两侧各一粒亮星
+		cv.dot(c - s * 0.33, c * 0.68, s * 0.024, P.warm, 0.95);
+		cv.dot(c + s * 0.34, c * 0.55, s * 0.017, P.warm, 0.75);
+	},
+	hungry_box(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 一只上了箍的小匣：顶盖 + 匣身；投币口开在盖顶，金币正往下掉
+		cv.inked(() => {
+			cv.roundBox(c, c * 0.92, s * 0.26, s * 0.075, s * 0.03, BODY);
+			cv.roundBox(c, c * 1.2, s * 0.28, s * 0.19, s * 0.035, BODY);
+		});
+		cv.roundBox(c, c * 0.9, s * 0.09, s * 0.017, s * 0.008, P.ink, 0.95);
+		// 匣身包边 + 右上角被啃出来的缺口：它饿的样子
+		cv.roundBox(c, c * 1.2, s * 0.28, s * 0.02, s * 0.01, mix(hue, P.ink, 0.55), 0.9);
+		cv.dot(c + s * 0.27, c * 1.02, s * 0.075, P.ink, 0.94);
+		// 下落中的金币 + 两条坠线
+		cv.inked(() => {
+			cv.dot(c, c * 0.54, s * 0.075, [1, 0.82, 0.32]);
+			cv.ring(c, c * 0.54, s * 0.075, s * 0.013, [1, 0.95, 0.62], 0.9);
+		}, 0.4);
+		cv.segment(c - s * 0.035, c * 0.66, c - s * 0.035, c * 0.74, s * 0.011, P.pale, 0.7);
+		cv.segment(c + s * 0.035, c * 0.66, c + s * 0.035, c * 0.74, s * 0.011, P.pale, 0.4);
+		// 啃完吐出来的心得：右下角一缕上飘的亮星
+		cv.dot(c + s * 0.36, c * 1.36, s * 0.02, P.warm, 0.9);
+		cv.dot(c + s * 0.42, c * 1.24, s * 0.014, P.warm, 0.6);
+	},
+	collector_showcase(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 展示柜：顶冠 + 柜体 + 玻璃面（浅色面板），玻璃里摆着唯一的展品
+		cv.inked(() => {
+			cv.roundBox(c, c * 0.68, s * 0.1, s * 0.035, s * 0.014, BODY);
+			cv.roundBox(c, c * 1.1, s * 0.3, s * 0.34, s * 0.03, BODY);
+		});
+		cv.roundBox(c, c * 1.1, s * 0.24, s * 0.27, s * 0.02, mix(hue, [1, 1, 1], 0.62), 0.85);
+		// 展品：一颗菱形宝石 + 斜高光；下面一道格板
+		cv.inked(() => cv.polygon([[c, c * 0.84], [c + s * 0.1, c * 1.02], [c, c * 1.26], [c - s * 0.1, c * 1.02]], P.warm), 0.4);
+		cv.segment(c - s * 0.045, c * 1.02, c + s * 0.005, c * 0.92, s * 0.012, [1, 1, 1], 0.85);
+		cv.segment(c - s * 0.24, c * 1.3, c + s * 0.24, c * 1.3, s * 0.014, mix(hue, P.ink, 0.5), 0.9);
+		// 挂在柜门右边的锁：锁梁 + 锁体 + 锁孔——有锁才读得出「锁定」
+		cv.inked(() => {
+			cv.ring(c + s * 0.3, c * 1.04, s * 0.05, s * 0.014, [1, 0.84, 0.36]);
+			cv.roundBox(c + s * 0.3, c * 1.18, s * 0.085, s * 0.075, s * 0.02, [1, 0.84, 0.36]);
+		}, 0.4);
+		cv.dot(c + s * 0.3, c * 1.17, s * 0.022, P.ink, 0.9);
+	},
+	abandoned_supply(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 一只正放的补给箱（歪着画会读成信封）：箱身 + 盖板 + X 形加固木条
+		cv.inked(() => {
+			cv.roundBox(c, c * 1.06, s * 0.28, s * 0.2, s * 0.02, BODY);
+			cv.roundBox(c, c * 0.78, s * 0.3, s * 0.055, s * 0.016, mix(hue, P.ink, 0.4));
+		});
+		// X 形加固条：箱面上唯一的花纹，缩到 64px 就靠它读成木箱
+		cv.segment(c - s * 0.25, c * 0.92, c + s * 0.25, c * 1.22, s * 0.022, mix(hue, P.ink, 0.68), 0.95);
+		cv.segment(c + s * 0.25, c * 0.92, c - s * 0.25, c * 1.22, s * 0.022, mix(hue, P.ink, 0.68), 0.95);
+		cv.segment(c - s * 0.28, c * 0.74, c + s * 0.28, c * 0.74, s * 0.011, P.warm, 0.7);
+		cv.roundBox(c, c * 1.24, s * 0.28, s * 0.02, s * 0.01, mix(hue, P.ink, 0.55), 0.9);
+		// 滚到箱外的两罐物资：罐身 + 顶盖亮线，「还没过期」得看得见是罐头
+		const cans = [[-0.36, 1.32, 0.085], [0.06, 1.5, 0.075]];
+		for (const [dx, dy, r] of cans) {
+			cv.inked(() => {
+				cv.roundBox(c + s * dx, c * dy, s * r, s * r * 0.8, s * 0.016, [0.88, 0.92, 1]);
+				cv.roundBox(c + s * dx, c * dy - s * r * 0.66, s * r * 0.86, s * 0.016, s * 0.007, P.warm);
+			}, 0.42);
+		}
+		// 扬起的三粒尘
+		const dust = [[0.36, 1.34, 0.022], [0.42, 1.18, 0.015], [0.3, 1.48, 0.012]];
+		for (const [dx, dy, r] of dust) {
+			cv.dot(c + s * dx, c * dy, s * r, P.pale, 0.75);
+		}
+	},
+	veteran_training(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 木人桩：圆头 + 躯干 + 两条横臂 + 底座，一眼读成「练功用的假人」
+		cv.inked(() => {
+			cv.dot(c, c * 0.66, s * 0.085, BODY);
+			cv.roundBox(c, c * 1.06, s * 0.115, s * 0.3, s * 0.05, BODY);
+			cv.roundBox(c - s * 0.24, c * 0.92, s * 0.14, s * 0.035, s * 0.016, mix(hue, P.ink, 0.3));
+			cv.roundBox(c + s * 0.24, c * 0.92, s * 0.14, s * 0.035, s * 0.016, mix(hue, P.ink, 0.3));
+			cv.roundBox(c, c * 1.42, s * 0.2, s * 0.045, s * 0.02, mix(hue, P.ink, 0.52));
+		});
+		// 胸口的靶心：老兵要教的就是「往这儿打」
+		cv.dot(c, c * 1.02, s * 0.062, mix(hue, P.ink, 0.8), 1);
+		cv.ring(c, c * 1.02, s * 0.045, s * 0.012, P.warm, 0.95);
+		cv.dot(c, c * 1.02, s * 0.017, [1, 1, 1], 1);
+		// 斜倚的木剑：从右下压到左臂，画面才有「有人在这儿练」
+		cv.inked(() => {
+			cv.segment(c + s * 0.34, c * 1.5, c - s * 0.05, c * 0.8, s * 0.02, [0.88, 0.9, 1]);
+			cv.segment(c - s * 0.01, c * 0.96, c + s * 0.13, c * 1.04, s * 0.014, P.warm);
+		}, 0.4);
+		cv.dot(c - s * 0.05, c * 0.8, s * 0.012, [1, 1, 1], 0.9);
+		cv.inked(() => cv.roundBox(c, c * 1.54, s * 0.3, s * 0.02, s * 0.01, mix(hue, P.ink, 0.68)), 0.3);
+	},
+	gold_vein(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 一整块带棱角的矿石，中间斜穿一条金脉——「闪耀」全靠这条亮带
+		cv.inked(() => cv.polygon([
+			[c - s * 0.05, c * 0.56], [c + s * 0.2, c * 0.68], [c + s * 0.32, c * 0.94],
+			[c + s * 0.26, c * 1.28], [c + s * 0.02, c * 1.46], [c - s * 0.24, c * 1.34],
+			[c - s * 0.33, c * 1.0], [c - s * 0.22, c * 0.7],
+		], mix(hue, P.ink, 0.56)));
+		// 矿脉：折线宽带里再压一条亮线。坐标一律「dx 按 s、dy 按 c」，与矿石同一套
+		const seam = [[-0.26, 0.86], [-0.06, 1.0], [0.06, 1.06], [0.24, 1.2]];
+		const bands = [[0.05, [1, 0.82, 0.32]], [0.018, [1, 0.96, 0.66]]];
+		for (const [width, tint] of bands) {
+			for (let i = 0; i < seam.length - 1; i++) {
+				cv.segment(c + s * seam[i][0], c * seam[i][1], c + s * seam[i + 1][0], c * seam[i + 1][1], s * width, tint);
+			}
+		}
+		const nuggets = [[-0.16, 0.92, 0.05], [0.14, 1.14, 0.042], [0.02, 1.02, 0.034]];
+		for (const [dx, dy, r] of nuggets) {
+			cv.inked(() => cv.dot(c + s * dx, c * dy, s * r, [1, 0.84, 0.34]), 0.35);
+		}
+		cv.glow(c, c * 1.05, s * 0.15, [1, 0.9, 0.5], 0.5);
+		const glints = [[-0.02, 0.9, 0.02], [0.2, 1.08, 0.014]];
+		for (const [dx, dy, r] of glints) {
+			cv.dot(c + s * dx, c * dy, s * r, [1, 1, 1], 0.9);
+		}
+	},
+	exp_merchant(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 天平：立柱 + 微斜的横梁 + 底座，两端的托盘里一边金币一边经验星
+		cv.inked(() => {
+			cv.roundBox(c, c * 0.6, s * 0.022, s * 0.022, s * 0.01, BODY);
+			cv.roundBox(c, c * 1.02, s * 0.028, s * 0.4, s * 0.012, BODY);
+			cv.roundBox(c, c * 1.46, s * 0.2, s * 0.038, s * 0.016, BODY);
+			cv.segment(c - s * 0.3, c * 0.74, c + s * 0.3, c * 0.66, s * 0.022, BODY);
+		});
+		for (const side of [-1, 1]) {
+			const ax = c + side * s * 0.3;
+			const ay = c * (side < 0 ? 0.74 : 0.66);
+			cv.segment(ax - s * 0.07, ay + s * 0.02, ax, c * 1.06, s * 0.008, P.pale, 0.85);
+			cv.segment(ax + s * 0.07, ay + s * 0.02, ax, c * 1.06, s * 0.008, P.pale, 0.85);
+			cv.inked(() => cv.ellipse(ax, c * 1.12, s * 0.115, s * 0.035, mix(hue, P.ink, 0.34)), 0.4);
+		}
+		cv.inked(() => {
+			cv.dot(c - s * 0.3, c * 1.06, s * 0.072, [1, 0.82, 0.32]);
+			cv.ring(c - s * 0.3, c * 1.06, s * 0.072, s * 0.013, [1, 0.95, 0.62], 0.9);
+		}, 0.4);
+		cv.dot(c - s * 0.3, c * 1.06, s * 0.028, [1, 0.96, 0.72], 1);
+		/** 四尖星：经验的老符号，八个顶点两两交替半径 */
+		const star = (cx, cy, r) => {
+			const pts = [];
+			for (let i = 0; i < 8; i++) {
+				const a = -Math.PI / 2 + (Math.PI * i) / 4;
+				const rad = i % 2 ? r * 0.4 : r;
+				pts.push([cx + Math.cos(a) * rad, cy + Math.sin(a) * rad]);
+			}
+			cv.polygon(pts, P.warm, 1);
+		};
+		cv.inked(() => star(c + s * 0.3, c * 1.04, s * 0.085), 0.4);
+		// 立柱上的指针偏向经验那一侧：这一头给得多
+		cv.segment(c, c * 0.98, c + s * 0.06, c * 0.84, s * 0.012, P.warm, 0.9);
+	},
 };
 
 // ---------------------------------------------------------------- 生成
@@ -1320,6 +1565,15 @@ const IMAGES = [
 	["curios", "golden_compass", "#ffc93c"],
 	["curios", "piggy_bank", "#ffa8c8"],
 	["curios", "oblivion_stone", "#a0a8c8"],
+	["curios", "echo_bell", "#b78cff"],
+	["curios", "broken_crown", "#ffd75e"],
+	["curios", "gluttonous_box", "#e06cff"],
+	["curios", "hungry_box", "#d9915f"],
+	["curios", "collector_showcase", "#6fd8ea"],
+	["events", "abandoned_supply", "#8fae5c"],
+	["events", "veteran_training", "#ff6a8a"],
+	["events", "gold_vein", "#e8a83c"],
+	["events", "exp_merchant", "#b06aff"],
 ];
 
 /** 盒式降采样：把 size×size 的 RGBA 收成 to×to。用来还原奇物在界面上的真实尺寸（64px） */
@@ -1354,8 +1608,8 @@ function shrink(pixels, size, to) {
 const PREVIEW = process.argv.includes("--preview");
 const PREVIEW_TILE = 64;
 const PREVIEW_ZOOM = 2;
-// 5×5 格、每格放大两倍 → 640×640；全部条目（12 事件 + 13 奇物 = 25 张）一张放完
-const PREVIEW_COLS = 5;
+// 6 列 × 6 行、每格放大两倍 → 768×768；全部条目（16 事件 + 18 奇物 = 34 张）一张放完
+const PREVIEW_COLS = 6;
 const SHEET = PREVIEW_COLS * PREVIEW_TILE * PREVIEW_ZOOM;
 const sheet = PREVIEW ? new Uint8Array(SHEET * SHEET * 4).fill(24) : null;
 

@@ -18,7 +18,7 @@ import {
 import { getEnemyGroup } from "./data/enemyGroups.js";
 import { getEvent } from "./data/events.js";
 import { getCurio, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
-import { getMaxShopRefreshes } from "./curioManager.js";
+import { getMaxShopRefreshes, canLockShop } from "./curioManager.js";
 import { normalizeEventReward, normalizeEventAction } from "./eventManager.js";
 import { normalizeAbyssIds } from "./endless/abyss.js";
 import { stats } from "./data/stats.js";
@@ -395,6 +395,9 @@ export function normalizeRun(raw, options = {}) {
 		}
 	}
 
+	// v6：奇物当前品质覆盖表。后文与商店锁都要用它，所以先算出来
+	const curioQuality = normalizeCurioQuality(raw.curioQuality, curios);
+
 	// 旧存档（v1）没有这个字段时补满；已经刷成 0 的原样保留，不然重读存档就等于白送次数。
 	// 上限用「基础 + 全部刷新类奇物加成」，否则循环按钮给的额外次数读档后会被夹掉。
 	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, getMaxShopRefreshes(), SKILL_REFRESH_PER_LEVEL);
@@ -418,10 +421,14 @@ export function normalizeRun(raw, options = {}) {
 		collection: normalizeCollection(raw.collection),
 		curios,
 		// v6：奇物品质升级。旧档（v5 及更早）没有这个字段时按空表补齐 = 全部停在初始品质
-		curioQuality: normalizeCurioQuality(raw.curioQuality, curios),
+		curioQuality,
 		curioOffers: normalizeCurioOffers(raw.curioOffers, curios),
 		// v7：奇物商店的额外批次队列（黄金罗盘给的，买完当前这批才提上货架）
 		curioOfferQueue,
+		// v9：商店锁（收藏家的橱窗）。**只有当前确实持有对应锁定能力**才保留，否则一律清零——
+		// 没有那件奇物时这两个字段对玩家不可见（商店里没有锁图标），留着就是一颗不知道什么时候会响的雷
+		skillShopLocked: canLockShop({ curios, curioQuality }, "skill") && raw.skillShopLocked === true,
+		curioShopLocked: canLockShop({ curios, curioQuality }, "curio") && raw.curioShopLocked === true,
 		// v7：经验泉「再饮一口」欠下的债——下一场每名敌人追加几个深渊强化。旧档按「没有债」补齐，不重掷
 		abyssDebt: clampInt(raw.abyssDebt, 0, 10, 0),
 		cleared: !!raw.cleared,

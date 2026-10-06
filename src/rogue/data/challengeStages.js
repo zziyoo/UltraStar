@@ -30,7 +30,7 @@
 import { CHALLENGE_STAGE_LEVELS } from "../config.js";
 
 export const challengeStagePool = [
-	// ---- 全部 28 个配置的角色 id 已与当前游戏对上（用户逐个确认，2026-10-06）----
+	// ---- 第一批 28 个配置的角色 id 已与当前游戏对上（用户逐个确认，2026-10-06）----
 	{ id: "界孙权", type: "single", players: [{ character: "re_sunquan" }] },
 	{ id: "手杀周处", type: "single", players: [{ character: "zhouchu" }] },
 	// 手杀沙摩柯 → sp 包「沙摩柯」
@@ -68,6 +68,18 @@ export const challengeStagePool = [
 	// 十周年张琪瑛 → 限定包「新杀张琪瑛」
 	{ id: "十周年张琪瑛", type: "single", players: [{ character: "y_dc_zhangqiying" }] },
 	{ id: "朱建平", type: "single", players: [{ character: "zhujianping" }] },
+	// ---- 第二批 6 个（用户 2026-10-06 点名加入，角色 id 已逐个在 resources/app/character 核对到注册）----
+	// 手杀神马超 → shiji 包（显示名就叫「手杀神马超」）
+	{ id: "手杀神马超", type: "single", players: [{ character: "mb_shen_machao" }] },
+	// 手杀骥张辽 → mobile 包（显示名只到「骥张辽」，不带手杀前缀）
+	{ id: "手杀骥张辽", type: "single", players: [{ character: "hefei_zhangliao" }] },
+	{ id: "手杀笮融", type: "single", players: [{ character: "mb_zerong" }] },
+	// 手杀诸葛瞻 → 官方库里只有 shenhua 包的裸 id `zhugezhan`（显示名「诸葛瞻」），
+	// 另有 old_/zj_/clan_ 三个变体；要用别的那一版改这里的 id 即可
+	{ id: "手杀诸葛瞻", type: "single", players: [{ character: "zhugezhan" }] },
+	{ id: "手杀界钟会", type: "single", players: [{ character: "re_zhonghui" }] },
+	// 吕据 → xianding 包
+	{ id: "吕据", type: "single", players: [{ character: "lvju" }] },
 ];
 
 /** 按 id 取配置；id 不在池里或结构损坏（没有成员）时返回 null */

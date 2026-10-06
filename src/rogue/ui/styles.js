@@ -124,6 +124,11 @@ const CSS = `
 .wm-rogue-shop-section-row .wm-rogue-shop-section-title { margin-right: auto; }
 /* 宽度按「本局已购买」这种最长文案定，切换状态时不跟着抖 */
 .wm-rogue-shop-refresh { flex: none; min-width: 116px; }
+/* 商店锁图标（收藏家的橱窗）：正方小按钮，未锁 🔓 / 已锁 🔒；锁上时描边与底色转金。
+   尺寸写死成盒子，换 emoji 字体也不会把标题行撑变形 */
+.wm-rogue-shop-lock { flex: none; width: 46px; height: 40px; min-width: 0; padding: 0; font-size: 22px; line-height: 1; }
+.wm-rogue-shop-lock.wm-rogue-lock-on { border-color: rgba(255,200,120,0.9);
+	background: linear-gradient(rgba(120,88,28,0.92), rgba(72,50,14,0.95)); }
 .wm-rogue-shop-subtitle { margin-bottom: 9px; font-size: 14px; color: rgba(255,255,255,0.58); }
 /* 三张技能卡：一行放得下就横排，窄屏自动换行 */
 .wm-rogue-shop-cards, .wm-rogue-stat-cards { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -475,6 +480,17 @@ const CSS = `
 	min-width: 0 !important;
 	min-height: 0 !important;
 	text-align: center !important;
+}
+/* 商店锁图标：与返回键同一套「写死成固定盒子」的加固——emoji 的字面宽高随字体变，不给死尺寸会被标题行挤变形 */
+#wm-rogue-overlay .wm-rogue-shop-lock {
+	box-sizing: border-box !important;
+	width: 46px !important;
+	height: 40px !important;
+	font-size: 22px !important;
+	padding: 0 !important;
+	margin: 0 !important;
+	min-width: 0 !important;
+	min-height: 0 !important;
 }
 #wm-rogue-overlay.wm-rogue-shop-overlay { overflow: hidden !important; }
 #wm-rogue-overlay .wm-rogue-shop,

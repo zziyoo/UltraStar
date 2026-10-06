@@ -693,6 +693,10 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		// 血怒核心的「无法被响应」走 ai 标签（norespond + playernowuxie），
 		// 但它附带的「此牌伤害 +1」仍要有加伤时机，所以这里盯 damageBegin1
 		unrespondable: "damageBegin1",
+		// 回响之铃在濒死时机回收、破碎王冠靠「来源是死者的 die」认击杀
+		dyingRecallChance: "dying",
+		killGainMaxHp: "die",
+		killHeal: "die",
 	};
 	for (const [key, timing] of Object.entries(need)) {
 		const used = Object.values(curiosData.curios).some(curio => curio.effect?.[key]);
@@ -700,6 +704,15 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 			assert(triggerNames.includes(timing), `效果 ${key} 需要时机 ${timing}，rogue_curio 未声明`);
 		}
 	}
+	// 配套键（只配在别的键的句子里、自己不出文案行）必须登记进「战斗内」表：
+	// 战斗面板按 CURIOSITY_BATTLE_KEYS 把效果切成两组，漏在栏外会被整块切掉——
+	// 血怒核心就踩过这条，体力条件与「此牌伤害 +1」整段消失。新增带配套键的奇物时回来补一行
+	const companionKeys = ["dyingRecoverToRatio", "unrespondableLowHp", "unrespondableCardDamage",
+		"killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp"];
+	for (const key of companionKeys) {
+		assert(curioManager.CURIOSITY_BATTLE_KEYS.includes(key), `配套键 ${key} 漏在 CURIOSITY_BATTLE_KEYS 栏外`);
+	}
+	assertEqual(curioManager.CURIOSITY_STORAGE_KEYS, curioManager.CURIOSITY_BATTLE_KEYS, "storage 写入表应与战斗内表同一条");
 	// 血怒核心「无法被响应」必须挂两个标签：本体问「能不能响应」和问「能不能无懈」是两条分开的路，
 	// 只挂一个会出现「杀必中但锦囊照样被无懈」。标签为真时本体才调 skillTagFilter，缺了就变成无条件生效。
 	const usesUnrespondable = Object.values(curiosData.curios).some(curio => (curio.effect?.unrespondable || 0) > 0
@@ -715,7 +728,7 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 check("深渊词缀配置：池子项数、技能本体、双键翻译与承载时机都齐备，并随模式一起注册", () => {
 	const modeConfig = modeModule.createModeConfig();
 	const pool = abyssConfig.AFFIX_POOL;
-	assert(pool.length >= 10, `第一版应有 10 个词缀，实际 ${pool.length}`);
+	assert(pool.length >= 9, `词缀池至少要 9 个（深渊·禁欲已删除），实际 ${pool.length}`);
 	assertEqual(new Set(pool.map(item => item.id)).size, pool.length, "词缀 id 不能重复");
 	assertEqual(abyssConfig.ABYSS_START_LEVEL, 31, "深渊化起始层");
 	assertEqual(abyssConfig.ABYSS_FULL_LEVEL, 100, "满层（必定拿到 1 个的层数）");
@@ -759,7 +772,6 @@ check("深渊词缀配置：池子项数、技能本体、双键翻译与承载�
 	assert(timings.some(t => t.global === "roundStart"), "应有词缀挂在轮开始（狂热）");
 	assert(timings.some(t => t.global === "phaseBegin"), "应有词缀挂在回合开始（永恒）");
 	assert(timings.some(t => t.player === "damageEnd"), "应有词缀挂在受到伤害后（虚无/镜像/复仇）");
-	assert(timings.some(t => t.global === "gainEnd"), "应有词缀挂在获得牌后（禁欲）");
 	assert(timings.some(t => t.global === "useCardAfter"), "应有词缀在使用牌后（污染）");
 	return `${pool.length} 个词缀 / 时机与翻译齐备 / 随模式注册`;
 });

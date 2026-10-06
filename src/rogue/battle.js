@@ -180,9 +180,9 @@ function applyCurioEffects(player, curioIds, qualityMap) {
 	for (const key of CURIOSITY_STORAGE_KEYS) {
 		const value = effects[key];
 		// 每一项都写（没给就写 0），storage 的形状因此稳定，机制技读哪个键都不会拿到 undefined；
-		// 比例类不取整——0.5 要原样进去，由机制技去乘体力上限
+		// 比例与概率类不取整——0.5 要原样进去，由机制技去乘体力上限或掷概率（Ratio / Chance 结尾都保留小数）
 		storage[key] = Number.isFinite(value)
-			? (key.endsWith("Ratio") ? Math.max(0, value) : Math.max(0, Math.floor(value)))
+			? (key.endsWith("Ratio") || key.endsWith("Chance") ? Math.max(0, value) : Math.max(0, Math.floor(value)))
 			: 0;
 	}
 	player.storage.rogue_curio = storage;

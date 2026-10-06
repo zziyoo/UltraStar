@@ -6,7 +6,7 @@ import { lib } from "../../../../../noname.js";
 
 import { SKILL_SLOTS } from "../config.js";
 import { buySkill, checkStatUpgrade, refreshSkillOffers, rollSkillOffers, upgradeStat } from "../shop.js";
-import { buyCurio, upgradeCurio, getReplaceRewardGold } from "../curioManager.js";
+import { buyCurio, upgradeCurio, getReplaceRewardGold, getReplaceRewardExp, toggleShopLock } from "../curioManager.js";
 import { getShopPool } from "../skillPool.js";
 import { commit, context, skillGate } from "../runtime.js";
 import { showNotice } from "../ui/common.js";
@@ -36,6 +36,7 @@ export function createShopFlow(host) {
 			upgradeStat: upgradeStatFlow,
 			buySkill: buySkillFlow,
 			refreshSkills: refreshShopFlow,
+			toggleLock: toggleLockFlow,
 			openSkills,
 			openCurios,
 			buyCurio: buyCurioFlow,
@@ -100,14 +101,20 @@ export function createShopFlow(host) {
 			showNotice([result.error], openShop);
 			return;
 		}
-		// 遗忘之石：只有**真的发生了替换**（槽满、老技能让位）才折成金币，空槽直接买一分不给。
-		// 被换掉的技能本身没有任何补偿——石头吃的是「遗忘」这件事。
+		// 遗忘之石（金币）与贪食魔盒（经验）：只有**真的发生了替换**（槽满、老技能让位）才结账，
+		// 空槽直接买一分不给。被换掉的技能本身没有任何补偿——两件奇物吃的是「遗忘」这件事。
+		// 两笔都在扣款之后按同一份 run 现算（getBonus 看的是当前品质）
 		const stoneGold = result.removed ? getReplaceRewardGold(context.run) : 0;
+		const boxExp = result.removed ? getReplaceRewardExp(context.run) : 0;
 		context.run = result.run;
-		if (stoneGold > 0) {
+		if (stoneGold > 0 || boxExp > 0) {
 			context.run = {
 				...context.run,
-				currency: { ...context.run.currency, gold: (context.run.currency?.gold ?? 0) + stoneGold },
+				currency: {
+					...context.run.currency,
+					gold: (context.run.currency?.gold ?? 0) + stoneGold,
+					exp: (context.run.currency?.exp ?? 0) + boxExp,
+				},
 			};
 		}
 		if (!commit()) {
@@ -117,8 +124,15 @@ export function createShopFlow(host) {
 		if (!refreshShop(context.run)) {
 			openShop();
 		}
+		const notices = [];
 		if (stoneGold > 0) {
-			showNotice([`遗忘之石把忘掉的那门技能折成了 ${stoneGold} 金币。`]);
+			notices.push(`遗忘之石把忘掉的那门技能折成了 ${stoneGold} 金币。`);
+		}
+		if (boxExp > 0) {
+			notices.push(`贪食魔盒吞下这次替换，吐回 ${boxExp} 点经验。`);
+		}
+		if (notices.length) {
+			showNotice(notices);
 		}
 	}
 
@@ -178,5 +192,24 @@ export function createShopFlow(host) {
 		}
 	}
 
-	return { openShop, openSkills, openCurios, buySkillFlow, upgradeStatFlow, buyCurioFlow, upgradeCurioFlow };
+	/**
+	 * 切换「收藏家的橱窗」给的商店锁（kind: "skill" / "curio"）。
+	 * 与其它商店动作同一条路线：先改内存 run → 落盘 → 原位重绘；没持有对应奇物时只弹一句、零副作用。
+	 */
+	function toggleLockFlow(kind) {
+		const result = toggleShopLock(context.run, kind);
+		if (!result.ok) {
+			showNotice([result.error]);
+			return;
+		}
+		context.run = result.run;
+		if (!commit()) {
+			return;
+		}
+		if (!refreshShop(context.run)) {
+			openShop();
+		}
+	}
+
+	return { openShop, openSkills, openCurios, buySkillFlow, upgradeStatFlow, buyCurioFlow, upgradeCurioFlow, toggleLockFlow };
 }

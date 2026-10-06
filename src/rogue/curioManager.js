@@ -19,17 +19,21 @@ import { getEndlessReward } from "./data/rewards.js";
 import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 
 /**
- * effect 里已知的键：战斗内六项 + 结算两项（+ 金币波动一项）+ 刷新次数三项。
- * 其中 unrespondableLowHp / unrespondableCardDamage 是 unrespondable 的配套键，自己不出文案行
- * （与 dyingRecoverToRatio 之于 dyingSave 同一套做法）。
+ * effect 里已知的键：战斗内十一项 + 结算/商店两项 + 刷新次数三项。
+ * 其中 unrespondableLowHp / unrespondableCardDamage 是 unrespondable 的配套键，
+ * killHeal / killHealToMax / killDrawToMaxHp / killDrawMaxHp 是 killGainMaxHp 的配套键，
+ * 自己都不出文案行（与 dyingRecoverToRatio 之于 dyingSave 同一套做法）。
  * 数据自检保证 curios.js 不写出未知键。
  */
 export const CURIOSITY_EFFECT_KEYS = [
 	"extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
 	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
 	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
+	"dyingRecallChance",
+	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
 	"expRate", "goldRate", "goldRateSpread",
-	"extraShopRefresh", "extraCurioShopChance", "goldOfHeld", "goldOnReplace",
+	"extraShopRefresh", "extraCurioShopChance", "goldOfHeld", "goldOnReplace", "expOnReplace",
+	"lockSkillShop", "lockCurioShop",
 ];
 
 /**
@@ -42,12 +46,15 @@ export const CURIOSITY_BATTLE_KEYS = [
 	"extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
 	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
 	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
+	"dyingRecallChance",
+	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
 ];
 
 /**
  * 需要搬进 `player.storage.rogue_curio` 的键：就是上面这张战斗内表。
  * 新增战斗内效果只要登记进这两张表，battle.js 一个字都不用改——
  * 那里以前是逐个键手写清单，忘了同步就是「技能挂上了、数值全是 0」，真机上表现为效果完全没生效。
+ * 概率类（dyingRecallChance）以小数进去，由 battle.js 按「Ratio / Chance 结尾保留小数」写入。
  */
 export const CURIOSITY_STORAGE_KEYS = CURIOSITY_BATTLE_KEYS;
 
@@ -154,6 +161,26 @@ const EFFECT_TEXT = {
 	hurtDamageNext: value => `当你受到伤害后，你下一次造成的伤害 +${value}`,
 	hurtDamageRound: value => `当你受到伤害后，本回合你造成的伤害 +${value}`,
 	hurtDamageGame: value => `当你受到伤害后，本局游戏你造成的伤害 +${value}`,
+	// 回响之铃：概率按档写，满档（1）不写概率句；只认「使用过」（打出/响应不算）
+	dyingRecallChance: value => {
+		const body = "获得本局游戏你使用过且位于弃牌堆的牌";
+		return value >= 1 ? `当你进入濒死状态时，${body}` : `当你进入濒死状态时，有 ${Math.round(value * 100)}% 的概率${body}`;
+	},
+	// 破碎王冠：主键出整句，三个配套键自己不出行（与 unrespondable 同一套做法）
+	killGainMaxHp: (value, effects) => {
+		let line = `你杀死一名角色后，你增加 ${value} 点体力上限`;
+		if ((effects?.killHealToMax ?? 0) > 0) {
+			line += "并回复体力至上限";
+		} else if ((effects?.killHeal ?? 0) > 0) {
+			line += `并回复 ${effects.killHeal} 点体力`;
+		}
+		if ((effects?.killDrawMaxHp ?? 0) > 0) {
+			line += "，然后摸体力上限张牌";
+		} else if ((effects?.killDrawToMaxHp ?? 0) > 0) {
+			line += "，然后摸牌至体力上限";
+		}
+		return line;
+	},
 	expRate: (value, effects) => rateLine("expRate", "经验", effects),
 	goldRate: (value, effects) => rateLine("goldRate", "金币", effects),
 	extraShopRefresh: value => `每场战斗结束后，额外获得 ${value} 次技能商城刷新机会`,
@@ -161,6 +188,10 @@ const EFFECT_TEXT = {
 	// 与 goldRate 分开写：那条乘的是本关基础奖励，这条乘的是你手上已有的总额，两者会叠乘
 	goldOfHeld: value => `战斗结束后额外获得当前持有金币的 ${Math.round(Math.abs(value) * 100)}%`,
 	goldOnReplace: value => `每次替换技能时获得本层基准金币的 ${value} 倍`,
+	expOnReplace: value => `每次替换技能时获得本层基准经验的 ${value} 倍`,
+	// 收藏家的橱窗：锁定是开关不是数值，两档各出一条（史诗档两条都在）
+	lockSkillShop: () => "你可以锁定技能商店，锁定后下一场战斗不再刷新技能商店的候选",
+	lockCurioShop: () => "你可以锁定奇物商店，锁定后下一场战斗不再刷新奇物商店的候选",
 };
 
 /**
@@ -542,6 +573,51 @@ export function getReplaceRewardGold(run) {
 	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
 	const base = getEndlessReward(level, ["gold"]).gold ?? 0;
 	return Math.max(0, Math.round(base * mult));
+}
+
+/**
+ * 贪食魔盒「替换技能时」该发的经验 = 本层基准经验 × 效果值。
+ * 与 getReplaceRewardGold 逐字同一条口径：关卡取 run.level（商店定价、遗石折钱都按这个数），
+ * 没有这块奇物返回 0；调用方同样只在**真的发生了替换**（槽满让位）时才发。
+ */
+export function getReplaceRewardExp(run) {
+	const mult = getBonus(run?.curios ?? [], "expOnReplace", run?.curioQuality);
+	if (!(mult > 0)) {
+		return 0;
+	}
+	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
+	const base = getEndlessReward(level, ["exp"]).exp ?? 0;
+	return Math.max(0, Math.round(base * mult));
+}
+
+/**
+ * 商店锁的能力闸门：收藏家的橱窗给的「能锁哪几个商店」的能力本身（稀有只锁技能、史诗两个都能锁）。
+ * 与「此刻锁没锁」（isShopLocked）分开——存档清洗、商店 UI、结算判定三处共用这一份，不各自点名奇物 id。
+ */
+export function canLockShop(run, kind) {
+	const key = kind === "curio" ? "lockCurioShop" : "lockSkillShop";
+	return getBonus(run?.curios ?? [], key, run?.curioQuality) > 0;
+}
+
+/** 某个商店此刻是否锁着：没有对应能力、字段缺失或不是布尔真的一律算没锁 */
+export function isShopLocked(run, kind) {
+	const field = kind === "curio" ? "curioShopLocked" : "skillShopLocked";
+	return run?.[field] === true && canLockShop(run, kind);
+}
+
+/**
+ * 切换某个商店的锁定（纯函数，绝不修改传入的 run）。
+ * 没持有对应奇物时 ok:false 且零副作用；切换结果 write 进 run.skillShopLocked / run.curioShopLocked，
+ * 由调用方落盘。锁只挡「战斗结束时的自动刷新」，不挡玩家的手动升级/购买与免费刷新。
+ */
+export function toggleShopLock(run, kind) {
+	const field = kind === "curio" ? "curioShopLocked" : "skillShopLocked";
+	const label = kind === "curio" ? "奇物商店" : "技能商店";
+	if (!canLockShop(run, kind)) {
+		return { ok: false, error: `没有能锁定${label}的奇物`, run, locked: false };
+	}
+	const locked = !isShopLocked(run, kind);
+	return { ok: true, error: null, locked, run: { ...run, [field]: locked } };
 }
 
 /** 还能往上升级的已拥有奇物（奇物融合炉的候选名单）：一件都没有、或全部已到顶，都返回空表 */

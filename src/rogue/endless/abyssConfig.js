@@ -32,7 +32,6 @@ export const ABYSS_FULL_LEVEL = 100;
 export const AFFIX_POOL = [
 	{ id: "abyss_buqu", weight: 1, enabled: true, category: "防御" },
 	{ id: "abyss_jianbi", weight: 1, enabled: true, category: "防御" },
-	{ id: "abyss_jinyu", weight: 1, enabled: true, category: "干扰" },
 	{ id: "abyss_kuangre", weight: 1, enabled: true, category: "节奏" },
 	{ id: "abyss_liesha", weight: 1, enabled: true, category: "进攻" },
 	{ id: "abyss_xuwu", weight: 1, enabled: true, category: "干扰" },

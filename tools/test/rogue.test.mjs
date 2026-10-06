@@ -1892,8 +1892,8 @@ check("胜利结算（无尽）：摇奇物候选、幸运石放大经验；闯�
 	const challengeWon = reward.settleVictory(challenge, NOW, () => 0);
 	assertEqual(JSON.stringify(challengeWon.run.curioOffers), "[]", "闯关无奇物候选");
 	assertEqual(challengeWon.gained.gold, 50, "闯关金币固定");
-	// 10% 门控：rng ≥ CURIO_SHOP_RATE 未命中 → 整批清空（旧批次不留着，同一批货不许挂十几关）；
-	// rng < CURIO_SHOP_RATE 命中 → 整批重摇。事件判定在 mode.js 里排在其后（先奇物商店、再事件）
+	// 按 CURIO_SHOP_RATE 门控：rng ≥ 配置值未命中 → 整批清空（旧批次不留着，同一批货不许挂十几关）；
+	// rng < 配置值命中 → 整批重摇。事件判定在 mode.js 里排在其后（先奇物商店、再事件）
 	const stale = { ...freshRun(cfg.RUN_MODE.endless), level: 4, curioOffers: [{ id: "lucky_stone", price: 66, sold: false }] };
 	const missed = reward.settleVictory(stale, NOW, () => 0.5);
 	assertEqual(missed.run.level, 5, "未命中同样推进关卡");
@@ -2132,10 +2132,11 @@ const abyssSkillEvent = (timing, base) => ({ triggername: timing, _trigger: base
 const realCard = name => ({ name, __realCard: true, __type: name === "tao" ? "basic" : name === "sha" ? "basic" : "vcard" });
 const virtualCard = name => ({ name });
 
-check("深渊词缀池配置：恰好十个、id 唯一、与技能定义和翻译一一对应", () => {
+check("深渊词缀池配置：池子项数、id 唯一、与技能定义和翻译一一对应", () => {
 	const ids = abyssConfig.AFFIX_POOL.map(item => item.id);
-	assertEqual(ids.length, 10, "第一版词缀数");
-	assertEqual(new Set(ids).size, 10, "id 不重复");
+	// 项数是刻意钉住的：深渊·禁欲删除后是 9 个，再增删词缀时这里要跟着改（漏改就是提醒「池子被动过了」）
+	assertEqual(ids.length, 9, "词缀数（深渊·禁欲已删除）");
+	assertEqual(new Set(ids).size, 9, "id 不重复");
 	for (const id of ids) {
 		assert(abyssAffixes.affix[id], `${id} 应有技能本体`);
 		assert(abyssAffixes.affixText[id]?.name, `${id} 应有名称`);
@@ -2273,27 +2274,31 @@ check("深渊存档往返：脏词缀被清洗、下架的被剔除、重载原�
 	return `清洗 ${saved.length} 项 / 旧档补空`;
 });
 
-await checkAsync("深渊·不屈：首次濒死回复至上限，同一回合内的伤害全部防止", async () => {
+await checkAsync("深渊·不屈：本局前「体力上限」次濒死都回满体力，不再防止伤害", async () => {
 	const info = abyssAffixes.affix.abyss_buqu;
 	const turn = makeEvent("phase");
-	const { player, rec } = makeAbyssPlayer({ hp: 1 });
-	const dying = makeEvent("dying", {}, [turn]);
-	assert(info.filter(dying, player, "dying"), "首次濒死应触发");
-	await info.content(abyssSkillEvent("dying", dying), dying, player);
-	assertEqual(rec.recoverTo.length, 1, "回复一次");
-	assertEqual(rec.recoverTo[0], player.maxHp, "回复至体力上限（不是固定值）");
-	assertEqual(player.storage.abyss_buqu_used, true, "记下本局已用过");
-	assert(!info.filter(makeEvent("dying", {}, [turn]), player, "dying"), "第二次濒死不再触发");
-
-	const damage = makeEvent("damage", { num: 2 }, [turn]);
-	assert(info.filter(damage, player, "damageBegin4"), "同一回合内应继续防止伤害");
-	let cancelled = 0;
-	await info.content(abyssSkillEvent("damageBegin4", damage), { ...damage, cancel: () => { cancelled++; } }, player);
-	assertEqual(cancelled, 1, "用 cancel 防止伤害（不是把 num 写成 0）");
-	// 换到下一个回合就不拦了
-	const nextTurn = makeEvent("phase");
-	assert(!info.filter(makeEvent("damage", { num: 1 }, [nextTurn]), player, "damageBegin4"), "护盾只在濒死那个回合内有效");
-	return "回复至上限 + 本回合逐道伤害防止 + 只触发一次";
+	const { player, rec } = makeAbyssPlayer({ hp: 1, maxHp: 3 });
+	assertEqual(info.trigger.player, "dying", "只剩濒死一个时机（护盾那半段已删）");
+	// 上限 3：前三次濒死每次都回满，用掉的次数累加在 storage 的标量上
+	for (const used of [1, 2, 3]) {
+		assert(info.filter(makeEvent("dying", {}, [turn]), player, "dying"), `第 ${used} 次濒死应触发`);
+		await info.content(abyssSkillEvent("dying", makeEvent("dying", {}, [turn])), makeEvent("dying", {}, [turn]), player);
+		assertEqual(player.storage.abyss_buqu_used, used, "次数累加而不是覆盖");
+		assertEqual(rec.recoverTo.length, used, "每次濒死都回一次满");
+		assertEqual(rec.recoverTo[used - 1], player.maxHp, "回复至体力上限（不是固定值）");
+	}
+	// 第四次：X 次用完，filter 直接判不过（本体只对过了 filter 的触发技跑 content，所以这里不再回血）
+	assert(!info.filter(makeEvent("dying", {}, [turn]), player, "dying"), "用完体力上限那么多次后不再触发");
+	assertEqual(rec.recoverTo.length, 3, "用完之后没有第二次回复");
+	// 额度是濒死那一刻现读 maxHp 的：上限被别的途径抬上去，可用次数跟着涨
+	player.maxHp = 4;
+	assert(info.filter(makeEvent("dying", {}, [turn]), player, "dying"), "体力上限涨了，次数上限跟着涨");
+	await info.content(abyssSkillEvent("dying", makeEvent("dying", {}, [turn])), makeEvent("dying", {}, [turn]), player);
+	assertEqual(rec.recoverTo.length, 4, "涨出来的那一次照样回满");
+	assert(!info.filter(makeEvent("dying", {}, [turn]), player, "dying"), "回满后仍然只到新的上限为止");
+	// 伤害不再被防止：这个技能压根没有 damageBegin4 这条分支
+	assert(!info.filter(makeEvent("damage", { num: 2 }, [turn]), player, "damageBegin4"), "本回合防止伤害那半段已删除");
+	return "上限 3 → 三次回满、第四次静默；maxHp 涨了额度跟着涨";
 });
 
 await checkAsync("深渊·坚壁与猎杀：减免额＝伤害一半向上取整且至少 2 点、造成伤害×2，固定伤害都不参与", async () => {
@@ -2319,25 +2324,6 @@ await checkAsync("深渊·坚壁与猎杀：减免额＝伤害一半向上取整
 		assertEqual(trigger.num, after, `造成 ${before} → ${after}（翻倍吃原始值）`);
 	}
 	return "坚壁减半带减免下界 2 / 猎杀无限距离翻倍";
-});
-
-await checkAsync("深渊·禁欲：只罚玩家方在摸牌阶段外获得的牌，摸牌阶段内不罚", async () => {
-	const info = abyssAffixes.affix.abyss_jinyu;
-	const holder = makeAbyssPlayer({}).player;
-	// 假事件的父链是一层扁平数组（不像本体那样递归各自行），所以 phaseDraw 要直接列进 ancestors
-	const inDraw = makeEvent("gain", { player: null }, [makeEvent("phase"), makeEvent("phaseDraw")]);
-	const victim = makeAbyssPlayer({ rogueSide: 0, hand: [realCard("sha"), realCard("shan")] });
-	inDraw.player = victim.player;
-	assert(!info.filter(inDraw, holder, "gainEnd"), "摸牌阶段内获得牌不该被罚");
-
-	const outside = makeEvent("gain", { player: victim.player }, [makeEvent("phase")]);
-	assert(info.filter(outside, holder, "gainEnd"), "摸牌阶段外获得牌应被罚");
-	await info.content(abyssSkillEvent("gainEnd", outside), outside, holder);
-	assertEqual(victim.rec.discard.length, 1, "弃一张牌");
-	assert(!info.filter(makeEvent("gain", { player: holder }, [makeEvent("phase")]), holder, "gainEnd"), "敌人自己摸牌不受影响");
-	const empty = makeAbyssPlayer({ rogueSide: 0 });
-	assert(!info.filter(makeEvent("gain", { player: empty.player }, [makeEvent("phase")]), holder, "gainEnd"), "对方没有牌时不触发");
-	return "阶段归属判定 + 阵营判定 + 空牌区不触发";
 });
 
 await checkAsync("深渊·狂热：黑色判定给一个完整额外回合，红色不给，且一轮只判一次", async () => {
@@ -2465,13 +2451,6 @@ await checkAsync("深渊·污染：玩家用牌后把手牌换成牌堆里的任
 	assertEqual(lock.mod.cardEnabled2(spare, victim.player, null, "unchanged"), "unchanged", "别的牌照常能用");
 	assertEqual(lock.mod.cardDiscardable(spare, victim.player, "phaseDiscard", "unchanged"), "unchanged", "别的牌照常能弃");
 
-	// 禁欲「随机弃置其一张牌」的候选同样排除被锁住的牌
-	const jinyu = abyssAffixes.affix.abyss_jinyu;
-	const lockedOnly = makeAbyssPlayer({ playerid: "locked_only", rogueSide: 0, hand: [doomed] });
-	lockedOnly.player.abyssWuranLocked = [doomed];
-	assert(!jinyu.filter(makeEvent("gain", { player: lockedOnly.player }, [makeEvent("phase")]), holder.player, "gainEnd"),
-		"手里只剩被污染的牌时弃不动，禁欲不该空转");
-
 	piles.cardPile.length = 0;
 	assert(!info.filter(used, holder.player, "useCardAfter"), "两处都没有牌时不该空转");
 	piles.discardPile.push(realCard("tao"));
@@ -2516,7 +2495,10 @@ await checkAsync("深渊·复仇：每受一次伤永久+1 伤害，可叠加且
 });
 
 check("深渊标记：徽记说明按存档里的词缀 id 列出名称与描述", () => {
-	const ids = [abyssConfig.AFFIX_POOL[0].id, abyssConfig.AFFIX_POOL[4].id];
+	// 按 id 从池子里挑，不按池子下标：删掉一个词缀会让后面的下标整体前移，用下标的夹具会假红
+	const inPool = id => abyssConfig.AFFIX_POOL.some(item => item.id === id);
+	assert(inPool("abyss_buqu") && inPool("abyss_liesha"), "夹具用的两枚词缀必须还在池子里");
+	const ids = ["abyss_buqu", "abyss_liesha"];
 	const html = abyssAffixes.abyssMarkSkill.abyss_affix.intro.mark(null, ids, null);
 	for (const token of ["深渊·不屈", "深渊·猎杀", "攻击范围无限"]) {
 		assert(html.includes(token), `标记说明应包含「${token}」：${html}`);
@@ -2970,7 +2952,23 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assert(lines("piggy_bank")[0].includes("当前持有金币的 5%"), `储蓄罐要说清乘的是余额：${lines("piggy_bank")[0]}`);
 	assert(!lines("piggy_bank")[0].includes("经验获取"), "储蓄罐不能混进 goldRate 那条文案");
 	assert(lines("oblivion_stone")[0].includes("替换技能时") && lines("oblivion_stone")[0].includes("5 倍"), `遗忘之石：${lines("oblivion_stone")[0]}`);
-	return "六件文案齐备 + 配套键不出行";
+	// 本轮新增的五件：回响之铃按概率出句、破碎王冠三档合成一句、魔盒的替换经验、饥饿之匣四档、橱窗两个开关
+	assertEqual(lines("echo_bell")[0], "当你进入濒死状态时，有 50% 的概率获得本局游戏你使用过且位于弃牌堆的牌", "回响之铃普通档");
+	assertEqual(lines("echo_bell", "rare")[0], "当你进入濒死状态时，有 75% 的概率获得本局游戏你使用过且位于弃牌堆的牌", "稀有档只换概率");
+	assertEqual(lines("echo_bell", "epic")[0], "当你进入濒死状态时，获得本局游戏你使用过且位于弃牌堆的牌", "史诗档不再写概率");
+	assertEqual(lines("broken_crown")[0], "你杀死一名角色后，你增加 1 点体力上限并回复 1 点体力", "破碎王冠普通档");
+	assertEqual(lines("broken_crown", "rare")[0], "你杀死一名角色后，你增加 1 点体力上限并回复 1 点体力，然后摸牌至体力上限", "稀有档补摸牌至上限");
+	assertEqual(lines("broken_crown", "epic")[0], "你杀死一名角色后，你增加 1 点体力上限并回复体力至上限，然后摸体力上限张牌", "史诗档回满 + 摸上限张");
+	assertEqual(lines("broken_crown").length, 1, "破碎王冠的三个配套键不得单独出行");
+	assertEqual(lines("gluttonous_box")[0], "每次替换技能时获得本层基准经验的 5 倍", "贪食魔盒");
+	const hungry = lines("hungry_box").join(" / ");
+	assert(hungry.includes("金币获取 -15%") && hungry.includes("经验获取 +5%"), `饥饿之匣负面档：${hungry}`);
+	assertEqual(lines("hungry_box").length, 2, "饥饿之匣两行（一扣一加）");
+	assertEqual(lines("hungry_box", "epic").length, 1, "史诗档只剩经验一行");
+	assertEqual(lines("hungry_box", "epic")[0], "经验获取 +20%", "史诗档经验 +20%");
+	assertEqual(lines("collector_showcase").join(" / "), "你可以锁定技能商店，锁定后下一场战斗不再刷新技能商店的候选", "橱窗稀有档只锁技能商店");
+	assertEqual(lines("collector_showcase", "epic").length, 2, "橱窗史诗档技能与奇物两条都有");
+	return "十一件文案齐备 + 配套键不出行";
 });
 
 check("rogue_curio 新增机制：三件加伤奇物的判据与「只加一层」", () => {
@@ -3143,6 +3141,275 @@ check("裂隙开战：敌人数可覆盖且每名都带额外词缀（31 层以�
 	assertEqual(owed[0].abyss.length, cfg.SPRING_DEBT_AFFIXES, "泉水的债也按每名敌人追加");
 	delete lib.character.本体武将;
 	return `裂隙 ${tier.enemies} 名 / 每名 +${cfg.RIFT_EXTRA_AFFIXES} 条`;
+});
+
+// ---------------------------------------------------------------- 本轮新增：回响之铃 / 破碎王冠 / 贪食魔盒 / 饥饿之匣 / 收藏家的橱窗
+
+/** 战斗内机制技的最小 player 桩：只带它真正会碰的几个口子，全部记账 */
+function makeGrowthHero(storage) {
+	const hero = {
+		storage: { rogue_curio: storage },
+		hp: 2,
+		maxHp: 4,
+		handCount: 1,
+		rec: { maxHp: [], heal: [], recoverTo: [], draw: [], gained: [] },
+		isAlive: () => true,
+		gainMaxHp: async num => {
+			hero.rec.maxHp.push(num);
+			hero.maxHp += num;
+		},
+		recover: async num => {
+			hero.rec.heal.push(num);
+		},
+		recoverTo: async num => {
+			hero.rec.recoverTo.push(num);
+		},
+		countCards: () => hero.handCount,
+		draw: async num => {
+			hero.rec.draw.push(num);
+		},
+		gain: async cards => {
+			hero.rec.gained.push(...(Array.isArray(cards) ? cards : [cards]));
+		},
+	};
+	return hero;
+}
+
+await checkAsync("回响之铃：只记「使用」的实体牌，濒死时按概率收回弃牌堆里的那几张", async () => {
+	const info = skillsData.helpers.rogue_curio;
+	const originalPosition = mockGet.position;
+	// 照本体 get.position 的口径：结算区（ordering）不带 true 时算 "d"、带 true 时是独立的 "o"
+	mockGet.position = (card, ordering) => {
+		if (!card?.__area) {
+			return null;
+		}
+		if (card.__area === "ordering") {
+			return ordering ? "o" : "d";
+		}
+		return card.__area === "discard" ? "d" : card.__area === "hand" ? "h" : null;
+	};
+	const withRandom = async (value, fn) => {
+		const original = Math.random;
+		Math.random = () => value;
+		try {
+			return await fn();
+		} finally {
+			Math.random = original;
+		}
+	};
+	try {
+		const hero = makeGrowthHero({ dyingRecallChance: 1 });
+		const useEvent = card => ({ name: "useCard", card });
+		// 记账：实体牌进账本、同一张不重复记（转化/虚拟牌没有实体，回不到弃牌堆，不记账）
+		const sha = realCard("sha");
+		const virtual = { name: "tao" };
+		await info.content({ triggername: "useCard", _trigger: useEvent(sha) }, useEvent(sha), hero);
+		await info.content({ triggername: "useCard", _trigger: useEvent(sha) }, useEvent(sha), hero);
+		await info.content({ triggername: "useCard", _trigger: useEvent(virtual) }, useEvent(virtual), hero);
+		assertEqual(hero.rogueCurioUsedCards.length, 1, "只记实体牌且不重复");
+		assertEqual(hero.rogueCurioUsedCards[0], sha, "记的就是出牌事件上的那张实体牌");
+		assert(!info.filter({ name: "useCard", card: sha }, makeGrowthHero({}), "useCard"), "没有回响之铃不监听出牌");
+		// 濒死：只收「此刻真位于弃牌堆」的那几张；手上 / 结算区里飞着 / 已移出游戏的都不算
+		const inDiscard = realCard("jiu");
+		inDiscard.__area = "discard";
+		const inHand = realCard("shan");
+		inHand.__area = "hand";
+		const inFlight = realCard("juedou");
+		inFlight.__area = "ordering";
+		const gone = realCard("wuxie");
+		hero.rogueCurioUsedCards = [inDiscard, inHand, inFlight, gone];
+		hero.hp = 0;
+		assert(info.filter({ name: "dying" }, hero, "dying"), "只带回响之铃也要进濒死分支");
+		await info.content({ triggername: "dying", _trigger: { name: "dying" } }, { name: "dying" }, hero);
+		assertEqual(hero.rec.gained.length, 1, "只回收真在弃牌堆里的那一张（结算区里飞着的不算）");
+		assertEqual(hero.rec.gained[0], inDiscard, "收的就是躺在弃牌堆里的那张");
+		// 与气息腰带共用同一个濒死时机：腰带用过之后，回响照常还能响
+		const both = makeGrowthHero({ dyingSave: 1, dyingRecallChance: 1 });
+		both.hp = 0;
+		both.rogueCurioUsedCards = [inDiscard];
+		await info.content({ triggername: "dying", _trigger: { name: "dying" } }, { name: "dying" }, both);
+		assertEqual(both.rec.recoverTo.join(","), "1", "腰带照旧救回 1 点");
+		assertEqual(both.rec.gained.length, 1, "同一击里回响也照常回收");
+		assertEqual(both.storage.rogue_curio_belt, true, "腰带的「已用过」标记照旧");
+		assert(info.filter({ name: "dying" }, both, "dying"), "腰带用过后，只带回响的濒死仍要进分支");
+		assert(!info.filter({ name: "dying" }, makeGrowthHero({ dyingRecallChance: 1 }), "dying"), "没到濒死（hp>0）不触发");
+		// 概率档：0.5 时 0.9 掷不中、0.1 掷中
+		const lucky = makeGrowthHero({ dyingRecallChance: 0.5 });
+		lucky.hp = 0;
+		lucky.rogueCurioUsedCards = [inDiscard];
+		await withRandom(0.9, () => info.content({ triggername: "dying", _trigger: { name: "dying" } }, { name: "dying" }, lucky));
+		assertEqual(lucky.rec.gained.length, 0, "50% 档掷到 0.9 不回收");
+		await withRandom(0.1, () => info.content({ triggername: "dying", _trigger: { name: "dying" } }, { name: "dying" }, lucky));
+		assertEqual(lucky.rec.gained.length, 1, "50% 档掷到 0.1 照常回收");
+		return "记账 1 张 / 只收弃牌堆 / 概率两掷 / 与腰带同击共存";
+	} finally {
+		if (originalPosition === undefined) {
+			delete mockGet.position;
+		} else {
+			mockGet.position = originalPosition;
+		}
+	}
+});
+
+await checkAsync("破碎王冠：击杀后涨上限、回血、按（涨过的）上限摸牌", async () => {
+	const info = skillsData.helpers.rogue_curio;
+	const dieEvent = dead => ({ name: "die", player: dead, source: null });
+	// filter：自己杀死的才触发；自己阵亡不算；没这块王冠不触发
+	const plain = makeGrowthHero({ killGainMaxHp: 1, killHeal: 1 });
+	assert(info.filter(dieEvent(makeGrowthHero({})), plain, "die"), "杀死别人应触发");
+	assert(!info.filter(dieEvent(plain), plain, "die"), "自己阵亡不算击杀");
+	assert(!info.filter(dieEvent(makeGrowthHero({})), makeGrowthHero({}), "die"), "没王冠不触发");
+	// 普通档：+1 上限、回 1 血、不摸牌
+	await info.content({ triggername: "die", _trigger: dieEvent({}) }, dieEvent({}), plain);
+	assertEqual(plain.maxHp, 5, "体力上限 4→5");
+	assertEqual(plain.rec.maxHp.join(","), "1", "涨 1 点上限（走本体的 gainMaxHp）");
+	assertEqual(plain.rec.heal.join(","), "1", "回复 1 点体力");
+	assertEqual(plain.rec.draw.length, 0, "普通档不摸牌");
+	// 稀有档：+1 上限、回 1 血、手牌补至上限（手牌 1、上限 5 → 摸 4）
+	const rare = makeGrowthHero({ killGainMaxHp: 1, killHeal: 1, killDrawToMaxHp: 1 });
+	await info.content({ triggername: "die", _trigger: dieEvent({}) }, dieEvent({}), rare);
+	assertEqual(rare.rec.draw.join(","), "4", "摸牌至体力上限：手牌 1、上限 5 → 补 4 张");
+	assertEqual(rare.rec.heal.join(","), "1", "稀有档照旧回 1 点");
+	// 手牌已超过上限时不倒扣也不摸牌
+	const full = makeGrowthHero({ killGainMaxHp: 1, killDrawToMaxHp: 1 });
+	full.handCount = 9;
+	await info.content({ triggername: "die", _trigger: dieEvent({}) }, dieEvent({}), full);
+	assertEqual(full.rec.draw.length, 0, "手牌已超上限就不摸");
+	// 史诗档：回复至上限 + 摸「体力上限」张
+	const epic = makeGrowthHero({ killGainMaxHp: 1, killHealToMax: 1, killDrawMaxHp: 1 });
+	await info.content({ triggername: "die", _trigger: dieEvent({}) }, dieEvent({}), epic);
+	assertEqual(epic.rec.recoverTo.join(","), "5", "回复体力至涨过之后的上限 5");
+	assertEqual(epic.rec.draw.join(","), "5", "摸「体力上限」张牌");
+	return "普通回 1 / 稀有补至手牌上限 / 史诗回满 + 摸上限张";
+});
+
+check("饥饿之匣与贪食魔盒：金币换经验、替换技能发经验", () => {
+	const at = quality => curioManager.getCurioEffectAt("hungry_box", quality);
+	assertEqual(at("negative").goldRate, -0.15, "负面档金币 -15%");
+	assertEqual(at("negative").expRate, 0.05, "负面档经验 +5%");
+	assertEqual(at("common").goldRate, -0.1, "普通档金币 -10%");
+	assertEqual(at("rare").goldRate, -0.05, "稀有档金币 -5%");
+	assertEqual(at("epic").goldRate, undefined, "史诗档不再扣金币");
+	assertEqual(at("epic").expRate, 0.2, "史诗档经验 +20%");
+	// 结算里金币与经验各按自己的倍率走：负面档金币缩水、经验变多
+	const hungry = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["hungry_box"] };
+	const gained = reward.settleVictory(hungry, NOW, () => 0.999).gained;
+	assertEqual(gained.gold, Math.round(BASE_GOLD * 0.85), `金币 -15%：${gained.gold}`);
+	assertEqual(gained.exp, Math.round(BASE_EXP * 1.05), `经验 +5%：${gained.exp}`);
+	const maxed = { ...hungry, curioQuality: { hungry_box: "epic" } };
+	const maxedGained = reward.settleVictory(maxed, NOW, () => 0.999).gained;
+	assertEqual(maxedGained.gold, BASE_GOLD, "史诗档金币不再打折扣");
+	assertEqual(maxedGained.exp, Math.round(BASE_EXP * 1.2), "史诗档经验 +20%");
+	// 贪食魔盒：本层基准经验 ×5，与遗忘之石的金币同一条口径；没有它返回 0
+	const box = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["gluttonous_box"] };
+	assertEqual(curioManager.getReplaceRewardExp(box), BASE_EXP * 5, "五倍本层基准经验");
+	assertEqual(curioManager.getReplaceRewardExp({ ...box, curios: [] }), 0, "没有魔盒不发经验");
+	return `饥饿之匣 ${gained.gold}/${gained.exp} → 史诗 ${maxedGained.gold}/${maxedGained.exp}；魔盒 ${BASE_EXP * 5}`;
+});
+
+check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", () => {
+	const rare = { ...freshRun(cfg.RUN_MODE.endless), curios: ["collector_showcase"] };
+	const epic = { ...rare, curioQuality: { collector_showcase: "epic" } };
+	assert(curioManager.canLockShop(rare, "skill"), "稀有档能锁技能商店");
+	assert(!curioManager.canLockShop(rare, "curio"), "稀有档锁不了奇物商店");
+	assert(curioManager.canLockShop(epic, "curio"), "史诗档能锁奇物商店");
+	assert(!curioManager.canLockShop({ ...rare, curios: [] }, "skill"), "没持有橱窗时没有锁定能力");
+	// 切换：纯函数、不原地改 run；没能力时 ok:false 且零副作用
+	const on = curioManager.toggleShopLock(rare, "skill");
+	assert(on.ok && on.locked === true && on.run.skillShopLocked === true, "锁上");
+	assert(on.run !== rare, "返回的是新对象，不与传入的 run 共享引用");
+	assertEqual(rare.skillShopLocked, false, "传入的 run 不被原地改写（还是未锁的旧状态）");
+	const off = curioManager.toggleShopLock(on.run, "skill");
+	assert(off.ok && off.locked === false && off.run.skillShopLocked === false, "再切一下解锁");
+	assert(!curioManager.toggleShopLock(rare, "curio").ok, "稀有档切奇物锁被拒");
+	assert(!curioManager.isShopLocked({ ...rare, skillShopLocked: true, curios: [] }, "skill"), "没有对应能力的锁定字段一律不算锁着");
+	// 结算：技能锁 → 候选连价保留、sold 清零、免费刷新次数照常刷新
+	const locked = {
+		...rare,
+		level: BASE_LEVEL,
+		skills: [SKILL_A],
+		shopOffers: [{ id: SKILL_B, price: 40, sold: true }, { id: SKILL_C, price: 50, sold: false }],
+		skillShopLocked: true,
+		shopRefreshesRemaining: 0,
+	};
+	const kept = reward.settleVictory(locked, NOW, () => 0.999).run;
+	assertEqual(kept.shopOffers.map(offer => `${offer.id}:${offer.price}`).join(","), `${SKILL_B}:40,${SKILL_C}:50`, "锁着的技能商店不刷新（连价保留）");
+	assert(kept.shopOffers.every(offer => !offer.sold), "已购买标记清零：新的一局等于新的一次进店");
+	assertEqual(kept.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "免费的刷新次数照常刷新（规格原话：只是三个技能不刷新）");
+	assertEqual(reward.settleVictory({ ...locked, skillShopLocked: false }, NOW, () => 0.999).run.shopOffers.length, 0, "没锁就照旧清空（与原来逐字一致）");
+	// 结算：奇物锁 → 整批不掷不置空（rng 钉在 0.999，正常路径会把旧批次清空）
+	const curioLocked = {
+		...epic,
+		level: BASE_LEVEL,
+		curioShopLocked: true,
+		curioOffers: [{ id: "lucky_stone", price: 66 }],
+		curioOfferQueue: [[{ id: "piggy_bank", price: 77 }]],
+	};
+	const keptCurio = reward.settleVictory(curioLocked, NOW, () => 0.999).run;
+	assertEqual(JSON.stringify(keptCurio.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 66 }]), "锁着就原样留货（不因战斗结束的随机刷新被置空）");
+	assertEqual(keptCurio.curioOfferQueue.length, 1, "黄金罗盘压着的队列也不动");
+	assertEqual(reward.settleVictory({ ...curioLocked, curioShopLocked: false }, NOW, () => 0.999).run.curioOffers.length, 0, "没锁照旧置空");
+	// 锁着但货架本来就空：不拦（否则玩家被锁在空货架上，分区一隐藏连解锁图标都点不到）
+	const emptyLocked = { ...curioLocked, curioOffers: [], curioOfferQueue: [] };
+	assertEqual(reward.settleVictory(emptyLocked, NOW, seq([0, 0])).run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "空货架时照常摇新货");
+	// 存档清洗：只有「当前确实持有对应能力」才保留锁字段
+	const epicCleaned = state.normalizeRun({ ...epic, skillShopLocked: true, curioShopLocked: true });
+	assertEqual(epicCleaned.skillShopLocked, true, "史诗档技能锁保留");
+	assertEqual(epicCleaned.curioShopLocked, true, "史诗档奇物锁保留");
+	const rareCleaned = state.normalizeRun({ ...rare, skillShopLocked: true, curioShopLocked: true });
+	assertEqual(rareCleaned.skillShopLocked, true, "稀有档技能锁保留");
+	assertEqual(rareCleaned.curioShopLocked, false, "稀有档奇物锁清零（还锁不了奇物商店）");
+	const noneCleaned = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), skillShopLocked: true, curioShopLocked: true });
+	assertEqual(noneCleaned.skillShopLocked, false, "没橱窗时技能锁清零");
+	assertEqual(noneCleaned.curioShopLocked, false, "没橱窗时奇物锁清零");
+	assertEqual(freshRun(cfg.RUN_MODE.endless).skillShopLocked, false, "旧档（缺字段）默认未锁定");
+	return "能力闸门 / 切换不变异 / 两类商店的结算保留 / 清洗按能力闸门";
+});
+
+check("新增四事件：倍率按刚打赢那关的基准换算成固定值，消耗写进文案", () => {
+	const build = id => eventManager.buildPendingEvent(id, BASE_LEVEL, () => 0, NOW, { curios: [] });
+	// 废弃补给站：翻找是纯金币，仔细搜寻是「金币换经验」的五五开
+	const supply = build("abandoned_supply");
+	assertEqual(supply.id, "abandoned_supply", "待处理事件只存 id（名字由事件页现读定义）");
+	assertEqual(JSON.stringify(supply.choices[0].reward), JSON.stringify({ gold: BASE_GOLD }), "翻找补给箱 = 1 倍基准金币");
+	assertEqual(JSON.stringify(supply.choices[1].reward), JSON.stringify({ gold: BASE_GOLD / 2, exp: BASE_EXP / 2 }), "仔细搜寻 = 0.5 / 0.5");
+	assert(!supply.choices[0].text.includes("金币"), `白拿的选项不加价钱后缀：${supply.choices[0].text}`);
+	// 老兵的训练：让他训练 = 1 倍经验；花钱请教 = 扣半层金币换 2 倍经验
+	const veteran = build("veteran_training");
+	assertEqual(JSON.stringify(veteran.choices[0].reward), JSON.stringify({ exp: BASE_EXP }), "让他训练 = 1 倍基准经验");
+	assertEqual(JSON.stringify(veteran.choices[1].reward), JSON.stringify({ gold: -Math.round(BASE_GOLD / 2), exp: BASE_EXP * 2 }), "花钱请教 = -0.5 金币 / +2 经验");
+	assert(veteran.choices[1].text.includes(`${-Math.round(BASE_GOLD / 2)} 金币`), `消耗要写进文案：${veteran.choices[1].text}`);
+	// 黄金矿脉：立即开采两头各 1 倍，仔细采集金币更多（1.5）经验更少（0.5）
+	const vein = build("gold_vein");
+	assertEqual(JSON.stringify(vein.choices[0].reward), JSON.stringify({ gold: BASE_GOLD, exp: BASE_EXP }), "立即开采 = 1 / 1");
+	assertEqual(JSON.stringify(vein.choices[1].reward), JSON.stringify({ gold: Math.round(BASE_GOLD * 1.5), exp: BASE_EXP / 2 }), "仔细采集 = 1.5 / 0.5");
+	// 经验商人：两个方向是同一个汇率的两头，第三项是白走的出口
+	const merchant = build("exp_merchant");
+	assertEqual(merchant.choices.length, 3, "商人三个选项");
+	assertEqual(JSON.stringify(merchant.choices[0].reward), JSON.stringify({ gold: -BASE_GOLD, exp: BASE_EXP * 2 }), "金币换经验");
+	assertEqual(JSON.stringify(merchant.choices[1].reward), JSON.stringify({ gold: BASE_GOLD, exp: -BASE_EXP * 2 }), "经验换金币");
+	assertEqual(JSON.stringify(merchant.choices[2].reward), JSON.stringify({}), "我不需要，谢谢 = 零变化");
+	assert(merchant.choices[1].text.includes(`${-BASE_EXP * 2} 经验`), `花经验也要写价钱：${merchant.choices[1].text}`);
+	// 结算：钱够才扣得动，不够整单拒绝且一个钱不动
+	const rich = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 500, exp: 500 }, pendingEvent: merchant };
+	const bought = eventManager.resolveEventChoice(rich, 0, {}, () => 0);
+	assert(bought.ok, bought.error ?? "金币换经验应成交");
+	assertEqual(bought.run.currency.gold, 500 - BASE_GOLD, "扣一倍基准金币");
+	assertEqual(bought.run.currency.exp, 500 + BASE_EXP * 2, "拿两倍基准经验");
+	assertEqual(bought.run.pendingEvent, null, "事件收掉");
+	const poor = { ...rich, currency: { gold: 10, exp: 500 } };
+	assert(!eventManager.isChoiceAffordable(poor, merchant.choices[0].reward), "金币不足应判付不起");
+	assert(eventManager.isChoiceAffordable(poor, merchant.choices[2].reward), "出口项永远可选");
+	const denied = eventManager.resolveEventChoice(poor, 0, {}, () => 0);
+	assert(!denied.ok && denied.error.includes("不足"), "结算层再验一次：付不起整单拒绝");
+	assertEqual(denied.run.currency.gold, 10, "被拒时一个钱不动");
+	// 读档往返：倍率早在构建期换算成固定值，读档只照抄、绝不重算
+	const revived = state.normalizeRun({ ...rich, pendingEvent: merchant });
+	assertEqual(JSON.stringify(revived.pendingEvent.choices.map(choice => choice.reward)), JSON.stringify(merchant.choices.map(choice => choice.reward)), "读档不重算倍率");
+	// 关卡越高基准越大：第 9 关（√9=3）的翻找补给箱应是 3 倍第 3 关的基准金币
+	const late = eventManager.buildPendingEvent("abandoned_supply", 9, () => 0, NOW, { curios: [] });
+	assertEqual(late.choices[0].reward.gold, rewardsData.getEndlessReward(9, ["gold"]).gold, "基准按「刚打赢那一关」现算");
+	return `第 ${BASE_LEVEL} 关基准 ${BASE_GOLD} 金币 / ${BASE_EXP} 经验；四事件共 ${supply.choices.length + veteran.choices.length + vein.choices.length + merchant.choices.length} 个选项`;
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

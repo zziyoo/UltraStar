@@ -65,26 +65,19 @@ const FULL_PHASE_LIST = ["phaseZhunbei", "phaseJudge", "phaseDraw", "phaseUse", 
 
 /** 词缀文案：翻译表与本模块回落值的唯一来源（lib.translate 注册后优先读注册结果） */
 export const affixText = {
-	abyss_buqu: { name: "深渊·不屈", desc: "本局游戏首次进入濒死状态时，回复体力至上限，且本回合受到伤害时防止之。" },
+	abyss_buqu: { name: "深渊·不屈", desc: "本局游戏前X次进入濒死状态时，你回复体力值至上限（X为你的体力上限）。" },
 	abyss_jianbi: { name: "深渊·坚壁", desc: "受到的伤害减半（向上取整），且至少减免2点。" },
-	abyss_jinyu: { name: "深渊·禁欲", desc: "玩家于摸牌阶段外获得牌后，随机弃置一张牌。" },
 	abyss_kuangre: { name: "深渊·狂热", desc: "每轮开始时进行一次判定，若判定结果为黑色，立即执行一个额外的回合。" },
 	abyss_liesha: { name: "深渊·猎杀", desc: "攻击范围无限，造成的伤害×2。" },
 	abyss_xuwu: { name: "深渊·虚无", desc: "受到玩家非实体牌造成的伤害后，本回合该玩家的所有技能失效。" },
 	abyss_jingxiang: { name: "深渊·镜像", desc: "受到伤害后，对伤害来源造成等量的伤害。" },
-	abyss_wuran: { name: "深渊·污染", desc: "玩家对你使用牌后，随机令其一张手牌被污染：不能使用、打出或弃置此牌，其他角色可以弃置此牌。" },
+	abyss_wuran: { name: "深渊·污染", desc: "玩家对你使用牌后，随机令其一张手牌不能使用、打出或弃置。" },
 	abyss_yongheng: { name: "深渊·永恒", desc: "任意角色回合开始时，恢复体力至上限。" },
 	abyss_fuchou: { name: "深渊·复仇", desc: "受到伤害后，本局游戏造成的伤害+1。" },
 };
 
 function isPlayerSide(player) {
 	return !!player && player.rogueSide === SIDE_PLAYER;
-}
-
-/** 沿父链取当前回合（phase 事件）；找不到返回 null，不采用本体「找不到给空对象」的默认返回值 */
-function phaseOf(event) {
-	const found = event.getParent("phase");
-	return found && found.name === "phase" ? found : null;
 }
 
 /** 是否「有实体牌造成的伤害」：牌本身是实体牌，或由实体牌转化/视为而来（纯虚拟牌没有底层牌） */
@@ -103,12 +96,7 @@ function isWuranLocked(player, card) {
 	return !!card && (player.abyssWuranLocked ?? []).includes(card);
 }
 
-/** 「随机弃置一张牌」的候选：手牌 + 装备区 + 判定区（本体口径下的「牌」含装备与判定），被污染锁住的牌除外 */
-function collectDiscardable(player) {
-	return player.getCards("h").concat(player.getEquips(), player.getCards("j"))
-		.filter(card => !isWuranLocked(player, card));
-}
-
+/** 从非空数组里等概率取一个（调用方自己保证长度，空数组给 undefined） */
 function pickRandom(list) {
 	return list[Math.floor(Math.random() * list.length) % list.length];
 }
@@ -135,37 +123,24 @@ function lockWuranCard(player, card) {
 	player.addGaintag(card, WURAN_GAINTAG);
 }
 
-// ---------------------------------------------------------------- 十个词缀
+// ---------------------------------------------------------------- 九个词缀
 
 export const affix = {
-	// 1. 深渊·不屈：本局首次濒死时回复至上限，并且「那个回合」内防止伤害。
-	//    回合归属直接拿 phase 事件对象本身来比——同一个 phase 事件才是同一个回合，不必再挂临时技；
-	//    回合一走两者自然不再相等，护盾自己失效（挡住的是本回合的每一道伤害，不只挡一发）。
+	// 1. 深渊·不屈：本局游戏前 X 次进入濒死状态时把体力回满，X 就是该角色的体力上限
+	//    （次数上限在濒死那一刻现读 maxHp，别的途径改过体力上限也跟着变）。
+	//    只回血、不再挡伤害；用掉的次数记在 player.storage 的标量上（storage 要 JSON 广播，只放得下标量）。
 	abyss_buqu: {
-		trigger: { player: ["dying", "damageBegin4"] },
+		trigger: { player: "dying" },
 		forced: true,
 		popup: false,
 		nopop: true,
-		filter(event, player, triggername) {
-			if (triggername === "dying") {
-				return !player.storage.abyss_buqu_used;
-			}
-			if (triggername === "damageBegin4") {
-				const phase = phaseOf(event);
-				return !!phase && player.abyssBuquPhase === phase;
-			}
-			return false;
+		filter(event, player) {
+			return (player.storage.abyss_buqu_used ?? 0) < player.maxHp;
 		},
 		async content(event, trigger, player) {
-			if (event.triggername === "dying") {
-				player.storage.abyss_buqu_used = true;
-				player.abyssBuquPhase = phaseOf(trigger);
-				game.log(player, "深处的执念托住了躯壳：体力回复至上限，且本回合不会受到伤害");
-				await player.recoverTo(player.maxHp);
-				return;
-			}
-			game.log(player, "的伤害被深渊吞掉了");
-			trigger.cancel();
+			player.storage.abyss_buqu_used = (player.storage.abyss_buqu_used ?? 0) + 1;
+			game.log(player, "深处的执念托住了躯壳：体力回复至上限");
+			await player.recoverTo(player.maxHp);
 		},
 	},
 	// 2. 深渊·坚壁：**减免额**为「受到伤害的一半向上取整」，且至少减免 2 点。挂在 damageBegin4（所有加伤算完之后的最后一档），
@@ -185,34 +160,7 @@ export const affix = {
 			trigger.num = Math.max(0, trigger.num - Math.max(2, Math.ceil(trigger.num / 2)));
 		},
 	},
-	// 3. 深渊·禁欲：玩家方在摸牌阶段外获得牌后，随机弃置其一张牌。
-	abyss_jinyu: {
-		trigger: { global: "gainEnd" },
-		forced: true,
-		popup: false,
-		nopop: true,
-		filter(event, player) {
-			const victim = event.player;
-			if (!victim || victim === player || !isPlayerSide(victim) || !victim.isAlive()) {
-				return false;
-			}
-			// 摸牌阶段内获得的牌不罚：本体判阶段归属的现成写法是沿父链找 phaseDraw
-			if (event.getParent("phaseDraw").name === "phaseDraw") {
-				return false;
-			}
-			return collectDiscardable(victim).length > 0;
-		},
-		async content(event, trigger, player) {
-			const victim = trigger.player;
-			const pool = collectDiscardable(victim);
-			if (!pool.length) {
-				return;
-			}
-			game.log(player, "窥见了贪得，令", victim, "弃置一张牌");
-			await victim.discard(pickRandom(pool));
-		},
-	},
-	// 4. 深渊·狂热：每轮开始时判定，黑色则执行一个额外的回合。
+	// 3. 深渊·狂热：每轮开始时判定，黑色则执行一个额外的回合。
 	//    额外回合用 player.insertPhase()（本体放权同款），并清掉翻面跳过；
 	//    一轮只判一次——拿 game.roundNumber 记账，否则额外回合自己若被认成新一轮就会无限连锁。
 	abyss_kuangre: {
@@ -235,7 +183,7 @@ export const affix = {
 			next.phaseList = FULL_PHASE_LIST.slice(0);
 		},
 	},
-	// 5. 深渊·猎杀：攻击范围无限 + 造成的伤害×2（不限来源牌，技能伤害也算）。
+	// 4. 深渊·猎杀：攻击范围无限 + 造成的伤害×2（不限来源牌，技能伤害也算）。
 	//    翻倍挂在 damageBegin1（加伤档最前面），所以它乘的是这张伤害的原始值——
 	//    别人在后面再加减的点数不会再被乘进去，不会跟复仇之类叠成指数。
 	abyss_liesha: {
@@ -255,7 +203,7 @@ export const affix = {
 			trigger.num *= 2;
 		},
 	},
-	// 6. 深渊·虚无：受到玩家用「非实体牌」打来的伤害后，把那名玩家封到本回合结束——所有技能失效。
+	// 5. 深渊·虚无：受到玩家用「非实体牌」打来的伤害后，把那名玩家封到本回合结束——所有技能失效。
 	//    不再限制「本局一次」：这一回合里每挨一发都重新按住（已经按着就不重复计数）。
 	//    「所有技能失效」只能走本体的技能屏蔽器：本体每查一个技能都要过 filterTrigger → getSkills →
 	//    game.filterSkills → get.is.blocked，再挨个问注册表里的 skillBlocker；载体一律答「是」＝全部失效，
@@ -289,7 +237,7 @@ export const affix = {
 			game.log(player, "抹去了", target, "本回合的所有技能");
 		},
 	},
-	// 7. 深渊·镜像：受到伤害后，对伤害来源造成**等量**的伤害（实体牌与纯技能伤害都算）。
+	// 6. 深渊·镜像：受到伤害后，对伤害来源造成**等量**的伤害（实体牌与纯技能伤害都算）。
 	abyss_jingxiang: {
 		trigger: { player: "damageEnd" },
 		forced: true,
@@ -313,7 +261,7 @@ export const affix = {
 			await reflect.forResult();
 		},
 	},
-	// 8. 深渊·污染：玩家**对词缀持有者**使用牌后，随机把其（出牌者本人的）一张**还没被污染**的手牌「污染」——
+	// 7. 深渊·污染：玩家**对词缀持有者**使用牌后，随机把其（出牌者本人的）一张**还没被污染**的手牌「污染」——
 	//    它从此不能用、不能打出、也不能自己弃置，但可以被别人拆走或顺走
 	//    （封牌 mod 只挂在被污染的玩家身上：自己弃牌走 cardDiscardable 会被拦，
 	//    别人弃置走 canBeDiscarded / 执行者自己的技能，不受影响）。
@@ -348,7 +296,7 @@ export const affix = {
 			lockWuranCard(victim, pickRandom(hand));
 		},
 	},
-	// 9. 深渊·永恒：**任意角色**回合开始时恢复体力至上限（不再是每轮一次，也不只在自己的回合）。
+	// 8. 深渊·永恒：**任意角色**回合开始时恢复体力至上限（不再是每轮一次，也不只在自己的回合）。
 	//     所以玩家一开口、甚至敌人自己动一下，它都满血——想磨血必须先一轮内把它打死。
 	abyss_yongheng: {
 		trigger: { global: "phaseBegin" },
@@ -363,7 +311,7 @@ export const affix = {
 			await player.recoverTo(player.maxHp);
 		},
 	},
-	// 10. 深渊·复仇：受到伤害后，本局造成的伤害+1（可叠加；Player 随战斗结束丢弃，所以天然只在本局）。
+	// 9. 深渊·复仇：受到伤害后，本局造成的伤害+1（可叠加；Player 随战斗结束丢弃，所以天然只在本局）。
 	abyss_fuchou: {
 		trigger: { player: "damageEnd", source: "damageBegin1" },
 		forced: true,

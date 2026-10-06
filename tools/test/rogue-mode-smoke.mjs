@@ -29,6 +29,7 @@ const load = rel => import(pathToFileURL(path.join(root, rel)).href);
 const cfg = await load("src/rogue/config.js");
 const eventsData = await load("src/rogue/data/events.js");
 const curiosData = await load("src/rogue/data/curios.js");
+const eventManager = await load("src/rogue/eventManager.js");
 const stagesData = await load("src/rogue/data/challengeStages.js");
 const abyssCfg = await load("src/rogue/endless/abyssConfig.js");
 const modeModule = await load("src/rogue/mode.js");
@@ -1973,6 +1974,39 @@ await check("事件选项：金币不足的消耗项置灰且点了没反应，�
 	return "置灰 = 静默不可点";
 });
 
+await check("新事件真机链路：经验商人的价钱写进按钮、置灰项静默、成交后按基准扣到账", async () => {
+	freshWorld();
+	// 用真正的构建器把倍率换算成固定值（第 4 关基准：金币 100 / 经验 40），页面与结算吃的都是这份存档
+	const pendingEvent = eventManager.buildPendingEvent("exp_merchant", 4, () => 0, 1, { curios: [] });
+	putRun(0, { mode: "endless", level: 4, currency: { gold: 150, exp: 0 }, pendingEvent });
+	session();
+	const text = screenText();
+	assert(text.includes("经验商人"), `事件页应有事件名：${text.slice(0, 240)}`);
+	assert(text.includes("这是位很有信誉的商人"), `事件描述要展示：${text.slice(0, 240)}`);
+	const choices = nodesWithClass("wm-rogue-event-choice");
+	assertEqual(choices.length, 3, "商人三个选项");
+	// 消耗项把价钱写进按钮（-100 金币 / -80 经验），白走的出口不加后缀
+	assert(textOf(choices[0]).includes("-100 金币"), `金币换经验要看得见价钱：${textOf(choices[0])}`);
+	assert(textOf(choices[1]).includes("-80 经验"), `经验换金币要看得见价钱：${textOf(choices[1])}`);
+	assert(!textOf(choices[2]).includes("（"), `出口项不加价钱后缀：${textOf(choices[2])}`);
+	// 手上一点经验都没有：第二项是「付不起」→ 置灰、点了毫无反应（与商店金币不足同款静默）
+	assert(choices[1].classList.contains("wm-rogue-disabled"), "经验不足的第二项应置灰");
+	const before = JSON.stringify(lib.storage.rogueSlots[0]);
+	clickNode(nodesWithClass("wm-rogue-event-choice")[1]);
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "置灰项点了不弹提示");
+	assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "置灰项点了不改存档");
+	// 金币够：点第一项 → 扣 100 金币、拿 80 经验、事件收掉
+	clickNode(nodesWithClass("wm-rogue-event-choice")[0]);
+	assert(screenText().includes("金币 -100"), `结算文案要报账：${screenText().slice(0, 240)}`);
+	click("确定");
+	const saved = lib.storage.rogueSlots[0];
+	assertEqual(saved.currency.gold, 50, "扣掉一倍基准金币");
+	assertEqual(saved.currency.exp, 80, "拿到两倍基准经验");
+	assertEqual(saved.pendingEvent, null, "事件收掉");
+	assertEqual(saved.level, 4, "事件不改关卡数（它只在胜利结算之后发生）");
+	return "第 4 关基准 100/40：扣 100 金币得 80 经验";
+});
+
 await check("奇物商店：候选展示、购买落袋、整批售罄、重载保持", async () => {
 	freshWorld();
 	putRun(0, {
@@ -1998,6 +2032,8 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 	for (const token of ["奇物商店", "能量核心", "幸运石", "破损怀表", "普通", "稀有"]) {
 		assert(text.includes(token), `奇物商店应显示「${token}」：${text}`);
 	}
+	// 概率说明按配置现算：改了 CURIO_SHOP_RATE，界面这句话不会还在报旧数字
+	assert(text.includes(`有 ${Math.round(cfg.CURIO_SHOP_RATE * 100)}% 概率刷新候选`), `刷新概率说明要跟配置一致：${text.slice(0, 400)}`);
 	// 技能区的 3 个购买按钮在前，奇物区的 3 个在后
 	const buyButtons = nodesWithClass("wm-rogue-shop-buy");
 	assertEqual(buyButtons.length, 6, "技能与奇物各三个购买按钮");
@@ -2370,12 +2406,12 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	freshWorld();
 	putRun(0, {
 		mode: "endless",
-		// 三件老的 + 三件本轮新增的战斗内奇物：新键必须照样流到 storage。
+		// 三件老的 + 三件上一轮的战斗内奇物 + 两件本轮新增（濒死回响 / 击杀成长）：新键必须照样流到 storage。
 		// battle.js 以前是逐个键手写这张表，漏一个键就是「技能挂上了但数值全是 0」——
 		// 逻辑层测试自己往 storage 塞数所以照绿，只有这条真机链路的用例拦得住
-		curios: ["energy_core", "lucky_stone", "broken_watch", "berserker_badge", "blood_rage_core", "counter_amulet"],
+		curios: ["energy_core", "lucky_stone", "broken_watch", "berserker_badge", "blood_rage_core", "counter_amulet", "echo_bell", "broken_crown"],
 		// 能量核心升到史诗：战斗总表要按当前品质给 +4，而不是初始的 +1
-		curioQuality: { energy_core: "epic", blood_rage_core: "rare", counter_amulet: "epic" },
+		curioQuality: { energy_core: "epic", blood_rage_core: "rare", counter_amulet: "epic", broken_crown: "epic" },
 		currentBattle: {
 			status: "battle",
 			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
@@ -2401,8 +2437,14 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 			hurtDamageNext: 0,
 			hurtDamageRound: 0,
 			hurtDamageGame: 1,
+			dyingRecallChance: 0.5,
+			killGainMaxHp: 1,
+			killHeal: 0,
+			killHealToMax: 1,
+			killDrawToMaxHp: 0,
+			killDrawMaxHp: 1,
 		}),
-		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；幸运石是结算类不进 storage）"
+		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；回响之铃的概率键要保留小数 0.5；史诗破碎王冠走「回复至上限 + 摸上限张」；幸运石是结算类不进 storage）"
 	);
 	assertEqual(lib.hookmap.phaseBegin, true, "额外出牌阶段时机已登记");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "摸牌时机已登记");
@@ -2412,6 +2454,8 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	assertEqual(lib.hookmap.damageBegin1, true, "造成伤害加伤时机已登记（狂战/反击/血怒）");
 	assertEqual(lib.hookmap.damage, true, "「我造成的伤害」时机已登记（狂战徽章认本回合第一下）");
 	assertEqual(lib.hookmap.damageEnd, true, "受到伤害时机已登记（反击护符上 buff）");
+	assertEqual(lib.hookmap.useCard, true, "出牌记账时机已登记（回响之铃）");
+	assertEqual(lib.hookmap.die, true, "角色死亡时机已登记（破碎王冠认击杀）");
 	// 「无法被响应」走的是本体两个技能标签，注册表里必须都在
 	assertEqual(lib.skill.rogue_curio.ai.norespond, true, "norespond 标签已注册");
 	assertEqual(lib.skill.rogue_curio.ai.playernowuxie, true, "playernowuxie 标签已注册");
@@ -2423,20 +2467,24 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	for (const token of ["奇物", "能量核心（史诗）", "摸牌阶段额外摸 4 张牌", "幸运石（稀有）", "经验获取 +10%", "破损怀表（史诗）",
 		"狂战徽章（稀有）", "每回合首次造成伤害后，本回合你造成的伤害 +1",
 		"血怒核心（稀有）", "体力低于体力上限的一半（向上取整）时，你使用的牌无法被响应，且此牌造成的伤害 +1",
-		"反击护符（史诗）", "当你受到伤害后，本局游戏你造成的伤害 +1"]) {
+		"反击护符（史诗）", "当你受到伤害后，本局游戏你造成的伤害 +1",
+		"回响之铃（普通）", "当你进入濒死状态时，有 50% 的概率获得本局游戏你使用过且位于弃牌堆的牌",
+		"破碎王冠（史诗）", "你杀死一名角色后，你增加 1 点体力上限并回复体力至上限，然后摸体力上限张牌"]) {
 		assert(curioText.includes(token), `奇物面板应显示「${token}」：${curioText.slice(0, 600)}`);
 	}
 	assertEqual(nodesWithClass("wm-rogue-stat-panel").length, 1, "奇物面板复用属性面板的版式");
-	assertEqual(nodesWithClass("wm-rogue-stat-detail").length, 6, "六件奇物各一行");
+	assertEqual(nodesWithClass("wm-rogue-stat-detail").length, 8, "八件奇物各一行");
 	// 分两组：战斗里真生效的与结算才生效的分开，别让人以为诅咒金币/循环按钮这局马上能吃到
 	const splitAt = curioText.indexOf("结算时生效");
 	assert(curioText.includes("战斗内生效") && splitAt > 0, `两组标题都要在：${curioText.slice(0, 400)}`);
 	assert(curioText.indexOf("能量核心") < splitAt, `战斗类的奇物不该落到结算组：${curioText.slice(0, 400)}`);
 	assert(curioText.indexOf("破损怀表") < splitAt, `破损怀表是本局生效的：${curioText.slice(0, 400)}`);
 	assert(curioText.indexOf("狂战徽章") < splitAt, `狂战徽章是战斗内生效的：${curioText.slice(0, 400)}`);
+	assert(curioText.indexOf("回响之铃") < splitAt, `回响之铃是战斗内生效的：${curioText.slice(0, 400)}`);
+	assert(curioText.indexOf("破碎王冠") < splitAt, `破碎王冠是战斗内生效的：${curioText.slice(0, 400)}`);
 	assert(curioText.indexOf("幸运石") > splitAt, `幸运石只有结算加成，不该出现在战斗组：${curioText.slice(0, 400)}`);
 	common.closeScreen();
-	return "rogue_curio + storage 十三键全量 + 战斗/结算分组";
+	return "rogue_curio + storage 十九键全量 + 战斗/结算分组";
 });
 
 await check("挑战模式不受影响：没有奇物商店与奇物栏，图鉴只读公有内容", async () => {
@@ -2510,11 +2558,11 @@ await check("v3 旧档兼容：缺事件/奇物/图鉴字段时自动补齐并�
 	return "v3 → v4 静默补齐";
 });
 
-await check("奇物商店 10% 门控：未命中清空旧批次且不触发事件，命中才整批上新货（先奇物商店、后事件）", async () => {
+await check("奇物商店按配置概率门控：未命中清空旧批次且不触发事件，命中才整批上新货（先奇物商店、后事件）", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
-		// 第一胜：rng=0.5 → 奇物商店 0.5≥0.1 未命中、事件 0.5≥0.3 未触发
+		// 第一胜：rng=0.5 → 既不低于奇物商店概率（CURIO_SHOP_RATE）也不低于事件概率（EVENT_TRIGGER_RATE），两样都不触发
 		Math.random = () => 0.5;
 		putRun(0, {
 			mode: "endless",
@@ -2548,6 +2596,117 @@ await check("奇物商店 10% 门控：未命中清空旧批次且不触发事�
 		assert(run.curioOffers.map(offer => `${offer.id}:${offer.price}`).join(",") !== before, "候选确实换了新一批");
 		assert(run.pendingEvent, "同一胜里事件也按概率触发");
 		return "0.5 双未命中 → 0 双命中";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("收藏家的橱窗：锁图标只在该出现时出现，点一下切换并立即落盘", async () => {
+	freshWorld();
+	// 没持有 → 一枚锁都不画（玩家看不到自己用不上的东西）
+	putRun(0, { mode: "endless", currentBattle: null, shopOffers: [{ id: "rogue_extra", price: 10, sold: false }] });
+	session();
+	click("商店");
+	assertEqual(nodesWithClass("wm-rogue-shop-lock").length, 0, "没持有橱窗时没有锁图标");
+	// 稀有档：只能锁技能商店
+	putRun(0, { mode: "endless", curios: ["collector_showcase"], currentBattle: null, shopOffers: [{ id: "rogue_extra", price: 10, sold: false }] });
+	session();
+	click("商店");
+	assertEqual(nodesWithClass("wm-rogue-shop-lock").length, 1, "稀有档只有技能商店一枚锁");
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔓", "未锁时是开锁");
+	clickNode(nodesWithClass("wm-rogue-shop-lock")[0]);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].skillShopLocked, true, "锁定状态落盘");
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔒", "图标原位变成锁上");
+	clickNode(nodesWithClass("wm-rogue-shop-lock")[0]);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].skillShopLocked, false, "再点一下解锁");
+	// 史诗档：技能与奇物商店各一枚，两个能同时锁
+	putRun(0, {
+		mode: "endless",
+		curios: ["collector_showcase"],
+		curioQuality: { collector_showcase: "epic" },
+		currentBattle: null,
+		currency: { gold: 1000, exp: 0 },
+		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
+		// 货架上得压着一批货，奇物分区才会露出来（空货架时整个分区隐藏是既有设计）
+		curioOffers: [{ id: "lucky_stone", price: 10 }],
+	});
+	session();
+	click("商店");
+	assertEqual(nodesWithClass("wm-rogue-shop-lock").length, 2, "史诗档技能与奇物商店各一枚锁");
+	assertEqual(nodesWithClass("wm-rogue-shop-lock").map(node => textOf(node)).join(","), "🔓,🔓", "两枚锁初始都是开");
+	clickNode(nodesWithClass("wm-rogue-shop-lock")[0]);
+	await flush();
+	clickNode(nodesWithClass("wm-rogue-shop-lock")[1]);
+	await flush();
+	const saved = lib.storage.rogueSlots[0];
+	assertEqual(saved.skillShopLocked, true, "技能商店锁上");
+	assertEqual(saved.curioShopLocked, true, "奇物商店也锁上（两个能同时锁）");
+	assertEqual(nodesWithClass("wm-rogue-shop-lock").map(node => textOf(node)).join(","), "🔒,🔒", "两枚图标都变成锁上");
+	return "0 枚 → 1 枚（稀有）→ 2 枚（史诗）并各自落盘";
+});
+
+await check("商店锁结算：技能锁保住候选并清零已购买，奇物锁保住整批不再掷刷新", async () => {
+	const originalRandom = Math.random;
+	try {
+		// rng 钉在 0.999：正常路径下技能候选清空、奇物商店掷不中会置空，两处都靠锁挡住
+		Math.random = () => 0.999;
+		freshWorld();
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			curios: ["collector_showcase"],
+			skillShopLocked: true,
+			shopOffers: [
+				{ id: "rogue_extra", price: 66, sold: true },
+				{ id: "owned_skill", price: 44, sold: false },
+			],
+			shopRefreshesRemaining: 0,
+		});
+		session();
+		click("开始下一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		let run = lib.storage.rogueSlots[0];
+		assertEqual(run.shopOffers.map(offer => `${offer.id}:${offer.price}`).join(","), "rogue_extra:66,owned_skill:44", "锁着的候选连价格一起保留");
+		assert(run.shopOffers.every(offer => !offer.sold), "已购买标记清零：新一局等于新的一次进店");
+		assertEqual(run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "免费的刷新次数照常刷新（规格原话：只是三个技能不刷新）");
+		click("返回营地");
+		// 没锁 → 照旧清空（与原来逐字一致）
+		putRun(0, { mode: "endless", level: 3, shopOffers: [{ id: "rogue_extra", price: 66 }] });
+		session();
+		click("开始下一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		assertEqual(JSON.stringify(lib.storage.rogueSlots[0].shopOffers), "[]", "没锁照旧清空");
+		click("返回营地");
+		// 奇物商店锁着：rng 0.999 本会把旧批次置空，锁上后原样留货
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			curios: ["collector_showcase"],
+			curioQuality: { collector_showcase: "epic" },
+			curioShopLocked: true,
+			curioOffers: [{ id: "lucky_stone", price: 66 }],
+		});
+		session();
+		click("开始下一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		run = lib.storage.rogueSlots[0];
+		assertEqual(run.curioOffers.map(offer => offer.id).join(","), "lucky_stone", "奇物商店既不刷新也不置空");
+		assertEqual(run.curioOffers[0].price, 66, "连价定死的那一份也保留");
+		return "技能三项保留（sold 清零、刷新补满）+ 奇物整批保留";
 	} finally {
 		Math.random = originalRandom;
 	}

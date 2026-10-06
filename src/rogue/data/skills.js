@@ -19,7 +19,7 @@
 //
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验上面的每一条约束，不用开游戏）
 
-import { game } from "../../../../../noname.js";
+import { game, get } from "../../../../../noname.js";
 import { packages } from "../../core/loader.js";
 import { describeStatEffects } from "./stats.js";
 import { describeCurioEffects } from "../curioManager.js";
@@ -60,8 +60,8 @@ export const translate = {
 // 技能本体只读 storage，不在 lib 里登记任何针对具体存档的内容。
 
 /**
- * 「本回合」的判据：拿 phase 事件对象本身比——同一个 phase 事件才是同一个回合
- * （与深渊词缀 abyss_buqu 同一套做法，不必再挂临时技，回合一走两边自然不再相等）。
+ * 「本回合」的判据：拿 phase 事件对象本身比——同一个 phase 事件才是同一个回合。
+ * 不必挂临时技去清状态，回合一走两边自然不再相等（本体没有 `player.turnFlag`，深渊词缀也这么判）。
  */
 function phaseOf(event) {
 	const found = event && typeof event.getParent === "function" ? event.getParent("phase") : null;
@@ -174,8 +174,10 @@ export const helpers = {
 			// roundEnd 才是全场一轮结束——剩饭的史诗档换的就是这两者。
 			// damageEnd = 受到伤害后（反击护符上 buff）；source 那两个是「我造成的伤害」：
 			// damageBegin1 加伤、damage 用来认出「本回合的首次造成伤害」。
-			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd"],
-			source: ["damageBegin1", "damage"],
+			// useCard = 回响之铃的账本（只记「使用」，打出/响应走 respond 事件，不记账）；
+			// source: die = 破碎王冠认「我杀死了谁」（自伤致死不算，见 filter）。
+			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd", "useCard"],
+			source: ["damageBegin1", "damage", "die"],
 			global: "roundEnd",
 		},
 		// 血怒核心「你使用的牌无法被响应」要走本体的两个技能标签，而且**两个都得挂**：
@@ -217,7 +219,19 @@ export const helpers = {
 				return !event.numFixed && (storage.extraDraw || 0) > 0;
 			}
 			if (triggername === "dying") {
-				return player.hp < 1 && (storage.dyingSave || 0) > 0 && !player.storage.rogue_curio_belt;
+				// 气息腰带（每局只救一次）与回响之铃（每次濒死都掷）共用这一个时机：
+				// 两件都没有才不触发，有一件就进来，content 里各做各的
+				const beltReady = (storage.dyingSave || 0) > 0 && !player.storage.rogue_curio_belt;
+				const echoReady = (storage.dyingRecallChance || 0) > 0;
+				return player.hp < 1 && (beltReady || echoReady);
+			}
+			if (triggername === "useCard") {
+				// 回响之铃：只有记着账才有必要监听出牌
+				return (storage.dyingRecallChance || 0) > 0;
+			}
+			if (triggername === "die") {
+				// 破碎王冠：只认「你杀死一名角色」，自伤致死不算
+				return event.player !== player && (storage.killGainMaxHp || 0) > 0;
 			}
 			if (triggername === "roundEnd") {
 				return player.isAlive() && player.hp < player.maxHp && (storage.roundHeal || 0) > 0;
@@ -255,10 +269,50 @@ export const helpers = {
 			} else if (event.triggername === "phaseDrawBegin2") {
 				trigger.num += storage.extraDraw || 0;
 			} else if (event.triggername === "dying") {
-				player.storage.rogue_curio_belt = true;
-				// 回复目标数据驱动：写了比例就回复到「体力上限 × 比例」，否则固定回 1
-				const ratio = storage.dyingRecoverToRatio || 0;
-				await player.recoverTo(ratio > 0 ? Math.ceil(player.maxHp * ratio) : 1);
+				// 气息腰带：每局游戏首次濒死，回复目标数据驱动——写了比例就回「体力上限 × 比例」，否则固定回 1
+				if ((storage.dyingSave || 0) > 0 && !player.storage.rogue_curio_belt) {
+					player.storage.rogue_curio_belt = true;
+					const ratio = storage.dyingRecoverToRatio || 0;
+					await player.recoverTo(ratio > 0 ? Math.ceil(player.maxHp * ratio) : 1);
+				}
+				// 回响之铃：每次濒死都掷一次；命中就把本局使用过、此刻躺在弃牌堆里的实体牌全收回手牌。
+				// 判据是 get.position(card, true) === "d"（本体的弃牌堆位置代号；ordering 传 true 才不会把
+				// 正在结算区里飞的那张也算成「已在弃牌堆」，与官方技能同一条口径），装备区/别人手上的自然被排除
+				const chance = storage.dyingRecallChance || 0;
+				if (chance > 0 && (chance >= 1 || Math.random() < chance)) {
+					const cards = (player.rogueCurioUsedCards ?? []).filter(card => get.position(card, true) === "d");
+					if (cards.length) {
+						await player.gain(cards, "gain2");
+					}
+				}
+			} else if (event.triggername === "useCard") {
+				// 回响之铃的账本：只记实体牌（转化/虚拟牌没有自己的实体，回不到弃牌堆）
+				const used = trigger.card;
+				if (get.itemtype(used) === "card") {
+					const ledger = player.rogueCurioUsedCards ?? (player.rogueCurioUsedCards = []);
+					if (!ledger.includes(used)) {
+						ledger.push(used);
+					}
+				}
+			} else if (event.triggername === "die") {
+				// 破碎王冠：先涨体力上限，再按档位回血，最后按（涨过的）体力上限摸牌
+				const gain = storage.killGainMaxHp || 0;
+				if (gain > 0) {
+					await player.gainMaxHp(gain);
+				}
+				if ((storage.killHealToMax || 0) > 0) {
+					await player.recoverTo(player.maxHp);
+				} else if ((storage.killHeal || 0) > 0) {
+					await player.recover(storage.killHeal);
+				}
+				if ((storage.killDrawMaxHp || 0) > 0) {
+					await player.draw(player.maxHp);
+				} else if ((storage.killDrawToMaxHp || 0) > 0) {
+					const gap = player.maxHp - player.countCards("h");
+					if (gap > 0) {
+						await player.draw(gap);
+					}
+				}
 			} else if (event.triggername === "roundEnd") {
 				await player.recover(storage.roundHeal || 0);
 			} else if (event.triggername === "phaseEnd") {

@@ -44,9 +44,11 @@ export const COLLECTION_KEY = "rogueCollection";
  * 并让 currentBattle 携带 rift（这一场是深渊裂隙：胜利只发定死的倍率奖励、不推进关卡、不掷事件与奇物商店）。
  * v8 新增 challengeStages（闯关模式前 10 关的敌方配置抽取结果：建局时一次性从 data/challengeStages.js
  * 的配置池抽出并落盘，读档/重进/失败重战都原样沿用；旧档缺字段按空数组补齐，首次开战时补抽一次，之后绝不重掷）。
+ * v9 新增 skillShopLocked / curioShopLocked（技能商店与奇物商店的锁定开关，来源是「收藏家的橱窗」奇物；
+ * 旧档按未锁定补齐，且只有当前确实持有对应锁定能力时才保留——稀有只锁技能、史诗两个都能锁）。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 8;
+export const RUN_VERSION = 9;
 export const SLOT_COUNT = 6;
 
 /**
@@ -135,9 +137,10 @@ export const CURIO_OFFER_COUNT = 3;
  * 奇物商店的触发概率：无尽模式每关战斗胜利后先于事件判定掷骰，命中才刷新一批候选，
  * **未命中直接清空**（旧批次不留着，避免同一批货挂十几关不动）；rng 可注入。
  * 一批只卖一个：买到即整批下架（buyCurio 清空 curioOffers），商店分区随之隐藏。
- * 注意这条概率同时决定「商店多久出现一次」——批次不再留存后，平均 1/该值 关才看得到一次。
+ * 注意这条概率同时决定「商店多久出现一次」——批次不再留存后，平均 1/该值 关才看得到一次
+ * （0.2 = 约 5 关一次）。界面上那句「有 N% 概率刷新」由 `ui/hub.js` 按这个数现算，改这里就够。
  */
-export const CURIO_SHOP_RATE = 0.1;
+export const CURIO_SHOP_RATE = 0.2;
 
 /**
  * 深渊裂隙的三档赌局（选项顺序即 data/events.js 里写死的顺序）：

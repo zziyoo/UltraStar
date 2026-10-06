@@ -2,7 +2,7 @@
 
 import { CURRENCIES, CURIO_SHOP_RATE, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getChallengeReward, getEndlessReward } from "./data/rewards.js";
-import { getBonus, rollCurioOffers } from "./curioManager.js";
+import { getBonus, isShopLocked, rollCurioOffers } from "./curioManager.js";
 
 /**
  * 奖励一律按「本次刚刚完成的关卡编号」计算：下面的 run.level 在推进之前就是刚打赢的那一关，
@@ -16,7 +16,9 @@ import { getBonus, rollCurioOffers } from "./curioManager.js";
  * 闯关：未到总关卡数则进下一关，到达则置 cleared 且关卡不越界（Hub 提供重复挑战）。
  * 无尽：关卡无上限地推进；胜利后先掷奇物商店（CURIO_SHOP_RATE，mode.js 里随后的
  * 事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中清空（不留旧批次）。
- * 两种玩法都会清掉 currentBattle 与上一次的商店候选。
+ * 两种玩法都会清掉 currentBattle 与上一次的商店候选；唯一例外是收藏家的橱窗锁住的那一类：
+ * 技能商店锁着就保留三项候选（清掉「已购买」标记，购买额度与免费刷新次数照常刷新），
+ * 奇物商店锁着就整批留货（不再掷 CURIO_SHOP_RATE、不置空）；锁着但货架本来就是空的一律照常走原流程。
  * 免费刷新次数只在「真的通关并进入下一局」时恢复：失败还是同一关，次数必须保持原样，
  * 否则玩家可以靠反复失败白刷商店。
  */
@@ -36,7 +38,12 @@ export function settleVictory(run, now, rng = Math.random) {
 	const next = {
 		...run,
 		currency: { ...run.currency },
-		shopOffers: [],
+		// 收藏家的橱窗锁着技能商店：这一批候选连价格一起留到下一关，只把「已购买」标记清掉——
+		// 新的一局等于新的一次进店，购买额度照常重置（规格：免费的刷新次数要刷新，只是三个技能不刷新）。
+		// 没锁 / 锁着但候选本来就是空的，一律照旧清空（下次进店现摇），与原来逐字一致
+		shopOffers: isShopLocked(run, "skill") && (run.shopOffers ?? []).length
+			? run.shopOffers.map(offer => ({ ...offer, sold: false }))
+			: [],
 		// 循环按钮：每场战斗结束额外补一次刷新（只看开战前已持有的奇物，本局换到的不算）
 		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL + getBonus(run.curios, "extraShopRefresh", quality),
 		currentBattle: null,
@@ -78,18 +85,25 @@ export function settleVictory(run, now, rng = Math.random) {
 	// 第一批被买走时整批下架，队列里的第二批随即提上货架（见 curioManager.buyCurio）。
 	// 第二批摇的时候把第一批已挂出去的 id 一起排掉，免得同一件货在两家货架上重复出现。
 	if (run.mode === RUN_MODE.endless) {
-		const batches = [];
-		if (rng() < CURIO_SHOP_RATE) {
-			batches.push(rollCurioOffers(next, rng));
+		// 收藏家的橱窗（史诗档）锁着奇物商店：整批原样留着——不再掷 CURIO_SHOP_RATE、不置空，黄金罗盘压着的队列也不动。
+		// 锁着但货架本来就空时不拦：没有货可保，拦了反而把玩家锁在空货架上（分区又随空隐藏，连解锁图标都点不到）
+		if (isShopLocked(run, "curio") && (run.curioOffers ?? []).length) {
+			next.curioOffers = run.curioOffers.map(offer => ({ ...offer }));
+			next.curioOfferQueue = (run.curioOfferQueue ?? []).map(batch => batch.map(offer => ({ ...offer })));
+		} else {
+			const batches = [];
+			if (rng() < CURIO_SHOP_RATE) {
+				batches.push(rollCurioOffers(next, rng));
+			}
+			const compass = getBonus(run.curios, "extraCurioShopChance", quality);
+			if (compass > 0 && rng() < compass) {
+				const first = batches[0] ?? [];
+				batches.push(rollCurioOffers(next, rng, first.map(item => item?.id)));
+			}
+			const stocked = batches.filter(batch => batch.length);
+			next.curioOffers = stocked[0] ?? [];
+			next.curioOfferQueue = stocked.slice(1);
 		}
-		const compass = getBonus(run.curios, "extraCurioShopChance", quality);
-		if (compass > 0 && rng() < compass) {
-			const first = batches[0] ?? [];
-			batches.push(rollCurioOffers(next, rng, first.map(item => item?.id)));
-		}
-		const stocked = batches.filter(batch => batch.length);
-		next.curioOffers = stocked[0] ?? [];
-		next.curioOfferQueue = stocked.slice(1);
 	} else {
 		next.curioOffers = [];
 		next.curioOfferQueue = [];

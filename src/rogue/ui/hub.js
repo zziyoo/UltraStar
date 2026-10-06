@@ -3,6 +3,7 @@
 // 替换页与商店共用同一套技能卡渲染（addSkillHead / wm-rogue-shop-desc / sanitizeSkillText）。
 
 import {
+	CURIO_SHOP_RATE,
 	CURRENCIES,
 	CURRENCY_LABEL,
 	LIBRARY_TEXT,
@@ -17,7 +18,7 @@ import {
 	STAT_IDS,
 } from "../config.js";
 import { getPurchasedCount, getRefreshesRemaining } from "../shop.js";
-import { checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getNextCurioQuality, getUpgradableCurios, CURIOSITY_RARITY } from "../curioManager.js";
+import { canLockShop, checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getNextCurioQuality, getUpgradableCurios, isShopLocked, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
@@ -35,6 +36,12 @@ import {
 } from "./common.js";
 
 const moneyName = key => CURRENCY_LABEL[key] ?? key;
+
+/**
+ * 奇物商店的刷新概率文案：百分比一律按 config.CURIO_SHOP_RATE 现算。
+ * 这个数字以前在界面上手写过三遍「10%」，改配置就会说瞎话——现在只有配置一处。
+ */
+const curioRateText = noun => `每关胜利后有 ${Math.round(CURIO_SHOP_RATE * 100)}% 概率刷新${noun}`;
 
 /** 商店页的活节点，供购买/升级后原位刷新 */
 let shopView = null;
@@ -135,7 +142,7 @@ export function showCurios(api) {
 	const body = ui.create.div(".wm-rogue-curios-body", panel);
 	if (!owned.length) {
 		ui.create.div(".wm-rogue-skills-empty", "当前没有奇物", body);
-		ui.create.div(".wm-rogue-skills-hint", "每关胜利后有 10% 概率刷新奇物商店，事件也可能送奇物。", body);
+		ui.create.div(".wm-rogue-skills-hint", `${curioRateText("奇物商店")}，事件也可能送奇物。`, body);
 		return;
 	}
 	const cardRow = ui.create.div(".wm-rogue-shop-cards", body);
@@ -258,6 +265,9 @@ export function showShop(api) {
 	const offerHead = ui.create.div(".wm-rogue-shop-section-row", body);
 	ui.create.div(".wm-rogue-shop-section-title", "技能商店", offerHead);
 	const refreshButton = addOverlayButton("", offerHead, () => api.refreshSkills(), "wm-rogue-shop-refresh");
+	// 收藏家的橱窗：持有锁定能力时，分区标题右侧多一枚 🔓/🔒 开关（点一下切换；锁住的那一类商店
+	// 下一场战斗结束时不再自动刷新）。没那件奇物就不画——玩家看不到自己用不上的东西
+	const skillLock = buildShopLock(offerHead, run, "skill", "技能商店", () => api.toggleLock("skill"));
 	ui.create.div(".wm-rogue-shop-subtitle", `每次进店最多购买 ${SKILL_PURCHASE_COUNT} 个技能　点卡片可看完整描述`, body);
 	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
@@ -268,10 +278,13 @@ export function showShop(api) {
 	let curioSection = null;
 	let curioHint = null;
 	let curioRow = null;
+	let curioLock = null;
 	const curioCards = [];
 	if (isEndless) {
 		curioSection = ui.create.div(".wm-rogue-curio-section", body);
-		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", curioSection);
+		const curioHead = ui.create.div(".wm-rogue-shop-section-row", curioSection);
+		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", curioHead);
+		curioLock = buildShopLock(curioHead, run, "curio", "奇物商店", () => api.toggleLock("curio"));
 		curioHint = ui.create.div(".wm-rogue-shop-subtitle", "", curioSection);
 		curioRow = ui.create.div(".wm-rogue-shop-cards", curioSection);
 	}
@@ -330,6 +343,8 @@ export function showShop(api) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
 		paintRefresh(refreshButton, current, soldOut);
+		paintShopLock(skillLock, current, "skill");
+		paintShopLock(curioLock, current, "curio");
 		if (curioSection) {
 			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
 			curioSection.classList[offers.length ? "remove" : "add"]("wm-rogue-hidden");
@@ -338,8 +353,8 @@ export function showShop(api) {
 			if (curioHint) {
 				const queued = (Array.isArray(current.curioOfferQueue) ? current.curioOfferQueue : []).filter(batch => batch.length).length;
 				curioHint.innerHTML = queued
-					? `每关胜利后有 10% 概率刷新候选　每次最多购买 1 个　黄金罗盘另指了 ${queued} 批，买完这批接着上`
-					: "每关胜利后有 10% 概率刷新候选　每次最多购买 1 个";
+					? `${curioRateText("候选")}　每次最多购买 1 个　黄金罗盘另指了 ${queued} 批，买完这批接着上`
+					: `${curioRateText("候选")}　每次最多购买 1 个`;
 			}
 		}
 	};
@@ -353,6 +368,30 @@ function paintRefresh(node, run, soldOut) {
 	const remaining = getRefreshesRemaining(run);
 	node.innerHTML = soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
 	node.classList[soldOut || remaining <= 0 ? "add" : "remove"]("wm-rogue-disabled");
+}
+
+/**
+ * 商店锁的开关（收藏家的橱窗）：🔓 未锁 / 🔒 已锁。
+ * 只有持有对应能力时才创建（没有那件奇物就返回 null，页面上不出现点不动的空图标）；
+ * 当前状态一律由 paint 现读存档，不吃渲染时缓存的布尔值。
+ */
+function buildShopLock(parent, run, kind, label, onToggle) {
+	if (!canLockShop(run, kind)) {
+		return null;
+	}
+	const node = addOverlayButton("🔓", parent, onToggle, "wm-rogue-shop-lock");
+	node.title = `锁定${label}：锁定后，下一场战斗结束时不刷新${label}的候选`;
+	return node;
+}
+
+/** 把一枚锁图标画成当前状态；节点不存在（没能力）时什么都不做 */
+function paintShopLock(node, run, kind) {
+	if (!node) {
+		return;
+	}
+	const locked = isShopLocked(run, kind);
+	node.innerHTML = locked ? "🔒" : "🔓";
+	node.classList[locked ? "add" : "remove"]("wm-rogue-lock-on");
 }
 
 /** 技能卡的「头」：出处小头像 + 技能名 + 出自行；商店与技能查看页共用同一视觉语言。

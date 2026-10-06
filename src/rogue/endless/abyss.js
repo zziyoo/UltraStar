@@ -3,7 +3,7 @@
 // 分工：
 //   abyssConfig.js  层数门限、词缀池、上限等机制参数
 //   abyss.js（本文件）算某个敌人该拿几个、随机出哪几个、以及把读档来的数据清洗回合法形状
-//   abyssAffixes.js 十个词缀的技能本体与文案（由 mode.js 随模式注册，battle.js 挂到敌人身上）
+//   abyssAffixes.js 九个词缀的技能本体与文案（由 mode.js 随模式注册，battle.js 挂到敌人身上）
 //
 // 随机只发生在「本关开战前」：enemy.js 生成阵容时调用一次，结果原样写进
 // currentBattle.enemies[i].abyss，之后重载/异常退出恢复战斗都从这里取，绝不重掷。

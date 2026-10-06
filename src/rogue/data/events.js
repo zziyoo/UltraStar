@@ -164,7 +164,7 @@ export const events = {
 			},
 		],
 	},
-	// ---------------------------------------------------------------- 本轮新增：只有「需要玩家挑对象」和「立刻开打」这两类走 action
+	// ---------------------------------------------------------------- 上一轮新增：只有「需要玩家挑对象」和「立刻开打」这两类走 action
 	spring_of_wisdom: {
 		id: "spring_of_wisdom",
 		name: "经验泉",
@@ -322,6 +322,84 @@ export const events = {
 			},
 			{
 				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	// ---------------------------------------------------------------- 本轮新增：纯倍率奖励与「花一种货币换另一种」的兑换（零新机制）
+	// 四件的奖励一律写成 goldByWin / expByWin 倍率：构建事件时按「刚打赢那一关」的无尽胜利基准
+	// （金币 floor(50xn)、经验 floor(20xn)）换算成固定值写进存档，读档恢复绝不重算；
+	// 负数倍率就是消耗，价钱由 eventManager.withCostText 追加进选项文案，付不起才置灰。
+	abandoned_supply: {
+		id: "abandoned_supply",
+		name: "废弃补给站",
+		description: "在荒废基地里找到尚未过期的物资。",
+		image: "extension/奥特之星/assets/events/abandoned_supply.png",
+		choices: [
+			{
+				// 纯金币；仔细搜寻是「金币换经验」的五五开：1 倍金币 vs 0.5 金币 + 0.5 经验
+				text: "翻找补给箱",
+				reward: { goldByWin: 1 },
+			},
+			{
+				text: "仔细搜寻",
+				reward: { goldByWin: 0.5, expByWin: 0.5 },
+			},
+		],
+	},
+	veteran_training: {
+		id: "veteran_training",
+		name: "老兵的训练",
+		description: "一名退役战士愿意分享经验。",
+		image: "extension/奥特之星/assets/events/veteran_training.png",
+		choices: [
+			{
+				text: "让他训练",
+				reward: { expByWin: 1 },
+			},
+			{
+				// 花一半基准金币换 2 倍基准经验：白拿的那档只有一半收益，这一档是拿金币买
+				text: "花钱请教",
+				reward: { goldByWin: -0.5, expByWin: 2 },
+			},
+		],
+	},
+	gold_vein: {
+		id: "gold_vein",
+		name: "黄金矿脉",
+		description: "发现闪耀的矿脉。",
+		image: "extension/奥特之星/assets/events/gold_vein.png",
+		choices: [
+			{
+				text: "立即开采",
+				reward: { goldByWin: 1, expByWin: 1 },
+			},
+			{
+				// 慢慢采：金币更多（1.5 倍），经验更少（0.5 倍）
+				text: "仔细采集",
+				reward: { goldByWin: 1.5, expByWin: 0.5 },
+			},
+		],
+	},
+	exp_merchant: {
+		id: "exp_merchant",
+		name: "经验商人",
+		description: "这是位很有信誉的商人。",
+		image: "extension/奥特之星/assets/events/exp_merchant.png",
+		choices: [
+			{
+				// 两个方向是同一个汇率（1 倍金币 <-> 2 倍经验），花哪种货币由玩家缺哪样决定；
+				// 收益倍率不写进按钮文字（与既有事件同一套口径：按钮只写动作 + 自动追加的消耗，
+				// 具体给多少在图鉴的选项详情里照实列全）
+				text: "用金币换经验",
+				reward: { goldByWin: -1, expByWin: 2 },
+			},
+			{
+				text: "用经验换金币",
+				reward: { expByWin: -2, goldByWin: 1 },
+			},
+			{
+				text: "我不需要，谢谢",
 				reward: {},
 			},
 		],
