@@ -8,7 +8,7 @@ import { checkRogueSkillCompat } from "./skillCompat.js";
 import { pool } from "./data/skills.js";
 
 /** 角色的技能表：本体注册后是数组第 3 项，扩展原始数据里是 skills 字段，两种形态都收 */
-function skillsOf(character) {
+export function skillsOf(character) {
 	if (Array.isArray(character)) {
 		return character[3] ?? [];
 	}
@@ -108,8 +108,10 @@ export function isRogueSkillAllowed(skillId) {
 /**
  * 生成商店候选池。
  * 组成：作者上架清单（分包技能） + 全体可选武将的技能。
- * 排除：玩家禁用过的武将的技能，以及这些技能声明过的衍生技；
- *       同一个技能只要还有别的未禁用武将拥有，就继续上架。
+ * 排除：玩家禁用过的武将的技能，以及这些技能声明过的衍生技——**硬否决**：
+ * 只要技能（含衍生技）属于任何一个当前禁将角色，就不进池，即使别的未禁用武将也拥有同一条
+ * （扩展里真实存在共享技能，如 atmnianli 六名角色共有、leofenzhan 雷欧与阿斯特拉共有；
+ * 以前的「还有别的未禁用武将拥有就继续上架」豁免正是禁将技能漏进商城的根因，已废除）。
  * 本体判为不可选用的技能（没翻译、内部技）与肉鸽兼容性校验不过的技能都不进池；
  * 作者清单在 rogue-data 自检里已经逐条验过存在性，但**一样要过兼容性校验**——
  * 上架清单只说明「作者想卖」，不说明「挂到别人身上安全」。
@@ -150,7 +152,7 @@ export function getShopPool() {
 	}
 	const list = [];
 	for (const id of ids) {
-		if (blocked.has(id) && !usable.has(id)) {
+		if (blocked.has(id)) {
 			continue;
 		}
 		if (!isRogueSkillAllowed(id)) {
@@ -159,4 +161,35 @@ export function getShopPool() {
 		list.push({ id, price: 100 });
 	}
 	return list;
+}
+
+/**
+ * 单条技能的禁将复查：这条技能（或它的衍生技）现在属于某个当前禁将角色吗。
+ * getShopPool 是整池生成，这条是「单条技能」口径——读档清洗存档里的旧候选
+ * （state.js 的 isSkillAllowed）与购买前最终校验（shop.js 的 checkSkillPurchase）共用，
+ * 免得「生成时禁将已生效、存档里的旧候选却绕过禁将」出现两条规则。
+ * 禁将名单与 getShopPool 同一份（getBannedCharacterIds），不另立口径。
+ */
+export function isSkillBlockedByBan(skillId) {
+	if (typeof skillId !== "string" || !skillId) {
+		return false;
+	}
+	const banned = getBannedCharacterIds();
+	if (!banned.size) {
+		return false;
+	}
+	for (const [id, info] of Object.entries(lib.character ?? {})) {
+		if (!banned.has(id)) {
+			continue;
+		}
+		for (const skill of skillsOf(info)) {
+			if (skill === skillId) {
+				return true;
+			}
+			if (derivationsOf(skill).includes(skillId)) {
+				return true;
+			}
+		}
+	}
+	return false;
 }

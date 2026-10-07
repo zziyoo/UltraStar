@@ -217,7 +217,7 @@ export function createEventFlow() {
 	function confirmRiftFlow(action) {
 		const lines = [
 			`裂隙的另一头传来动静：这一场要面对 ${action.enemies} 名敌人。`,
-			action.affixes > 0 ? `且每名敌人额外自带 ${action.affixes} 个深渊强化（第 31 层以下也给）。` : "",
+			action.affixes > 0 ? `且每名敌人额外自带 ${action.affixes} 个深渊强化。` : "",
 			`胜利可得 ${action.gold} 金币与 ${action.exp} 经验；这一场不计入关卡层数，也不会触发事件与奇物商店。`,
 			"战败的处理与普通战败完全一样——无尽模式下本存档会被整个删除。",
 		];

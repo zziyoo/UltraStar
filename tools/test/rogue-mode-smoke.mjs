@@ -218,14 +218,23 @@ function putRun(index, patch, extra) {
 }
 
 async function newRunByUi(modeLabel) {
-	click("空存档");
-	click(modeLabel);
-	const chooser = screenRoot();
-	assert(chooser.classList.contains("character"), "选将页应使用本体 characterDialog");
-	assert(chooser.buttons.some(button => button.link === "迪迦"), "候选里应有迪迦");
-	assert(!chooser.buttons.some(button => button.link === "死龙"), "隐藏 Boss 不该出现在候选里");
-	click("迪迦");
-	await flush();
+	// 建局那一刻有一次「本局是否 Boss 战」的掷骰（cfg.BOSS_RUN_RATE，v11）：
+	// 这里把随机钉在 0.9（≥ 概率线），保证冒烟用例走 UI 建出来的都是普通局；
+	// Boss 战的链路由专门的用例覆盖（putRun 写 bossRun 字段 / 直接钉 0 建局）
+	const originalRandom = Math.random;
+	Math.random = () => 0.9;
+	try {
+		click("空存档");
+		click(modeLabel);
+		const chooser = screenRoot();
+		assert(chooser.classList.contains("character"), "选将页应使用本体 characterDialog");
+		assert(chooser.buttons.some(button => button.link === "迪迦"), "候选里应有迪迦");
+		assert(!chooser.buttons.some(button => button.link === "死龙"), "隐藏 Boss 不该出现在候选里");
+		click("迪迦");
+		await flush();
+	} finally {
+		Math.random = originalRandom;
+	}
 }
 
 console.log("奥特之星·肉鸽 模式流程冒烟\n");
@@ -884,10 +893,7 @@ await check("选择玩法页：自建浮层 + 两张玩法卡 + 无尽与闯关�
 	const stage = nodesWithClass("wm-rogue-modes")[0];
 	assert(stage, "选择玩法也是自建浮层");
 	assertEqual(nodesWithClass("wm-rogue-mode-card").length, 2, "两张玩法卡");
-	const modeTokens = ["闯关模式", `固定总关卡数：${cfg.CHALLENGE_TOTAL_LEVELS} 关`, "失败：损失部分货币", "无尽模式", "关卡无限", "失败：整档删除"];
-	if (abyssCfg.ABYSS_ENABLED) {
-		modeTokens.push(`第 ${abyssCfg.ABYSS_START_LEVEL} 关起开启深渊强化`);
-	}
+	const modeTokens = ["闯关模式", `固定总关卡数：${cfg.CHALLENGE_TOTAL_LEVELS} 关`, "失败：损失部分货币", "无尽模式", "关卡无限", "开启boss战和深渊强化", "失败：整档删除"];
 	for (const token of modeTokens) {
 		assert(text.includes(token), `玩法卡应显示「${token}」：${text}`);
 	}
@@ -1007,9 +1013,10 @@ await check("闯关 11~20 关：首次开战抽 10 个组合落盘，敌人按 c
 	assertEqual(enemies.length, 2, "第 11 关应有 2 个敌人（双人组合）");
 	assertEqual(enemies[0].characterId, combo.players[0].character, "左角色在前");
 	assertEqual(enemies[1].characterId, combo.players[1].character, "右角色在后");
-	assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
-		+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack, 11,
-		"shared 预算：两人总点数等于关卡数");
+	assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack, 11,
+		"第 11 关：左敌人独立吃满 11 点");
+	assertEqual(enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack, 11,
+		"第 11 关：右敌人独立吃满 11 点（不共享预算）");
 	// 打到第 12 关再开战（模拟推进后重进）：用第 1 个组合，且组合表绝不重抽
 	putRun(0, { level: 12, challengeComboStages: combos, currentBattle: null });
 	session();
@@ -1042,10 +1049,10 @@ await check("闯关 21~30 关：双人组合 + 扩展池第三人，第三人随
 	assert(leftIndex < rightIndex, "左角色永远在右角色之前");
 	const pool = enemyModule.getChallengeEnemyPool();
 	assert(pool.includes(thirdEntry.characterId), `第三人 ${thirdEntry.characterId} 应来自扩展角色池`);
-	assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
-		+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack
-		+ enemies[2].stats.defense + enemies[2].stats.draw + enemies[2].stats.attack, 21,
-		"3 人 shared 预算：队伍总点数等于关卡数");
+	for (const entry of enemies) {
+		assertEqual(entry.stats.defense + entry.stats.draw + entry.stats.attack, 21,
+			`第 21 关：${entry.characterId} 独立吃满 21 点（三人互不摊薄）`);
+	}
 	const thirdBefore = thirdEntry.characterId;
 	// 模拟中途刷新：重新加载页面走恢复流程，第三人必须原样沿用
 	session();
@@ -2023,6 +2030,91 @@ await check("无尽胜利触发事件：结算页「继续」进事件页，选�
 	}
 });
 
+await check("Boss 战整局：建局一次判定、单 Boss 落地、体力×2 与复制技能生效，胜利 20 倍奖励并强制弃置与刷奇物商店", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		// 建局钉 0：0 < BOSS_RUN_RATE → 本局判定为 Boss 战（不走 newRunByUi，它会给普通局）
+		Math.random = () => 0;
+		session();
+		click("空存档");
+		click("无尽模式");
+		click("迪迦");
+		await flush();
+		assertEqual(lib.storage.rogueSlots[0].bossRun, true, "建局判定为 Boss 战并落盘");
+		// 重载（读档）后判定原样保留：绝不在重进/重开战时重新随机
+		session();
+		assertEqual(lib.storage.rogueSlots[0].bossRun, true, "读档沿用 Boss 战判定");
+		// 给两名「技能来源」角色塞可用技能（定义 + 双键翻译，过兼容层与 skillDisabled）
+		lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["bossdonor_a"] };
+		lib.character["赛文"] = { hp: 4, maxHp: 4, skills: ["bossdonor_b1", "bossdonor_b2"] };
+		for (const id of ["bossdonor_a", "bossdonor_b1", "bossdonor_b2"]) {
+			lib.skill[id] = { forced: true, trigger: { player: "phaseDrawBegin2" } };
+			lib.translate[id] = id;
+			lib.translate[`${id}_info`] = "Boss 冒烟用技能。";
+		}
+		click("开始下一关");
+		await flush();
+		assertEqual(game.players.length, 2, "Boss 战只有 1 名敌人（1 玩家 + 1 Boss）");
+		const boss = game.players[1];
+		// 桩里各角色基础体力不同（死龙 34、其余 4）：按「该角色基础体力 ×2」相对断言
+		assertEqual(boss.maxHp, lib.character[boss.name].maxHp * 2, "Boss 体力 = 角色基础体力 × 2（属性点不参与翻倍）");
+		assertEqual(boss.hp, boss.maxHp, "当前体力同步翻倍");
+		assertEqual(boss.rogueSide, 1, "阵营仍是敌方");
+		for (const id of ["bossdonor_a", "bossdonor_b1", "bossdonor_b2"]) {
+			assert(boss.__skills.includes(id), `复制来的技能要真正挂上：${id}`);
+		}
+		const savedBattle = lib.storage.rogueSlots[0].currentBattle;
+		assertEqual(savedBattle.enemies.length, 1, "阵容随存档定死");
+		assertEqual(savedBattle.enemies[0].boss, true, "boss 标记随阵容落盘");
+		assert(savedBattle.enemies[0].abyss.length >= 1, "Boss 自带的深渊强化随阵容落盘");
+		// 胜利（rng 换 0.5：跳过事件判定，其余结算不变）
+		Math.random = () => 0.5;
+		boss.__alive = false;
+		boss.hp = 0;
+		lib.element.player.dieAfter.call(boss);
+		await flush();
+		const won = lib.storage.rogueSlots[0];
+		// 无尽第 1 关基准 50 金币 / 20 经验 ×20：初始 50 金币 + 1000、20 经验 + 400
+		assertEqual(won.currency.gold, cfg.INITIAL_CURRENCY.gold + 50 * cfg.BOSS_REWARD_MULTIPLIER, "胜利金币 = 20 倍基准");
+		assertEqual(won.currency.exp, 20 + 20 * cfg.BOSS_REWARD_MULTIPLIER, "胜利经验 = 20 倍基准");
+		assertEqual(won.level, 2, "关卡照常推进");
+		assertEqual(won.currentBattle, null, "战斗标记清理");
+		assert(won.curioOffers.length > 0, "Boss 战胜利后奇物商城强制刷新出一批");
+		const text = screenText();
+		assert(text.includes("Boss 战 · 战斗胜利"), `结算页标题：${text}`);
+		assert(text.includes("没有已购买技能可失去") && text.includes("没有奇物可失去"), `空列表的安全话术：${text}`);
+		// 再来一场：手上有购买技能与奇物时，强制各失去一件（有则执行）
+		putRun(0, {
+			mode: "endless",
+			characterId: "迪迦",
+			bossRun: true,
+			level: 2,
+			currency: { gold: 100, exp: 100 },
+			skills: ["rogue_extra", "own_one", "own_two"],
+			curios: ["energy_core"],
+			curioQuality: { energy_core: "rare" },
+		});
+		session();
+		click("开始下一关");
+		await flush();
+		const boss2 = game.players[1];
+		boss2.__alive = false;
+		boss2.hp = 0;
+		lib.element.player.dieAfter.call(boss2);
+		await flush();
+		const punished = lib.storage.rogueSlots[0];
+		assertEqual(punished.skills.length, 2, "强制失去 1 个购买技能（3 → 2）");
+		// rng=0.5 → floor(0.5×3)=1 → 丢 own_one，其余原序保留
+		assertEqual(JSON.stringify(punished.skills), JSON.stringify(["rogue_extra", "own_two"]), "恰好随机丢一个，其余保留");
+		assertEqual(JSON.stringify(punished.curios), JSON.stringify([]), "强制失去 1 件奇物");
+		assertEqual(punished.curioQuality.energy_core, undefined, "被丢奇物的品质条目一并清掉");
+		return "建局判定 → 单 Boss 8 血 → 20 倍奖励 + 强制刷新 → 强制弃置";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
 await check("事件定义中途下架：事件页不抛异常，直接走出口重载", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
@@ -2195,10 +2287,10 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 	const manage = nodesWithClass("wm-rogue-curio-manage")[0];
 	assert(manage, "管理页应渲染奇物卡");
 	// 刚买到的能量核心停在初始品质：当前效果 + 下一品质预览 + 按当前关卡现算的升级价
-	// （第 2 关基准 round(50×√2)=71，升级价 = 5×71 = 355；这一档 exp 为 0，所以按钮置灰）
+	// （第 2 关胜利经验 floor(20×√2)=28，升级价 = 5×28 = 140；这一档 exp 为 0，所以按钮置灰）
 	const manageText = dump(manage);
 	// 当前效果与下一品质效果都按效果表自动生成，句式统一
-	for (const token of ["能量核心", "普通", "摸牌阶段额外摸 1 张牌", "下一品质：稀有", "摸牌阶段额外摸 2 张牌", "升级 355 经验（持有 0）"]) {
+	for (const token of ["能量核心", "普通", "摸牌阶段额外摸 1 张牌", "下一品质：稀有", "摸牌阶段额外摸 2 张牌", "升级 140 经验（持有 0）"]) {
 		assert(manageText.includes(token), `管理页卡面应显示「${token}」：${manageText}`);
 	}
 	assert(nodesWithClass("wm-rogue-curio-up")[0].classList.contains("wm-rogue-disabled"), "经验不足时升级按钮置灰");
@@ -2209,7 +2301,7 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 
 await check("奇物管理页：点升级真的升一档、原位重绘，史诗档不给按钮", async () => {
 	freshWorld();
-	// 第 31 关：升级价 = 5 × round(50×√31) = 1390，给够两次的钱
+	// 第 31 关：升级价 = 5 × floor(20×√31) = 555，给够两次的钱
 	putRun(0, {
 		mode: "endless",
 		level: 31,
@@ -2228,19 +2320,19 @@ await check("奇物管理页：点升级真的升一档、原位重绘，史诗�
 	await flush();
 	let saved = lib.storage.rogueSlots[0];
 	assertEqual(saved.curioQuality.energy_core, "rare", "落盘升到稀有");
-	assertEqual(saved.currency.exp, 5000 - 1390, "扣掉 1390 经验");
+	assertEqual(saved.currency.exp, 5000 - 555, "扣掉 555 经验");
 	// 原位重绘：卡面自己变成稀有档的样子，没有重开页面
 	let text = dump(cardOf("能量核心"));
 	assert(text.includes("稀有") && text.includes("摸牌阶段额外摸 2 张牌"), `卡面应重绘成稀有档：${text}`);
 	assert(text.includes("下一品质：史诗") && text.includes("摸牌阶段额外摸 4 张牌"), `下一档预览跟上：${text}`);
-	assert(text.includes(`升级 ${1390 * 1} 经验`), `价签按当前档重算：${text}`);
+	assert(text.includes(`升级 ${555 * 1} 经验`), `价签按当前档重算：${text}`);
 	assertEqual(nodesWithClass("wm-rogue-curio-manage").length, 2, "页面没被重开（还是这两张卡）");
 	// 再升一档到史诗：按钮整个拿掉，只留「已达最高品质」
 	clickNode(nodesWithClass("wm-rogue-curio-up")[0]);
 	await flush();
 	saved = lib.storage.rogueSlots[0];
 	assertEqual(saved.curioQuality.energy_core, "epic", "再升到史诗");
-	assertEqual(saved.currency.exp, 5000 - 1390 * 2, "第二次也扣钱");
+	assertEqual(saved.currency.exp, 5000 - 555 * 2, "第二次也扣钱");
 	text = dump(cardOf("能量核心"));
 	assert(text.includes("史诗") && text.includes("摸牌阶段额外摸 4 张牌"), `史诗档卡面：${text}`);
 	assert(text.includes("已达最高品质"), `链尾写「已达最高品质」：${text}`);
@@ -2252,7 +2344,7 @@ await check("奇物管理页：点升级真的升一档、原位重绘，史诗�
 	// 隐藏之外再保一层：真去调它的回调也不会升级
 	clickNode(nodesWithClass("wm-rogue-curio-up")[1]);
 	await flush();
-	assertEqual(lib.storage.rogueSlots[0].currency.exp, 5000 - 1390 * 2, "点链尾的按钮不扣钱");
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 5000 - 555 * 2, "点链尾的按钮不扣钱");
 	assertEqual(lib.storage.rogueSlots[0].curioQuality.energy_core, "epic", "也不改品质");
 	click("返回");
 	assert(screenText().includes("技能商店"), "返回应回到商店");
@@ -2472,7 +2564,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	// 深渊裂隙：三档的敌人数与倍率读 config.RIFT_TIERS，每名敌人的深渊强化读 RIFT_EXTRA_AFFIXES
 	const rift = openDetail("深渊裂隙");
 	for (let i = 0; i < cfg.RIFT_TIERS.length; i++) {
-		const expect = `　开一场 ${cfg.RIFT_TIERS[i].enemies} 名敌人的裂隙战（不算层数），胜利得本层基准 ${cfg.RIFT_TIERS[i].multiplier} 倍金币与经验，每名敌人自带 ${cfg.RIFT_EXTRA_AFFIXES} 个深渊强化`;
+		const expect = `　开一场 ${cfg.RIFT_TIERS[i].enemies} 名敌人的裂隙战（不算层数），胜利得 ${cfg.RIFT_TIERS[i].multiplier} 倍胜利金币与胜利经验，每名敌人自带 ${cfg.RIFT_EXTRA_AFFIXES} 个深渊强化`;
 		assert(rift.includes(expect), `裂隙第 ${i + 1} 档应写明奖励规则：${rift.join(" / ")}`);
 	}
 	assert(!rift.includes("无奖励"), `裂隙选项不该再显示无奖励：${rift.join(" / ")}`);
@@ -2489,7 +2581,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	assert(merchant.some(line => line.includes(`奇物基准价 ×${cfg.MERCHANT_PRICE_MULTIPLIER}`) && line.includes("升一级品质")),
 		`流浪商人应写明定价规则：${merchant.join(" / ")}`);
 	const forge = openDetail("奇物融合炉");
-	assert(forge.some(line => line.includes(`本层基准经验 ×${cfg.FORGE_EXP_MULTIPLIER}`)),
+	assert(forge.some(line => line.includes(`本层胜利经验 ×${cfg.FORGE_EXP_MULTIPLIER}`)),
 		`融合炉应写明费用规则：${forge.join(" / ")}`);
 	const skillForge = openDetail("技能熔炉");
 	assert(skillForge.some(line => line.includes("失去一个技能，换一个随机新技能")),
@@ -3381,7 +3473,10 @@ await check("深渊裂隙：先确认再进场，敌人数与词缀按事件参�
 	assertEqual(entered.pendingEvent, null, "进场即收掉事件");
 	assertEqual(entered.level, 5, "进场不推进关卡");
 	assertEqual(entered.currentBattle.enemies.length, 5, "裂隙指定的 5 名敌人");
-	assertEqual(entered.currentBattle.enemies.filter(entry => entry.abyss.length === 1).length, 5, "第 5 层本不该有词缀，裂隙每名敌人都要带一条");
+	// 起始层改为 1 后第 5 层也参与正常随机：每个敌人至少有裂隙固定追加的那一条，
+	// 正常随机的命中会在此之上叠加（同一条不放回规则，永不重复）
+	assert(entered.currentBattle.enemies.every(entry => entry.abyss.length >= 1), `裂隙每名敌人至少自带一条：${entered.currentBattle.enemies.map(e => e.abyss.length).join(",")}`);
+	assert(entered.currentBattle.enemies.every(entry => new Set(entry.abyss).size === entry.abyss.length), "同一敌人身上的词缀不重复");
 	assertEqual(JSON.stringify(entered.currentBattle.rift), JSON.stringify({ level: 4, enemies: 5, affixes: 1, gold: 800, exp: 320 }), "rift 参数落盘，重载后靠它把这场该发多少带回来");
 	// 重载后落在恢复页：这一场要认得出是裂隙，而不是「战斗未正常结算」
 	session();

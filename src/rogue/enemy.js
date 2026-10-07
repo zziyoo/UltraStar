@@ -22,10 +22,10 @@ import { lib } from "../../../../noname.js";
 
 import { packages } from "../core/loader.js";
 import { appendAbyssAffixes, isAbyssStage, rollAbyssAffixes } from "./endless/abyss.js";
-import { CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
+import { BOSS_EXTRA_AFFIXES, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
 import { drawChallengeStageIds } from "./data/challengeStages.js";
 import { drawChallengeComboIds } from "./data/challengeCombos.js";
-import { getBannedCharacterIds } from "./skillPool.js";
+import { getBannedCharacterIds, isRogueSkillAllowed, skillsOf } from "./skillPool.js";
 
 /** 单项属性上限，与 data/stats.js 各属性的 maxLevel 一致 */
 export const ENEMY_STAT_MAX = 10;
@@ -208,6 +208,87 @@ export function createEnemyConfigs(level, mode, rng = Math.random, options = {})
 	}));
 }
 
+// ---------------------------------------------------------------- Boss 战
+
+/**
+ * 「别的角色」候选：除 Boss 本人外的全部角色（禁将也可以当技能来源——规格明确不加这条限制），
+ * 每人带一份过兼容性校验（isRogueSkillAllowed，与商城同一道安全闸）后的可用技能表；
+ * 一条可用技能都没有的角色当不了来源。
+ */
+function getBossSkillDonorCandidates(bossId) {
+	const candidates = [];
+	for (const [id, info] of Object.entries(lib.character ?? {})) {
+		if (id === bossId) {
+			continue;
+		}
+		const skills = [];
+		for (const skill of skillsOf(info)) {
+			if (typeof skill !== "string" || !skill || skills.includes(skill)) {
+				continue;
+			}
+			if (isRogueSkillAllowed(skill)) {
+				skills.push(skill);
+			}
+		}
+		if (skills.length) {
+			candidates.push({ id, skills });
+		}
+	}
+	return candidates;
+}
+
+/**
+ * 生成 Boss 战的单人阵容（Boss 战整局替换普通关卡，见 flow/battle.js 的 bossRun 分支）：
+ *   · 只有 1 名敌人，角色从当前模式敌方池再按统一禁将名单（getBannedCharacterIds）过滤后随机
+ *     ——禁将绝不入选担当 Boss（闯关池本身刻意不拦禁将，那是固定配置「照打」的口径，这里不适用）；
+ *   · 额外获得另外两个不同角色（不与 Boss 本体重复）的全部技能，全部随阵容落盘、
+ *     由 battle.js 的 grantSkills 真正挂到 Player 上（不是 UI 摆设）；
+ *   · 深渊强化 = 当前关卡正常计算的那一份 + Boss 固定追加的 BOSS_EXTRA_AFFIXES 个
+ *     （appendAbyssAffixes 不放回，追加的永远是新的强化，也不占正常计算的数量）；
+ *   · 体力 ×2 不在这里做：存档只记 boss 标记，battle.js 建局初始化该 Player 时翻倍一次。
+ * 结果随 currentBattle.enemies 一起写进存档，重载/恢复绝不重掷。
+ * 池子为空（全体禁用）返回空数组，由调用方提示。
+ */
+export function createBossEnemyConfig(level, mode, rng = Math.random, options = {}) {
+	// Boss 必须来自「当前非禁将角色」：在模式池之上再统一按禁将名单过滤一道
+	// （getChallengeEnemyPool 刻意不拦禁将——那是闯关固定配置「照打」的口径，Boss 不适用）
+	const banned = getBannedCharacterIds();
+	const pool = getEnemyPool(mode).filter(id => !banned.has(id));
+	if (!pool.length) {
+		return [];
+	}
+	const characterId = pool[Math.floor(rng() * pool.length) % pool.length];
+	// 两个不同来源：先洗牌再取前两个（不足两个就用现有全部，不凑数、不重复）
+	const candidates = getBossSkillDonorCandidates(characterId);
+	for (let i = candidates.length - 1; i > 0; i--) {
+		const j = Math.floor(rng() * (i + 1));
+		[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+	}
+	const skills = [];
+	for (const donor of candidates.slice(0, 2)) {
+		for (const skill of donor.skills) {
+			if (!skills.includes(skill)) {
+				skills.push(skill);
+			}
+		}
+	}
+	const points = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(level) || 0)));
+	const extra = Math.floor(Number(options?.extraAffixes));
+	// 常规随机（含经验泉的债）照走正常关卡口径；Boss 自带的那个在此之外单独追加
+	const abyssStage = isAbyssStage(level, mode);
+	let abyss = rollEnemyAffixes(level, mode, abyssStage, extra, rng);
+	abyss = appendAbyssAffixes(abyss, BOSS_EXTRA_AFFIXES, rng, { mode });
+	return [{
+		characterId,
+		stats: allocateEnemyStats(points, rng),
+		abyss,
+		skills,
+		maxHp: 0,
+		hp: 0,
+		boss: true,
+	}];
+}
+
 // ---------------------------------------------------------------- 闯关前 10 关：关卡配置池
 
 /**
@@ -336,7 +417,7 @@ export function ensureChallengeComboStages(run, rng = Math.random, isAvailable =
  *   · 位置在 [第三人,左,右] / [左,第三人,右] / [左,右,第三人] 里随机，但左右相对顺序永远不变；
  *   · 找不到合法第三人时明确返回失败，由上层阻止本关开始——绝不偷偷复制固定角色凑数。
  * 生成后由调用方随 currentBattle.enemies 一起落盘：中途刷新/崩溃恢复沿用原第三人，绝不重掷。
- * 属性分配走 createStageEnemyConfigs 的原路径：3 人默认 shared 预算，队伍总点数与单人关卡持平。
+ * 属性分配走 createStageEnemyConfigs 的原路径：3 名敌人（含第三人）各自独立吃一份完整等级预算。
  * @returns {{ ok: true, enemies: object[], third: string, position: number }
  *           | { ok: false, error: string }}
  */
@@ -375,59 +456,12 @@ function fixedPlayerStats(raw) {
 }
 
 /**
- * 组合关卡的属性预算分法（config.budget）：
- *   "each"   —— 每个成员各吃一份完整等级预算（**历史行为**，2~3 人组合强度会线性膨胀）；
- *   "shared" —— 整队共吃一份：把等级预算按人数切成几份再各自分配，人数越多每人越弱，
- *                队伍总点数恒等于单人时的点数。
- * 不写这个字段时按人数自动选：单人 = each（与现在逐位相同），多人组合 = shared。
- */
-export const STAGE_BUDGET = {
-	each: "each",
-	shared: "shared",
-};
-
-/** 组合用哪种预算分法：写了就认，没写按人数兜底（单人不变、多人共享） */
-export function resolveStageBudget(config, memberCount) {
-	const raw = typeof config?.budget === "string" ? config.budget.trim() : "";
-	if (raw === STAGE_BUDGET.each || raw === STAGE_BUDGET.shared) {
-		return raw;
-	}
-	return memberCount > 1 ? STAGE_BUDGET.shared : STAGE_BUDGET.each;
-}
-
-/**
- * 把一份总点数切成 memberCount 份（尽量均分，余数给前几名）：
- * 组合关卡用 shared 预算时靠它把「一关的总强度」摊到每个成员身上，
- * 于是 2~3 人组合的总点数与单人关卡完全持平，而不是人数 × 单人。
- */
-export function splitTeamPoints(totalPoints, memberCount, rng = Math.random) {
-	const count = Math.max(1, Math.floor(Number(memberCount) || 1));
-	const total = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(totalPoints) || 0)));
-	if (count === 1) {
-		return [total];
-	}
-	const base = Math.floor(total / count);
-	const shares = Array.from({ length: count }, () => base);
-	let rest = total - base * count;
-	// 余数散给随机几个成员，别每次都便宜第一个
-	const order = shares.map((_, index) => index);
-	for (let i = order.length - 1; i > 0; i--) {
-		const j = Math.floor(rng() * (i + 1)) % (i + 1);
-		[order[i], order[j]] = [order[j], order[i]];
-	}
-	for (let i = 0; rest > 0; i++, rest--) {
-		shares[order[i % order.length]] += 1;
-	}
-	return shares;
-}
-
-/**
  * 关卡配置 → 敌方阵容：single 与 group 统一按 players 逐个生成，随机系统不感知配置类型，
  * 未来加组合 / 指定属性 / 指定技能都只改 data/challengeStages.js 的数据，不改这里。
- * 成员没写 stats 就按关卡数随机分配（与 createEnemyConfigs 完全同一条 allocateEnemyStats）：
- *   · 单人（或 budget:"each"）—— 每人各吃完整等级预算，与现在逐位相同；
- *   · 多人组合（默认 budget:"shared"）—— 整队共吃一份，先 splitTeamPoints 切份再各自分配，
- *     队伍总点数不随人数增长（写了固定 stats 的成员不占队里的份额）。
+ * 属性预算按「每个敌人一份」计：关卡等级决定的是每个敌人的独立预算，不随人数摊薄——
+ *   · 写了固定 stats 的成员照用配置值（fixedPlayerStats）；
+ *   · 没写的成员各自独立随机分配「恰好 level 点」（与 createEnemyConfigs 完全同一条
+ *     allocateEnemyStats）：第 N 关每名敌人都是 N 点，多人关卡不共享、不切分预算。
  * 深渊词缀与常规随机同一条路径（闯关恒为空数组；经验泉的债照常透传，闯关正常恒为 0）。
  * @param {object} config data/challengeStages.js 里的一个配置（getChallengeStageConfig 的返回值）
  * @returns {object[]} 形状与 createEnemyConfigs 一致的敌方阵容，直接进 currentBattle.enemies 落盘
@@ -436,27 +470,16 @@ export function createStageEnemyConfigs(config, level, rng = Math.random, option
 	const players = Array.isArray(config?.players) ? config.players : [];
 	const points = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(level) || 0)));
 	const extra = Math.floor(Number(options?.extraAffixes));
-	// 需要随机分配属性的成员（写了固定 stats 的不占队里的预算）
-	const randomMembers = players.filter(player => !(player?.stats && typeof player.stats === "object"));
-	const budget = resolveStageBudget(config, players.length);
-	const shares = budget === STAGE_BUDGET.shared
-		? splitTeamPoints(points, randomMembers.length || 1, rng)
-		: null;
-	let shareIndex = 0;
 	const enemies = [];
 	for (const player of players) {
 		const characterId = typeof player?.character === "string" ? player.character.trim() : "";
 		if (!characterId) {
 			continue;
 		}
-		let stats;
-		if (player.stats && typeof player.stats === "object") {
-			stats = fixedPlayerStats(player.stats);
-		} else if (shares) {
-			stats = allocateEnemyStats(shares[shareIndex++], rng);
-		} else {
-			stats = allocateEnemyStats(points, rng);
-		}
+		// 固定 stats 照用配置值；没写的成员各自独立吃一份完整等级预算（多人不共享）
+		const stats = player.stats && typeof player.stats === "object"
+			? fixedPlayerStats(player.stats)
+			: allocateEnemyStats(points, rng);
 		enemies.push({
 			characterId,
 			stats,

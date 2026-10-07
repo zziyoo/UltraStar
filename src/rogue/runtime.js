@@ -6,7 +6,7 @@ import { lib, game } from "../../../../noname.js";
 
 import { BEST_CHALLENGE_KEY, BEST_ENDLESS_KEY, COLLECTION_KEY, SLOT_COUNT, STORAGE_KEY } from "./config.js";
 import { mergeCollections, migrateSlots, normalizeBest, normalizeBestChallenge, normalizeCollection, setSlot, toSerializable } from "./state.js";
-import { isRogueSkillAllowed } from "./skillPool.js";
+import { isRogueSkillAllowed, isSkillBlockedByBan } from "./skillPool.js";
 import { showNotice } from "./ui/common.js";
 
 export const context = {
@@ -27,10 +27,13 @@ export const now = () => Date.now();
 
 /**
  * 技能合法性闸门：shop.js / state.js 都是纯逻辑，读不到本体的 lib.skill，
- * 「这条技能现在还允许进肉鸽池吗」由这里统一喂进去——读档清洗、购买前校验都用它，
+ * 「这条技能现在还允许进肉鸽商店吗」由这里统一喂进去——读档清洗、购买前校验都用它，
  * 任何一处漏判都会被另一处补上。
+ * 两道关：兼容性/可售性（isRogueSkillAllowed）+ 禁将复查（isSkillBlockedByBan）——
+ * 存档里的旧候选是生成时定死的，玩家后来禁将了也不能让那些候选绕过禁将规则：
+ * 读档清洗会把这些格子直接清掉，购买前的最终校验也会拦下。
  */
-export const skillGate = { isSkillAllowed: id => isRogueSkillAllowed(id) };
+export const skillGate = { isSkillAllowed: id => isRogueSkillAllowed(id) && !isSkillBlockedByBan(id) };
 
 export function activeIndex() {
 	const raw = Number(lib.storage?.rogueActive);

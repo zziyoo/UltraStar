@@ -4,7 +4,8 @@
 import { RUN_MODE } from "../config.js";
 import { settleVictory } from "../reward.js";
 import { maybeCreatePendingEvent } from "../eventManager.js";
-import { loseSkill, lowerStat, settleDefeat } from "../penalty.js";
+import { getCurio } from "../data/curios.js";
+import { loseRandomCurio, loseRandomSkill, loseSkill, lowerStat, settleDefeat } from "../penalty.js";
 import { setSlot, updateBest, updateBestChallenge } from "../state.js";
 import { commit, context, now, persist, reloadNow, saveBest, saveBestChallenge } from "../runtime.js";
 import { showNotice, skillName } from "../ui/common.js";
@@ -26,6 +27,26 @@ export function createResultFlow(host) {
 		const alreadyCleared = !!context.run.cleared;
 		const result = settleVictory(context.run, now(), Math.random);
 		let run = result.run;
+		// Boss 战胜利的强制惩罚：随机失去 1 个已购买技能与 1 件已拥有的奇物（各自没有时安全跳过，
+		// 一句「没有可失去的」带过，绝不报错、绝不动角色本体技能与图鉴记录）。
+		// 只在「本局是 Boss 战」（run.bossRun，建局时判定）的胜利结算这里执行一次，落盘随 commit 走
+		const penaltyLines = [];
+		if (run.bossRun === true) {
+			const lostSkill = loseRandomSkill(run, Math.random, now());
+			if (lostSkill.ok) {
+				run = lostSkill.run;
+				penaltyLines.push(`Boss 战的代价：失去技能「${skillName(lostSkill.removed)}」。`);
+			} else {
+				penaltyLines.push("Boss 战的代价：当前没有已购买技能可失去。");
+			}
+			const lostCurio = loseRandomCurio(run, Math.random, now());
+			if (lostCurio.ok) {
+				run = lostCurio.run;
+				penaltyLines.push(`Boss 战的代价：失去奇物「${getCurio(lostCurio.removed)?.name ?? lostCurio.removed}」。`);
+			} else {
+				penaltyLines.push("Boss 战的代价：当前没有奇物可失去。");
+			}
+		}
 		if (run.mode === RUN_MODE.endless) {
 			// 只有真的通关了某一关（不是失败进入的下一关）才更新历史最高
 			const best = updateBest(context.best, wonLevel, run.characterId, now());
@@ -46,12 +67,13 @@ export function createResultFlow(host) {
 		commit();
 		showResult({
 			kind: "victory",
-			title: "战斗胜利",
+			title: run.bossRun ? "Boss 战 · 战斗胜利" : "战斗胜利",
 			level: wonLevel,
 			reward: result.gained,
 			nextLevel: run.level,
 			cleared: !!run.cleared,
 			totalLevels: run.totalLevels,
+			lines: penaltyLines,
 			buttonLabel: run.pendingEvent ? "继续" : undefined,
 			onDone: afterVictoryResult,
 		});

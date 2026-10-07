@@ -876,7 +876,7 @@ check("深渊词缀配置：池子项数、技能本体、双键翻译与承载�
 	const pool = abyssConfig.AFFIX_POOL;
 	assert(pool.length >= 9, `词缀池至少要 9 个（深渊·禁欲已删除），实际 ${pool.length}`);
 	assertEqual(new Set(pool.map(item => item.id)).size, pool.length, "词缀 id 不能重复");
-	assertEqual(abyssConfig.ABYSS_START_LEVEL, 31, "深渊化起始层");
+	assertEqual(abyssConfig.ABYSS_START_LEVEL, 1, "深渊化起始层（第 1 层起即可随机）");
 	assertEqual(abyssConfig.ABYSS_FULL_LEVEL, 100, "满层（必定拿到 1 个的层数）");
 	for (const item of pool) {
 		const info = modeConfig.skill[item.id];
@@ -889,6 +889,8 @@ check("深渊词缀配置：池子项数、技能本体、双键翻译与承载�
 			timings.push(...list.map(name => `${role}:${name}`));
 		}
 		assert(timings.length || info.mod, `${item.id} 既没有触发时机也没有 mod`);
+		// 持恒技标记：引擎按它豁免白板（baiban）类失效效果，并在技能面板显示「持恒技」分类
+		assert(info.persevereSkill === true, `${item.id} 应带 persevereSkill（持恒技，不被白板类技能封禁）`);
 		// 翻译双键：本体只认 id（名）+ id_info（描述），写成「名<hr>描述」会被整串当技能名打进日志
 		assert(typeof modeConfig.translate[item.id] === "string" && modeConfig.translate[item.id], `${item.id} 缺技能名翻译`);
 		assert(typeof modeConfig.translate[`${item.id}_info`] === "string" && modeConfig.translate[`${item.id}_info`], `${item.id} 缺描述翻译`);
@@ -904,6 +906,7 @@ check("深渊词缀配置：池子项数、技能本体、双键翻译与承载�
 	assert(typeof modeConfig.skill.abyss_xuwu_blocker?.skillBlocker === "function", "abyss_xuwu_blocker 应带 skillBlocker");
 	assert(typeof modeConfig.skill.abyss_xuwu_release?.onremove === "function", "abyss_xuwu_release 应带 onremove");
 	assert(!!modeConfig.skill.abyss_wuran_lock?.mod?.cardEnabled2, "abyss_wuran_lock 应带 cardEnabled2 mod");
+	assert(modeConfig.skill.abyss_wuran_lock.persevereSkill === true, "abyss_wuran_lock 也应带 persevereSkill（污染封牌不被白板绕过）");
 	for (const id of ["abyss_xuwu_blocker", "abyss_xuwu_release", "abyss_wuran_lock"]) {
 		assert(!pool.some(item => item.id === id), `${id} 是载体，不该出现在随机池里`);
 	}

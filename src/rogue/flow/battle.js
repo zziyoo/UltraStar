@@ -7,6 +7,7 @@ import { game } from "../../../../../noname.js";
 import { BATTLE_STATUS, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE } from "../config.js";
 import {
 	CHALLENGE_STAGE_STATE,
+	createBossEnemyConfig,
 	createChallengeComboConfigs,
 	createEnemyConfigs,
 	createStageEnemyConfigs,
@@ -28,6 +29,37 @@ export function createBattleFlow(host) {
 		let run = context.run;
 		if (run.currentBattle) {
 			startFromSavedBattle(run.currentBattle.enemies);
+			return;
+		}
+		// Boss 战整局（run.bossRun 建局时判定一次并落盘）：本关替换为单 Boss 阵容，
+		// 不走关卡配置池 / 双人组合池（那些表在这一局里用不上，也不必因配置不足拦住 Boss 战）。
+		// 阵容在开战前定死并随 currentBattle 落盘，中途刷新/崩溃后恢复、失败后重战都原样重打，绝不重掷
+		if (run.bossRun === true) {
+			const bossLevel = Math.max(1, Math.floor(Number(run.level) || 0));
+			// 经验泉「再饮一口」欠的债照常兑现，随后清零（与普通关同一条纪律）
+			const debt = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
+			const enemies = createBossEnemyConfig(bossLevel, run.mode, Math.random, { extraAffixes: debt });
+			if (!enemies.length) {
+				showNotice([run.mode === RUN_MODE.endless
+					? "本体角色池为空：请检查游戏角色数据与禁将配置。"
+					: "扩展角色池为空：请检查扩展角色包是否正常注册。"]);
+				return;
+			}
+			// Boss 从非禁将池抽出，走 isEnemyUsable 口径（不传 allowBanned）
+			const resolvedBoss = resolveBattle(run, enemies);
+			if (!resolvedBoss.ok) {
+				showNotice([resolvedBoss.error]);
+				return;
+			}
+			context.run = {
+				...run,
+				currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null },
+				abyssDebt: 0,
+			};
+			if (!commit()) {
+				return;
+			}
+			launch(resolvedBoss);
 			return;
 		}
 		// 闯关前 10 关：敌人由建局时一次性抽定的关卡配置生成（challengeStages[level-1]）。

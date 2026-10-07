@@ -9,6 +9,7 @@
 import { lib, game, ui } from "../../../../noname.js";
 
 import {
+	BOSS_RUN_RATE,
 	CHALLENGE_STAGE_LEVELS,
 	EXTENSION_NAME,
 	MODE_ID,
@@ -169,7 +170,11 @@ function draftApi(index) {
 						}
 						// 闯关新局建好立刻一次性抽出前 10 关的敌方配置并随首存落盘（ensure 只在缺/残缺时生成）；
 						// 无尽模式此调用原样返回，不生成任何东西
-						const ensured = ensureChallengeStages(createRun(mode, characterId, now()), Math.random);
+						// Boss 战判定在同一个时刻做：一局只掷这一次（BOSS_RUN_RATE），结果写进 run.bossRun
+						// 随首存落盘——读档、重进、重新开战都只认存档里的这个字段，绝不重新随机
+						const created = createRun(mode, characterId, now());
+						created.bossRun = Math.random() < BOSS_RUN_RATE;
+						const ensured = ensureChallengeStages(created, Math.random);
 						const run = ensured.run;
 						context.slots = setSlot(context.slots, index, run, now());
 						context.run = context.slots[index];

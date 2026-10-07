@@ -12,10 +12,9 @@
 //   players  成员列表，character 写**真实角色 id**。注意本体官方包（手杀 mobile / 十周年 shiji /
 //            势 bingshi / 限定 xianding / 荟萃 huicui / sp / 界 refresh 等）的角色 id 是拼音式
 //            （如 mb_caomao），游戏里看到的中文名只是显示名（lib.translate），所以这里不能照抄显示名。
-//   budget   多成员组合的属性预算分法（见 enemy.js 的 STAGE_BUDGET）：
-//            "each"   每个成员各吃一份完整关卡预算（强度随人数线性膨胀，**一般不这么写**）；
-//            "shared" 整队共吃一份，先按人数切份再各自分配，总点数与单人关卡持平。
-//            不写时按人数兜底：单人 = each（与当前全部配置逐位相同），多人组合 = shared。
+//   budget   已废弃：属性预算不按队伍共享——关卡等级决定**每个敌人的独立预算**，
+//            第 N 关每名没有固定 stats 的成员都各自独立随机分配 N 点（与人数无关），
+//            写了固定 stats 的成员照用配置值（详见 enemy.js 的 createStageEnemyConfigs）。
 //
 // 成员可选的扩展字段（不写就是走常规随机，未来加「指定属性/技能」的组合时直接用）：
 //   stats: { defense, draw, attack }  指定该成员的属性等级（缺省键按 0，不再随机分配）；

@@ -1,12 +1,17 @@
 // 胜利结算：入账奖励、推进关卡、清理进行中的战斗标记、按概率刷新奇物候选。纯函数。
 
-import { CURRENCIES, CURIO_SHOP_RATE, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { BOSS_REWARD_MULTIPLIER, CURRENCIES, CURIO_SHOP_RATE, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getChallengeReward, getEndlessReward } from "./data/rewards.js";
 import { getBonus, isShopLocked, rollCurioOffers } from "./curioManager.js";
 
 /**
  * 奖励一律按「本次刚刚完成的关卡编号」计算：下面的 run.level 在推进之前就是刚打赢的那一关，
  * 所以先取奖励、再推进，绝不能拿递增后的 level 值倒算（无尽 √奖励对这点尤其敏感）。
+ *
+ * Boss 战（run.bossRun，建局时判定一次）的胜利奖励 = 本关胜利金币/胜利经验基准 ×BOSS_REWARD_MULTIPLIER。
+ * 倍率只乘「基准」这一次：不再叠加奇物的金币/经验加成（goldRate / expRate / 波动半径），
+ * 与深渊裂隙同一条「胜利加成不生效」的口径——绝不把 ×20 乘到经加成放大后的最终值上。
+ * 其余结算（推关卡、刷新次数恢复、储蓄罐、事件判定）与普通胜利保持一致。
  *
  * 胜利奖励先按奇物加成（getBonus("goldRate") / getBonus("expRate")，按 run.curioQuality 取当前品质）
  * 放大再入账；加成只看这一局开始前就已持有的奇物（run.curios），本局胜利刚换到的不算。
@@ -16,6 +21,8 @@ import { getBonus, isShopLocked, rollCurioOffers } from "./curioManager.js";
  * 闯关：未到总关卡数则进下一关，到达则置 cleared 且关卡不越界（Hub 提供重复挑战）。
  * 无尽：关卡无上限地推进；胜利后先掷奇物商店（CURIO_SHOP_RATE，mode.js 里随后的
  * 事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中清空（不留旧批次）。
+ * Boss 战胜利时奇物商店**强制刷新**一次：不吃 CURIO_SHOP_RATE 概率、也不吃收藏家的橱窗锁，
+ * 且只在这里摇这一批（与普通命中是同一个分支，绝不会刷两次）。
  * 两种玩法都会清掉 currentBattle 与上一次的商店候选；唯一例外是收藏家的橱窗锁住的那一类：
  * 技能商店锁着就保留这批候选（买过的那张继续挂在货架上显示「已购买」，只是打上 carried 不再吃
  * 新的一局的购买额度，免费刷新次数照常刷新），奇物商店锁着就整批留货（不再掷 CURIO_SHOP_RATE、不置空）；
@@ -27,10 +34,17 @@ export function settleVictory(run, now, rng = Math.random) {
 	const base = run.mode === RUN_MODE.endless
 		? getEndlessReward(run.level, CURRENCIES)
 		: getChallengeReward(run.level);
+	// Boss 战：先在基准上乘固定倍率，下面的加成分支全部按 1 处理（见顶部说明）
+	const bossRun = run.bossRun === true;
+	if (bossRun) {
+		for (const key of Object.keys(base)) {
+			base[key] = base[key] * BOSS_REWARD_MULTIPLIER;
+		}
+	}
 	const quality = run.curioQuality;
-	const spread = Math.abs(getBonus(run.curios, "goldRateSpread", quality));
-	const goldRate = 1 + getBonus(run.curios, "goldRate", quality) + (spread > 0 ? (rng() * 2 - 1) * spread : 0);
-	const expRate = 1 + getBonus(run.curios, "expRate", quality);
+	const spread = bossRun ? 0 : Math.abs(getBonus(run.curios, "goldRateSpread", quality));
+	const goldRate = bossRun ? 1 : 1 + getBonus(run.curios, "goldRate", quality) + (spread > 0 ? (rng() * 2 - 1) * spread : 0);
+	const expRate = bossRun ? 1 : 1 + getBonus(run.curios, "expRate", quality);
 	const gained = {};
 	for (const [key, value] of Object.entries(base)) {
 		const rate = key === "gold" ? goldRate : key === "exp" ? expRate : 1;
@@ -85,18 +99,22 @@ export function settleVictory(run, now, rng = Math.random) {
 	// 旧版本把没买的候选一直留着，结果同一批奇物能挂十几关不动，商店看着像坏了；
 	// 现在「看得见商店」等价于「这一关刚刷出新货」。闯关没有奇物商店。
 	//
+	// Boss 战胜利（bossRun）时这一掷必中：奇物商城强制刷新一次，不吃概率、也不吃下面的橱窗锁。
+	// 强制刷新与普通命中是同一个 if 的同一个分支，一次结算只可能摇这一批，绝不会刷两次。
+	//
 	// 黄金罗盘再单独掷一次，命中就多出一批：两批互不排斥，所以同一关可能「买完一批还有一批」——
 	// 第一批被买走时整批下架，队列里的第二批随即提上货架（见 curioManager.buyCurio）。
 	// 第二批摇的时候把第一批已挂出去的 id 一起排掉，免得同一件货在两家货架上重复出现。
 	if (run.mode === RUN_MODE.endless) {
 		// 收藏家的橱窗（史诗档）锁着奇物商店：整批原样留着——不再掷 CURIO_SHOP_RATE、不置空，黄金罗盘压着的队列也不动。
+		// Boss 战的强制刷新不在此列（规格：无论正常随机条件是否满足都必刷）。
 		// 锁着但货架本来就空时不拦：没有货可保，拦了反而把玩家锁在空货架上（分区又随空隐藏，连解锁图标都点不到）
-		if (isShopLocked(run, "curio") && (run.curioOffers ?? []).length) {
+		if (!bossRun && isShopLocked(run, "curio") && (run.curioOffers ?? []).length) {
 			next.curioOffers = run.curioOffers.map(offer => ({ ...offer }));
 			next.curioOfferQueue = (run.curioOfferQueue ?? []).map(batch => batch.map(offer => ({ ...offer })));
 		} else {
 			const batches = [];
-			if (rng() < CURIO_SHOP_RATE) {
+			if (bossRun || rng() < CURIO_SHOP_RATE) {
 				batches.push(rollCurioOffers(next, rng));
 			}
 			const compass = getBonus(run.curios, "extraCurioShopChance", quality);

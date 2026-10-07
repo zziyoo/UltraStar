@@ -1,8 +1,11 @@
-// 深渊化强化：第一版词缀池的十个持恒技本体。
+// 深渊化强化：词缀池的九个持恒技本体。
 //
 // 每个强化就是一个独立注册的 lib 技能（id 以 abyss_ 开头），敌人身上 addSkill 即生效：
 //   · 名称与描述走 lib.translate 的双键格式（id = 技能名 / id_info = 描述），
 //     所以本体自己的角色信息区就能列出它们，不必再造一遍；
+//   · 全部词缀（含污染的封牌载体 abyss_wuran_lock）带 persevereSkill: true——引擎的「持恒技」标记：
+//     技能详情面板显示「持恒技」分类，且不被本体白板（baiban）类失效效果封禁
+//     （fengyin 只封非锁定技，词缀全是锁定技本就豁免；虚无的 abyss_xuwu_blocker 无条件封一切，不吃此标记）；
 //   · abyss_affix 是纯粹的标记载体（不发效果），负责在敌人身边挂一个「深渊」徽记，
 //     与玩家的「强化」徽记同一套做法；徽记说明从 player.storage.abyss_affix 里的词缀 id 现查文案。
 //   · 另有三个「载体技能」（abyssHelperSkills）也不进随机池：abyss_xuwu_blocker 只被 addSkillBlocker
@@ -132,6 +135,7 @@ export const affix = {
 	abyss_buqu: {
 		trigger: { player: "dying" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player) {
@@ -151,6 +155,7 @@ export const affix = {
 	abyss_jianbi: {
 		trigger: { player: "damageBegin4" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player, triggername) {
@@ -166,6 +171,7 @@ export const affix = {
 	abyss_kuangre: {
 		trigger: { global: "roundStart" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player) {
@@ -194,6 +200,7 @@ export const affix = {
 			},
 		},
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player, triggername) {
@@ -214,6 +221,7 @@ export const affix = {
 	abyss_xuwu: {
 		trigger: { player: "damageEnd" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player, triggername) {
@@ -241,6 +249,7 @@ export const affix = {
 	abyss_jingxiang: {
 		trigger: { player: "damageEnd" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player) {
@@ -272,6 +281,7 @@ export const affix = {
 	abyss_wuran: {
 		trigger: { global: "useCardAfter" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player) {
@@ -301,6 +311,7 @@ export const affix = {
 	abyss_yongheng: {
 		trigger: { global: "phaseBegin" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player) {
@@ -315,6 +326,7 @@ export const affix = {
 	abyss_fuchou: {
 		trigger: { player: "damageEnd", source: "damageBegin1" },
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		filter(event, player, triggername) {
@@ -366,6 +378,7 @@ export const abyssHelperSkills = {
 	},
 	abyss_wuran_lock: {
 		forced: true,
+		persevereSkill: true,
 		popup: false,
 		nopop: true,
 		mod: {

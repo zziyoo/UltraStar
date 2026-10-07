@@ -669,13 +669,19 @@ check("敌方阵容生成：数量按关卡、属性总和恰为关卡数、每�
 
 check("currentBattle 恢复：保存完整敌方阵容，重载原样读回而不重掷", () => {
 	const enemies = [
-		{ characterId: "巴尔坦星人", stats: { defense: 3, draw: 5, attack: 2 }, abyss: [], skills: [], maxHp: 0, hp: 0 },
-		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, abyss: [], skills: ["test_enemy_skill"], maxHp: 2, hp: 0 },
+		{ characterId: "巴尔坦星人", stats: { defense: 3, draw: 5, attack: 2 }, abyss: [], skills: [], boss: false, maxHp: 0, hp: 0 },
+		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, abyss: [], skills: ["test_enemy_skill"], boss: true, maxHp: 2, hp: 0 },
 	];
 	const run = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies, extra: "junk" } });
 	assertEqual(run.currentBattle.status, "battle", "状态保留");
 	assertEqual(run.currentBattle.enemies.length, 2, "敌人数保留");
-	assertEqual(JSON.stringify(run.currentBattle.enemies), JSON.stringify(enemies), "阵容原样保留（多余字段剔除）");
+	assertEqual(JSON.stringify(run.currentBattle.enemies), JSON.stringify(enemies), "阵容原样保留（多余字段剔除、boss 标记保留）");
+	// 缺 boss 字段的旧档按普通敌人补 false，绝不报错
+	const legacy = state.normalizeRun({
+		...freshRun(),
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", stats: {}, abyss: [], skills: [], maxHp: 0, hp: 0 }] },
+	});
+	assertEqual(legacy.currentBattle.enemies[0].boss, false, "旧档缺 boss 字段按 false 补齐");
 	assertEqual(Object.keys(run.currentBattle).sort().join(","), "enemies,rift,status", "只保留 status / enemies / rift");
 	assertEqual(run.currentBattle.rift, null, "普通战斗没有裂隙参数");
 	// 重启游戏重读同一份存档：阵容完全一致，不允许重新随机
@@ -813,8 +819,8 @@ check("关卡配置 → 阵容：single 与 group 统一按 players 解析，指
 	const many = enemy.createStageEnemyConfigs(group, 8, makeRng(4));
 	assertEqual(many.length, 3, "group 按成员数生成敌人");
 	assertEqual(many[0].characterId, "角色A", "逐个成员解析");
-	assertEqual(many[0].stats.defense + many[0].stats.draw + many[0].stats.attack, 4,
-		"多人组合默认共吃一份预算：8 点按 2 个随机分配的成员切成 4+4");
+	assertEqual(many[0].stats.defense + many[0].stats.draw + many[0].stats.attack, 8,
+		"多人不共享预算：随机成员各自独立吃满关卡数 8 点");
 	assertEqual(JSON.stringify(many[1].stats), JSON.stringify({ defense: 3, draw: 1, attack: 0 }), "指定属性原样生效（缺省键按 0）");
 	assertEqual(many[1].stats.defense + many[1].stats.draw + many[1].stats.attack, 4, "指定属性不再随机分配");
 	assertEqual(many[2].skills.join(","), SKILL_A, "指定技能进入阵容");
@@ -823,32 +829,29 @@ check("关卡配置 → 阵容：single 与 group 统一按 players 解析，指
 	return `${single.id}（single）与 ${group.id}（group）走同一条生成路径`;
 });
 
-check("组合预算：多人默认 shared（总点数不随人数膨胀），单人/each 与原行为逐位相同", () => {
-	assertEqual(enemy.resolveStageBudget({ players: [{}] }, 1), "each", "单人默认 each");
-	assertEqual(enemy.resolveStageBudget({ players: [{}, {}] }, 2), "shared", "多人默认 shared");
-	assertEqual(enemy.resolveStageBudget({ players: [{}, {}], budget: "each" }, 2), "each", "显式 each 照旧");
-	// 切份：均分 + 余数散给随机成员，总和恒等于 min(等级, 30)
-	for (const [level, count] of [[10, 2], [9, 2], [30, 3], [30, 4], [4, 3], [1, 3]]) {
-		const shares = enemy.splitTeamPoints(level, count, makeRng(3));
-		assertEqual(shares.length, count, `${count} 个人切成 ${count} 份`);
-		assertEqual(shares.reduce((a, b) => a + b, 0), Math.min(level, cfg.ENEMY_TOTAL_MAX ?? 30), `${level} 点分给 ${count} 人，总和不变`);
-	}
-	assertEqual(JSON.stringify(enemy.splitTeamPoints(7, 1, makeRng(1))), JSON.stringify([7]), "单人切份就是原值");
-	// 2 人组合的总点数 = 单人总点数（8 而不是 16）
+check("组合预算：每个未指定属性的成员各自独立吃一份完整等级预算（多人不再共享）", () => {
+	const total = entry => entry.stats.defense + entry.stats.draw + entry.stats.attack;
+	const inBounds = entry => Object.values(entry.stats).every(value => value >= 0 && value <= 10);
+	// 2 人组合：每人各吃 8 点，互不分摊（第 11~20 关同规则）
 	const pair = { id: "两人", type: "group", players: [{ character: "角色A" }, { character: "角色B" }] };
-	const shared = enemy.createStageEnemyConfigs(pair, 8, makeRng(4));
-	const each = enemy.createStageEnemyConfigs({ ...pair, budget: "each" }, 8, makeRng(4));
-	const total = list => list.reduce((sum, e) => sum + e.stats.defense + e.stats.draw + e.stats.attack, 0);
-	assertEqual(total(shared), 8, "shared：整队共吃 8 点");
-	assertEqual(total(each), 16, "each：每人各吃 8 点（历史行为，仍可用但会线性膨胀）");
-	assertEqual(shared.length, 2, "组合仍是 2 个敌人");
-	// 写了固定属性的成员不占队里的份额：队伍总点数仍等于关卡点数
+	const built = enemy.createStageEnemyConfigs(pair, 8, makeRng(4));
+	assertEqual(built.length, 2, "组合仍是 2 个敌人");
+	assertEqual(total(built[0]), 8, "敌人A 独立 8 点");
+	assertEqual(total(built[1]), 8, "敌人B 独立 8 点（不被敌人A 分走）");
+	assert(built.every(inBounds), "两人三项都在 0~10 内");
+	// 写了固定 stats 的成员照用配置值，不参与随机也不被覆盖
 	const mixed = {
 		id: "混合", type: "group",
 		players: [{ character: "角色A", stats: { defense: 5, draw: 5, attack: 0 } }, { character: "角色B" }, { character: "角色C" }],
 	};
-	assertEqual(total(enemy.createStageEnemyConfigs(mixed, 9, makeRng(4))), 5 + 5 + 9, "固定属性那人不扣别人的预算");
-	return "shared 8 / each 16 / 固定属性不占份额";
+	const many = enemy.createStageEnemyConfigs(mixed, 9, makeRng(4));
+	assertEqual(JSON.stringify(many[0].stats), JSON.stringify({ defense: 5, draw: 5, attack: 0 }), "固定属性原样保留");
+	assertEqual(total(many[1]), 9, "随机成员B 独立 9 点");
+	assertEqual(total(many[2]), 9, "随机成员C 独立 9 点");
+	// 第 30 关边界：单人可分到 10/10/10（单项上限 10、总上限 30）
+	const cap = enemy.createStageEnemyConfigs({ id: "满级", type: "single", players: [{ character: "角色A" }] }, 30, makeRng(5));
+	assertEqual(JSON.stringify(cap[0].stats), JSON.stringify({ defense: 10, draw: 10, attack: 10 }), "第 30 关单人恰好 10/10/10");
+	return "双人 8+8 / 固定属性原样保留 / 30 关 10/10/10";
 });
 
 check("challengeStages 存档：白名单清洗、位置稳定、cloneRun 读档不重掷", () => {
@@ -926,11 +929,12 @@ check("组合 → 阵容：双人组合按 players 顺序生成，左右顺序�
 		assertEqual(enemies.length, 2, "双人组合生成 2 个敌人");
 		assertEqual(enemies[0].characterId, left, "左角色在前（顺序 1）");
 		assertEqual(enemies[1].characterId, right, "右角色在后（顺序 2）");
-		assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
-			+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack, 15,
-			"shared 预算：两人总点数等于关卡数（不随人数膨胀）");
+		assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack, 15,
+			"左角色独立吃满关卡数 15 点");
+		assertEqual(enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack, 15,
+			"右角色独立吃满关卡数 15 点（不被队友分走）");
 	}
-	return `${combo.id}：顺序固定 + shared 预算（10 个种子全部一致）`;
+	return `${combo.id}：顺序固定 + 每人独立 15 点（10 个种子全部一致）`;
 });
 
 check("第三人：来自扩展池、不与固定两人重复、三个位置都可能出现且左右顺序不变", () => {
@@ -953,10 +957,10 @@ check("第三人：来自扩展池、不与固定两人重复、三个位置都�
 		assert(leftIndex < rightIndex, "左角色永远在右角色之前");
 		assert([0, 1, 2].includes(built.position), "插入位只能是三个空位之一");
 		assertEqual(thirdIndex, built.position, "position 与实际插入位一致");
-		assertEqual(enemies[0].stats.defense + enemies[0].stats.draw + enemies[0].stats.attack
-			+ enemies[1].stats.defense + enemies[1].stats.draw + enemies[1].stats.attack
-			+ enemies[2].stats.defense + enemies[2].stats.draw + enemies[2].stats.attack, 25,
-			"3 人 shared 预算：队伍总点数等于关卡数");
+		for (const entry of enemies) {
+			assertEqual(entry.stats.defense + entry.stats.draw + entry.stats.attack, 25,
+				`${entry.characterId} 独立吃满关卡数 25 点`);
+		}
 	}
 	assert(seenPositions.size === 3, `三个位置都应出现过，实际 ${seenPositions.size} 种`);
 	// 组合里两个同名角色（夏侯徽×夏侯徽的极端情况）：第三人仍不得是夏侯徽
@@ -967,6 +971,40 @@ check("第三人：来自扩展池、不与固定两人重复、三个位置都�
 	const empty = enemy.createChallengeComboConfigs(combo, 21, makeRng(3), { pool: [left, right] });
 	assert(!empty.ok, "没有合法第三人时明确返回失败");
 	return `60 个种子覆盖 3 个插入位；第三人 ${built.third}（镜像组合）`;
+});
+
+check("闯关 1~30 关验收：每个未指定属性的敌人独立吃满关卡数（单人/双人/三人全覆盖）", () => {
+	const assertMember = (entry, level, tag) => {
+		const total = entry.stats.defense + entry.stats.draw + entry.stats.attack;
+		assertEqual(total, level, `${tag} ${entry.characterId}：总点数恰为 ${level}`);
+		assert(entry.stats.defense >= 0 && entry.stats.defense <= 10
+			&& entry.stats.draw >= 0 && entry.stats.draw <= 10
+			&& entry.stats.attack >= 0 && entry.stats.attack <= 10, `${tag} ${entry.characterId}：三项都在 0~10 内`);
+	};
+	// 1~10 关：单人配置池逐关生成
+	const stages = stagesData.drawChallengeStageIds(makeRng(41), () => true);
+	for (let level = 1; level <= cfg.CHALLENGE_STAGE_LEVELS; level++) {
+		const config = stagesData.getChallengeStageConfig(stages[level - 1]);
+		const enemies = enemy.createStageEnemyConfigs(config, level, makeRng(level));
+		assertEqual(enemies.length, 1, `第 ${level} 关 1 个敌人`);
+		assertMember(enemies[0], level, `第 ${level} 关`);
+	}
+	// 11~30 关：双人组合（11~20 直接生成；21~30 走 createChallengeComboConfigs 加第三人）
+	const combos = combosData.drawChallengeComboIds(makeRng(42), () => true);
+	const pool = ["迪迦", "佐菲", "赛文"];
+	for (let i = 0; i < cfg.CHALLENGE_COMBO_LEVELS; i++) {
+		const combo = combosData.getChallengeComboConfig(combos[i]);
+		const levelPair = cfg.CHALLENGE_STAGE_LEVELS + 1 + i;
+		const pairEnemies = enemy.createStageEnemyConfigs(combo, levelPair, makeRng(levelPair));
+		assertEqual(pairEnemies.length, 2, `第 ${levelPair} 关 2 个敌人`);
+		pairEnemies.forEach(entry => assertMember(entry, levelPair, `第 ${levelPair} 关`));
+		const levelTrio = cfg.CHALLENGE_STAGE_LEVELS + cfg.CHALLENGE_COMBO_LEVELS + 1 + i;
+		const built = enemy.createChallengeComboConfigs(combo, levelTrio, makeRng(levelTrio), { pool });
+		assert(built.ok, `第 ${levelTrio} 关应能生成第三人`);
+		assertEqual(built.enemies.length, 3, `第 ${levelTrio} 关 3 个敌人`);
+		built.enemies.forEach(entry => assertMember(entry, levelTrio, `第 ${levelTrio} 关`));
+	}
+	return "第 1~10 关单人各吃 N 点；第 11~20 关每人 N 点；第 21~30 关三人各吃 N 点";
 });
 
 check("challengeComboStages 存档（v10）：白名单清洗、位置稳定、cloneRun 读档不重掷、旧档补空", () => {
@@ -1358,7 +1396,7 @@ check("候选池：并上全体武将技能，禁用武将的技能与其衍生�
 		delete lib.config.versus_banned;
 	}
 	assert(ids.has("pool_a"), "未禁用武将的技能应进池");
-	assert(ids.has("pool_shared"), "还有别的未禁用武将拥有时不该被排除");
+	assert(!ids.has("pool_shared"), "禁将武将也拥有的共享技能一并下架（禁将技能硬否决，不得进池）");
 	assert(!ids.has("pool_banned"), "禁用武将的技能不该进池");
 	assert(!ids.has("pool_derived"), "禁用武将技能的衍生技不该进池");
 	assert(!ids.has("pool_boss"), "玩家选不到的 Boss 技能不该进池");
@@ -1790,10 +1828,10 @@ check("事件触发：概率判定用注入 rng，闯关绝不触发，已有事
 });
 
 check("事件构建：倍率按胜利奖励换算、outcomes 当场预掷、读档恢复不重掷", () => {
-	// 第 1 关胜利奖励 50 金币 / 20 经验：修复机器人 = -50 金币 +20 经验
+	// 第 1 关胜利奖励 50 金币 / 20 经验：修复机器人 = -50 金币 +100 经验（5 倍胜利经验）
 	const built = eventManager.buildPendingEvent("lost_robot", 1, makeRng(1), NOW);
 	assertEqual(built.choices.length, 3, "选项数");
-	assertEqual(JSON.stringify(built.choices[0].reward), JSON.stringify({ gold: -50, exp: 20 }), "倍率换算成固定值");
+	assertEqual(JSON.stringify(built.choices[0].reward), JSON.stringify({ gold: -50, exp: 100 }), "倍率换算成固定值");
 	assertEqual(JSON.stringify(built.choices[1].reward), JSON.stringify({ curio: "random" }), "随机奇物保持标记");
 	assertEqual(JSON.stringify(built.choices[2].reward), JSON.stringify({}), "离开无奖励");
 	// 消耗类选项把价钱写进文案（玩家点之前就知道要花多少）
@@ -1810,9 +1848,9 @@ check("事件构建：倍率按胜利奖励换算、outcomes 当场预掷、读�
 	// 集齐奇物时该选项不算「货币不足」（跳过分支不花钱，不能被置灰）
 	const brokeFull = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 }, curios: curiosData.curioIds.slice() };
 	assert(eventManager.isChoiceAffordable(brokeFull, merchant.choices[0].reward), "集齐奇物 + 金币不足也不置灰");
-	// 第 100 关：金币 floor(500)、经验 floor(200) → 倍率跟着放大
+	// 第 100 关：金币 floor(500)、经验 floor(200×5)=1000 → 倍率跟着放大
 	const late = eventManager.buildPendingEvent("lost_robot", 100, makeRng(1), NOW);
-	assertEqual(JSON.stringify(late.choices[0].reward), JSON.stringify({ gold: -500, exp: 200 }), "高关卡按当关奖励缩放");
+	assertEqual(JSON.stringify(late.choices[0].reward), JSON.stringify({ gold: -500, exp: 1000 }), "高关卡按当关奖励缩放");
 	// 幸运硬币：rng=0 预掷第一段（+1 倍），rng→1 预掷第二段（-0.4 倍）
 	const heads = eventManager.buildPendingEvent("lucky_coin", 1, () => 0, NOW);
 	assertEqual(JSON.stringify(heads.choices[0].reward), JSON.stringify({ gold: 50 }), "rng=0 → +50");
@@ -2323,14 +2361,15 @@ check("深渊词缀池配置：池子项数、id 唯一、与技能定义和翻�
 	return `${ids.length} 个词缀 + 3 个载体，定义/文案/翻译三处对齐`;
 });
 
-check("深渊词缀数量：31~99 层按 stage%，100 层起 floor(stage/100) 再按余数%追加一个", () => {
+check("深渊词缀数量：1~99 层按 stage%，100 层起 floor(stage/100) 再按余数%追加一个", () => {
 	const always0 = () => 0;
 	const alwaysAlmost1 = () => 0.999999;
-	// 起始层之前恒为 0
-	for (const stage of [1, 20, 30]) {
-		assertEqual(abyss.rollAbyssAffixCount(stage, always0), 0, `${stage} 层不该有词缀`);
-	}
-	// 31~99：rng 落在 stage% 之内才给 1 个
+	// 第 1 层起就参与随机：stage% 概率给 1 个
+	assertEqual(abyss.rollAbyssAffixCount(1, always0), 1, "1 层 rng=0 命中 1%");
+	assertEqual(abyss.rollAbyssAffixCount(1, alwaysAlmost1), 0, "1 层 99.99% 未过 1% 线");
+	assertEqual(abyss.rollAbyssAffixCount(20, () => 0.19), 1, "20 层 19% 命中");
+	assertEqual(abyss.rollAbyssAffixCount(20, () => 0.2), 0, "20 层 20% 边界不命中");
+	// 1~99：rng 落在 stage% 之内才给 1 个
 	assertEqual(abyss.rollAbyssAffixCount(31, () => 0.3), 1, "31 层 30% 命中");
 	assertEqual(abyss.rollAbyssAffixCount(31, () => 0.31), 0, "31 层 31% 边界不命中（严格小于）");
 	assertEqual(abyss.rollAbyssAffixCount(50, () => 0.49), 1, "50 层 49% 命中");
@@ -2368,9 +2407,9 @@ check("深渊词缀随机：不放回不重复、数量受池子约束、同一�
 	return `234 层 ${list.length} 个 / 超高层 ${huge.length} 个`;
 });
 
-check("深渊只作用于无尽：闯关阵容一个词缀都不带，无尽高层每个敌人各自掷", () => {
+check("深渊从第 1 层起作用于无尽：闯关阵容一个词缀都不带，无尽每个敌人各自掷", () => {
 	assert(!abyss.isAbyssStage(999, cfg.RUN_MODE.challenge), "闯关模式再高层也不该深渊化");
-	assert(!abyss.isAbyssStage(30, cfg.RUN_MODE.endless), "无尽 30 层还没到起始层");
+	assert(abyss.isAbyssStage(1, cfg.RUN_MODE.endless), "无尽第 1 层就应开始深渊化");
 	assert(abyss.isAbyssStage(abyssConfig.ABYSS_START_LEVEL, cfg.RUN_MODE.endless), "无尽起始层应开始深渊化");
 	// 把角色塞进桩里的 lib.character，两个敌方池才真的有东西可挑（空池会让断言假绿）
 	const extensionIds = [...enemy.getExtensionCharacterIds()];
@@ -2387,7 +2426,7 @@ check("深渊只作用于无尽：闯关阵容一个词缀都不带，无尽高�
 			assertEqual(entry.abyss.length, 0, `闯关 ${level} 层不该有词缀`);
 		}
 	}
-	// rng 恒为 0：31~99 层必中，100 层起的余数也必中，所以每个敌人都该拿满必定值 + 1
+	// rng 恒为 0：1~99 层必中，100 层起的余数也必中，所以每个敌人都该拿满必定值 + 1
 	const late = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0);
 	assert(late.length > 0, "无尽高层应能组出阵容");
 	for (const entry of late) {
@@ -2397,11 +2436,13 @@ check("深渊只作用于无尽：闯关阵容一个词缀都不带，无尽高�
 			assert(abyss.isAbyssAffixId(id), `${id} 应在词缀池里`);
 		}
 	}
-	const early = enemy.createEnemyConfigs(abyssConfig.ABYSS_START_LEVEL - 1, cfg.RUN_MODE.endless, () => 0);
-	for (const entry of early) {
-		assertEqual(entry.abyss.length, 0, "起始层之前的无尽阵容不带词缀");
+	// 第 1 层也参与随机：rng 恒为 0 时 1% 概率必中，首个敌人应带 1 个词缀
+	const firstLevel = enemy.createEnemyConfigs(1, cfg.RUN_MODE.endless, () => 0);
+	assert(firstLevel.length > 0, "无尽第 1 层应能组出阵容");
+	for (const entry of firstLevel) {
+		assertEqual(entry.abyss.length, 1, "第 1 层（rng=0 必中 1%）每个敌人 1 个词缀");
 	}
-	return `闯关 3 档全空 / 无尽 234 层每人 ${late[0].abyss.length} 个`;
+	return `闯关 3 档全空 / 无尽 234 层每人 ${late[0].abyss.length} 个 / 第 1 层每人 ${firstLevel[0].abyss.length} 个`;
 });
 
 check("深渊存档往返：脏词缀被清洗、下架的被剔除、重载原样读回而不重掷", () => {
@@ -2672,10 +2713,11 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	assertEqual(curioManager.getNextCurioQuality("broken_watch", {}), null, "史诗没有下一档");
 	assert(curioManager.isCurioMaxQuality("broken_watch", {}), "破损怀表已是链尾");
 	assert(!curioManager.isCurioMaxQuality("cursed_coin", {}), "负面奇物照样升得动");
-	// 费用 = 5 × round(50×√关卡)，按「升级时」的关卡现算
-	assertEqual(curioManager.getCurioUpgradePrice({ level: 31 }, "energy_core"), 1390, "31 层：基准 278 → 1390");
-	assertEqual(curioManager.getCurioUpgradePrice({ level: 100 }, "energy_core"), 2500, "100 层：基准 500 → 2500");
-	assertEqual(curioManager.getCurioUpgradePrice({ level: 234 }, "energy_core"), 3825, "234 层：基准 765 → 3825");
+	// 费用 = 5 × 本层胜利经验（floor(20×√关卡)），按「升级时」的关卡现算
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 31 }, "energy_core"), 555, "31 层：胜利经验 111 → 555");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 100 }, "energy_core"), 1000, "100 层：胜利经验 200 → 1000");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 234 }, "energy_core"), 1525, "234 层：胜利经验 305 → 1525");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 1 }, "energy_core"), 100, "第 1 层：胜利经验 20 → 100（5 倍胜利经验）");
 	assertEqual(
 		curioManager.getCurioUpgradePrice({ level: 50 }, "cursed_coin"),
 		curioManager.getCurioUpgradePrice({ level: 50 }, "energy_core"),
@@ -2686,7 +2728,7 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	const run = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 100, exp: 5000 }, curios: ["energy_core"] };
 	const first = curioManager.upgradeCurio(run, "energy_core");
 	assert(first.ok, first.error ?? "升级应成功");
-	assertEqual(first.run.currency.exp, 5000 - 1390, "扣掉当层费用");
+	assertEqual(first.run.currency.exp, 5000 - 555, "扣掉当层费用");
 	assertEqual(first.run.currency.gold, 100, "金币不动");
 	assertEqual(first.run.curioQuality.energy_core, "rare", "品质写进 curioQuality");
 	assertEqual(run.currency.exp, 5000, "原 run 的经验没被扣");
@@ -2698,7 +2740,7 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	assert(!top.ok && top.error.includes("最高"), `史诗不能再升：${top.error}`);
 	assertEqual(top.run.currency.exp, second.run.currency.exp, "被拒时不扣经验");
 	// 负面奇物一路净化到史诗
-	let coin = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1390 * 3 }, curios: ["cursed_coin"] };
+	let coin = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 555 * 3 }, curios: ["cursed_coin"] };
 	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
 	assertEqual(coin.curioQuality.cursed_coin, "common", "负面 → 普通");
 	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
@@ -2706,14 +2748,14 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
 	assertEqual(coin.curioQuality.cursed_coin, "epic", "稀有 → 史诗");
 	// 幸运石：稀有 → 史诗
-	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1390 }, curios: ["lucky_stone"] };
+	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 555 }, curios: ["lucky_stone"] };
 	assertEqual(curioManager.upgradeCurio(stone, "lucky_stone").run.curioQuality.lucky_stone, "epic", "幸运石 稀有 → 史诗");
 	// 经验差一点都不行
-	const broke = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1389 }, curios: ["energy_core"] };
+	const broke = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 554 }, curios: ["energy_core"] };
 	const denied = curioManager.upgradeCurio(broke, "energy_core");
 	assert(!denied.ok && denied.error.includes("经验不足"), `差 1 点也要拒：${denied.error}`);
 	assertEqual(denied.run, broke, "失败时原样返回传入的 run");
-	assertEqual(denied.run.currency.exp, 1389, "经验不变");
+	assertEqual(denied.run.currency.exp, 554, "经验不变");
 	assertEqual(JSON.stringify(denied.run.curioQuality), "{}", "品质不变");
 	// 未拥有 / 已下架
 	const notOwned = curioManager.upgradeCurio({ ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 9999 }, curios: [] }, "energy_core");
@@ -3174,7 +3216,7 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("broken_crown", "rare")[0], "你杀死一名角色后，你增加 1 点体力上限并回复 1 点体力，然后摸牌至体力上限", "稀有档补摸牌至上限");
 	assertEqual(lines("broken_crown", "epic")[0], "你杀死一名角色后，你增加 1 点体力上限并回复体力至上限，然后摸体力上限张牌", "史诗档回满 + 摸上限张");
 	assertEqual(lines("broken_crown").length, 1, "破碎王冠的三个配套键不得单独出行");
-	assertEqual(lines("gluttonous_box")[0], "每次替换技能时获得本层基准经验的 5 倍", "贪食魔盒");
+	assertEqual(lines("gluttonous_box")[0], "每次替换技能时获得本层胜利经验的 5 倍", "贪食魔盒");
 	const hungry = lines("hungry_box").join(" / ");
 	assert(hungry.includes("金币获取 -15%") && hungry.includes("经验获取 +5%"), `饥饿之匣负面档：${hungry}`);
 	assertEqual(lines("hungry_box").length, 2, "饥饿之匣两行（一扣一加）");
@@ -3664,6 +3706,177 @@ check("新增四事件：倍率按刚打赢那关的基准换算成固定值，�
 	const late = eventManager.buildPendingEvent("abandoned_supply", 9, () => 0, NOW, { curios: [] });
 	assertEqual(late.choices[0].reward.gold, rewardsData.getEndlessReward(9, ["gold"]).gold, "基准按「刚打赢那一关」现算");
 	return `第 ${BASE_LEVEL} 关基准 ${BASE_GOLD} 金币 / ${BASE_EXP} 经验；四事件共 ${supply.choices.length + veteran.choices.length + vein.choices.length + merchant.choices.length} 个选项`;
+});
+
+check("bossRun 存档往返：旧档缺字段按普通局补齐，判定结果读档不重掷", () => {
+	const normal = state.normalizeRun({ ...freshRun() });
+	assertEqual(normal.bossRun, false, "旧档缺字段按普通局（false）");
+	const boss = state.normalizeRun({ ...freshRun(), bossRun: true });
+	assertEqual(state.normalizeRun({ ...boss }).bossRun, true, "读档原样保留，绝不重新随机");
+	assertEqual(state.cloneRun(boss).bossRun, true, "cloneRun 也不丢");
+	// v10 旧档迁移：只补默认值，不报错
+	const migrated = state.migrateSlots([{ ...freshRun(), version: 10 }]);
+	assert(migrated.slots[0] !== null, "v10 旧档照常读入");
+	assertEqual(migrated.slots[0].bossRun, false, "v10 旧档迁移后按普通局");
+	return "缺字段补 false / true 原样往返 / v10 迁移";
+});
+
+check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的全部技能、自带一个深渊强化", () => {
+	Object.assign(lib.character, {
+		测试甲: [4, "male", "ao", ["donor_a1", "donor_a2"], 1],
+		测试乙: [4, "male", "ao", ["donor_b1", "donor_bad"], 1],
+		测试丙: [4, "male", "ao", ["donor_c1"], 1],
+		本体测试将: [4, "male", "qun", [], 1],
+	});
+	Object.assign(lib.skill, {
+		donor_a1: {}, donor_a2: {}, donor_b1: {}, donor_c1: {},
+		donor_bad: { zhuSkill: true },
+	});
+	try {
+		// rng=0 恒取池首：用相对断言对前序用例残留的 lib.character 数据免疫
+		const challengePool = enemy.getChallengeEnemyPool();
+		assert(challengePool.length >= 1, "闯关池应有可用角色");
+		const enemies = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0);
+		assertEqual(enemies.length, 1, "Boss 战只有 1 名敌人");
+		const boss = enemies[0];
+		assertEqual(boss.boss, true, "boss 标记随阵容落盘");
+		assertEqual(boss.characterId, challengePool[0], "Boss 从当前模式敌方池抽取（闯关 = 扩展角色池）");
+		// 技能来源是「另外两个不同角色」：来源角色可以是禁将（规格不限制），但技能要过兼容性校验
+		assert(boss.skills.length >= 2, `至少复制到两个来源角色的技能：${boss.skills.join(",")}`);
+		assert(!boss.skills.includes("donor_bad"), "主公技等不兼容技能不得复制");
+		assert(!boss.skills.includes("donor_b1") || boss.characterId !== "测试乙", "不能复制 Boss 自己的技能");
+		// 深渊：正常计算（闯关恒为 0）之外固定追加 1 个
+		assertEqual(boss.abyss.length, 1, "闯关 Boss 也固定自带 1 个深渊强化");
+		assert(abyss.isAbyssAffixId(boss.abyss[0]), "自带的强化在词缀池里");
+		// 无尽 234 层（rng=0 必中）：正常 3 个 + 自带 1 个 = 4 个，互不重复
+		const endlessPool = enemy.getEndlessEnemyPool();
+		assert(endlessPool.length >= 1, "无尽池应有可用角色");
+		const late = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0);
+		assertEqual(late[0].characterId, endlessPool[0], "无尽 Boss 来自本体池口径");
+		assertEqual(late[0].abyss.length, 4, "234 层 Boss：正常 3 个 + 自带 1 个");
+		assertEqual(new Set(late[0].abyss).size, 4, "正常随机与自带强化互不重复（不放回追加）");
+		// 禁将绝不入选担当 Boss：把闯关池里除池首之外的角色全部禁掉，Boss 只能是池首
+		lib.config.all = { mode: ["identity"] };
+		lib.config.identity_banned = challengePool.slice(1);
+		const forced = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0);
+		assertEqual(forced[0].characterId, challengePool[0], "被禁用的角色不能当 Boss");
+		assertEqual(JSON.stringify(forced[0].skills), JSON.stringify(["donor_b1", "donor_c1"]), "技能来源不受禁将限制（规格明确不加这条）");
+		// 全员禁用：返回空阵容交给上层提示，而不是报错
+		lib.config.identity_banned = challengePool;
+		assertEqual(enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0).length, 0, "可用池为空返回空阵容");
+		delete lib.config.identity_banned;
+		delete lib.config.all;
+		// 阵容可原样落盘读回（boss 标记与技能列表都是白名单字段）
+		const stored = state.normalizeRun({ ...freshRun(), bossRun: true, currentBattle: { status: "battle", enemies: forced } });
+		assertEqual(stored.currentBattle.enemies[0].boss, true, "boss 标记读档保留");
+		assertEqual(JSON.stringify(stored.currentBattle.enemies[0].skills), JSON.stringify(["donor_b1", "donor_c1"]), "复制来的技能读档保留");
+		return "单敌 / 禁将拦 Boss / 两来源全技能 / 自带 1 强化 / 空池兜底";
+	} finally {
+		for (const id of ["测试甲", "测试乙", "测试丙", "本体测试将"]) {
+			delete lib.character[id];
+		}
+		for (const id of ["donor_a1", "donor_a2", "donor_b1", "donor_c1", "donor_bad"]) {
+			delete lib.skill[id];
+		}
+		delete lib.config.identity_banned;
+		delete lib.config.all;
+	}
+});
+
+check("禁将复查：单条技能属于当前禁将角色（含衍生技、含共享）一律拦截", () => {
+	Object.assign(lib.character, {
+		复查甲: [4, "male", "ao", ["bancheck_shared"], 1],
+		复查乙: [4, "male", "ao", ["bancheck_owned"], 1],
+		复查丙: [4, "male", "ao", ["bancheck_derived"], 1],
+	});
+	lib.skill.bancheck_shared = {};
+	lib.skill.bancheck_owned = {};
+	lib.skill.bancheck_derived = { derivation: ["bancheck_child"] };
+	try {
+		assertEqual(skillPool.isSkillBlockedByBan("bancheck_owned"), false, "没人禁用时放行");
+		lib.config.all = { mode: ["identity"] };
+		lib.config.identity_banned = ["复查甲", "复查丙"];
+		assertEqual(skillPool.isSkillBlockedByBan("bancheck_shared"), true, "禁将角色的共享技能也要拦（哪怕别人也拥有）");
+		assertEqual(skillPool.isSkillBlockedByBan("bancheck_derived"), true, "禁将技能本身被拦");
+		assertEqual(skillPool.isSkillBlockedByBan("bancheck_child"), true, "禁将技能的衍生技被拦");
+		assertEqual(skillPool.isSkillBlockedByBan("bancheck_owned"), false, "未禁将角色的技能放行");
+		assertEqual(skillPool.isSkillBlockedByBan("不存在的技能"), false, "未知技能不误报");
+		assertEqual(skillPool.isSkillBlockedByBan(null), false, "非法入参安全返回");
+		return "共享/本体/衍生/放行/未知 五态";
+	} finally {
+		for (const id of ["复查甲", "复查乙", "复查丙"]) {
+			delete lib.character[id];
+		}
+		for (const id of ["bancheck_shared", "bancheck_owned", "bancheck_derived", "bancheck_child"]) {
+			delete lib.skill[id];
+		}
+		delete lib.config.identity_banned;
+		delete lib.config.all;
+	}
+});
+
+check("Boss 战胜利：奖励 = 20 倍胜利金币/经验基准（不吃奇物加成），奇物商店强制刷新", () => {
+	const rng = () => 0.999;
+	// rng 钉在 0.999：普通局必不刷奇物商店（0.999 ≥ 0.2），Boss 局必须刷出——证明是强制而非概率
+	const run = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), bossRun: true, level: 4 });
+	const base = rewardsData.getEndlessReward(4, ["gold", "exp"]);
+	const bossWin = reward.settleVictory(run, NOW, rng);
+	assertEqual(bossWin.gained.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "金币 = 20 倍本关胜利金币");
+	assertEqual(bossWin.gained.exp, base.exp * cfg.BOSS_REWARD_MULTIPLIER, "经验 = 20 倍本关胜利经验");
+	assert(bossWin.run.curioOffers.length > 0, "奇物商店强制刷新出一批");
+	assertEqual(bossWin.run.level, run.level + 1, "关卡照常推进");
+	assertEqual(bossWin.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "免费刷新次数照常恢复");
+	// 带金币/经验加成的奇物也不叠加： LuckyStone(+10% 经验) / 诅咒金币(±金币) 对 Boss 奖励无效
+	const boosted = state.normalizeRun({ ...run, curios: ["lucky_stone", "cursed_coin"] });
+	const boostedWin = reward.settleVictory(boosted, NOW, rng);
+	assertEqual(boostedWin.gained.gold, bossWin.gained.gold, "金币加成不叠到 Boss 奖励上");
+	assertEqual(boostedWin.gained.exp, bossWin.gained.exp, "经验加成不叠到 Boss 奖励上");
+	// 对照：普通局同 rng 下 1 倍基准、商店不刷
+	const normalWin = reward.settleVictory(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 4, bossRun: false }), NOW, rng);
+	assertEqual(normalWin.gained.gold, base.gold, "普通局保持 1 倍基准");
+	assertEqual(normalWin.gained.exp, base.exp, "普通局经验不加倍");
+	assertEqual(normalWin.run.curioOffers.length, 0, "普通局 rng=0.999 不刷奇物商店");
+	// 收藏家的橱窗（史诗档）锁着旧货：Boss 战照样强制刷新替换
+	const locked = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		bossRun: true,
+		level: 4,
+		curios: ["collector_showcase"],
+		curioQuality: { collector_showcase: "epic" },
+		curioShopLocked: true,
+		curioOffers: [{ id: "energy_core", price: 100 }],
+	});
+	const lockedWin = reward.settleVictory(locked, NOW, rng);
+	assert(!lockedWin.run.curioOffers.some(offer => offer.id === "energy_core"), "锁着的旧货被强制刷新替换");
+	assert(lockedWin.run.curioOffers.length > 0, "强制刷新后仍有新货");
+	return `第 4 关 Boss ${base.gold * 20}/${base.exp * 20}，强制刷新与锁覆盖各验一次`;
+});
+
+check("Boss 战强制惩罚：随机失去 1 个购买技能与 1 件奇物，空列表安全跳过", () => {
+	const run = {
+		...freshRun(cfg.RUN_MODE.endless),
+		skills: [SKILL_A, SKILL_B, SKILL_C],
+		curios: ["energy_core", "cursed_coin"],
+		curioQuality: { energy_core: "rare" },
+		collection: { events: [], curios: ["energy_core", "cursed_coin"] },
+	};
+	const lostSkill = penalty.loseRandomSkill(run, () => 0, NOW);
+	assertEqual(lostSkill.removed, SKILL_A, "rng=0 丢第一个");
+	assertEqual(JSON.stringify(lostSkill.run.skills), JSON.stringify([SKILL_B, SKILL_C]), "其余技能保留");
+	const lostCurio = penalty.loseRandomCurio(lostSkill.run, () => 0.99, NOW);
+	assertEqual(lostCurio.removed, "cursed_coin", "rng=0.99 丢第二件");
+	assertEqual(JSON.stringify(lostCurio.run.curios), JSON.stringify(["energy_core"]), "其余奇物保留");
+	assertEqual(lostCurio.run.curioQuality.energy_core, "rare", "没丢的奇物品质保留");
+	assertEqual(lostCurio.run.curioQuality.cursed_coin, undefined, "被丢奇物的品质条目一并清掉");
+	assertEqual(JSON.stringify(lostCurio.run.collection.curios), JSON.stringify(["energy_core", "cursed_coin"]), "图鉴「曾经拥有过」不受影响");
+	// 空列表安全：ok:false 原样返回，绝不报错、绝不动别的数据
+	const noSkills = penalty.loseRandomSkill({ ...freshRun(), skills: [] }, () => 0, NOW);
+	assert(!noSkills.ok && noSkills.run.skills.length === 0, "没有购买技能时不报错");
+	const noCurios = penalty.loseRandomCurio({ ...freshRun(), curios: [] }, () => 0, NOW);
+	assert(!noCurios.ok && noCurios.run.curios.length === 0, "没有奇物时不报错");
+	// 原 run 一个字节都不动
+	assertEqual(JSON.stringify(run.skills), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "传入 run 不被修改");
+	return "技能/奇物各丢一件 + 两次空列表兜底";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

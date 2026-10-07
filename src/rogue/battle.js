@@ -194,9 +194,15 @@ function applyCurioEffects(player, curioIds, qualityMap) {
  * 敌人自身的 Roguelike 强化：属性等级复用玩家的同一张效果表（data/stats.js），
  * 旧档迁移来的阵容可能还带 maxHp/hp 覆盖与额外技能，一并作用在该 Player 上；
  * 深渊词缀（abyss）按存档里已定死的 id 列表原样挂上，绝不在此处重掷。
+ * Boss 战（entry.boss）的体力在这里翻倍：只乘**角色自身的基础体力**（init 刚给出的那一份），
+ * 且只在应用属性强化之前做一次——属性/词条给的体力修正在其上正常累加，绝不重复乘 2。
  * 绝不写 lib.character / 全局技能。
  */
 function applyEnemyModifiers(player, entry) {
+	if (entry.boss === true) {
+		player.maxHp *= 2;
+		player.hp = Math.min(player.hp * 2, player.maxHp);
+	}
 	const effects = sumStatEffects(entry.stats);
 	// rogue_stat 只在四项战斗键非零时才挂（hasStat），但防御给的护甲/体力上限不走那四个键——
 	// 只看它们的话，「只有防御」的敌人就没有「强化」徽记，属性面板也就点不开了。

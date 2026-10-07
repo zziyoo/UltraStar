@@ -12,8 +12,8 @@
 /** 词缀总开关：false 时无尽任何层数都不再附加深渊强化 */
 export const ABYSS_ENABLED = true;
 
-/** 起算层：第 31 层起每个敌人独立判定；低于这一层（含闯关模式）永远不附加 */
-export const ABYSS_START_LEVEL = 31;
+/** 起算层：从第 1 层起每个敌人独立判定（深渊强化整局可随机）；闯关模式的常规随机仍恒为空，只有 Boss 战的固定追加不受此限 */
+export const ABYSS_START_LEVEL = 1;
 
 /**
  * 满层：层数达到它之后改为「必定 floor(stage / 满层) 个」，

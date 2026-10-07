@@ -70,8 +70,9 @@ export const events = {
 		image: "extension/奥特之星/assets/events/lost_robot.png",
 		choices: [
 			{
+				// 花 1 倍胜利金币修好它，换 5 倍胜利经验（构建期按本次胜利奖励换算成固定值）
 				text: "修复机器人",
-				reward: { goldByWin: -1, expByWin: 1 },
+				reward: { goldByWin: -1, expByWin: 5 },
 			},
 			{
 				text: "拆卸零件",

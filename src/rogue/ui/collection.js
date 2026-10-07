@@ -103,12 +103,12 @@ function actionBrief(action) {
 				return null;
 			}
 			const affix = RIFT_EXTRA_AFFIXES > 0 ? `，每名敌人自带 ${RIFT_EXTRA_AFFIXES} 个深渊强化` : "";
-			return `开一场 ${tier.enemies} 名敌人的裂隙战（不算层数），胜利得本层基准 ${tier.multiplier} 倍金币与经验${affix}`;
+			return `开一场 ${tier.enemies} 名敌人的裂隙战（不算层数），胜利得 ${tier.multiplier} 倍胜利金币与胜利经验${affix}`;
 		}
 		case "merchant":
 			return `只卖一件奇物，标价 = 奇物基准价 ×${MERCHANT_PRICE_MULTIPLIER}；买下已拥有的那件会直接升一级品质`;
 		case "curioForge":
-			return `选一件奇物升一级品质，融合费 = 本层基准经验 ×${FORGE_EXP_MULTIPLIER}`;
+			return `选一件奇物升一级品质，融合费 = 本层胜利经验 ×${FORGE_EXP_MULTIPLIER}`;
 		case "abyssDebt":
 			return SPRING_DEBT_AFFIXES > 0 ? `下一场战斗每名敌人追加 ${SPRING_DEBT_AFFIXES} 个深渊强化` : null;
 		case "skillForge":

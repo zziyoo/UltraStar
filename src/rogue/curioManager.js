@@ -187,8 +187,8 @@ const EFFECT_TEXT = {
 	extraCurioShopChance: value => `每次战斗胜利后有 ${Math.round(Math.abs(value) * 100)}% 概率额外刷出一批奇物商店候选`,
 	// 与 goldRate 分开写：那条乘的是本关基础奖励，这条乘的是你手上已有的总额，两者会叠乘
 	goldOfHeld: value => `战斗结束后额外获得当前持有金币的 ${Math.round(Math.abs(value) * 100)}%`,
-	goldOnReplace: value => `每次替换技能时获得本层基准金币的 ${value} 倍`,
-	expOnReplace: value => `每次替换技能时获得本层基准经验的 ${value} 倍`,
+	goldOnReplace: value => `每次替换技能时获得本层胜利金币的 ${value} 倍`,
+	expOnReplace: value => `每次替换技能时获得本层胜利经验的 ${value} 倍`,
 	// 收藏家的橱窗：锁定是开关不是数值，合成一条——稀有档只锁技能商店，史诗档（lockCurioShop 在场）两店都能锁
 	lockSkillShop: (value, effects) => {
 		const both = (effects?.lockCurioShop ?? 0) > 0;
@@ -310,21 +310,23 @@ export function getMaxShopRefreshes() {
 }
 
 /**
- * 奇物品质升级价：5 × round(50×√升级时的关卡)。等级越高越贵，
- * 且永远按**当前升级时**的关卡现算，与当初买它花多少无关。
+ * 奇物品质升级价：CURIO_UPGRADE_PRICE_MULTIPLIER（5）× 本层胜利经验（floor(20×√当前关卡)），
+ * 即「5 倍胜利经验」。等级越高越贵，且永远按**当前升级时**的关卡现算，
+ * 与当初买它花多少无关、与奇物基准价（那是售价口径）也无关。
  */
 export function getCurioUpgradePrice(run, id) {
 	if (!getCurio(id)) {
 		return null;
 	}
-	return CURIO_UPGRADE_PRICE_MULTIPLIER * getCurioBasePrice(run?.level ?? 1);
+	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
+	return CURIO_UPGRADE_PRICE_MULTIPLIER * (getEndlessReward(level, ["exp"]).exp ?? 0);
 }
 
 /**
  * 能否升级：奇物存在、当前持有、还有下一档、经验够。UI 拿它决定按钮状态与价签，结算层再验一次。
  * 返回 { ok, error, cost, from, to }，任何失败都不带副作用。
  * 只有「经验不足」这一种失败会带上完整的 from/to/cost——UI 正需要照着它显示价签与下一档预览。
- * @param {number} [priceOverride] 覆盖升级价（奇物融合炉用事件里定死的那个数，不走商店的 5× 基准价）
+ * @param {number} [priceOverride] 覆盖升级价（奇物融合炉用事件里定死的那个数，不走商店的 5× 胜利经验）
  */
 export function checkCurioUpgrade(run, id, priceOverride = null) {
 	const fail = error => ({ ok: false, error, cost: null, from: null, to: null });
@@ -349,7 +351,7 @@ export function checkCurioUpgrade(run, id, priceOverride = null) {
 /**
  * 花经验把一件已拥有的奇物升一档。只改 currency.exp 与 curioQuality 两项，且绝不修改传入的 run。
  * 失败时原 run 原样返回，经验与品质都不动。
- * @param {number} [priceOverride] 升级价覆盖值；省略时按商店价（5× 当前关奇物基准价）
+ * @param {number} [priceOverride] 升级价覆盖值；省略时按商店价（5× 当前关的胜利经验）
  */
 export function upgradeCurio(run, id, priceOverride = null) {
 	const check = checkCurioUpgrade(run, id, priceOverride);
@@ -565,7 +567,7 @@ export function grantCurioById(run, curioId) {
 }
 
 /**
- * 遗忘之石「替换技能时」该发的金币 = 本层基准金币 × 效果值。
+ * 遗忘之石「替换技能时」该发的金币 = 本层胜利金币 × 效果值。
  * 关卡取 run.level，与商店给技能定价用的是同一个「当前关卡」口径（两处数字才对得上）。
  * 没有这块奇物（加成为 0）一律返回 0；调用方只在**真的发生了替换**（槽满让位）时才发这笔钱。
  */
@@ -580,7 +582,7 @@ export function getReplaceRewardGold(run) {
 }
 
 /**
- * 贪食魔盒「替换技能时」该发的经验 = 本层基准经验 × 效果值。
+ * 贪食魔盒「替换技能时」该发的经验 = 本层胜利经验 × 效果值。
  * 与 getReplaceRewardGold 逐字同一条口径：关卡取 run.level（商店定价、遗石折钱都按这个数），
  * 没有这块奇物返回 0；调用方同样只在**真的发生了替换**（槽满让位）时才发。
  */

@@ -85,6 +85,8 @@ function normalizeBattleEnemy(entry) {
 		// 开战前定死落盘，读档原样还原，中途退出再进来还是同一批强化。
 		abyss: normalizeAbyssIds(entry.abyss),
 		skills,
+		// Boss 战标记（v11）：建局时定死，读档原样还原。旧档缺字段按普通敌人处理（战斗层不翻倍体力）
+		boss: entry.boss === true,
 		maxHp: toInt(entry.maxHp, 0),
 		hp: Math.max(0, toInt(entry.hp, 0)),
 	};
@@ -430,6 +432,9 @@ export function normalizeRun(raw, options = {}) {
 		characterId: sanitizeString(raw.characterId),
 		level,
 		totalLevels,
+		// v11：本局是否为 Boss 战。建局时按 BOSS_RUN_RATE 一次性判定并落盘，
+		// 读档/重进/重新开战都只认这个字段，绝不重新随机；旧档缺字段按普通局（false）补齐
+		bossRun: raw.bossRun === true,
 		// v8：闯关前 10 关的敌方配置抽取结果（challenge 模式专用；由 enemy.ensureChallengeStages 生成，本层只清洗）
 		challengeStages: normalizeChallengeStages(raw.challengeStages),
 		// v10：闯关第 11~30 关的双人组合抽取结果（同上由 enemy.ensureChallengeComboStages 生成；旧档按空数组补齐）

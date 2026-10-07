@@ -58,9 +58,12 @@ export const COLLECTION_KEY = "rogueCollection";
  * 一次性从 data/challengeCombos.js 的组合池抽出 10 个并落盘，第 11~20 关按位使用，
  * 第 21~30 关复用同一结果再加扩展池随机第三人；旧档缺字段按空数组补齐，首次需要时补抽一次，
  * 之后绝不重掷）。
+ * v11 新增 bossRun（本局是否为 Boss 战：建局时按 BOSS_RUN_RATE 一次性判定并落盘，读档/重进绝不重掷，
+ * 旧档按普通局补齐），并让 currentBattle.enemies 的每一项可多一个 boss（该敌人按 Boss 战规则落地：
+ * 体力 ×2 等；旧档缺字段按普通敌人处理，不需要抬语义）。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 10;
+export const RUN_VERSION = 11;
 export const SLOT_COUNT = 6;
 
 /**
@@ -146,8 +149,8 @@ export const EVENT_TRIGGER_RATE = 0.33;
 export const CURIO_BASE_PRICE = 50;
 export const CURIO_PRICE_SPREAD = 0.25;
 /**
- * 奇物品质升级价：升级费用 = CURIO_UPGRADE_PRICE_MULTIPLIER × getCurioBasePrice(升级时的 run.level)。
- * 按「当前升级时」的关卡现算，与购买时的价格无关；等级越高越贵（31 层 1390、100 层 2500、234 层 3825）。
+ * 奇物品质升级价：升级费用 = CURIO_UPGRADE_PRICE_MULTIPLIER × 本层胜利经验（getEndlessReward exp）。
+ * 即「N 倍胜利经验」：按**当前升级时**的关卡现算，与购买时的价格无关，也与奇物基准价无关。
  */
 export const CURIO_UPGRADE_PRICE_MULTIPLIER = 5;
 /** 每批奇物候选的个数 */
@@ -177,8 +180,28 @@ export const RIFT_EXTRA_AFFIXES = 1;
 export const SPRING_DEBT_AFFIXES = 1;
 /** 流浪商人的售价 = 奇物基准价 ×该倍数，恒定不打 ±CURIO_PRICE_SPREAD 波动、也不乘品质倍率 */
 export const MERCHANT_PRICE_MULTIPLIER = 4;
-/** 奇物融合炉的融合费 = 本层基准经验 ×该倍数（品质仍只走一级，与商店升级同一条链） */
+/** 奇物融合炉的融合费 = 本层胜利经验 ×该倍数（品质仍只走一级，与商店升级同一条链） */
 export const FORGE_EXP_MULTIPLIER = 3;
+
+// ---------------------------------------------------------------- Boss 战
+// 以下参数作用于两种模式：建局时按概率把整局替换为 Boss 战（判定只做一次，随存档落盘）。
+
+/**
+ * Boss 战替换概率：新建一局时 Math.random() < BOSS_RUN_RATE 即本局为 Boss 战。
+ * 只在「本局正式进入第一场战斗之前」（建局那一刻）判定一次，随后写进 run.bossRun 落盘；
+ * 读档、重进、重新开战一律沿用存档里的结果，绝不重新随机。
+ */
+export const BOSS_RUN_RATE = 0.05;
+
+/**
+ * Boss 战胜利奖励：本关胜利金币/胜利经验基准（getEndlessReward / getChallengeReward）的倍数。
+ * 与深渊裂隙同一条「胜利加成不生效」的口径：这一份固定倍率奖励不再吃奇物的金币/经验加成，
+ * 也不要在结算入口外再乘一次，否则倍率会叠加错。
+ */
+export const BOSS_REWARD_MULTIPLIER = 20;
+
+/** Boss 自带的深渊强化个数：在当前关卡正常计算的强化之外额外追加（不放回、不占正常数量） */
+export const BOSS_EXTRA_AFFIXES = 1;
 
 /**
  * 闯关失败的损失规则。

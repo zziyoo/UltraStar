@@ -77,6 +77,51 @@ export function loseSkill(run, skillId, now) {
 	};
 }
 
+/**
+ * Boss 战胜利的强制惩罚之一：随机失去一个已购买技能。
+ * 只动 run.skills（肉鸽技能槽，本来就只装购买技能），绝不碰角色本体技能；
+ * 一个购买技能都没有时 ok:false 原样返回，不报错、不凑数。
+ * 被丢掉的技能不做任何「历史记录」：下次商店仍可再刷出来（当前持有状态过滤，见 shop.js）。
+ */
+export function loseRandomSkill(run, rng = Math.random, now = 0) {
+	const skills = Array.isArray(run?.skills) ? run.skills : [];
+	if (!skills.length) {
+		return { ok: false, error: "没有可失去的已购买技能", run, removed: null };
+	}
+	const removed = skills[Math.floor(rng() * skills.length) % skills.length];
+	return {
+		ok: true,
+		error: null,
+		run: { ...run, skills: skills.filter(id => id !== removed), updatedAt: now },
+		removed,
+	};
+}
+
+/**
+ * Boss 战胜利的强制惩罚之一：随机失去一件已拥有的奇物。
+ * 只动 run.curios 与它的品质覆盖表（curioQuality 里那一条一并清掉，别留悬挂数据）；
+ * 图鉴（collection.curios 记「曾经拥有过」）不受影响，一件奇物都没有时 ok:false 原样返回。
+ */
+export function loseRandomCurio(run, rng = Math.random, now = 0) {
+	const curios = Array.isArray(run?.curios) ? run.curios : [];
+	if (!curios.length) {
+		return { ok: false, error: "没有可失去的奇物", run, removed: null };
+	}
+	const removed = curios[Math.floor(rng() * curios.length) % curios.length];
+	const next = {
+		...run,
+		curios: curios.filter(id => id !== removed),
+		curioQuality: { ...(run.curioQuality ?? {}) },
+		collection: {
+			events: (run.collection?.events ?? []).slice(0),
+			curios: (run.collection?.curios ?? []).slice(0),
+		},
+		updatedAt: now,
+	};
+	delete next.curioQuality[removed];
+	return { ok: true, error: null, run: next, removed };
+}
+
 /** fallback 之一：指定属性等级 -1 */
 export function lowerStat(run, statId, now) {
 	const level = run.stats?.[statId] ?? 0;

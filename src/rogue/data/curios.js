@@ -152,7 +152,7 @@ export const curios = {
 	berserker_badge: {
 		id: "berserker_badge",
 		name: "狂战徽章",
-		description: "先挨一下才有劲，越打越停不下来。",
+		description: "越打越停不下来。",
 		image: "extension/奥特之星/assets/curios/berserker_badge.png",
 		rarity: "rare",
 		priceMultiplier: 1,
