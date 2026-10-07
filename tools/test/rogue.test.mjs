@@ -2101,8 +2101,9 @@ const rngForCurio = (run, target) => {
 	return () => (pool.indexOf(target) + 0.5) / pool.length;
 };
 
-check("过期候选清理：事件送的奇物撤下候选，读档剔除已拥有的条目", () => {
-	// 事件送奇物：若送出的同款还挂在商店候选里（生成候选时还没拥有），整条撤下
+check("过期候选清理：事件送的奇物撤下候选并补货，读档剔除已拥有的条目", () => {
+	// 事件送奇物：若送出的同款还挂在商店候选里（生成候选时还没拥有），整条撤下，
+	// 撤下的那格当场补摇新货——货架保持满员（旧版只撤不补，商店只剩两个候选）
 	const run = freshRun(cfg.RUN_MODE.endless);
 	run.curioOffers = [
 		{ id: "lucky_stone", price: 10 },
@@ -2111,8 +2112,17 @@ check("过期候选清理：事件送的奇物撤下候选，读档剔除已拥�
 	const lucky = curioManager.grantRandomCurio({ ...run }, rngForCurio(run, "lucky_stone"));
 	assertEqual(lucky.curioId, "lucky_stone", "rng 定位幸运石");
 	assert(!lucky.run.curioOffers.some(offer => offer.id === "lucky_stone"), "送出的奇物从候选撤下");
-	assertEqual(lucky.run.curioOffers.length, 1, "其它候选不受影响");
-	assertEqual(lucky.run.curioOffers[0].id, "energy_core", "剩余候选原样");
+	assertEqual(lucky.run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "撤下的格子补上新货：货架恢复满员");
+	assertEqual(lucky.run.curioOffers[0].id, "energy_core", "原有候选原样保留在原位");
+	// 补上的新货：互不重复、不在架上原有候选里、未拥有、连价定死（价格可正可负——负面奇物反得金币）
+	const restocked = lucky.run.curioOffers.slice(1);
+	assertEqual(new Set(restocked.map(offer => offer.id)).size, restocked.length, "补货互不重复");
+	assert(!restocked.some(offer => offer.id === "energy_core"), "补货不与架上原有候选重复");
+	assert(restocked.every(offer => curiosData.getCurio(offer.id) && !lucky.run.curios.includes(offer.id)), "补货排除已拥有");
+	assert(restocked.every(offer => Number.isFinite(offer.price)), "补货连价定死");
+	// 空货架不补：这一关没刷出奇物商店，送奇物不该凭空开出一家店
+	const bare = curioManager.grantRandomCurio({ ...run, curioOffers: [] }, rngForCurio(run, "energy_core"));
+	assertEqual(JSON.stringify(bare.run.curioOffers), "[]", "空货架保持空");
 	// 读档清洗：已拥有 → 一律剔除（买到即下架、事件送出会撤下，这里兜底清洗旧档残留）；未拥有 → 保留
 	const stored = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),

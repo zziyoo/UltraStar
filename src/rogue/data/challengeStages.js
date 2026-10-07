@@ -32,52 +32,37 @@ export const challengeStagePool = [
 	// ---- 第一批 28 个配置的角色 id 已与当前游戏对上（用户逐个确认，2026-10-06）----
 	{ id: "界孙权", type: "single", players: [{ character: "re_sunquan" }] },
 	{ id: "手杀周处", type: "single", players: [{ character: "zhouchu" }] },
-	// 手杀沙摩柯 → sp 包「沙摩柯」
 	{ id: "手杀沙摩柯", type: "single", players: [{ character: "shamoke" }] },
 	{ id: "势太史慈", type: "single", players: [{ character: "pot_taishici" }] },
-	// 手杀谋关羽 → sb 包「谋关羽」
 	{ id: "手杀谋关羽", type: "single", players: [{ character: "sb_guanyu" }] },
 	{ id: "手杀界沮授", type: "single", players: [{ character: "xin_jushou" }] },
 	{ id: "手杀关银屏", type: "single", players: [{ character: "mb_guanyinping" }] },
-	// 谋司马师 → 限定包「新杀谋司马师」
 	{ id: "谋司马师", type: "single", players: [{ character: "dc_simashi" }] },
 	{ id: "刘焉", type: "single", players: [{ character: "liuyan" }] },
 	{ id: "孙綝", type: "single", players: [{ character: "dc_sunchen" }] },
 	{ id: "势孙綝", type: "single", players: [{ character: "pot_sunchen" }] },
 	{ id: "势小乔", type: "single", players: [{ character: "pot_xiaoqiao" }] },
-	// 手杀谋黄盖 → sb 包「谋黄盖」
 	{ id: "手杀谋黄盖", type: "single", players: [{ character: "sb_huanggai" }] },
-	// 十周年谋黄盖 → 限定包「新杀谋黄盖」
 	{ id: "十周年谋黄盖", type: "single", players: [{ character: "dc_sb_huanggai" }] },
-	// 手杀谋张飞 → sb 包「谋张飞」
 	{ id: "手杀谋张飞", type: "single", players: [{ character: "sb_zhangfei" }] },
 	{ id: "手杀界周妃", type: "single", players: [{ character: "re_zhoufei" }] },
-	{ id: "夏侯玄", type: "single", players: [{ character: "xiahouxuan" }] },
+	{ id: "夏侯玄", type: "single", players: [{ character: "dc_xiahouxuan" }] },
 	{ id: "管宁", type: "single", players: [{ character: "guanning" }] },
 	{ id: "友徐庶", type: "single", players: [{ character: "friend_xushu" }] },
 	{ id: "曹金玉", type: "single", players: [{ character: "caojinyu" }] },
 	{ id: "手杀曹髦", type: "single", players: [{ character: "mb_caomao" }] },
-	// 十周年曹髦 → 限定包「曹髦」
 	{ id: "十周年曹髦", type: "single", players: [{ character: "caomao" }] },
 	{ id: "庞山民", type: "single", players: [{ character: "pangshanmin" }] },
-	// 手杀势辛宪英 → 势包「势辛宪英」
 	{ id: "手杀势辛宪英", type: "single", players: [{ character: "pot_xinxianying" }] },
 	{ id: "手杀骆统", type: "single", players: [{ character: "luotong" }] },
 	{ id: "威吕布", type: "single", players: [{ character: "v_lvbu" }] },
-	// 十周年张琪瑛 → 限定包「新杀张琪瑛」
 	{ id: "十周年张琪瑛", type: "single", players: [{ character: "y_dc_zhangqiying" }] },
 	{ id: "朱建平", type: "single", players: [{ character: "zhujianping" }] },
-	// ---- 第二批 6 个（用户 2026-10-06 点名加入，角色 id 已逐个在 resources/app/character 核对到注册）----
-	// 手杀神马超 → shiji 包（显示名就叫「手杀神马超」）
 	{ id: "手杀神马超", type: "single", players: [{ character: "mb_shen_machao" }] },
-	// 手杀骥张辽 → mobile 包（显示名只到「骥张辽」，不带手杀前缀）
 	{ id: "手杀骥张辽", type: "single", players: [{ character: "hefei_zhangliao" }] },
 	{ id: "手杀笮融", type: "single", players: [{ character: "mb_zerong" }] },
-	// 手杀诸葛瞻 → 官方库里只有 shenhua 包的裸 id `zhugezhan`（显示名「诸葛瞻」），
-	// 另有 old_/zj_/clan_ 三个变体；要用别的那一版改这里的 id 即可
 	{ id: "手杀诸葛瞻", type: "single", players: [{ character: "zhugezhan" }] },
 	{ id: "手杀界钟会", type: "single", players: [{ character: "re_zhonghui" }] },
-	// 吕据 → xianding 包
 	{ id: "吕据", type: "single", players: [{ character: "lvju" }] },
 ];
 

@@ -496,9 +496,27 @@ export function hasGrantableCurio(run) {
 }
 
 /**
+ * 事件送出奇物后给货架补货：被撤下的那格从「未拥有且不在架上」的池子现摇新货补齐，
+ * 售价按当前关卡定死（与战斗胜利那批同一条定价口径，走 rollCurioOffers）。
+ * 空货架不补——那是「这一关没刷出奇物商店」的既定语义，送奇物不该凭空开出一家店；
+ * 池子被排空时补不上多少算多少，货架只会恢复、绝不缩水。
+ */
+function restockCurioOffers(run, rng) {
+	const offers = Array.isArray(run.curioOffers) ? run.curioOffers : [];
+	if (!offers.length || offers.length >= CURIO_OFFER_COUNT) {
+		return offers;
+	}
+	const exclude = offers.map(offer => offer?.id).filter(id => typeof id === "string" && id);
+	const extra = rollCurioOffers(run, rng, exclude);
+	return offers.concat(extra.slice(0, CURIO_OFFER_COUNT - offers.length));
+}
+
+/**
  * 随机获得一个未拥有的奇物（事件奖励用）：与 rollCurioOffers 同一条排除规则。
  * 若送出的奇物还挂在商店候选里（生成候选时还没拥有），把它整条撤下——
- * 已拥有的奇物不得再出现在奇物商店。全部集齐时 ok:false，调用方给玩家写明落空原因。
+ * 已拥有的奇物不得再出现在奇物商店；撤下的那格当场补摇新货，非空货架保持满员
+ * （restockCurioOffers：排除的「已拥有」里已含刚送的这件，它不会再被补回来）。
+ * 全部集齐时 ok:false，调用方给玩家写明落空原因。
  */
 export function grantRandomCurio(run, rng = Math.random) {
 	const owned = new Set(Array.isArray(run?.curios) ? run.curios : []);
@@ -517,7 +535,10 @@ export function grantRandomCurio(run, rng = Math.random) {
 		},
 	};
 	next.curios.push(curioId);
-	next.curioOffers = next.curioOffers.filter(offer => offer.id !== curioId);
+	next.curioOffers = restockCurioOffers(
+		{ ...next, curioOffers: next.curioOffers.filter(offer => offer.id !== curioId) },
+		rng,
+	);
 	if (!next.collection.curios.includes(curioId)) {
 		next.collection.curios.push(curioId);
 	}
@@ -539,10 +560,11 @@ export function pickUnownedCurioOfRarity(run, rarity, rng = Math.random) {
 
 /**
  * 把指定 id 的奇物放进背包（事件在生成期就定死了给哪一件，结算只负责落地）。
- * 与 grantRandomCurio 同一条规矩：已拥有的不得再挂在奇物商店，图鉴记「曾经拥有过」。
- * 已拥有 / 已下架时 ok:false 且不产生任何副作用。
+ * 与 grantRandomCurio 同一条规矩：已拥有的不得再挂在奇物商店（送出即撤下并补摇新货，
+ * 非空货架保持满员），图鉴记「曾经拥有过」。已拥有 / 已下架时 ok:false 且不产生任何副作用。
+ * @param {() => number} [rng] 补货用的随机源；缺省 Math.random（流浪商人成交那条路没有注入 rng）
  */
-export function grantCurioById(run, curioId) {
+export function grantCurioById(run, curioId, rng = Math.random) {
 	if (!getCurio(curioId)) {
 		return { ok: false, error: "该奇物已下架", run, curioId: null };
 	}
@@ -559,7 +581,10 @@ export function grantCurioById(run, curioId) {
 		},
 	};
 	next.curios.push(curioId);
-	next.curioOffers = next.curioOffers.filter(offer => offer.id !== curioId);
+	next.curioOffers = restockCurioOffers(
+		{ ...next, curioOffers: next.curioOffers.filter(offer => offer.id !== curioId) },
+		rng,
+	);
 	if (!next.collection.curios.includes(curioId)) {
 		next.collection.curios.push(curioId);
 	}

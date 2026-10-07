@@ -652,7 +652,8 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		if (granted.ok) {
 			next.curios = granted.run.curios;
 			next.collection.curios = granted.run.collection.curios;
-			// grantRandomCurio 会把送出的奇物从商店候选里撤下（已拥有的不得再挂在奇物商店）
+			// grantRandomCurio 会把送出的奇物从商店候选里撤下并当场补摇新货
+			// （已拥有的不得再挂在奇物商店，非空货架保持满员——旧版只撤不补，货架会缩水成两个）
 			next.curioOffers = granted.run.curioOffers;
 			curioId = granted.curioId;
 			lines.push(`获得奇物：${getCurio(curioId)?.name ?? curioId}`);
@@ -661,10 +662,11 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		}
 	} else if (typeof reward.curio === "string" && reward.curio) {
 		// 古代遗迹三扇门在构建期就掷定了给哪一件（读档不重掷），这里照单发放
-		const granted = grantCurioById(next, reward.curio);
+		const granted = grantCurioById(next, reward.curio, rng);
 		if (granted.ok) {
 			next.curios = granted.run.curios;
 			next.collection.curios = granted.run.collection.curios;
+			// 撤下并补货的规矩与上面随机送同一条（grantCurioById 内部处理）
 			next.curioOffers = granted.run.curioOffers;
 			curioId = granted.curioId;
 			lines.push(`获得奇物：${getCurio(curioId)?.name ?? curioId}`);
