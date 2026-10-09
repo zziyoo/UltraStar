@@ -672,10 +672,13 @@ check("currentBattle 恢复：保存完整敌方阵容，重载原样读回而�
 		{ characterId: "巴尔坦星人", stats: { defense: 3, draw: 5, attack: 2 }, abyss: [], skills: [], boss: false, maxHp: 0, hp: 0 },
 		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, abyss: [], skills: ["test_enemy_skill"], boss: true, maxHp: 2, hp: 0 },
 	];
+	// 整场没被判成 Boss 战（两名敌人本来就不是 Boss 形状）：残留的 boss 标记按权威标记抹平，
+	// 角色/属性/技能/血量一个都不动，也不许借机重建阵容
+	const aligned = enemies.map(entry => ({ ...entry, boss: false }));
 	const run = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies, extra: "junk" } });
 	assertEqual(run.currentBattle.status, "battle", "状态保留");
 	assertEqual(run.currentBattle.enemies.length, 2, "敌人数保留");
-	assertEqual(JSON.stringify(run.currentBattle.enemies), JSON.stringify(enemies), "阵容原样保留（多余字段剔除、boss 标记保留）");
+	assertEqual(JSON.stringify(run.currentBattle.enemies), JSON.stringify(aligned), "阵容原样保留（多余字段剔除、矛盾的 boss 标记被抹平）");
 	// 缺 boss 字段的旧档按普通敌人补 false，绝不报错
 	const legacy = state.normalizeRun({
 		...freshRun(),
@@ -687,7 +690,8 @@ check("currentBattle 恢复：保存完整敌方阵容，重载原样读回而�
 	assertEqual(run.currentBattle.rift, null, "普通战斗没有裂隙参数");
 	// 重启游戏重读同一份存档：阵容完全一致，不允许重新随机
 	const reloaded = state.normalizeRun({ ...run });
-	assertEqual(JSON.stringify(reloaded.currentBattle.enemies), JSON.stringify(enemies), "重载不重掷");
+	assertEqual(JSON.stringify(reloaded.currentBattle.enemies), JSON.stringify(aligned), "重载不重掷");
+	assertEqual(reloaded.currentBattle.isBossBattle, false, "重载也不会把普通场翻成 Boss 场");
 	// 脏数据：非法条目剔除、属性越界夹回 0~10
 	const dirty = state.normalizeRun({
 		...freshRun(),
@@ -3790,6 +3794,7 @@ check("v11 旧档阵容带 boss 敌人但旧 bossRun 为 false：折算结果仍
 		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null },
 	});
 	assertEqual(run.currentBattle.isBossBattle, false, "旧档判定为普通局时不因阵容里有 boss 敌人而翻案");
+	assertEqual(run.currentBattle.enemies[0].boss, false, "普通旧档不会因为残留的 boss 字段拿到 Boss 体力强化");
 	// 损坏的 legacy 入参（整局字段不是布尔）也绝不能被当成 Boss 场
 	const junk = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
@@ -3797,7 +3802,78 @@ check("v11 旧档阵容带 boss 敌人但旧 bossRun 为 false：折算结果仍
 		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null },
 	});
 	assertEqual(junk.currentBattle.isBossBattle, false, "非 true 的旧字段按 false 处理");
-	return "旧 false / 非法值两态";
+	assertEqual(junk.currentBattle.enemies[0].boss, false, "非法旧字段同样不留 Boss 强化");
+	// 旧档整局 bossRun=true 但阵容是多敌（v11 不可能出现形状，视作损坏）：折算出来的身份也要被形状校验挡掉
+	const legacyMulti = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		bossRun: true,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }, { characterId: "赛文", boss: true }], rift: null },
+	});
+	assertEqual(legacyMulti.currentBattle.isBossBattle, false, "多名敌人不是 Boss 战形状，旧字段也抬不动");
+	assertEqual(legacyMulti.currentBattle.enemies.every(enemy => enemy.boss === false), true, "两名敌人都没有 Boss 强化");
+	assertEqual(legacyMulti.currentBattle.enemies.length, 2, "旧档阵容不被删减");
+	return "旧 false / 非法值 / 旧 true 但形状不符 三态";
+});
+
+check("Boss 状态一致性：isBossBattle 是整场唯一权威标记，敌人的 boss 必须与它对得上", () => {
+	// 一份「合法的 Boss 敌人」夹具：角色/属性/技能/深渊词缀/血量都齐备，用来验对齐时不丢数据
+	const bossEnemy = () => ({
+		characterId: "佐菲",
+		stats: { defense: 3, draw: 5, attack: 2 },
+		abyss: ["abyss_jianbi"],
+		skills: ["test_enemy_skill"],
+		boss: true,
+		maxHp: 2,
+		hp: 1,
+	});
+	const battleOf = (patch) => state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 4,
+		currentBattle: { status: "battle", rift: null, ...patch },
+	}).currentBattle;
+	// ① 整场 false + 敌人带 boss（本次要修的矛盾组合）：以整场标记为准抹掉敌人 boss 标记，
+	//    角色/属性/词缀/技能/血量原样保留，绝不重建阵容
+	const cleared = battleOf({ enemies: [bossEnemy()], isBossBattle: false });
+	assertEqual(cleared.isBossBattle, false, "整场标记保持 false");
+	assertEqual(cleared.enemies[0].boss, false, "普通场里不留 Boss 强化");
+	assertEqual(JSON.stringify({ ...cleared.enemies[0], boss: "<已对齐>" }), JSON.stringify({ ...bossEnemy(), boss: "<已对齐>" }), "除 boss 外每个字段原样保留（不重建阵容）");
+	// 对齐过的数据再存再读必须稳定：不会来回翻转，也不会重掷
+	const twice = battleOf({ enemies: cleared.enemies, rift: null, isBossBattle: cleared.isBossBattle });
+	assertEqual(JSON.stringify(twice), JSON.stringify(cleared), "二次归一化完全幂等");
+	// 结算层拿到同一份状态：整场 false 就按普通奖励走，不翻倍、不强刷奇物商店
+	const clearedRun = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 4,
+		currentBattle: { status: "battle", enemies: [bossEnemy()], rift: null, isBossBattle: false },
+	});
+	const rng = () => 0.999;
+	const normalWin = reward.settleVictory(clearedRun, NOW, rng);
+	const base = rewardsData.getEndlessReward(4, ["gold", "exp"]);
+	assertEqual(normalWin.isBossBattle, false, "结算按普通场处理");
+	assertEqual(normalWin.gained.gold, base.gold, "矛盾状态修正后不再拿 20 倍");
+	assertEqual(normalWin.run.curioOffers.length, 0, "也不强制刷新奇物商店");
+	// ② 整场 true + 合法单 Boss 阵容：标记、敌人强化、倍率全部照常
+	const legal = battleOf({ enemies: [bossEnemy()], isBossBattle: true });
+	assertEqual(legal.isBossBattle, true, "合法 Boss 战原样保留");
+	assertEqual(legal.enemies[0].boss, true, "敌人 Boss 标记原样保留");
+	const legalWin = reward.settleVictory(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 4, currentBattle: { status: "battle", enemies: [bossEnemy()], rift: null, isBossBattle: true } }), NOW, rng);
+	assertEqual(legalWin.gained.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "合法 Boss 战仍拿 20 倍");
+	assert(legalWin.run.curioOffers.length > 0, "合法 Boss 战仍强制刷新奇物商店");
+	// ③ 整场 true 但形状合法（单人）却漏了敌人标记 → 补齐，让战斗效果与整场判定说同一件事
+	const patched = battleOf({ enemies: [{ ...bossEnemy(), boss: false }], isBossBattle: true });
+	assertEqual(patched.isBossBattle, true, "整场标记是权威，不因敌人缺字段被降级");
+	assertEqual(patched.enemies[0].boss, true, "单 Boss 形状补齐缺失的敌人标记");
+	// ④ 整场 true 但形状不合法（多名敌人）→ 既不把普通敌人升级成 Boss，也不让无效阵容领 Boss 奖励
+	const invalid = battleOf({ enemies: [bossEnemy(), { ...bossEnemy(), characterId: "赛文" }], isBossBattle: true });
+	assertEqual(invalid.isBossBattle, false, "多名敌人不是 Boss 战的合法形状 → 整场降为普通");
+	assertEqual(invalid.enemies.every(enemy => enemy.boss === false), true, "降级后两名敌人都没有 Boss 强化");
+	assertEqual(invalid.enemies.length, 2, "敌人数量原样保留（不删人、不重建）");
+	// ⑤ 裂隙场自带 true 也不参与 Boss 判定（它有另一套独立结算），rift 参数本身原样保留
+	const rifted = battleOf({ enemies: [bossEnemy()], rift: { level: 3, enemies: 1, affixes: 1, gold: 100, exp: 40 }, isBossBattle: true });
+	assertEqual(rifted.isBossBattle, false, "裂隙场一律按普通场处理");
+	assertEqual(rifted.enemies[0].boss, false, "裂隙敌人不吃 Boss 强化");
+	assertEqual(rifted.rift.gold, 100, "rift 的定死奖励参数原样保留");
+	return "false+boss 抹平 / 合法场保留 / 单人补标记 / 多人降级 / 裂隙不参与";
 });
 
 check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的全部技能、自带一个深渊强化", () => {

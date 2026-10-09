@@ -2453,6 +2453,74 @@ await check("Boss 场战败：一件不弃，本场标记随战斗状态一起�
 	}
 });
 
+await check("矛盾存档对齐：整场记普通战斗却带 boss 敌人 → 恢复后体力不翻倍、胜利按普通口径结算", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		putRun(0, {
+			mode: "endless",
+			characterId: "迪迦",
+			level: 4,
+			currency: { gold: 0, exp: 0 },
+			skills: ["own_one"],
+			curios: ["energy_core"],
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], boss: true, maxHp: 0, hp: 0 }],
+				rift: null,
+				isBossBattle: false,
+			},
+		});
+		session();
+		// putRun 过的是 normalizeRun：读档这一刻矛盾的敌人标记已经按整场权威标记抹平
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.enemies[0].boss, false, "普通场里的 boss 标记被对齐掉");
+		assertEqual(slot.currentBattle.enemies[0].characterId, "佐菲", "角色没被换掉，也不重建阵容");
+		click("重新挑战这一关");
+		await flush();
+		const foe = game.players[1];
+		assertEqual(game.players.length, 2, "仍是那一场单人战斗");
+		assertEqual(foe.name, "佐菲", "敌人原样，没有重掷");
+		assertEqual(foe.maxHp, lib.character["佐菲"].maxHp, "战斗初始化不再给它 Boss 的体力翻倍");
+		const base = rewardsData.getEndlessReward(4, ["gold", "exp"]);
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, base.gold, "胜利按 1 倍基准入账，不是 20 倍");
+		assertEqual(slot.currency.exp, base.exp, "经验同样按 1 倍入账");
+		assertEqual(slot.curioOffers.length, 0, "奇物商店不被强制刷新");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one"]), "不走 Boss 的技能弃置");
+		assertEqual(JSON.stringify(slot.curios), JSON.stringify(["energy_core"]), "不走 Boss 的奇物弃置");
+		const text = screenText();
+		assert(text.includes("战斗胜利") && !text.includes("Boss"), `结算页标题走普通口径：${text}`);
+		// 反向对齐：整场写着 Boss 战、单人阵容却漏了敌人标记 → 补齐标记，让战斗效果与整场判定说同一件事
+		putRun(0, {
+			mode: "endless",
+			characterId: "迪迦",
+			level: 4,
+			currency: { gold: 0, exp: 0 },
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], boss: false, maxHp: 0, hp: 0 }],
+				rift: null,
+				isBossBattle: true,
+			},
+		});
+		session();
+		click("重新挑战这一关");
+		await flush();
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.enemies[0].boss, true, "合法单 Boss 形状把缺失的敌人标记补齐");
+		assertEqual(game.players[1].maxHp, lib.character["佐菲"].maxHp * 2, "补齐后这一场的体力确实按 Boss 翻倍");
+		return "标记对齐 → 体力不翻倍 → 普通奖励 / 不弃置 / 不强刷 / 普通标题（反向补齐也验一次）";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
 await check("事件定义中途下架：事件页不抛异常，直接走出口重载", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
