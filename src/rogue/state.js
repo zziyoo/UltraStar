@@ -85,7 +85,7 @@ function normalizeBattleEnemy(entry) {
 		// 开战前定死落盘，读档原样还原，中途退出再进来还是同一批强化。
 		abyss: normalizeAbyssIds(entry.abyss),
 		skills,
-		// Boss 战标记（v11）：建局时定死，读档原样还原。旧档缺字段按普通敌人处理（战斗层不翻倍体力）
+		// Boss 敌人的标记（v11）：创建那场 Boss 战时定死，读档原样还原。旧档缺字段按普通敌人处理（战斗层不翻倍体力）
 		boss: entry.boss === true,
 		maxHp: toInt(entry.maxHp, 0),
 		hp: Math.max(0, toInt(entry.hp, 0)),
@@ -127,15 +127,25 @@ function normalizeRift(raw) {
  * v2 及更早的旧档只存了 groupId：按当时的组合配置还原出阵容，同样不重掷；
  * 组合也没了（配置被删）才视为没有未完成战斗。
  * v7 起额外携带 rift：有它 = 这一场是深渊裂隙，结算走「只发定死的倍率奖励、不推进关卡、不掷事件与奇物商店」。
+ * v12 起额外携带 isBossBattle：这一场是不是 Boss 战。它只属于这一场，由创建战斗的那一方写死，
+ * 读档原样沿用、绝不重掷；胜利/失败结算与下一场判定都只看它，不再看整局的旧 bossRun 字段。
+ *
+ * @param {object} rawBattle 存档里的 currentBattle
+ * @param {boolean} [legacyBossRun] 旧档（v11）整局的 bossRun：只用于给「这一场」补标记——
+ *        仅当这场战斗自己没写过 isBossBattle、且阵容里确实带 boss 敌人才成立。
+ *        没有进行中战斗的旧档一律不补，下一场按新的逐场判定独立掷骰。
  */
-function normalizeCurrentBattle(rawBattle) {
+function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 	if (!isPlainObject(rawBattle) || rawBattle.status !== BATTLE_STATUS.battle) {
 		return null;
 	}
 	const rift = normalizeRift(rawBattle.rift);
 	const enemies = normalizeBattleEnemies(rawBattle.enemies);
+	// 判定只发生在创建战斗时，这里只做还原：显式写过 isBossBattle 的一律照抄（含 false）
+	const isBossBattle = rawBattle.isBossBattle === true
+		|| (rawBattle.isBossBattle == null && legacyBossRun === true && enemies.some(enemy => enemy.boss === true));
 	if (enemies.length) {
-		return { status: BATTLE_STATUS.battle, enemies, rift };
+		return { status: BATTLE_STATUS.battle, enemies, rift, isBossBattle };
 	}
 	const legacy = getEnemyGroup(sanitizeString(rawBattle.groupId));
 	if (legacy) {
@@ -153,6 +163,7 @@ function normalizeCurrentBattle(rawBattle) {
 				hp: enemy?.overrides?.hp,
 			}))),
 			rift,
+			isBossBattle,
 		};
 	}
 	return null;
@@ -380,7 +391,9 @@ export function normalizeRun(raw, options = {}) {
 		statLevels[key] = clampInt(raw.stats?.[key], 0, maxLevel, 0);
 	}
 
-	const currentBattle = normalizeCurrentBattle(raw.currentBattle);
+	// v12：本场战斗的 Boss 标记只跟着 currentBattle 走。旧档（v11）那个整局 bossRun 在这里
+	// 被折算成「这一场是不是 Boss 战」，此后不再被任何代码读取，也就不可能继续影响后续关卡。
+	const currentBattle = normalizeCurrentBattle(raw.currentBattle, raw.bossRun);
 
 	const curios = normalizeCurios(raw.curios);
 
@@ -432,9 +445,9 @@ export function normalizeRun(raw, options = {}) {
 		characterId: sanitizeString(raw.characterId),
 		level,
 		totalLevels,
-		// v11：本局是否为 Boss 战。建局时按 BOSS_RUN_RATE 一次性判定并落盘，
-		// 读档/重进/重新开战都只认这个字段，绝不重新随机；旧档缺字段按普通局（false）补齐
-		bossRun: raw.bossRun === true,
+		// v12 起整局的 bossRun 字段已删除：Boss 判定改为「每场新战斗独立掷一次」，
+		// 结果只存在 currentBattle.isBossBattle 上，随那一场战斗一起落盘、一起结算、一起清掉。
+		// 旧档里残留的 bossRun 只在上文参与「正在进行的这一场」的迁移，这里不再输出该字段。
 		// v8：闯关前 10 关的敌方配置抽取结果（challenge 模式专用；由 enemy.ensureChallengeStages 生成，本层只清洗）
 		challengeStages: normalizeChallengeStages(raw.challengeStages),
 		// v10：闯关第 11~30 关的双人组合抽取结果（同上由 enemy.ensureChallengeComboStages 生成；旧档按空数组补齐）

@@ -29,9 +29,10 @@ export function createResultFlow(host) {
 		let run = result.run;
 		// Boss 战胜利的强制惩罚：随机失去 1 个已购买技能与 1 件已拥有的奇物（各自没有时安全跳过，
 		// 一句「没有可失去的」带过，绝不报错、绝不动角色本体技能与图鉴记录）。
-		// 只在「本局是 Boss 战」（run.bossRun，建局时判定）的胜利结算这里执行一次，落盘随 commit 走
+		// 只看「刚刚结束的这一场」是不是 Boss 战（settleVictory 在清掉 currentBattle 之前取出的标记），
+		// 所以它每场只生效一次，绝不会误伤下一场普通战斗。落盘随 commit 走
 		const penaltyLines = [];
-		if (run.bossRun === true) {
+		if (result.isBossBattle) {
 			const lostSkill = loseRandomSkill(run, Math.random, now());
 			if (lostSkill.ok) {
 				run = lostSkill.run;
@@ -67,7 +68,7 @@ export function createResultFlow(host) {
 		commit();
 		showResult({
 			kind: "victory",
-			title: run.bossRun ? "Boss 战 · 战斗胜利" : "战斗胜利",
+			title: result.isBossBattle ? "Boss 战 · 战斗胜利" : "战斗胜利",
 			level: wonLevel,
 			reward: result.gained,
 			nextLevel: run.level,

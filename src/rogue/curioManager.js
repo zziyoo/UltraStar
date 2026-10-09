@@ -140,10 +140,12 @@ function rateLine(key, noun, effects) {
 const EFFECT_TEXT = {
 	extraPhase: value => `游戏开始时，获得 ${value} 个额外的出牌阶段`,
 	extraDraw: value => `摸牌阶段额外摸 ${value} 张牌`,
-	// 回复目标由 dyingRecoverToRatio 决定：写 0.5 就是「体力上限的 50%」，缺省回 1
+	// 回复目标由 dyingRecoverToRatio 决定：一半就说「一半（向上取整）」，别报百分数——
+	// 取整方向与 data/skills.js 的实现（Math.ceil）对齐；缺省回 1
 	dyingSave: (value, effects) => {
 		const ratio = effects?.dyingRecoverToRatio;
-		const target = Number.isFinite(ratio) && ratio > 0 ? `体力上限的 ${Math.round(ratio * 100)}%` : "1";
+		const target = ratio === 0.5 ? "体力上限的一半（向上取整）"
+			: Number.isFinite(ratio) && ratio > 0 ? `体力上限的 ${Math.round(ratio * 100)}%（向上取整）` : "1";
 		// 「首次」本身就是一次，只有真给到多次才补次数，否则每次濒死都多挂一句废话
 		const count = value > 1 ? `（共 ${value} 次）` : "";
 		return `每局游戏首次进入濒死状态时，回复体力值至${target}${count}`;

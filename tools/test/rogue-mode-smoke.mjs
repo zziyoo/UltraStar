@@ -31,6 +31,7 @@ const eventsData = await load("src/rogue/data/events.js");
 const curiosData = await load("src/rogue/data/curios.js");
 const eventManager = await load("src/rogue/eventManager.js");
 const stagesData = await load("src/rogue/data/challengeStages.js");
+const rewardsData = await load("src/rogue/data/rewards.js");
 const combosData = await load("src/rogue/data/challengeCombos.js");
 const abyssCfg = await load("src/rogue/endless/abyssConfig.js");
 const modeModule = await load("src/rogue/mode.js");
@@ -217,10 +218,22 @@ function putRun(index, patch, extra) {
 	return run;
 }
 
+/**
+ * 写一份「v11 形状」的旧档：带着 v12 已经删掉的整局 bossRun 字段。
+ * 必须绕过 putRun——它走 normalizeRun 清洗，会把旧字段直接丢掉，就模拟不出「旧档刚读进来」那一刻。
+ */
+function putLegacyV11(index, patch) {
+	const raw = { ...stateModule.createRun("endless", "迪迦", 1), version: 11, bossRun: true, ...patch };
+	const slots = lib.storage.rogueSlots ?? [];
+	slots[index] = raw;
+	lib.storage.rogueSlots = slots;
+	lib.storage.rogueActive = index;
+	return raw;
+}
+
 async function newRunByUi(modeLabel) {
-	// 建局那一刻有一次「本局是否 Boss 战」的掷骰（cfg.BOSS_RUN_RATE，v11）：
-	// 这里把随机钉在 0.9（≥ 概率线），保证冒烟用例走 UI 建出来的都是普通局；
-	// Boss 战的链路由专门的用例覆盖（putRun 写 bossRun 字段 / 直接钉 0 建局）
+	// 建局只创建存档，不再掷 Boss 骰（v12 起判定挪到每场新战斗，见 clickNormalBattle / clickBossBattle）。
+	// 这里仍把随机钉在 0.9：闯关建局要一次性抽定前 10 关的敌方配置，钉住后各用例的关卡配置可复现。
 	const originalRandom = Math.random;
 	Math.random = () => 0.9;
 	try {
@@ -234,6 +247,55 @@ async function newRunByUi(modeLabel) {
 		await flush();
 	} finally {
 		Math.random = originalRandom;
+	}
+}
+
+/**
+ * 点「创建一场新战斗」的按钮，并让**这一场判为普通战斗**。
+ *
+ * v12 起 Boss 判定改成逐场独立：`flow/battle.js` 的 startBattle 在创建新战斗时消费的第一掷
+ * `Math.random()` 就是这一场的判定（BOSS_RUN_RATE 0.05）。冒烟用例绝大多数要的是普通链路，
+ * 若放任真随机，整套流程会变成「每场 5% 概率突然换成 Boss 关」的抖动测试。
+ * 这里只把「第一掷」钉成 1（≥ 判定线 → 不抽中），其余各掷原样交回当前钉好的随机
+ * （没钉就是真随机），所以角色/词缀/事件/商店的随机口径一概不受影响。
+ * Boss 链路由专门的用例覆盖：它们自己把 Math.random 钉到 < BOSS_RUN_RATE。
+ */
+function clickNormalBattle(label = "开始下一关") {
+	const prev = Math.random;
+	let first = true;
+	Math.random = () => {
+		if (first) {
+			first = false;
+			return 1;
+		}
+		return prev();
+	};
+	try {
+		click(label);
+	} finally {
+		// startBattle 对随机的一切消费都在这一趟同步调用里完成（beginBattle 不再掷骰），可以立刻还原
+		Math.random = prev;
+	}
+}
+
+/**
+ * 点「创建一场新战斗」的按钮，并让**这一场抽中 Boss**（第一掷钉成 0 < BOSS_RUN_RATE）。
+ * 其余各掷交回当前钉好的随机——与 clickNormalBattle 对称，只用来把判定本身钉死。
+ */
+function clickBossBattle(label = "开始下一关") {
+	const prev = Math.random;
+	let first = true;
+	Math.random = () => {
+		if (first) {
+			first = false;
+			return 0;
+		}
+		return prev();
+	};
+	try {
+		click(label);
+	} finally {
+		Math.random = prev;
 	}
 }
 
@@ -419,7 +481,7 @@ await check("开局：先落盘敌方阵容再建局，本体事件调用顺序�
 	session();
 	await newRunByUi("闯关模式");
 	const before = log.length;
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	const order = log.slice(before).map(item => item.type);
 	assertEqual(order[0], "save", "第一步必须写存档");
@@ -692,7 +754,7 @@ await check("开局：属性 extraSkills 的带 group 技能也展开", async ()
 		freshWorld();
 		session();
 		await newRunByUi("闯关模式");
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		const beforeLevel = lib.storage.rogueSlots[0].level;
 		const beforeGold = lib.storage.rogueSlots[0].currency.gold;
@@ -778,7 +840,7 @@ await check("无尽最高记录：通关才更新，闯关不更新，失败删�
 		session();
 		// 无尽：打赢第 1 关 → 记录第 1 关
 		await newRunByUi("无尽模式");
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -798,7 +860,7 @@ await check("无尽最高记录：通关才更新，闯关不更新，失败删�
 		lib.storage.rogueSlots = [stateModule.createRun("challenge", "赛文", 1), null, null, null, null, null];
 		lib.storage.rogueActive = 0;
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -833,7 +895,7 @@ await check("闯关最高记录：刚好通关最后一关才记，重复挑战�
 	Math.random = () => 0.9;
 	/** 打完当前这一关：把所有敌人打死，触发胜利结算 */
 	const winBattle = async label => {
-		click(label);
+		clickNormalBattle(label);
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -998,7 +1060,7 @@ await check("闯关 11~20 关：首次开战抽 10 个组合落盘，敌人按 c
 	putRun(0, { level: 11, challengeStages: [] });
 	session();
 	const before = log.length;
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	// 首次进入 11~30 关：开战前一次性抽出 10 个组合并立刻落盘（先 save 再开局）
 	assert(log.slice(before).filter(item => item.type === "save").length >= 1, "抽取结果应立刻落盘");
@@ -1020,7 +1082,7 @@ await check("闯关 11~20 关：首次开战抽 10 个组合落盘，敌人按 c
 	// 打到第 12 关再开战（模拟推进后重进）：用第 1 个组合，且组合表绝不重抽
 	putRun(0, { level: 12, challengeComboStages: combos, currentBattle: null });
 	session();
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	const next = lib.storage.rogueSlots[0];
 	assertEqual(JSON.stringify(next.challengeComboStages), JSON.stringify(combos), "组合表沿用原抽取结果");
@@ -1035,7 +1097,7 @@ await check("闯关 21~30 关：双人组合 + 扩展池第三人，第三人随
 	const combos = combosData.challengeComboPool.slice(0, cfg.CHALLENGE_COMBO_LEVELS).map(config => config.id);
 	putRun(0, { level: 21, challengeComboStages: combos, challengeStages: [] });
 	session();
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	const saved = lib.storage.rogueSlots[0];
 	const combo = combosData.getChallengeComboConfig(combos[0]);
@@ -1368,7 +1430,7 @@ await check("商店刷新次数：战斗恢复与失败都不补，通关进下�
 	await flush();
 	assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, 1, "这一局用掉一次");
 	click("返回");
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	// 战斗中途刷新页面：这一局还没结束，次数必须原样
 	session();
@@ -1386,7 +1448,7 @@ await check("商店刷新次数：战斗恢复与失败都不补，通关进下�
 	click("商店");
 	assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), "刷新 1/2", "失败后进商店仍显示用掉一次");
 	click("返回");
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	for (const player of game.players.slice(1)) {
 		player.__alive = false;
@@ -1791,7 +1853,7 @@ await check("大厅 BGM：进大厅循环播、换页面与删档都不打断、
 	click("存档2");
 	assertEqual(audio.currentTime, 42, "进营地不该把曲子掐回开头");
 	// 进战斗：大厅的停止、战斗 BGM 上场（细节见下一个用例），本体 BGM 继续被压住
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	assert(audio.paused, "进战斗应停止大厅 BGM");
 	const battleAudio = stub.createdAudios.filter(node => node !== ui.backgroundMusic && node !== audio).at(-1);
@@ -1815,7 +1877,7 @@ await check("战斗 BGM：进战斗随机起播、放完随机接下一首，胜
 	const lobbyAudio = stub.createdAudios.find(node => node !== ui.backgroundMusic && node.src === cfg.LOBBY_BGM);
 	assert(lobbyAudio, "进营地应先建出大厅 BGM");
 	assert(!lobbyAudio.paused, "大厅 BGM 应在播放");
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	assert(lobbyAudio.paused, "进战斗应停止大厅 BGM");
 	const battleAudio = stub.createdAudios.filter(node => node !== ui.backgroundMusic && node !== lobbyAudio).at(-1);
@@ -1866,7 +1928,7 @@ await check("技能 BGM：肉鸽营地/战斗中一律拦截，不建新音轨�
 		assert(!lobbyAudio.paused, "营地 BGM 不该被打断");
 		assertEqual(game.customBgmList.length, 0, "技能音轨不得登记进互斥列表");
 		// 进战斗：战斗 BGM 接手，技能 BGM 同样不许出声
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		const battleAudio = stub.createdAudios.filter(node => node !== ui.backgroundMusic && node !== lobbyAudio).at(-1);
 		assert(battleAudio && !battleAudio.paused, "战斗 BGM 应在播放");
@@ -1926,7 +1988,7 @@ await check("肉鸽 BGM 独立音量：本体调最低不影响、肉鸽 0% 即�
 		const lobbyAudio = stub.createdAudios.find(node => node !== ui.backgroundMusic && node.src === cfg.LOBBY_BGM);
 		assert(lobbyAudio && !lobbyAudio.paused, "营地 BGM 应在播放");
 		assertEqual(lobbyAudio.volume, 1, "本体最低（0）时肉鸽仍按自己的 100% 播放");
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		// 战斗音轨是模块级单例、跨用例复用：按曲目定位（技能 BGM 用例也建过音轨，取最后一个会拿错）
 		const battleAudio = stub.createdAudios.find(node => cfg.BATTLE_BGM_LIST.includes(node.src));
@@ -1966,7 +2028,7 @@ await check("肉鸽 BGM 独立音量：本体调最低不影响、肉鸽 0% 即�
 /** 无尽胜利一步到位：开局、杀光敌人、触发结算，返回存档（不点结算页按钮） */
 async function winEndlessBattle() {
 	await newRunByUi("无尽模式");
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	for (const player of game.players.slice(1)) {
 		player.__alive = false;
@@ -2030,21 +2092,19 @@ await check("无尽胜利触发事件：结算页「继续」进事件页，选�
 	}
 });
 
-await check("Boss 战整局：建局一次判定、单 Boss 落地、体力×2 与复制技能生效，胜利 20 倍奖励并强制弃置与刷奇物商店", async () => {
+await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体力×2 + 复制技能），中途退出恢复不重掷，胜利 20 倍并强制弃置与刷奇物商店", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
-		// 建局钉 0：0 < BOSS_RUN_RATE → 本局判定为 Boss 战（不走 newRunByUi，它会给普通局）
 		Math.random = () => 0;
 		session();
 		click("空存档");
 		click("无尽模式");
 		click("迪迦");
 		await flush();
-		assertEqual(lib.storage.rogueSlots[0].bossRun, true, "建局判定为 Boss 战并落盘");
-		// 重载（读档）后判定原样保留：绝不在重进/重开战时重新随机
-		session();
-		assertEqual(lib.storage.rogueSlots[0].bossRun, true, "读档沿用 Boss 战判定");
+		// v12：建局这一刻不再决定 Boss 身份——整局字段已经消失，此刻连一场战斗都还没创建
+		assertEqual(lib.storage.rogueSlots[0].bossRun, undefined, "建局不写整局 bossRun");
+		assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "建局时还没有进行中的战斗");
 		// 给两名「技能来源」角色塞可用技能（定义 + 双键翻译，过兼容层与 skillDisabled）
 		lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["bossdonor_a"] };
 		lib.character["赛文"] = { hp: 4, maxHp: 4, skills: ["bossdonor_b1", "bossdonor_b2"] };
@@ -2053,7 +2113,8 @@ await check("Boss 战整局：建局一次判定、单 Boss 落地、体力×2 �
 			lib.translate[id] = id;
 			lib.translate[`${id}_info`] = "Boss 冒烟用技能。";
 		}
-		click("开始下一关");
+		// 创建这一场时掷中（第一掷 0 < BOSS_RUN_RATE）→ 本场替换为单 Boss 阵容
+		clickBossBattle();
 		await flush();
 		assertEqual(game.players.length, 2, "Boss 战只有 1 名敌人（1 玩家 + 1 Boss）");
 		const boss = game.players[1];
@@ -2065,14 +2126,28 @@ await check("Boss 战整局：建局一次判定、单 Boss 落地、体力×2 �
 			assert(boss.__skills.includes(id), `复制来的技能要真正挂上：${id}`);
 		}
 		const savedBattle = lib.storage.rogueSlots[0].currentBattle;
+		assertEqual(savedBattle.isBossBattle, true, "本场 Boss 身份随阵容一起落盘");
 		assertEqual(savedBattle.enemies.length, 1, "阵容随存档定死");
 		assertEqual(savedBattle.enemies[0].boss, true, "boss 标记随阵容落盘");
 		assert(savedBattle.enemies[0].abyss.length >= 1, "Boss 自带的深渊强化随阵容落盘");
+		assertEqual(lib.storage.rogueSlots[0].bossRun, undefined, "整局字段不存在：Boss 身份只在这一场上");
+		// 中途退出重开：走恢复页，沿用存档里已定死的阵容与本场标记，绝不重掷
+		const savedEnemies = JSON.stringify(savedBattle.enemies);
+		session();
+		assert(screenText().includes("战斗未正常结算"), `重进应先落到恢复页：${screenText()}`);
+		click("重新挑战这一关");
+		await flush();
+		const revived = game.players[1];
+		assertEqual(game.players.length, 2, "恢复的仍是那一场单 Boss");
+		assertEqual(revived.name, boss.name, "恢复不改变敌人");
+		assertEqual(JSON.stringify(lib.storage.rogueSlots[0].currentBattle.enemies), savedEnemies, "阵容原样读回，没有重新随机");
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.isBossBattle, true, "读档后本场仍是 Boss 战");
+		assertEqual(revived.maxHp, lib.character[revived.name].maxHp * 2, "恢复后体力仍按 Boss 规则翻倍，且只翻一次");
 		// 胜利（rng 换 0.5：跳过事件判定，其余结算不变）
 		Math.random = () => 0.5;
-		boss.__alive = false;
-		boss.hp = 0;
-		lib.element.player.dieAfter.call(boss);
+		revived.__alive = false;
+		revived.hp = 0;
+		lib.element.player.dieAfter.call(revived);
 		await flush();
 		const won = lib.storage.rogueSlots[0];
 		// 无尽第 1 关基准 50 金币 / 20 经验 ×20：初始 50 金币 + 1000、20 经验 + 400
@@ -2085,10 +2160,10 @@ await check("Boss 战整局：建局一次判定、单 Boss 落地、体力×2 �
 		assert(text.includes("Boss 战 · 战斗胜利"), `结算页标题：${text}`);
 		assert(text.includes("没有已购买技能可失去") && text.includes("没有奇物可失去"), `空列表的安全话术：${text}`);
 		// 再来一场：手上有购买技能与奇物时，强制各失去一件（有则执行）
+		// 存档里已经没有 bossRun 了——这一场是不是 Boss 战，完全取决于创建它时的那一掷
 		putRun(0, {
 			mode: "endless",
 			characterId: "迪迦",
-			bossRun: true,
 			level: 2,
 			currency: { gold: 100, exp: 100 },
 			skills: ["rogue_extra", "own_one", "own_two"],
@@ -2096,8 +2171,9 @@ await check("Boss 战整局：建局一次判定、单 Boss 落地、体力×2 �
 			curioQuality: { energy_core: "rare" },
 		});
 		session();
-		click("开始下一关");
+		clickBossBattle();
 		await flush();
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.isBossBattle, true, "这一场独立掷中 Boss");
 		const boss2 = game.players[1];
 		boss2.__alive = false;
 		boss2.hp = 0;
@@ -2109,7 +2185,269 @@ await check("Boss 战整局：建局一次判定、单 Boss 落地、体力×2 �
 		assertEqual(JSON.stringify(punished.skills), JSON.stringify(["rogue_extra", "own_two"]), "恰好随机丢一个，其余保留");
 		assertEqual(JSON.stringify(punished.curios), JSON.stringify([]), "强制失去 1 件奇物");
 		assertEqual(punished.curioQuality.energy_core, undefined, "被丢奇物的品质条目一并清掉");
-		return "建局判定 → 单 Boss 8 血 → 20 倍奖励 + 强制刷新 → 强制弃置";
+		assertEqual(punished.currentBattle, null, "本场结束后战斗状态清空，Boss 身份随之消失");
+		return "建局不判定 → 逐场掷中换单 Boss → 中途恢复不重掷 → 20 倍奖励 + 强制刷新 → 强制弃置";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的，倍率/弃置/强刷/标题只跟随刚打完的那一场", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	/** 打完当前正在进行的那一场：杀掉所有敌人并等结算页出来 */
+	async function winCurrentBattle() {
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+	}
+	try {
+		// 随机钉在 0.5：既不低于事件线（0.33）也不低于奇物商店线（0.2），两样都不触发，
+		// 于是每场的金币增量都恰好等于该关基准，能逐场精确对账；Boss 判定由两个 click 助手单独钉
+		Math.random = () => 0.5;
+		putRun(0, {
+			mode: "endless",
+			characterId: "迪迦",
+			level: 12,
+			currency: { gold: 0, exp: 0 },
+			skills: ["own_one", "own_two"],
+			curios: ["energy_core"],
+		});
+		session();
+		// ---- 第 1 场：没抽中 → 完全走现有普通流程
+		clickNormalBattle();
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "第 1 场记为普通战斗");
+		assertEqual(slot.currentBattle.enemies.length, enemyModule.getEnemyCount(12, "endless"), "普通场的敌人数仍按关卡表生成");
+		assertEqual(slot.currentBattle.enemies.every(enemy => !enemy.boss), true, "普通场没有 boss 敌人，也不会沿用上一场的标记");
+		let base = rewardsData.getEndlessReward(12, ["gold", "exp"]);
+		winCurrentBattle();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, base.gold, "普通场金币 = 1 倍基准");
+		assertEqual(slot.currency.exp, base.exp, "普通场经验 = 1 倍基准");
+		assertEqual(slot.curioOffers.length, 0, "普通场 rng=0.5 不刷奇物商店");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two"]), "普通场不弃技能");
+		assertEqual(JSON.stringify(slot.curios), JSON.stringify(["energy_core"]), "普通场不弃奇物");
+		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss 战"), `普通场标题不带 Boss：${screenText()}`);
+		click("返回营地");
+		session();
+		// ---- 第 2 场：上一场没抽中，这一场独立掷中 → 换单 Boss、走 Boss 结算
+		clickBossBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "第 2 场独立掷中 Boss（不继承第 1 场的 false）");
+		assertEqual(slot.currentBattle.enemies.length, 1, "Boss 场只有 1 名敌人");
+		assertEqual(slot.currentBattle.enemies[0].boss, true, "Boss 敌人标记随阵容落盘");
+		base = rewardsData.getEndlessReward(13, ["gold", "exp"]);
+		const goldBefore = slot.currency.gold;
+		const expBefore = slot.currency.exp;
+		winCurrentBattle();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold - goldBefore, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 = 20 倍基准");
+		assertEqual(slot.currency.exp - expBefore, base.exp * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场经验 = 20 倍基准");
+		assert(slot.curioOffers.length > 0, "Boss 场胜利后奇物商城强制刷新");
+		assertEqual(slot.skills.length, 1, "Boss 场胜利弃掉 1 个技能");
+		assertEqual(slot.curios.length, 0, "Boss 场胜利弃掉 1 件奇物");
+		assert(screenText().includes("Boss 战 · 战斗胜利"), `Boss 场标题：${screenText()}`);
+		click("返回营地");
+		session();
+		// ---- 第 3 场：刚打完 Boss，下一场也必须回到普通结算（这是本次修改的核心目的）
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "第 3 场不再继承上一场的 Boss 身份");
+		assertEqual(slot.currentBattle.enemies.length, enemyModule.getEnemyCount(14, "endless"), "第 3 场按普通关卡生成");
+		base = rewardsData.getEndlessReward(14, ["gold", "exp"]);
+		const goldBefore3 = slot.currency.gold;
+		winCurrentBattle();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold - goldBefore3, base.gold, "第 3 场回到 1 倍基准，20 倍没有跟过来");
+		assertEqual(slot.curioOffers.length, 0, "第 3 场不再强制刷新奇物商店");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one"]), "第 3 场不弃技能");
+		assertEqual(slot.level, 15, "关卡照常推进");
+		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss 战"), `第 3 场标题：${screenText()}`);
+		return "普通(1×)→Boss(20×+弃置+强刷)→普通(1×)，三场各判各的";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("v11 旧档迁移：整局 bossRun 只折算进正在进行的这一场，下一场回到逐场判定", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		// ① 旧档正打到一半：v11 的整局 bossRun + 阵容里带 boss 标记的敌人（没有 isBossBattle 字段）
+		putLegacyV11(0, {
+			level: 3,
+			currency: { gold: 0, exp: 0 },
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], boss: true, maxHp: 0, hp: 0 }],
+				rift: null,
+			},
+		});
+		session();
+		// 旧档读入会先弹一条「已从版本11迁移到12」的提示，确认后才是恢复页
+		click("确定");
+		// 读档这一刻还没有落盘：存档里仍是原始的 v11 形状（带整局 bossRun）。
+		// 旧字段只被折算进「正在进行的这一场」，它本身不再被任何代码读取——
+		// 下面恢复出的这一场能否按 20 倍与 Boss 标题结算，就是它唯一的影响范围。
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.enemies[0].boss, true, "旧档的 Boss 阵容原样保留");
+		click("重新挑战这一关");
+		await flush();
+		assertEqual(game.players.length, 2, "恢复的还是那一场单 Boss");
+		assertEqual(game.players[1].name, "佐菲", "敌人原样，没有重掷");
+		assertEqual(game.players[1].maxHp, lib.character["佐菲"].maxHp * 2, "迁移场的体力翻倍规则照常生效");
+		const base3 = rewardsData.getEndlessReward(3, ["gold", "exp"]);
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, base3.gold * cfg.BOSS_REWARD_MULTIPLIER, "迁移过来的这一场仍按 20 倍结算");
+		assert(slot.curioOffers.length > 0, "迁移过来的这一场仍强制刷新奇物商店");
+		assert(screenText().includes("Boss 战 · 战斗胜利"), `迁移场标题：${screenText()}`);
+		assertEqual(slot.currentBattle, null, "本场结算完清理战斗状态");
+		assertEqual(slot.bossRun, undefined, "落盘后整局字段彻底消失，管不到后面的关卡");
+		click("返回营地");
+		session();
+		// ② 下一场独立判定：钉成不抽中就是普通关，旧 bossRun 不会把它锁成 Boss 战
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "下一场独立判为普通战斗");
+		assertEqual(slot.bossRun, undefined, "读档后整局字段始终不存在");
+		const base4 = rewardsData.getEndlessReward(4, ["gold", "exp"]);
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, base3.gold * cfg.BOSS_REWARD_MULTIPLIER + base4.gold, "下一场回到 1 倍基准");
+		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss 战"), `下一场标题：${screenText()}`);
+		click("返回营地");
+		session();
+		// ③ 旧档「没有进行中战斗」：旧 bossRun 不能决定下一场，抽不抽中只看创建这一场时的那一掷
+		putLegacyV11(0, { level: 2, currency: { gold: 0, exp: 0 } });
+		session();
+		click("确定");
+		assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "旧档没有进行中战斗");
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "没抽中就是普通关：旧 bossRun 不会把下一场锁成 Boss 战");
+		assertEqual(slot.bossRun, undefined, "落盘之后整局字段彻底消失");
+		// 同一份旧档形状，把这一掷钉成抽中 → 本场照样走 Boss 链路，且只替换这一场
+		freshWorld();
+		putLegacyV11(0, { level: 2, currency: { gold: 0, exp: 0 } });
+		session();
+		click("确定");
+		clickBossBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "抽中时这一场就是 Boss 战");
+		assertEqual(slot.currentBattle.enemies.length, 1, "旧档形状下也只替换这一场");
+		return "迁移场保阵容保结算 → 下一场独立判定 → 无战斗的旧档不被锁死";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("闯关模式共用同一套逐场判定：抽中的那一关换单 Boss 拿 20 倍，下一关照常走关卡配置池", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		session();
+		await newRunByUi("闯关模式");
+		// 抽中 Boss：这一关不走 challengeStages 的关卡配置，而是替换为单 Boss 阵容
+		clickBossBattle();
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "闯关本场判为 Boss 战");
+		assertEqual(slot.currentBattle.enemies.length, 1, "本场替换为单 Boss 阵容");
+		assertEqual(slot.currentBattle.enemies[0].boss, true, "boss 标记随阵容落盘");
+		const base1 = rewardsData.getChallengeReward(1);
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, cfg.INITIAL_CURRENCY.gold + base1.gold * cfg.BOSS_REWARD_MULTIPLIER, "闯关 Boss 胜利 = 20 倍本关基准");
+		assertEqual(slot.level, 2, "关卡照常推进");
+		assertEqual(slot.curioOffers.length, 0, "闯关没有奇物商店，Boss 场也不凭空刷出货");
+		assert(screenText().includes("Boss 战 · 战斗胜利"), `闯关 Boss 场标题：${screenText()}`);
+		click("返回营地");
+		session();
+		// 下一关独立判定：没抽中 → 严格回到原来的关卡配置池流程
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "下一关独立判为普通战斗");
+		assertEqual(slot.challengeStages.length, cfg.CHALLENGE_STAGE_LEVELS, "前 10 关的抽取结果照旧存在并继续使用");
+		assertEqual(slot.currentBattle.enemies.every(enemy => !enemy.boss), true, "普通关的敌人不带 boss 标记");
+		const base2 = rewardsData.getChallengeReward(2);
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, cfg.INITIAL_CURRENCY.gold + base1.gold * cfg.BOSS_REWARD_MULTIPLIER + base2.gold, "下一关回到 1 倍基准");
+		assertEqual(slot.skills.length, 0, "普通关不弃技能（Boss 的弃置只跟着 Boss 场）");
+		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss 战"), `下一关标题不带 Boss：${screenText()}`);
+		return "闯关：本场换 Boss(20×) → 下一关回关卡配置(1×)";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("Boss 场战败：一件不弃，本场标记随战斗状态一起清掉，重战这一关重新独立判定", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		putRun(0, {
+			mode: "challenge",
+			characterId: "迪迦",
+			level: 7,
+			currency: { gold: 100, exp: 100 },
+			skills: ["own_one", "own_two"],
+			curios: ["energy_core"],
+		});
+		session();
+		clickBossBattle();
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "本场判为 Boss 战");
+		game.me.__alive = false;
+		game.me.hp = 0;
+		lib.element.player.dieAfter.call(game.me);
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle, null, "战败同样清空本场状态（Boss 身份随之消失）");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two"]), "Boss 的强制弃置只在胜利结算执行，战败一件不动");
+		assertEqual(JSON.stringify(slot.curios), JSON.stringify(["energy_core"]), "战败不弃奇物");
+		assertEqual(slot.level, 7, "闯关失败关卡不后退");
+		const failText = screenText();
+		assert(failText.includes("战斗失败") && !failText.includes("Boss"), `失败页不提 Boss：${failText}`);
+		click("返回营地");
+		session();
+		// 重战这一关 = 一场全新的战斗：判定各掷各的，这里没抽中就是普通关
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "重战的这一关独立判为普通战斗");
+		assertEqual(slot.level, 7, "仍在第 7 关");
+		assertEqual(slot.currentBattle.enemies.every(enemy => !enemy.boss), true, "普通关敌人不带 boss 标记");
+		return "战败不弃置 → 状态清空 → 重战独立判定";
 	} finally {
 		Math.random = originalRandom;
 	}
@@ -2802,7 +3140,7 @@ await check("奇物商店按配置概率门控：未命中清空旧批次且不�
 			curioOffers: [{ id: "lucky_stone", price: 66 }],
 		});
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -2817,7 +3155,7 @@ await check("奇物商店按配置概率门控：未命中清空旧批次且不�
 		// 第二胜：rng=0 → 奇物商店命中整批重摇、事件也触发（顺序：先候选、后事件，同一次结算先后发生）
 		Math.random = () => 0;
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -2897,7 +3235,7 @@ await check("商店锁结算：技能锁保住候选（买过的那张留货显�
 			shopRefreshesRemaining: 0,
 		});
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -2917,7 +3255,7 @@ await check("商店锁结算：技能锁保住候选（买过的那张留货显�
 		// 没锁 → 照旧清空（与原来逐字一致）
 		putRun(0, { mode: "endless", level: 3, shopOffers: [{ id: "rogue_extra", price: 66 }] });
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -2935,7 +3273,7 @@ await check("商店锁结算：技能锁保住候选（买过的那张留货显�
 			curioOffers: [{ id: "lucky_stone", price: 66 }],
 		});
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -2969,7 +3307,7 @@ await check("橱窗留货的已购买：下一关仍在货架上、点不动，�
 			shopRefreshesRemaining: 0,
 		});
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -3137,7 +3475,7 @@ await check("深渊化：第 120 关新开战必定带词缀并随阵容落盘�
 	lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
 	putRun(0, { mode: "endless", level: 120 }, stateModule.createRun("endless", "迪迦", 1));
 	session();
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	const notice = screenText();
 	assert(!notice.includes("角色池为空"), `敌方池不应为空：${notice.slice(0, 200)}`);
@@ -3178,7 +3516,7 @@ await check("深渊化不影响普通玩法：闯关高层与无尽低层的敌�
 		lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
 		putRun(0, { mode, level }, stateModule.createRun(mode, "迪迦", 1));
 		session();
-		click("开始下一关");
+		clickNormalBattle();
 		await flush();
 		const enemies = lib.storage.rogueSlots[0].currentBattle?.enemies ?? [];
 		assert(enemies.length >= 1, `${label} 应组出敌人`);
@@ -3478,6 +3816,7 @@ await check("深渊裂隙：先确认再进场，敌人数与词缀按事件参�
 	assert(entered.currentBattle.enemies.every(entry => entry.abyss.length >= 1), `裂隙每名敌人至少自带一条：${entered.currentBattle.enemies.map(e => e.abyss.length).join(",")}`);
 	assert(entered.currentBattle.enemies.every(entry => new Set(entry.abyss).size === entry.abyss.length), "同一敌人身上的词缀不重复");
 	assertEqual(JSON.stringify(entered.currentBattle.rift), JSON.stringify({ level: 4, enemies: 5, affixes: 1, gold: 800, exp: 320 }), "rift 参数落盘，重载后靠它把这场该发多少带回来");
+	assertEqual(entered.currentBattle.isBossBattle, false, "裂隙场显式记为普通战斗：逐场 Boss 判定不往里套");
 	// 重载后落在恢复页：这一场要认得出是裂隙，而不是「战斗未正常结算」
 	session();
 	const resumeText = screenText();
@@ -3516,7 +3855,7 @@ await check("经验泉的债：下一场每名敌人追加词缀，开战即兑�
 		pendingEvent: null,
 	});
 	session();
-	click("开始下一关");
+	clickNormalBattle();
 	await flush();
 	const run = lib.storage.rogueSlots[0];
 	assertEqual(run.abyssDebt, 0, "开战即把债清掉");

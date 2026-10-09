@@ -682,7 +682,8 @@ check("currentBattle 恢复：保存完整敌方阵容，重载原样读回而�
 		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", stats: {}, abyss: [], skills: [], maxHp: 0, hp: 0 }] },
 	});
 	assertEqual(legacy.currentBattle.enemies[0].boss, false, "旧档缺 boss 字段按 false 补齐");
-	assertEqual(Object.keys(run.currentBattle).sort().join(","), "enemies,rift,status", "只保留 status / enemies / rift");
+	assertEqual(Object.keys(run.currentBattle).sort().join(","), "enemies,isBossBattle,rift,status", "只保留 status / enemies / rift / isBossBattle");
+	assertEqual(run.currentBattle.isBossBattle, false, "v12：这一场没被判定为 Boss 战（阵容里有 boss 敌人也不等于整场是 Boss 战）");
 	assertEqual(run.currentBattle.rift, null, "普通战斗没有裂隙参数");
 	// 重启游戏重读同一份存档：阵容完全一致，不允许重新随机
 	const reloaded = state.normalizeRun({ ...run });
@@ -2184,6 +2185,13 @@ check("奇物机制技：四种战斗内效果都由 rogue_curio 承载", () => 
 	assertEqual(makePlayer.recoveredTo, 1, "回复体力值至 1");
 	assertEqual(belter.storage.rogue_curio_belt, true, "记录已用过");
 	assert(!info.filter({ name: "dying" }, belter, "dying"), "每局只救一次");
+	// 史诗档回「体力上限的一半」：取整方向是**向上**（Math.ceil），界面文案就按这个写。
+	// 上限特意给奇数——偶数上下取整同值，钉不住方向
+	const belter2 = makePlayer({ dyingSave: 1, dyingRecoverToRatio: 0.5 });
+	belter2.maxHp = 5;
+	belter2.hp = 0;
+	info.content(skillEvent("dying", { name: "dying" }), { name: "dying" }, belter2);
+	assertEqual(makePlayer.recoveredTo, 3, "上限 5 → 回复至 3（向上取整）");
 	// 每轮结束回 1 血
 	const rice = makePlayer({ roundHeal: 1 });
 	rice.hp = 2;
@@ -2812,8 +2820,13 @@ check("奇物品质：七件奇物的逐档效果与文案", () => {
 	assertEqual(curioManager.describeCurioEffects({ goldRate: 0.05, goldRateSpread: 0.1 })[0], "金币获取 -5%~+15%", "偏移波动档文案");
 	assertEqual(
 		curioManager.describeCurioEffects({ dyingSave: 1, dyingRecoverToRatio: 0.5 })[0],
-		"每局游戏首次进入濒死状态时，回复体力值至体力上限的 50%",
-		"比例档文案"
+		"每局游戏首次进入濒死状态时，回复体力值至体力上限的一半（向上取整）",
+		"比例档文案：一半就说一半，取整方向与 data/skills.js 的 Math.ceil 对齐"
+	);
+	assertEqual(
+		curioManager.describeCurioEffects({ dyingSave: 1 })[0],
+		"每局游戏首次进入濒死状态时，回复体力值至1",
+		"没写比例的档仍回固定 1"
 	);
 	// 文案一律自动生成（没有手写兜底字段），同一个奇物各档之间句式因此统一
 	assertEqual(curioManager.describeCurio("energy_core", {})[0], "摸牌阶段额外摸 1 张牌", "初始档按效果生成");
@@ -3718,17 +3731,73 @@ check("新增四事件：倍率按刚打赢那关的基准换算成固定值，�
 	return `第 ${BASE_LEVEL} 关基准 ${BASE_GOLD} 金币 / ${BASE_EXP} 经验；四事件共 ${supply.choices.length + veteran.choices.length + vein.choices.length + merchant.choices.length} 个选项`;
 });
 
-check("bossRun 存档往返：旧档缺字段按普通局补齐，判定结果读档不重掷", () => {
-	const normal = state.normalizeRun({ ...freshRun() });
-	assertEqual(normal.bossRun, false, "旧档缺字段按普通局（false）");
-	const boss = state.normalizeRun({ ...freshRun(), bossRun: true });
-	assertEqual(state.normalizeRun({ ...boss }).bossRun, true, "读档原样保留，绝不重新随机");
-	assertEqual(state.cloneRun(boss).bossRun, true, "cloneRun 也不丢");
-	// v10 旧档迁移：只补默认值，不报错
-	const migrated = state.migrateSlots([{ ...freshRun(), version: 10 }]);
-	assert(migrated.slots[0] !== null, "v10 旧档照常读入");
-	assertEqual(migrated.slots[0].bossRun, false, "v10 旧档迁移后按普通局");
-	return "缺字段补 false / true 原样往返 / v10 迁移";
+check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBattle 往返且读档不重掷", () => {
+	assertEqual(cfg.BOSS_RUN_RATE, 0.05, "判定概率仍是 5%（本次只改判定时机，不改概率）");
+	assertEqual(cfg.RUN_VERSION, 12, "存档版本抬到 v12");
+	// 新档不再带整局的 bossRun：这个字段一旦还能被读到，就可能继续影响后面的关卡
+	const fresh = freshRun(cfg.RUN_MODE.endless);
+	assertEqual(fresh.bossRun, undefined, "新档没有整局 bossRun");
+	assertEqual(fresh.currentBattle, null, "新档没有进行中战斗");
+	// Boss 场与普通场各自显式记录，读档/cloneRun 原样带回，绝不重新随机
+	const bossBattle = state.normalizeRun({
+		...fresh,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null, isBossBattle: true },
+	});
+	assertEqual(bossBattle.currentBattle.isBossBattle, true, "本场 Boss 标记读回 true");
+	assertEqual(state.normalizeRun({ ...bossBattle }).currentBattle.isBossBattle, true, "二次读档仍为 true，绝不重掷");
+	assertEqual(state.cloneRun(bossBattle).currentBattle.isBossBattle, true, "cloneRun 也不丢");
+	const normalSaved = state.normalizeRun({
+		...fresh,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲" }], rift: null, isBossBattle: false },
+	});
+	assertEqual(normalSaved.currentBattle.isBossBattle, false, "普通战斗显式记 false，不沿用上一场");
+	assertEqual(state.normalizeRun({ ...normalSaved }).currentBattle.isBossBattle, false, "false 也照抄（不被 legacy 分支翻案）");
+	// 旧 v11 档迁移三态
+	// ① 正处于 Boss 场：按旧 bossRun + 阵容里的 boss 敌人折算出这一场，原阵容与原结算规则都保住
+	const midBoss = state.migrateSlots([{
+		...fresh,
+		version: 11,
+		bossRun: true,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null },
+	}]);
+	assert(midBoss.errors.some(error => error.includes("迁移到12")), "v11 旧档报一条迁移提示");
+	assertEqual(midBoss.slots[0].bossRun, undefined, "迁移后整局 bossRun 字段消失，无法再影响后续关卡");
+	assertEqual(midBoss.slots[0].currentBattle.isBossBattle, true, "正在进行的这一场保住 Boss 战身份");
+	assertEqual(midBoss.slots[0].currentBattle.enemies[0].boss, true, "敌方阵容原样保留");
+	// ② 正处于深渊裂隙那一场（旧档 bossRun 也是整局的）：裂隙有自己的独立结算，不折算成 Boss 场
+	const midRift = state.normalizeRun({
+		...fresh,
+		bossRun: true,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲" }], rift: { level: 3, enemies: 5, affixes: 2, gold: 100, exp: 40 } },
+	});
+	assertEqual(midRift.currentBattle.isBossBattle, false, "裂隙场不因旧 bossRun 变成 Boss 场");
+	assertEqual(midRift.currentBattle.rift.enemies, 5, "裂隙参数原样保留");
+	// ③ 没有进行中战斗：旧 bossRun 一律不补，下一场按逐场规则独立判定
+	const idle = state.normalizeRun({ ...fresh, version: 11, bossRun: true });
+	assertEqual(idle.currentBattle, null, "没有进行中战斗");
+	assertEqual(idle.bossRun, undefined, "旧字段被丢弃，下一场不会必然成为 Boss 战");
+	// v10 及更早的旧档：同样安全补齐，不报错
+	const old = state.migrateSlots([{ ...freshRun(), version: 10 }]);
+	assert(old.slots[0] !== null, "v10 旧档照常读入");
+	assertEqual(old.slots[0].bossRun, undefined, "v10 旧档不带整局 bossRun");
+	return "字段移除 / true·false 原样往返 / v11 三态迁移 / v10 补齐";
+});
+
+check("v11 旧档阵容带 boss 敌人但旧 bossRun 为 false：折算结果仍是普通战斗", () => {
+	const run = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		bossRun: false,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null },
+	});
+	assertEqual(run.currentBattle.isBossBattle, false, "旧档判定为普通局时不因阵容里有 boss 敌人而翻案");
+	// 损坏的 legacy 入参（整局字段不是布尔）也绝不能被当成 Boss 场
+	const junk = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		bossRun: "yes",
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null },
+	});
+	assertEqual(junk.currentBattle.isBossBattle, false, "非 true 的旧字段按 false 处理");
+	return "旧 false / 非法值两态";
 });
 
 check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的全部技能、自带一个深渊强化", () => {
@@ -3776,9 +3845,10 @@ check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的�
 		assertEqual(enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0).length, 0, "可用池为空返回空阵容");
 		delete lib.config.identity_banned;
 		delete lib.config.all;
-		// 阵容可原样落盘读回（boss 标记与技能列表都是白名单字段）
-		const stored = state.normalizeRun({ ...freshRun(), bossRun: true, currentBattle: { status: "battle", enemies: forced } });
+		// 阵容可原样落盘读回（boss 标记与技能列表都是白名单字段），本场的 Boss 身份一起带走
+		const stored = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies: forced, rift: null, isBossBattle: true } });
 		assertEqual(stored.currentBattle.enemies[0].boss, true, "boss 标记读档保留");
+		assertEqual(stored.currentBattle.isBossBattle, true, "本场 Boss 身份与阵容一起落盘、一起读回");
 		assertEqual(JSON.stringify(stored.currentBattle.enemies[0].skills), JSON.stringify(["donor_b1", "donor_c1"]), "复制来的技能读档保留");
 		return "单敌 / 禁将拦 Boss / 两来源全技能 / 自带 1 强化 / 空池兜底";
 	} finally {
@@ -3825,41 +3895,61 @@ check("禁将复查：单条技能属于当前禁将角色（含衍生技、含�
 	}
 });
 
-check("Boss 战胜利：奖励 = 20 倍胜利金币/经验基准（不吃奇物加成），奇物商店强制刷新", () => {
+check("Boss 战胜利：本场标记回传 + 20 倍奖励（不吃奇物加成）+ 奇物商店强制刷新，下一场普通战斗不受牵连", () => {
 	const rng = () => 0.999;
-	// rng 钉在 0.999：普通局必不刷奇物商店（0.999 ≥ 0.2），Boss 局必须刷出——证明是强制而非概率
-	const run = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), bossRun: true, level: 4 });
+	// rng 钉在 0.999：普通场必不刷奇物商店（0.999 ≥ 0.2），Boss 场必须刷出——证明是强制而非概率
+	// v12：Boss 身份只写在「刚打完的这一场」currentBattle.isBossBattle 上
+	const run = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 4,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null, isBossBattle: true },
+	});
 	const base = rewardsData.getEndlessReward(4, ["gold", "exp"]);
 	const bossWin = reward.settleVictory(run, NOW, rng);
+	assertEqual(bossWin.isBossBattle, true, "本场标记随结算回传（next 里 currentBattle 已清空，只能靠回传）");
 	assertEqual(bossWin.gained.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "金币 = 20 倍本关胜利金币");
 	assertEqual(bossWin.gained.exp, base.exp * cfg.BOSS_REWARD_MULTIPLIER, "经验 = 20 倍本关胜利经验");
 	assert(bossWin.run.curioOffers.length > 0, "奇物商店强制刷新出一批");
 	assertEqual(bossWin.run.level, run.level + 1, "关卡照常推进");
+	assertEqual(bossWin.run.currentBattle, null, "本场战斗状态已清理");
 	assertEqual(bossWin.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "免费刷新次数照常恢复");
+	// 关键：Boss 的倍率与强刷只生效这一次。下一场是普通战斗（currentBattle 已空 = 由 flow 重新判定），
+	// 结算必须回到 1 倍基准、商店按概率不刷——绝不能把 Boss 规则带给下一关
+	const nextNormal = reward.settleVictory(bossWin.run, NOW, rng);
+	assertEqual(nextNormal.isBossBattle, false, "下一场不再是 Boss 战");
+	assertEqual(nextNormal.gained.gold, rewardsData.getEndlessReward(5, ["gold"]).gold, "下一场按 1 倍基准");
+	assertEqual(nextNormal.gained.exp, rewardsData.getEndlessReward(5, ["exp"]).exp, "下一场经验也不加倍");
+	assertEqual(nextNormal.run.curioOffers.length, 0, "下一场 rng=0.999 不刷奇物商店");
 	// 带金币/经验加成的奇物也不叠加： LuckyStone(+10% 经验) / 诅咒金币(±金币) 对 Boss 奖励无效
 	const boosted = state.normalizeRun({ ...run, curios: ["lucky_stone", "cursed_coin"] });
+	assertEqual(boosted.currentBattle.isBossBattle, true, "加奇物后本场身份不变");
 	const boostedWin = reward.settleVictory(boosted, NOW, rng);
 	assertEqual(boostedWin.gained.gold, bossWin.gained.gold, "金币加成不叠到 Boss 奖励上");
 	assertEqual(boostedWin.gained.exp, bossWin.gained.exp, "经验加成不叠到 Boss 奖励上");
-	// 对照：普通局同 rng 下 1 倍基准、商店不刷
-	const normalWin = reward.settleVictory(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 4, bossRun: false }), NOW, rng);
-	assertEqual(normalWin.gained.gold, base.gold, "普通局保持 1 倍基准");
-	assertEqual(normalWin.gained.exp, base.exp, "普通局经验不加倍");
-	assertEqual(normalWin.run.curioOffers.length, 0, "普通局 rng=0.999 不刷奇物商店");
-	// 收藏家的橱窗（史诗档）锁着旧货：Boss 战照样强制刷新替换
+	// 对照：普通场同 rng 下 1 倍基准、商店不刷（普通战斗显式记 isBossBattle: false）
+	const normalWin = reward.settleVictory(state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 4,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲" }], rift: null, isBossBattle: false },
+	}), NOW, rng);
+	assertEqual(normalWin.isBossBattle, false, "普通场回传 false");
+	assertEqual(normalWin.gained.gold, base.gold, "普通场保持 1 倍基准");
+	assertEqual(normalWin.gained.exp, base.exp, "普通场经验不加倍");
+	assertEqual(normalWin.run.curioOffers.length, 0, "普通场 rng=0.999 不刷奇物商店");
+	// 收藏家的橱窗（史诗档）锁着旧货：Boss 场照样强制刷新替换
 	const locked = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
-		bossRun: true,
 		level: 4,
 		curios: ["collector_showcase"],
 		curioQuality: { collector_showcase: "epic" },
 		curioShopLocked: true,
 		curioOffers: [{ id: "energy_core", price: 100 }],
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null, isBossBattle: true },
 	});
 	const lockedWin = reward.settleVictory(locked, NOW, rng);
 	assert(!lockedWin.run.curioOffers.some(offer => offer.id === "energy_core"), "锁着的旧货被强制刷新替换");
 	assert(lockedWin.run.curioOffers.length > 0, "强制刷新后仍有新货");
-	return `第 4 关 Boss ${base.gold * 20}/${base.exp * 20}，强制刷新与锁覆盖各验一次`;
+	return `第 4 关 Boss ${base.gold * 20}/${base.exp * 20}，下一场回 1 倍 + 强制刷新与锁覆盖各验一次`;
 });
 
 check("Boss 战强制惩罚：随机失去 1 个购买技能与 1 件奇物，空列表安全跳过", () => {

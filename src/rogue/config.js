@@ -58,12 +58,17 @@ export const COLLECTION_KEY = "rogueCollection";
  * 一次性从 data/challengeCombos.js 的组合池抽出 10 个并落盘，第 11~20 关按位使用，
  * 第 21~30 关复用同一结果再加扩展池随机第三人；旧档缺字段按空数组补齐，首次需要时补抽一次，
  * 之后绝不重掷）。
- * v11 新增 bossRun（本局是否为 Boss 战：建局时按 BOSS_RUN_RATE 一次性判定并落盘，读档/重进绝不重掷，
- * 旧档按普通局补齐），并让 currentBattle.enemies 的每一项可多一个 boss（该敌人按 Boss 战规则落地：
- * 体力 ×2 等；旧档缺字段按普通敌人处理，不需要抬语义）。
+ * v11 让 currentBattle.enemies 的每一项可多一个 boss（该敌人按 Boss 战规则落地：
+ * 体力 ×2 等；旧档缺字段按普通敌人处理，不需要抬语义）。v11 一度还新增过整局的 bossRun
+ * （建局时判定一次、整局都是 Boss 战），v12 已把它删掉换成逐场判定。
+ * v12 起 Boss 战改为「每场新战斗独立判定」：currentBattle 新增 isBossBattle（这一场是不是 Boss 战，
+ * 由创建战斗时按 BOSS_RUN_RATE 掷一次写死，随阵容一起落盘，读档/重进/失败重战只认它、绝不重掷），
+ * 并移除整局的 bossRun 字段。旧 v11 档迁移：正处于未完成战斗的，按旧 bossRun + 阵容里的 boss 敌人
+ * 折算出这一场的 isBossBattle（保留原阵容与原结算规则）；没有未完成战斗的一律不补，
+ * 下一场按新的逐场规则独立判定，旧字段绝不会再把整局锁成 Boss 战。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 11;
+export const RUN_VERSION = 12;
 export const SLOT_COUNT = 6;
 
 /**
@@ -184,12 +189,16 @@ export const MERCHANT_PRICE_MULTIPLIER = 4;
 export const FORGE_EXP_MULTIPLIER = 3;
 
 // ---------------------------------------------------------------- Boss 战
-// 以下参数作用于两种模式：建局时按概率把整局替换为 Boss 战（判定只做一次，随存档落盘）。
+// 以下参数作用于两种模式：每场新战斗创建时独立掷一次概率，抽中就把**那一场**替换为 Boss 战。
+// 判定不看整局、也不看上一场的结果，所以既不连续锁定、也不因之前没抽中而提高概率。
 
 /**
- * Boss 战替换概率：新建一局时 Math.random() < BOSS_RUN_RATE 即本局为 Boss 战。
- * 只在「本局正式进入第一场战斗之前」（建局那一刻）判定一次，随后写进 run.bossRun 落盘；
- * 读档、重进、重新开战一律沿用存档里的结果，绝不重新随机。
+ * Boss 战替换概率：即将创建一场新的常规关卡战斗时 Math.random() < BOSS_RUN_RATE 即本场为 Boss 战。
+ * 判定点只有一处（flow/battle.js 的 startBattle，且只在 currentBattle 为空时）：结果写进
+ * currentBattle.isBossBattle 并与敌方阵容同一次落盘；读档恢复、页面重进、失败后重战都只认存档里
+ * 这一场的结果，绝不重新随机。结算（奖励倍率 / 强制弃置 / 奇物商店强刷 / 结算页标题）同样只看这一场，
+ * 战斗状态清掉后标记随之消失，下一场重新独立判定。
+ * 深渊裂隙那一场不走这里（它有独立结算，创建时显式记为普通战斗）。
  */
 export const BOSS_RUN_RATE = 0.05;
 

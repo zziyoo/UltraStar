@@ -4,7 +4,7 @@
 
 import { game } from "../../../../../noname.js";
 
-import { BATTLE_STATUS, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE } from "../config.js";
+import { BATTLE_STATUS, BOSS_RUN_RATE, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE } from "../config.js";
 import {
 	CHALLENGE_STAGE_STATE,
 	createBossEnemyConfig,
@@ -31,10 +31,15 @@ export function createBattleFlow(host) {
 			startFromSavedBattle(run.currentBattle.enemies);
 			return;
 		}
-		// Boss 战整局（run.bossRun 建局时判定一次并落盘）：本关替换为单 Boss 阵容，
-		// 不走关卡配置池 / 双人组合池（那些表在这一局里用不上，也不必因配置不足拦住 Boss 战）。
+		// 每一场新战斗独立掷一次（BOSS_RUN_RATE，约 5%）：能走到这里说明 run.currentBattle 是空的
+		// （有未完成战斗在上面已分流去恢复，绝不重掷），所以这一掷只属于即将创建的这一场。
+		// 结果写进 currentBattle.isBossBattle、与敌方阵容同一次落盘：无尽每推进一关、闯关每一关
+		// 都是各掷各的，既不因上一场抽中而连续锁定 Boss，也不因之前没抽中而提高概率。
+		const isBossBattle = Math.random() < BOSS_RUN_RATE;
+		// 抽中 Boss：本关替换为单 Boss 阵容，不走关卡配置池 / 双人组合池
+		// （那些表在这一场里用不上，也不必因配置不足拦住 Boss 战）。
 		// 阵容在开战前定死并随 currentBattle 落盘，中途刷新/崩溃后恢复、失败后重战都原样重打，绝不重掷
-		if (run.bossRun === true) {
+		if (isBossBattle) {
 			const bossLevel = Math.max(1, Math.floor(Number(run.level) || 0));
 			// 经验泉「再饮一口」欠的债照常兑现，随后清零（与普通关同一条纪律）
 			const debt = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
@@ -53,7 +58,7 @@ export function createBattleFlow(host) {
 			}
 			context.run = {
 				...run,
-				currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null },
+				currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null, isBossBattle: true },
 				abyssDebt: 0,
 			};
 			if (!commit()) {
@@ -162,7 +167,8 @@ export function createBattleFlow(host) {
 		}
 		context.run = {
 			...run,
-			currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null },
+			// 普通战斗也显式记下「本场不是 Boss 战」，绝不沿用上一场的状态
+			currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null, isBossBattle: false },
 			abyssDebt: 0,
 		};
 		if (!commit()) {

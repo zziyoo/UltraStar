@@ -263,6 +263,8 @@ export function createEventFlow() {
 				status: BATTLE_STATUS.battle,
 				enemies,
 				rift: { level: action.level, enemies: action.enemies, affixes: action.affixes + debt, gold: action.gold, exp: action.exp },
+				// 裂隙战有自己的独立结算，不参与逐场的 Boss 判定：显式记为普通战斗
+				isBossBattle: false,
 			},
 		};
 		reloadNow(false);

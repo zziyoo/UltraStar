@@ -238,7 +238,7 @@ function getBossSkillDonorCandidates(bossId) {
 }
 
 /**
- * 生成 Boss 战的单人阵容（Boss 战整局替换普通关卡，见 flow/battle.js 的 bossRun 分支）：
+ * 生成 Boss 战的单人阵容（创建那场战斗时逐场掷中 Boss 才走这里，见 flow/battle.js 的 isBossBattle 分支）：
  *   · 只有 1 名敌人，角色从当前模式敌方池再按统一禁将名单（getBannedCharacterIds）过滤后随机
  *     ——禁将绝不入选担当 Boss（闯关池本身刻意不拦禁将，那是固定配置「照打」的口径，这里不适用）；
  *   · 额外获得另外两个不同角色（不与 Boss 本体重复）的全部技能，全部随阵容落盘、
