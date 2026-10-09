@@ -199,7 +199,8 @@ function alignBossState(enemies, bossFlags, declaredBossBattle, rift) {
  * v7 起额外携带 rift：有它 = 这一场是深渊裂隙，结算走「只发定死的倍率奖励、不推进关卡、不掷事件与奇物商店」。
  * v12 起额外携带 isBossBattle：这一场是不是 Boss 战。它只属于这一场，由创建战斗的那一方写死，
  * 读档原样沿用、绝不重掷；胜利/失败结算与下一场判定都只看它，不再看整局的旧 bossRun 字段。
- * 敌人的 boss 标记在读档时与它对一次账（见 alignBossState），矛盾组合一律以整场标记为准。
+ * 敌人的 boss 标记在读档时与它对一次账（见 alignBossState）：冲突时既不把明确的普通敌人升级成 Boss，
+ * 也不让无效形状（多人阵容、裂隙场）领 Boss 奖励，结算与战斗效果都以**对齐后**的 isBossBattle 为准。
  *
  * @param {object} rawBattle 存档里的 currentBattle
  * @param {boolean} [legacyBossRun] 旧档（v11）整局的 bossRun：只用于给「这一场」补标记——
@@ -214,9 +215,11 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 	const rift = normalizeRift(rawBattle.rift);
 	const { enemies, bossFlags } = normalizeBattleEnemies(rawBattle.enemies);
 	if (enemies.length) {
-		// 判定只发生在创建战斗时，这里只做还原：显式写过 isBossBattle 的一律照抄（含 false）。
-		// 旧档回退（拿整局 bossRun 折算）只看**字段是否真的不存在**——不能用 `== null` 代替存在性判断，
-		// 那会把异常存档里明确写着的 null 也当成「旧档没这个字段」，让它借 bossRun 回退成 Boss 战
+		// 判定只发生在创建战斗时，这里只做还原：存档里已经写过 isBossBattle 的就以它为准，
+		// 绝不再拿旧版整局 bossRun 去覆盖（含 null 等非法值——那是异常存档，按普通战斗降级）。
+		// 旧档回退只看**字段是否真的不存在**：不能用 `== null` 代替存在性判断，
+		// 那会把明确写着的 null 也当成「旧档没这个字段」，让它借 bossRun 回退成 Boss 战。
+		// 折算/照抄得到的身份还要过 alignBossState 的一致性校验：敌人标记冲突、多人阵容、裂隙场都会降为普通战斗
 		const hasBossField = Object.prototype.hasOwnProperty.call(rawBattle, "isBossBattle");
 		const declared = rawBattle.isBossBattle === true
 			|| (!hasBossField && legacyBossRun === true && enemies.some(enemy => enemy.boss === true));
