@@ -3815,6 +3815,65 @@ check("v11 旧档阵容带 boss 敌人但旧 bossRun 为 false：折算结果仍
 	return "旧 false / 非法值 / 旧 true 但形状不符 三态";
 });
 
+check("旧档回退的边界：只有 isBossBattle 字段真的不存在才允许用 bossRun 折算", () => {
+	/**
+	 * 一份「整局 bossRun + 单个 boss 敌人」的存档形状。
+	 * withField=false 表示存档里**根本没有** isBossBattle 这个键（真·v11 旧档）；
+	 * 传了 isBossBattle 就按原样写进去（含 null / 非法值 / undefined）。
+	 */
+	const battleOf = ({ isBossBattle, withField = true, bossRun = true, enemies = [{ characterId: "佐菲", boss: true }] } = {}) => {
+		const battle = { status: "battle", enemies, rift: null };
+		if (withField) {
+			battle.isBossBattle = isBossBattle;
+		}
+		return state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), bossRun, currentBattle: battle }).currentBattle;
+	};
+	/** 把归一化结果原样当成存档再读一次：结果必须稳定，不能来回翻转 */
+	const reread = battle => state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		currentBattle: { status: battle.status, enemies: battle.enemies, rift: battle.rift, isBossBattle: battle.isBossBattle },
+	}).currentBattle;
+	// ① 字段真的不存在（v11 旧档）→ 才允许用 bossRun 折算，合法的进行中 Boss 战保住
+	const migrated = battleOf({ withField: false });
+	assertEqual(migrated.isBossBattle, true, "字段不存在才走旧档折算");
+	assertEqual(migrated.enemies[0].boss, true, "折算后敌人 Boss 标记原样保留");
+	assertEqual(JSON.stringify(reread(migrated)), JSON.stringify(migrated), "折算结果再读档保持稳定");
+	// ② 字段存在但值是 null（异常存档）→ 不许旧版回退，安全降级为普通战斗
+	//    （本轮修的缺陷：过去 `== null` 会把 null 与「缺字段」混为一谈）
+	const nullField = battleOf({ isBossBattle: null });
+	assertEqual(nullField.isBossBattle, false, "null 是非法值、不是「没这个字段」→ 不得借 bossRun 回退成 Boss 战");
+	assertEqual(nullField.enemies[0].boss, false, "降级后清除敌人的 Boss 标记");
+	assertEqual(JSON.stringify(reread(nullField)), JSON.stringify(nullField), "降级结果再读档稳定，不会重新变成 Boss 战");
+	// ③ 字段存在且明确 false → 普通战斗，旧 bossRun 不得翻转
+	const explicitFalse = battleOf({ isBossBattle: false });
+	assertEqual(explicitFalse.isBossBattle, false, "明确 false 保持普通战斗");
+	assertEqual(explicitFalse.enemies[0].boss, false, "敌人标记同样被抹平");
+	// ④ 字段存在且是 null、整局旧字段也不是 true → 同样降级
+	const nullWithPlainRun = battleOf({ isBossBattle: null, bossRun: false });
+	assertEqual(nullWithPlainRun.isBossBattle, false, "null + 旧 bossRun=false → 普通战斗");
+	assertEqual(nullWithPlainRun.enemies[0].boss, false, "敌人 Boss 标记清为 false");
+	// ⑤ 其它非法值（字符串/数字/对象/undefined）一律安全降级，且重复读档不回退
+	for (const bad of ["yes", 1, {}, undefined]) {
+		const broken = battleOf({ isBossBattle: bad });
+		assertEqual(broken.isBossBattle, false, `isBossBattle=${JSON.stringify(bad) ?? String(bad)} 属非法值 → 普通战斗`);
+		assertEqual(broken.enemies[0].boss, false, `isBossBattle=${JSON.stringify(bad) ?? String(bad)} 不留 Boss 强化`);
+		assertEqual(JSON.stringify(reread(broken)), JSON.stringify(broken), `isBossBattle=${JSON.stringify(bad) ?? String(bad)} 再读档不回退`);
+	}
+	// ⑥ 旧档回退仍然要过形状校验：多敌阵容与裂隙战都抬不动
+	const legacyMulti = battleOf({ withField: false, enemies: [{ characterId: "佐菲", boss: true }, { characterId: "赛文", boss: true }] });
+	assertEqual(legacyMulti.isBossBattle, false, "旧档回退也过不了多人形状校验");
+	assertEqual(legacyMulti.enemies.length, 2, "多敌阵容不被删减");
+	const riftSave = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		bossRun: true,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: { level: 3, enemies: 1, affixes: 1, gold: 100, exp: 40 } },
+	}).currentBattle;
+	assertEqual(riftSave.isBossBattle, false, "旧档的裂隙战不参与 Boss 判定（字段缺失也不折算）");
+	assertEqual(riftSave.enemies[0].boss, false, "裂隙战敌人不吃 Boss 强化");
+	assertEqual(riftSave.rift.gold, 100, "裂隙的定死奖励参数原样保留");
+	return "字段缺失兼容 / null·非法值降级 / 明确 false 不翻转 / 重复读档稳定 / 形状与裂隙闸门仍生效";
+});
+
 check("Boss 状态一致性：isBossBattle 是整场唯一权威标记，敌人的 boss 必须与它对得上", () => {
 	// 一份「合法的 Boss 敌人」夹具：角色/属性/技能/深渊词缀/血量都齐备，用来验对齐时不丢数据
 	const bossEnemy = () => ({

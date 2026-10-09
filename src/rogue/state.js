@@ -203,7 +203,8 @@ function alignBossState(enemies, bossFlags, declaredBossBattle, rift) {
  *
  * @param {object} rawBattle 存档里的 currentBattle
  * @param {boolean} [legacyBossRun] 旧档（v11）整局的 bossRun：只用于给「这一场」补标记——
- *        仅当这场战斗自己没写过 isBossBattle、且阵容里确实带 boss 敌人才成立。
+ *        仅当这场战斗自己没写过 isBossBattle（字段不存在）、且阵容里确实带 boss 敌人才成立；
+ *        写了但值是 null 等非法值的属于异常存档，按普通战斗降级，不回退到旧字段。
  *        没有进行中战斗的旧档一律不补，下一场按新的逐场判定独立掷骰。
  */
 function normalizeCurrentBattle(rawBattle, legacyBossRun) {
@@ -213,10 +214,12 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 	const rift = normalizeRift(rawBattle.rift);
 	const { enemies, bossFlags } = normalizeBattleEnemies(rawBattle.enemies);
 	if (enemies.length) {
-		// 判定只发生在创建战斗时，这里只做还原：显式写过 isBossBattle 的一律照抄（含 false）；
-		// 只有旧档（这个字段还不存在）才拿整局 bossRun 折算出这一场的身份
+		// 判定只发生在创建战斗时，这里只做还原：显式写过 isBossBattle 的一律照抄（含 false）。
+		// 旧档回退（拿整局 bossRun 折算）只看**字段是否真的不存在**——不能用 `== null` 代替存在性判断，
+		// 那会把异常存档里明确写着的 null 也当成「旧档没这个字段」，让它借 bossRun 回退成 Boss 战
+		const hasBossField = Object.prototype.hasOwnProperty.call(rawBattle, "isBossBattle");
 		const declared = rawBattle.isBossBattle === true
-			|| (rawBattle.isBossBattle == null && legacyBossRun === true && enemies.some(enemy => enemy.boss === true));
+			|| (!hasBossField && legacyBossRun === true && enemies.some(enemy => enemy.boss === true));
 		const aligned = alignBossState(enemies, bossFlags, declared, rift);
 		return { status: BATTLE_STATUS.battle, enemies: aligned.enemies, rift, isBossBattle: aligned.isBossBattle };
 	}
