@@ -2453,69 +2453,94 @@ await check("Boss 场战败：一件不弃，本场标记随战斗状态一起�
 	}
 });
 
-await check("矛盾存档对齐：整场记普通战斗却带 boss 敌人 → 恢复后体力不翻倍、胜利按普通口径结算", async () => {
+await check("矛盾存档对齐：整场与敌人标记冲突时按规则归一化，体力/奖励/惩罚/标题全部跟随归一化后的状态", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
-	try {
-		Math.random = () => 0.5;
-		putRun(0, {
-			mode: "endless",
-			characterId: "迪迦",
-			level: 4,
-			currency: { gold: 0, exp: 0 },
-			skills: ["own_one"],
-			curios: ["energy_core"],
-			currentBattle: {
-				status: "battle",
-				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], boss: true, maxHp: 0, hp: 0 }],
-				rift: null,
-				isBossBattle: false,
-			},
-		});
-		session();
-		// putRun 过的是 normalizeRun：读档这一刻矛盾的敌人标记已经按整场权威标记抹平
-		let slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currentBattle.enemies[0].boss, false, "普通场里的 boss 标记被对齐掉");
-		assertEqual(slot.currentBattle.enemies[0].characterId, "佐菲", "角色没被换掉，也不重建阵容");
-		click("重新挑战这一关");
-		await flush();
-		const foe = game.players[1];
-		assertEqual(game.players.length, 2, "仍是那一场单人战斗");
-		assertEqual(foe.name, "佐菲", "敌人原样，没有重掷");
-		assertEqual(foe.maxHp, lib.character["佐菲"].maxHp, "战斗初始化不再给它 Boss 的体力翻倍");
-		const base = rewardsData.getEndlessReward(4, ["gold", "exp"]);
+	/** 写一份“整场标记 + 单个敌人”的未完成战斗存档（敌人条目按参数决定带不带 boss、值是什么） */
+	const putBattle = (isBossBattle, enemyEntry) => putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 0, exp: 0 },
+		skills: ["own_one", "own_two"],
+		curios: ["energy_core"],
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], maxHp: 0, hp: 0, ...enemyEntry }],
+			rift: null,
+			isBossBattle,
+		},
+	});
+	/** 打完正在进行的那一场（杀掉所有敌人并等结算页出来） */
+	const winCurrentBattle = async () => {
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
 		}
 		lib.element.player.dieAfter.call(game.players[1]);
 		await flush();
+	};
+	try {
+		const base = rewardsData.getEndlessReward(4, ["gold", "exp"]);
+		Math.random = () => 0.5;
+		// ① 整场记普通战斗、敌人却带 boss: true（本次修的第一类矛盾）→ 读档抹平，按普通场打
+		putBattle(false, { boss: true });
+		session();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.enemies[0].boss, false, "普通场里的 boss 标记被对齐掉");
+		assertEqual(slot.currentBattle.enemies[0].characterId, "佐菲", "角色没被换掉，也不重建阵容");
+		click("重新挑战这一关");
+		await flush();
+		assertEqual(game.players.length, 2, "仍是那一场单人战斗");
+		assertEqual(game.players[1].name, "佐菲", "敌人原样，没有重掷");
+		assertEqual(game.players[1].maxHp, lib.character["佐菲"].maxHp, "战斗初始化不再给它 Boss 的体力翻倍");
+		await winCurrentBattle();
 		slot = lib.storage.rogueSlots[0];
 		assertEqual(slot.currency.gold, base.gold, "胜利按 1 倍基准入账，不是 20 倍");
 		assertEqual(slot.currency.exp, base.exp, "经验同样按 1 倍入账");
 		assertEqual(slot.curioOffers.length, 0, "奇物商店不被强制刷新");
-		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one"]), "不走 Boss 的技能弃置");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two"]), "不走 Boss 的技能弃置");
 		assertEqual(JSON.stringify(slot.curios), JSON.stringify(["energy_core"]), "不走 Boss 的奇物弃置");
-		const text = screenText();
-		assert(text.includes("战斗胜利") && !text.includes("Boss"), `结算页标题走普通口径：${text}`);
-		// 反向对齐：整场写着 Boss 战、单人阵容却漏了敌人标记 → 补齐标记，让战斗效果与整场判定说同一件事
-		putRun(0, {
-			mode: "endless",
-			characterId: "迪迦",
-			level: 4,
-			currency: { gold: 0, exp: 0 },
-			currentBattle: {
-				status: "battle",
-				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], boss: false, maxHp: 0, hp: 0 }],
-				rift: null,
-				isBossBattle: true,
-			},
-		});
+		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss"), `结算页标题走普通口径：${screenText()}`);
+		// ② 整场记 Boss 战、敌人却**明确写着** boss: false（本次修的第二类矛盾）→ 降级为普通战斗，
+		//    不许因为「只有一名敌人」就把明确的普通敌人升级成 Boss
+		putBattle(true, { boss: false });
 		session();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "明确 false 的敌人把整场降为普通战斗");
+		assertEqual(slot.currentBattle.enemies[0].boss, false, "敌人标记保持 false");
 		click("重新挑战这一关");
 		await flush();
-		assertEqual(lib.storage.rogueSlots[0].currentBattle.enemies[0].boss, true, "合法单 Boss 形状把缺失的敌人标记补齐");
-		assertEqual(game.players[1].maxHp, lib.character["佐菲"].maxHp * 2, "补齐后这一场的体力确实按 Boss 翻倍");
-		return "标记对齐 → 体力不翻倍 → 普通奖励 / 不弃置 / 不强刷 / 普通标题（反向补齐也验一次）";
+		assertEqual(game.players[1].maxHp, lib.character["佐菲"].maxHp, "降级后不给 Boss 的体力翻倍");
+		await winCurrentBattle();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, base.gold, "降级场拿 1 倍基准，不是 20 倍");
+		assertEqual(slot.curioOffers.length, 0, "降级场不强制刷新奇物商店");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two"]), "降级场不弃技能");
+		assertEqual(JSON.stringify(slot.curios), JSON.stringify(["energy_core"]), "降级场不弃奇物");
+		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss"), `降级场标题走普通口径：${screenText()}`);
+		// ③ 整场记 Boss 战、单敌**缺 boss 字段**（可补齐的形态）→ 补齐后本场保持 Boss 身份，效果与结算都照常
+		putBattle(true, {});
+		session();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "缺字段不是「明确普通」，本场保持 Boss 身份");
+		assertEqual(slot.currentBattle.enemies[0].boss, true, "补齐缺失的敌人标记");
+		click("重新挑战这一关");
+		await flush();
+		assertEqual(game.players[1].maxHp, lib.character["佐菲"].maxHp * 2, "补齐后体力按 Boss 翻倍");
+		// 再读一次档（中途退出重进）：标记不再变、体力仍只翻一倍，不会翻成 4 倍
+		session();
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.enemies[0].boss, true, "重进后标记保持不变（补齐是幂等的）");
+		click("重新挑战这一关");
+		await flush();
+		assertEqual(game.players[1].maxHp, lib.character["佐菲"].maxHp * 2, "重进后体力仍只翻一倍");
+		await winCurrentBattle();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "保持 Boss 身份的这一场照拿 20 倍");
+		assert(slot.curioOffers.length > 0, "照常强制刷新奇物商店");
+		assertEqual(slot.skills.length, 1, "照常执行 Boss 的技能弃置");
+		assertEqual(slot.curios.length, 0, "照常执行 Boss 的奇物弃置");
+		assert(screenText().includes("Boss 战 · 战斗胜利"), `结算页标题走 Boss 口径：${screenText()}`);
+		return "明确 false 降级(体力/奖励/惩罚/标题) / 缺字段补齐(翻倍一次+20倍+弃置+标题) / 普通场残留标记抹平";
 	} finally {
 		Math.random = originalRandom;
 	}

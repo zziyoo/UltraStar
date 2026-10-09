@@ -85,22 +85,55 @@ function normalizeBattleEnemy(entry) {
 		// 开战前定死落盘，读档原样还原，中途退出再进来还是同一批强化。
 		abyss: normalizeAbyssIds(entry.abyss),
 		skills,
-		// Boss 敌人的标记（v11）：创建那场 Boss 战时定死，读档原样还原。旧档缺字段按普通敌人处理（战斗层不翻倍体力）
+		// boss 标记（v11）：这名敌人是否按 Boss 规则落地（战斗层据此翻倍体力）。
+		// 注意这里只能得到布尔值——「存档明确写着 boss: false」与「旧档根本没有这个字段」
+		// 都会被规范化成 false，所以对齐规则需要的原始状态由 readRawBossFlag 在读原始条目时单独记下来
 		boss: entry.boss === true,
 		maxHp: toInt(entry.maxHp, 0),
 		hp: Math.max(0, toInt(entry.hp, 0)),
 	};
 }
 
+/**
+ * 原始存档里 `boss` 字段的四种状态。规范化后的敌人只留布尔 boss，
+ * 而「补齐缺失的标记」与「尊重明确的 boss: false」是两条相反的规则，必须分得开：
+ * 前者是旧档形态不完整（可补齐），后者是存档明确说这名敌人就是普通敌人（不得升级成 Boss）。
+ * 这份状态只是归一化过程的中间量，绝不写进最终存档。
+ */
+const RAW_BOSS_FLAG = {
+	explicitTrue: "true",
+	explicitFalse: "false",
+	missing: "missing",
+	invalid: "invalid",
+};
+
+function readRawBossFlag(entry) {
+	const value = entry?.boss;
+	if (value === true) {
+		return RAW_BOSS_FLAG.explicitTrue;
+	}
+	if (value === false) {
+		return RAW_BOSS_FLAG.explicitFalse;
+	}
+	// undefined（JSON 里就是没有这个键）才算缺失；null 与其它类型都是非法值，一律不补
+	return value === undefined ? RAW_BOSS_FLAG.missing : RAW_BOSS_FLAG.invalid;
+}
+
+/**
+ * 清洗整支阵容。除规范化的敌人列表外，还回传与之一一对应的原始 boss 字段状态
+ * （见 RAW_BOSS_FLAG：补齐规则要区分「缺失」与「明确 false」，规范化后的布尔值分不开）。
+ */
 function normalizeBattleEnemies(list) {
 	const enemies = [];
+	const bossFlags = [];
 	for (const entry of Array.isArray(list) ? list : []) {
 		const enemy = normalizeBattleEnemy(entry);
 		if (enemy) {
 			enemies.push(enemy);
+			bossFlags.push(readRawBossFlag(entry));
 		}
 	}
-	return enemies;
+	return { enemies, bossFlags };
 }
 
 /**
@@ -124,28 +157,38 @@ function normalizeRift(raw) {
 /**
  * Boss 状态一致性对齐：`currentBattle.isBossBattle` 是整场的**唯一权威标记**（决定奖励倍率、
  * 强制弃置、奇物商店强刷与结算页标题），敌人自身的 `boss` 只决定那一名敌人的 Boss 战斗效果
- * （体力翻倍）。两者一旦各说各话——整场按普通结算、敌人却带着 Boss 体力强化——就是自相矛盾的存档。
- * 这里在归一化这一层把它们对齐，规则（不重建阵容、不重掷、绝不清掉合法的未完成战斗）：
- *   · 整场为 false → 逐个抹平敌人的 boss 标记；角色/属性/技能/深渊词缀/血量原样保留；
- *   · 裂隙场（rift）本来就不参与逐场 Boss 判定，一律按整场 false 处理；
- *   · 整场为 true 时，Boss 战唯一的合法形状是「1 名敌人」：形状对得上就把缺失的 boss 标记补上，
- *     形状对不上（多名敌人）既不把普通敌人升级成 Boss，也不让无效阵容领 Boss 奖励 —— 整场降为 false 并按第一条抹平。
+ * （体力翻倍）。两者各说各话就是自相矛盾的存档，这里在归一化这一层对齐。
+ * `bossFlags` 是每条敌人原始 boss 字段的状态，用来分清「字段缺失」与「明确 false」——
+ * 前者是可补齐的旧档形态，后者是存档明确声明「这名敌人就是普通敌人」。
+ * 规则（不重建阵容、不重掷、绝不清掉合法的未完成战斗）：
+ *   · 整场为 false → 抹平所有敌人的 boss 标记；角色/属性/技能/深渊词缀/血量原样保留；
+ *   · 裂隙场（rift）或敌人数不是 1：都不是 Boss 战的合法形状 → 整场降为 false 并按上一条抹平；
+ *   · 整场为 true 且只有 1 名敌人：只有这名敌人原本就写着 boss: true（合法 Boss 战）、
+ *     或根本没有这个字段（残缺形态，可补齐）时才维持 Boss 战；字段明确 false 或非法值说明存档
+ *     自相矛盾 —— 不把明确的普通敌人升级成 Boss，整场降为 false。
  * @returns {{ enemies: object[], isBossBattle: boolean }}
  */
-function alignBossState(enemies, declaredBossBattle, rift) {
-	// 多人阵容不可能是 Boss 战；裂隙场另有一套独立结算
+function alignBossState(enemies, bossFlags, declaredBossBattle, rift) {
+	// 多人阵容不可能是 Boss 战（Boss 战只有 1 名敌人）；裂隙场另有一套独立结算
 	const validShape = !rift && enemies.length === 1;
 	if (!declaredBossBattle || !validShape) {
 		for (const enemy of enemies) {
 			enemy.boss = false;
 		}
-		return { enemies, isBossBattle: declaredBossBattle === true && validShape };
+		return { enemies, isBossBattle: false };
 	}
-	if (!enemies.some(enemy => enemy.boss === true)) {
-		// 单 Boss 形状却漏了标记：补齐，让战斗效果与整场判定说的是同一件事
+	if (bossFlags[0] === RAW_BOSS_FLAG.explicitTrue) {
+		return { enemies, isBossBattle: true };
+	}
+	if (bossFlags[0] === RAW_BOSS_FLAG.missing) {
+		// 单 Boss 形状 + 整场记着 Boss 战，只有敌人漏了标记：补齐，让战斗效果与整场判定说同一件事。
+		// 走到这里说明整场标记来自存档里明确写下的 true——旧档 bossRun 的折算前提就是阵容里已经有 boss: true
 		enemies[0].boss = true;
+		return { enemies, isBossBattle: true };
 	}
-	return { enemies, isBossBattle: true };
+	// 明确 false / 非法值：存档自己写着这名敌人是普通的，不许因为「只有一人」就升级成 Boss
+	enemies[0].boss = false;
+	return { enemies, isBossBattle: false };
 }
 
 /**
@@ -168,20 +211,20 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 		return null;
 	}
 	const rift = normalizeRift(rawBattle.rift);
-	const enemies = normalizeBattleEnemies(rawBattle.enemies);
+	const { enemies, bossFlags } = normalizeBattleEnemies(rawBattle.enemies);
 	if (enemies.length) {
 		// 判定只发生在创建战斗时，这里只做还原：显式写过 isBossBattle 的一律照抄（含 false）；
 		// 只有旧档（这个字段还不存在）才拿整局 bossRun 折算出这一场的身份
 		const declared = rawBattle.isBossBattle === true
 			|| (rawBattle.isBossBattle == null && legacyBossRun === true && enemies.some(enemy => enemy.boss === true));
-		const aligned = alignBossState(enemies, declared, rift);
+		const aligned = alignBossState(enemies, bossFlags, declared, rift);
 		return { status: BATTLE_STATUS.battle, enemies: aligned.enemies, rift, isBossBattle: aligned.isBossBattle };
 	}
 	const legacy = getEnemyGroup(sanitizeString(rawBattle.groupId));
 	if (legacy) {
 		return {
 			status: BATTLE_STATUS.battle,
-			// 组合表还原出来的阵容是普通关的多敌结构，永远不会是 Boss 战
+			// 组合表还原出来的阵容是普通关的多敌结构，永远不会是 Boss 战（原始条目也不带 boss 字段）
 			enemies: normalizeBattleEnemies(legacy.enemies.map(enemy => ({
 				characterId: enemy?.characterId,
 				stats: {
@@ -192,7 +235,7 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 				skills: Array.isArray(enemy?.skills) ? enemy.skills : [],
 				maxHp: enemy?.overrides?.maxHp,
 				hp: enemy?.overrides?.hp,
-			}))),
+			}))).enemies,
 			rift,
 			isBossBattle: false,
 		};
