@@ -1,3 +1,3 @@
 // 本文件由 tools/sync-version.mjs 从 CHANGELOG.md 自动生成，请勿手动编辑
-export const VERSION = "2.2.4";
-export const VERSION_NOTE = "肉鸽无尽模式新增Boss战（0.05概率触发，战胜获得20倍奖励，损毁一个技能和奇物），修复bug，调整部分事件";
+export const VERSION = "2.2.5";
+export const VERSION_NOTE = "修复无尽模式Boss战无法触发的bug，修复部分角色ai";
