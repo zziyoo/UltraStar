@@ -22,6 +22,7 @@ import { lib } from "../../../../noname.js";
 
 import { packages } from "../core/loader.js";
 import { appendAbyssAffixes, isAbyssStage, rollAbyssAffixes } from "./endless/abyss.js";
+import { BOSS_AFFIX_TAG } from "./endless/abyssConfig.js";
 import { BOSS_EXTRA_AFFIXES, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
 import { drawChallengeStageIds } from "./data/challengeStages.js";
 import { drawChallengeComboIds } from "./data/challengeCombos.js";
@@ -285,24 +286,31 @@ export function createBossEnemyConfig(level, mode, rng = Math.random, options = 
 	const native = new Set(skillsOf(lib.character?.[characterId] ?? [])
 		.filter(id => typeof id === "string" && id));
 	const skills = [];
+	const skillSources = {};
 	for (const donor of candidates.slice(0, 2)) {
 		for (const skill of donor.skills) {
-			if (!native.has(skill) && !skills.includes(skill)) {
-				skills.push(skill);
+			if (native.has(skill) || skills.includes(skill)) {
+				continue;
 			}
+			skills.push(skill);
+			// 记下是谁供的能（同名技能先到先得，与 skills 的顺序一致）：只给「复制技能」徽记当展示数据，
+			// 战斗判定一律不看它。
+			skillSources[skill] = donor.id;
 		}
 	}
 	const points = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(level) || 0)));
 	const extra = Math.floor(Number(options?.extraAffixes));
-	// 常规随机（含经验泉的债）照走正常关卡口径；Boss 自带的那个在此之外单独追加
+	// 常规随机（含经验泉的债）照走正常关卡口径，**不带** boss 标签：带上它 Boss 就只能从专属强化里挑，
+	// 常规那一份的数量与概率口径也会跟着变。Boss 自带的那个在此之外单独追加，那一份才带标签。
 	const abyssStage = isAbyssStage(level, mode);
 	let abyss = rollEnemyAffixes(level, mode, abyssStage, extra, rng);
-	abyss = appendAbyssAffixes(abyss, BOSS_EXTRA_AFFIXES, rng, { mode });
+	abyss = appendAbyssAffixes(abyss, BOSS_EXTRA_AFFIXES, rng, { mode, tags: [BOSS_AFFIX_TAG] });
 	return [{
 		characterId,
 		stats: allocateEnemyStats(points, rng),
 		abyss,
 		skills,
+		skillSources,
 		maxHp: 0,
 		hp: 0,
 		boss: true,

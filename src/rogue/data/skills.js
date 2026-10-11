@@ -19,7 +19,7 @@
 //
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验上面的每一条约束，不用开游戏）
 
-import { game, get } from "../../../../../noname.js";
+import { lib, game, get } from "../../../../../noname.js";
 import { packages } from "../../core/loader.js";
 import { describeStatEffects } from "./stats.js";
 import { describeCurioEffects } from "../curioManager.js";
@@ -112,7 +112,42 @@ function curioDealtDamageBonus(player, event) {
 	return bonus;
 }
 
+/** 复制技能的名字与描述：双键翻译（id / id_info）与「名<hr>描述」单键都认，取不到就退回 id */
+function copySkillText(id) {
+	const full = typeof lib.translate[id] === "string" ? lib.translate[id] : "";
+	const parts = full.split("<hr>");
+	const name = (parts[0] || "").trim() || id;
+	const doubleKey = typeof lib.translate[`${id}_info`] === "string" ? lib.translate[`${id}_info`] : "";
+	const desc = (parts[1] || doubleKey).trim();
+	return { name, desc };
+}
+
+/** 徽记浮窗里的一行一条技能名（点开面板才看描述与来源，与「深渊」徽记同一套做法） */
+function copySkillLines(ids) {
+	const list = Array.isArray(ids) ? ids : [];
+	return list.map(id => copySkillText(id).name);
+}
+
 export const helpers = {
+	// Boss「复制技能」标记载体：**纯展示**，没有 trigger / mod / content，一条效果都不带。
+	// 复制来的技能由 battle.js 的 grantSkills 挂好，这里只负责在 Boss 身边多一枚可点的徽记；
+	// storage 里是这一场已定死的技能 id 列表（与 abyss_affix / rogue_stat 同一套做法）。
+	rogue_copy: {
+		forced: true,
+		mark: true,
+		marktext: "复制技能",
+		nopop: true,
+		popup: false,
+		intro: {
+			name: "复制技能",
+			nocount: true,
+			mark(uiintro, storage) {
+				void uiintro;
+				const lines = copySkillLines(storage);
+				return `<div class="text">${lines.length ? lines.join("<br>") : "无复制技能"}</div>`;
+			},
+		},
+	},
 	rogue_stat: {
 		// 一个技能可以同时挂多个时机与 mod
 		trigger: { player: "phaseDrawBegin2", source: "damageBegin1" },
@@ -349,4 +384,6 @@ export const helpers = {
 export const helperTranslate = {
 	rogue_stat: "属性强化",
 	rogue_curio: "奇物",
+	rogue_copy: "复制技能",
+	rogue_copy_info: "Boss 从另外两名角色抄来的技能，点徽记查看。",
 };

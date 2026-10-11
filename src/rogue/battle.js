@@ -6,9 +6,10 @@ import { lib, game, _status } from "../../../../noname.js";
 import { ROSTER_WHITE_LIST } from "./config.js";
 import { sumStatEffects } from "./data/stats.js";
 import { sumCurioEffects, CURIOSITY_BATTLE_KEYS, CURIOSITY_STORAGE_KEYS } from "./curioManager.js";
-import { normalizeAbyssIds } from "./endless/abyss.js";
+import { abyssContextForEnemy, normalizeAbyssIds } from "./endless/abyss.js";
 import { isEnemyUsable } from "./enemy.js";
-import { showBattleCurios, showBattleStats, showEnemyAbyss, showEnemyEnhance } from "./ui/common.js";
+import { skillsOf } from "./skillPool.js";
+import { showBattleCurios, showBattleStats, showEnemyAbyss, showEnemyCopySkills, showEnemyEnhance } from "./ui/common.js";
 
 export { isEnemyUsable };
 
@@ -67,6 +68,8 @@ const STAT_BUFF_SKILL = "rogue_stat";
 const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "damageChance", "shaLimit"];
 /** 深渊词缀的标记载体技能 id（词缀本体技能另由 endless/abyssAffixes.js 提供） */
 const ABYSS_MARK_SKILL = "abyss_affix";
+/** Boss「复制技能」只读徽记的载体技能 id（纯展示，一条效果都不带） */
+const COPY_MARK_SKILL = "rogue_copy";
 /** 奇物的战斗内效果载体技能 id（同名 storage 由 data/skills.js 的机制技读） */
 const CURIO_SKILL = "rogue_curio";
 
@@ -191,6 +194,20 @@ function applyCurioEffects(player, curioIds, qualityMap) {
 }
 
 /**
+ * 这名敌人该展示哪些复制技能：只有 Boss 有，且排除其角色的直接技能。
+ * 纯读存档——不掷随机、不补来源、也不在这里挂任何技能。
+ */
+export function getCopySkillIds(entry) {
+	if (entry?.boss !== true) {
+		return [];
+	}
+	const native = new Set(skillsOf(lib.character?.[entry.characterId] ?? [])
+		.filter(id => typeof id === "string" && id));
+	return (Array.isArray(entry.skills) ? entry.skills : [])
+		.filter(id => typeof id === "string" && id && !native.has(id));
+}
+
+/**
  * 敌人自身的 Roguelike 强化：属性等级复用玩家的同一张效果表（data/stats.js），
  * 旧档迁移来的阵容可能还带 maxHp/hp 覆盖与额外技能，一并作用在该 Player 上；
  * 深渊词缀（abyss）按存档里已定死的 id 列表原样挂上，绝不在此处重掷。
@@ -223,19 +240,32 @@ function applyEnemyModifiers(player, entry) {
 	}
 
 	grantSkills(player, entry.skills, "敌人额外技能不存在");
-	const abyss = applyAbyssAffixes(player, entry.abyss);
-	// 战斗里点敌人标记要看的就是这两份数据：属性等级来自阵容，词缀 id 来自存档
-	player.rogueEnhanceInfo = { stats: entry.stats, abyss };
+	// Boss 的复制技能只读徽记：以**存档里这一份**为准，展示时不重掷来源、也不重复挂技能
+	// （上面那次 grantSkills 已经把复制来的技能挂上了，载体自己一条效果都不带）。
+	// 旧档里若混进了本体直接技能，这里也从展示列表中排除——那是展示口径，不动战斗口径。
+	const copySkills = getCopySkillIds(entry);
+	if (copySkills.length) {
+		player.storage[COPY_MARK_SKILL] = copySkills;
+		grantSkills(player, [COPY_MARK_SKILL], "复制技能标记载体未注册");
+	}
+	const abyss = applyAbyssAffixes(player, entry.abyss, abyssContextForEnemy(entry.boss === true));
+	// 战斗里点敌人标记要看的就是这几份数据：属性等级、词缀与复制技能一律来自存档
+	player.rogueEnhanceInfo = { stats: entry.stats, abyss, copySkills, copySources: entry.skillSources ?? {} };
 	player.update();
 }
 
 /**
  * 深渊词缀落地：把存档里已定死的 id 列表逐个 addSkill，并挂一个纯标记载体 abyss_affix
  * （敌人身边只出现一个「深渊」徽记，点开看全部词缀，与玩家的单枚「强化」徽记同一套做法）。
+ * 清洗上下文由调用方按**最终 boss 状态**给出（`state.js` 读档时用的是同一个函数），
+ * 免得某条强化在存档里还留着、进战斗却被这里删掉。
+ * @param {object} player 敌方 Player
+ * @param {string[]} ids 存档里已定死的词缀 id
+ * @param {{ tags?: string[] }} [abyssContext] 与读档清洗同一条口径
  * @returns {string[]} 实际生效的词缀 id
  */
-function applyAbyssAffixes(player, ids) {
-	const list = normalizeAbyssIds(ids);
+function applyAbyssAffixes(player, ids, abyssContext) {
+	const list = normalizeAbyssIds(ids, abyssContext);
 	if (!list.length) {
 		return list;
 	}
@@ -305,9 +335,10 @@ export async function beginBattle(event, run, enemies) {
 		player.init(enemies[i].characterId);
 		applyEnemyModifiers(player, enemies[i]);
 		// 徽记是在 applyEnemyModifiers 里 addSkill 时才建出来的，所以绑定必须排在它后面。
-		// 两枚徽记各开各的面板：属性归属性、深渊归深渊
+		// 三枚徽记各开各的面板：属性归属性、深渊归深渊、Boss 的复制技能归复制技能
 		bindMarkTap(player.marks?.[STAT_BUFF_SKILL], () => showEnemyEnhance(player));
 		bindMarkTap(player.marks?.[ABYSS_MARK_SKILL], () => showEnemyAbyss(player));
+		bindMarkTap(player.marks?.[COPY_MARK_SKILL], () => showEnemyCopySkills(player));
 	}
 	rogueBattleEnemies = game.players.slice(1, 1 + enemies.length).filter(Boolean);
 	game.me.update();

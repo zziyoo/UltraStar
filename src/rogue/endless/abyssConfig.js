@@ -12,6 +12,16 @@
 /** 词缀总开关：false 时无尽任何层数都不再附加深渊强化 */
 export const ABYSS_ENABLED = true;
 
+/**
+ * Boss 专属深渊强化的标签值：词缀池里 `tags` 写了它的条目，只有调用方把这个标签放进
+ * `context.tags` 时才进池。三处共用同一个常量（统一走 abyss.js 的 `abyssContextForEnemy`），
+ * 不允许各写各的字面量：
+ *   · enemy.js 生成 Boss 固定追加那一份时带上它（常规随机不带，所以 Boss 也能随到通用强化）
+ *   · state.js 读档清洗按**校准后的** boss 状态决定带不带它
+ *   · battle.js 战斗落地用同一份上下文，免得某条强化在存档里还留着、进战斗又被删掉
+ */
+export const BOSS_AFFIX_TAG = "boss";
+
 /** 起算层：从第 1 层起每个敌人独立判定（深渊强化整局可随机）；闯关模式的常规随机仍恒为空，只有 Boss 战的固定追加不受此限 */
 export const ABYSS_START_LEVEL = 1;
 

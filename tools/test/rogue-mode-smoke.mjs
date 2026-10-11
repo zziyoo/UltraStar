@@ -2250,6 +2250,107 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 	}
 });
 
+await check("Boss 复制技能徽记：只有 Boss 多出第三枚，点开是存档里那份技能名+描述+来源，本体技与普通敌人都不掺和", async () => {
+	freshWorld();
+	// 夹具必须在每次 session() 之后、点「重新挑战这一关」之前登记：session() 会重建桩、
+	// 换掉 lib.skill / lib.translate / lib.character，登记早了会被清空（现有 Boss 用例同一做法）。
+	const seedCopySkills = () => {
+		for (const id of ["bosscopy_a", "bosscopy_b", "zofi_own"]) {
+			lib.skill[id] = { forced: true };
+			lib.translate[id] = id;
+			lib.translate[`${id}_info`] = "Boss 冒烟用复制技能。";
+		}
+		// 佐菲本体带 zofi_own：旧存档里它可能同时出现在复制列表中，展示层必须把它排除掉
+		lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["zofi_own"] };
+		lib.character["赛文"] = { hp: 4, maxHp: 4, skills: [] };
+	};
+	putRun(0, {
+		mode: "endless",
+		level: 3,
+		currentBattle: {
+			status: "battle",
+			isBossBattle: true,
+			rift: null,
+			enemies: [{
+				// 合法 Boss 形状只有一名敌人：多名敌人 + isBossBattle 会被 state.js 判为无效形状并抹平 boss
+				characterId: "佐菲", stats: { defense: 1, draw: 1, attack: 1 }, abyss: [],
+				skills: ["bosscopy_a", "bosscopy_b", "zofi_own"], maxHp: 0, hp: 0, boss: true,
+				skillSources: { bosscopy_a: "赛文", bosscopy_b: "杰克" },
+			}],
+		},
+	}, stateModule.createRun("endless", "迪迦", 1));
+	session();
+	seedCopySkills();
+	click("重新挑战这一关");
+	await flush();
+	const boss = game.players[1];
+	assertEqual(game.players.length, 2, "Boss 战只有一名敌人");
+	assertEqual(JSON.stringify(boss.rogueEnhanceInfo.copySkills), JSON.stringify(["bosscopy_a", "bosscopy_b"]),
+		"复制技能列表原样取自存档，并排除本体直接技能");
+	assert(!!boss.marks.rogue_copy, "Boss 应有第三枚「复制技能」徽记");
+	assert(boss.hasSkill("bosscopy_a") && boss.hasSkill("bosscopy_b"), "复制技能由 grantSkills 挂上");
+	assert(boss.hasSkill("rogue_copy"), "载体技能随复制技能一起挂上");
+	// 点徽记 → 只开复制技能页：名字、描述、来源都在，属性与深渊都不掺和
+	tapMark(boss.marks.rogue_copy);
+	const text = screenText();
+	for (const token of ["复制技能", "bosscopy_a", "bosscopy_b", "Boss 冒烟用复制技能", "来源：赛文", "佐菲"]) {
+		assert(text.includes(token), `复制技能面板应显示「${token}」：${text.slice(0, 400)}`);
+	}
+	assert(!text.includes("zofi_own"), "本体技能不该出现在复制技能里");
+	assert(!text.includes("防御 Lv."), `复制技能面板不该混进属性行：${text.slice(0, 400)}`);
+	assert(!text.includes("深渊强化"), `复制技能面板不该混进深渊行：${text.slice(0, 400)}`);
+	common.closeScreen();
+	// 普通敌人：带着额外技能与来源映射也不许出现这枚徽记（判据只看 entry.boss）
+	putRun(0, {
+		mode: "endless",
+		level: 3,
+		currentBattle: {
+			status: "battle",
+			isBossBattle: false,
+			rift: null,
+			enemies: [
+				{
+					characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [],
+					skills: ["bosscopy_a"], maxHp: 0, hp: 0, boss: false,
+					skillSources: { bosscopy_a: "赛文" },
+				},
+				{
+					characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [],
+					skills: [], maxHp: 0, hp: 0, boss: false,
+				},
+			],
+		},
+	}, stateModule.createRun("endless", "迪迦", 1));
+	session();
+	seedCopySkills();
+	click("重新挑战这一关");
+	await flush();
+	assert(game.players[1].hasSkill("bosscopy_a"), "普通敌人照常挂着它自带的额外技能");
+	assert(!game.players[1].marks.rogue_copy, "普通敌人不显示复制技能徽记");
+	assert(!game.players[2].marks.rogue_copy, "另一名普通敌人同样没有徽记");
+	// Boss 没有复制技能时不出现空徽记（载体技能也一并省掉）
+	putRun(0, {
+		mode: "endless",
+		level: 3,
+		currentBattle: {
+			status: "battle",
+			isBossBattle: true,
+			rift: null,
+			enemies: [{
+				characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [],
+				skills: [], maxHp: 0, hp: 0, boss: true,
+			}],
+		},
+	}, stateModule.createRun("endless", "迪迦", 1));
+	session();
+	seedCopySkills();
+	click("重新挑战这一关");
+	await flush();
+	assert(!game.players[1].marks.rogue_copy, "没有复制技能的 Boss 不显示空徽记");
+	assert(!game.players[1].hasSkill("rogue_copy"), "没有复制技能时连载体都不挂");
+	return "第三枚徽记 / 面板取自存档并排除本体技 / 普通敌人与空列表不显示";
+});
+
 await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的，倍率/弃置/强刷/标题只跟随刚打完的那一场", async () => {
 	freshWorld();
 	const originalRandom = Math.random;

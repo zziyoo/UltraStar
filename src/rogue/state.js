@@ -21,7 +21,7 @@ import { getEvent } from "./data/events.js";
 import { getCurio, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 import { getMaxShopRefreshes, canLockShop } from "./curioManager.js";
 import { normalizeEventReward, normalizeEventAction } from "./eventManager.js";
-import { normalizeAbyssIds } from "./endless/abyss.js";
+import { abyssContextForEnemy, normalizeAbyssIds } from "./endless/abyss.js";
 import { stats } from "./data/stats.js";
 
 const RUN_MODE_KEYS = Object.keys(RUN_MODE);
@@ -57,8 +57,12 @@ function sanitizeString(value) {
 	return typeof value === "string" ? value.trim() : "";
 }
 
-/** 清洗一个敌方阵容条目：只有白名单字段，且全部是可序列化标量 */
-function normalizeBattleEnemy(entry) {
+/**
+ * 清洗一个敌方阵容条目：只有白名单字段，且全部是可序列化标量。
+ * `abyssContext` 省略时**不当场洗词缀**（`abyss` 先留空数组），由调用方在校准完 Boss 身份后再洗
+ * ——见 `normalizeBattleEnemies` 的顺序说明。
+ */
+function normalizeBattleEnemy(entry, abyssContext) {
 	if (!isPlainObject(entry)) {
 		return null;
 	}
@@ -78,13 +82,27 @@ function normalizeBattleEnemy(entry) {
 			skills.push(skillId);
 		}
 	}
+	// 复制技能的来源角色：只给 Boss 那枚「复制技能」徽记当展示数据，战斗判定一律不看它。
+	// 键必须是本轮真的复制了的技能（上面 skills 清洗后剩下的那些），值必须是字符串。
+	// 旧档没有这个字段就是空对象——面板据此整列不显示来源，绝不拿「谁拥有这条技能」倒推一个来源。
+	const skillSources = {};
+	if (isPlainObject(entry.skillSources)) {
+		for (const [rawSkill, rawDonor] of Object.entries(entry.skillSources)) {
+			const skillId = sanitizeString(rawSkill);
+			const donorId = sanitizeString(rawDonor);
+			if (skillId && donorId && skills.includes(skillId)) {
+				skillSources[skillId] = donorId;
+			}
+		}
+	}
 	return {
 		characterId,
 		stats: statLevels,
 		// 深渊词缀：只认还在池子里的 id（下架的自动剔除），且**绝不重掷**——
 		// 开战前定死落盘，读档原样还原，中途退出再进来还是同一批强化。
-		abyss: normalizeAbyssIds(entry.abyss),
+		abyss: abyssContext === undefined ? [] : normalizeAbyssIds(entry.abyss, abyssContext),
 		skills,
+		skillSources,
 		// boss 标记（v11）：这名敌人是否按 Boss 规则落地（战斗层据此翻倍体力）。
 		// 注意这里只能得到布尔值——「存档明确写着 boss: false」与「旧档根本没有这个字段」
 		// 都会被规范化成 false，所以对齐规则需要的原始状态由 readRawBossFlag 在读原始条目时单独记下来
@@ -121,19 +139,28 @@ function readRawBossFlag(entry) {
 
 /**
  * 清洗整支阵容。除规范化的敌人列表外，还回传与之一一对应的原始 boss 字段状态
- * （见 RAW_BOSS_FLAG：补齐规则要区分「缺失」与「明确 false」，规范化后的布尔值分不开）。
+ * （见 RAW_BOSS_FLAG：补齐规则要区分「缺失」与「明确 false」，规范化后的布尔值分不开），
+ * 以及每个敌人**未经词缀池过滤**的原始词缀列表。
+ *
+ * `abyssContext` 省略时词缀不当场清洗（`abyss` 为空数组），调用方要在**校准完 Boss 身份之后**
+ * 再按最终状态逐个 `normalizeAbyssIds`。原因：带 tags 的词缀在没有对应标签的上下文里会被判为
+ * 「不在池子里」，先洗再校准的话，那种「整场写着 Boss 战、敌人却漏了 boss 字段」的残缺存档
+ * 就会在补齐之前把 Boss 专属强化删干净，补回 boss 也找不回来。
+ * 传了 `abyssContext`（哪怕是 `{}`）就当场洗——用于永远不会是 Boss 的旧档组合还原路径。
  */
-function normalizeBattleEnemies(list) {
+function normalizeBattleEnemies(list, abyssContext) {
 	const enemies = [];
 	const bossFlags = [];
+	const rawAbyss = [];
 	for (const entry of Array.isArray(list) ? list : []) {
-		const enemy = normalizeBattleEnemy(entry);
+		const enemy = normalizeBattleEnemy(entry, abyssContext);
 		if (enemy) {
 			enemies.push(enemy);
 			bossFlags.push(readRawBossFlag(entry));
+			rawAbyss.push(Array.isArray(entry.abyss) ? entry.abyss : []);
 		}
 	}
-	return { enemies, bossFlags };
+	return { enemies, bossFlags, rawAbyss };
 }
 
 /**
@@ -213,7 +240,7 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 		return null;
 	}
 	const rift = normalizeRift(rawBattle.rift);
-	const { enemies, bossFlags } = normalizeBattleEnemies(rawBattle.enemies);
+	const { enemies, bossFlags, rawAbyss } = normalizeBattleEnemies(rawBattle.enemies);
 	if (enemies.length) {
 		// 判定只发生在创建战斗时，这里只做还原：存档里已经写过 isBossBattle 的就以它为准，
 		// 绝不再拿旧版整局 bossRun 去覆盖（含 null 等非法值——那是异常存档，按普通战斗降级）。
@@ -224,6 +251,11 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 		const declared = rawBattle.isBossBattle === true
 			|| (!hasBossField && legacyBossRun === true && enemies.some(enemy => enemy.boss === true));
 		const aligned = alignBossState(enemies, bossFlags, declared, rift);
+		// 词缀清洗排在身份校准之后：按**最终**的 boss 状态决定标签上下文（Boss 才看得见专属强化）。
+		// 整场被降为普通场（多人形状、裂隙场、标记冲突）时，这里自然用普通上下文把专属强化一并剔除。
+		aligned.enemies.forEach((enemy, index) => {
+			enemy.abyss = normalizeAbyssIds(rawAbyss[index], abyssContextForEnemy(enemy.boss === true));
+		});
 		return { status: BATTLE_STATUS.battle, enemies: aligned.enemies, rift, isBossBattle: aligned.isBossBattle };
 	}
 	const legacy = getEnemyGroup(sanitizeString(rawBattle.groupId));
@@ -241,7 +273,8 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 				skills: Array.isArray(enemy?.skills) ? enemy.skills : [],
 				maxHp: enemy?.overrides?.maxHp,
 				hp: enemy?.overrides?.hp,
-			}))).enemies,
+				// 这条路径永远不会是 Boss 战，词缀当场按普通上下文洗掉（专属强化一律不留）
+			}), {})).enemies,
 			rift,
 			isBossBattle: false,
 		};

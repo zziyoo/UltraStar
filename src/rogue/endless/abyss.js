@@ -14,6 +14,7 @@ import {
 	ABYSS_FULL_LEVEL,
 	ABYSS_MAX_AFFIXES,
 	ABYSS_START_LEVEL,
+	BOSS_AFFIX_TAG,
 	AFFIX_POOL,
 } from "./abyssConfig.js";
 
@@ -43,6 +44,16 @@ export function getAbyssPoolIds(context) {
 /** 这个词缀 id 是否还在池子里（存档清洗用） */
 export function isAbyssAffixId(id, context) {
 	return getAbyssPoolIds(context).includes(id);
+}
+
+/**
+ * 某个敌人该用哪种词缀上下文：Boss 看得见带 boss 标签的强化，其他人只看通用词缀。
+ * 生成之外的两处（`state.js` 读档清洗、`battle.js` 战斗落地）都走这里，
+ * 于是一条强化只要合法地进了存档，就不会在下一站被另一种口径悄悄删掉。
+ * @param {boolean} isBoss 这名敌人是否按 Boss 规则落地（读**校准后**的 boss 标记）
+ */
+export function abyssContextForEnemy(isBoss) {
+	return isBoss === true ? { tags: [BOSS_AFFIX_TAG] } : {};
 }
 
 export function isAbyssStage(level, mode) {

@@ -325,6 +325,41 @@ export function showEnemyAbyss(player) {
 }
 
 /**
+ * 点敌人身上的「复制技能」徽记：只列这一场**已保存**的复制技能。
+ * 与「强化」「深渊」两页同一套版式与交互（点框外退出）；这里只读不写——
+ * 既不重掷来源角色，也不额外挂任何技能（技能早在 applyEnemyModifiers 里就挂好了）。
+ * 旧存档没有来源映射时整行不显示来源，绝不拿「谁拥有这条技能」倒推一个。
+ * @param {object} player 敌方 Player
+ */
+export function showEnemyCopySkills(player) {
+	const { stage, body } = openEnemyPanel(player, "复制技能");
+	const ids = Array.isArray(player?.rogueEnhanceInfo?.copySkills) ? player.rogueEnhanceInfo.copySkills : [];
+	const sources = player?.rogueEnhanceInfo?.copySources ?? {};
+	if (!ids.length) {
+		const none = document.createElement("div");
+		none.className = "wm-rogue-stat-detail-effect";
+		none.textContent = "没有复制技能";
+		body.appendChild(none);
+		return stage;
+	}
+	for (const id of ids) {
+		const donor = typeof sources[id] === "string" ? sources[id] : "";
+		const section = document.createElement("div");
+		section.className = "wm-rogue-stat-detail";
+		const heading = document.createElement("div");
+		heading.className = "wm-rogue-stat-detail-name";
+		heading.textContent = donor ? `${skillName(id)}（来源：${translateCharacter(donor)}）` : skillName(id);
+		section.appendChild(heading);
+		const effect = document.createElement("div");
+		effect.className = "wm-rogue-stat-detail-effect";
+		effect.textContent = skillInfo(id) || "（该技能没有描述）";
+		section.appendChild(effect);
+		body.appendChild(section);
+	}
+	return stage;
+}
+
+/**
  * 本体对话框里的按钮：.menubutton.large + listen()，带同入保护。
  * 浮层里的按钮请用 addOverlayButton。
  */

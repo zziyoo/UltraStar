@@ -673,8 +673,19 @@ check("currentBattle 恢复：保存完整敌方阵容，重载原样读回而�
 		{ characterId: "佐菲", stats: { defense: 10, draw: 0, attack: 0 }, abyss: [], skills: ["test_enemy_skill"], boss: true, maxHp: 2, hp: 0 },
 	];
 	// 整场没被判成 Boss 战（两名敌人本来就不是 Boss 形状）：残留的 boss 标记按权威标记抹平，
-	// 角色/属性/技能/血量一个都不动，也不许借机重建阵容
-	const aligned = enemies.map(entry => ({ ...entry, boss: false }));
+	// 角色/属性/技能/血量一个都不动，也不许借机重建阵容。
+	// 期望值按白名单的**规范键序**逐字段写出来（含只供「复制技能」徽记展示的来源映射），
+	// 这样新增一个存档字段时这里必须显式补一行，不会被 spread 悄悄带过。
+	const aligned = enemies.map(entry => ({
+		characterId: entry.characterId,
+		stats: entry.stats,
+		abyss: entry.abyss,
+		skills: entry.skills,
+		skillSources: {},
+		boss: false,
+		maxHp: entry.maxHp,
+		hp: entry.hp,
+	}));
 	const run = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies, extra: "junk" } });
 	assertEqual(run.currentBattle.status, "battle", "状态保留");
 	assertEqual(run.currentBattle.enemies.length, 2, "敌人数保留");
@@ -3882,6 +3893,7 @@ check("Boss 状态一致性：isBossBattle 是整场唯一权威标记，敌人�
 		stats: { defense: 3, draw: 5, attack: 2 },
 		abyss: ["abyss_jianbi"],
 		skills: ["test_enemy_skill"],
+		skillSources: { test_enemy_skill: "赛文" },
 		boss: true,
 		maxHp: 2,
 		hp: 1,
@@ -4141,6 +4153,136 @@ check("Boss 复制技能不含本体直接已有的技能（只比直接技能�
 		}
 	}
 	return "与本体直接技能同名的 id 在生成阶段就被滤掉";
+});
+
+check("Boss 复制技能来源随阵容落盘，读档只留合法条目、旧档不伪造", () => {
+	const prevDonor = lib.character["来源甲"];
+	try {
+		lib.character["来源甲"] = [4, "male", "ao", ["src_a1", "src_a2"], 1];
+		for (const id of ["src_a1", "src_a2"]) {
+			lib.skill[id] = {};
+		}
+		// ① 生成端：每条复制来的技能都记下来源角色
+		const boss = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0)[0];
+		assert(boss.skills.length > 0, `夹具应当能复制到技能：${boss.skills.join(",")}`);
+		for (const id of boss.skills) {
+			const donor = boss.skillSources[id];
+			assert(typeof donor === "string" && donor && donor !== boss.characterId,
+				`复制技能 ${id} 应记下来源角色（且不是 Boss 本人）：${JSON.stringify(donor)}`);
+			assert(Object.prototype.hasOwnProperty.call(lib.character, donor), `来源 ${donor} 应是真实角色`);
+		}
+		for (const id of Object.keys(boss.skillSources)) {
+			assert(boss.skills.includes(id), `来源映射不得带没有复制的技能：${id}`);
+		}
+		// ② 落盘原样读回
+		const stored = state.normalizeRun({
+			...freshRun(),
+			currentBattle: { status: "battle", isBossBattle: true, rift: null, enemies: [boss] },
+		});
+		assertEqual(JSON.stringify(stored.currentBattle.enemies[0].skillSources), JSON.stringify(boss.skillSources),
+			"来源映射随存档读回");
+		// ③ 清洗：值非字符串、键不在 skills 里的一律丢掉
+		const dirty = { ...boss, skills: ["src_a1"], skillSources: { src_a1: "来源甲", src_ghost: "来源甲", src_a2: 42, "": "来源甲" } };
+		const cleaned = state.normalizeRun({
+			...freshRun(),
+			currentBattle: { status: "battle", isBossBattle: true, rift: null, enemies: [dirty] },
+		});
+		assertEqual(JSON.stringify(cleaned.currentBattle.enemies[0].skillSources), JSON.stringify({ src_a1: "来源甲" }),
+			"来源映射按 skills 白名单清洗");
+		// ④ 旧档没有这个字段 → 空对象（面板据此不显示来源，绝不倒推一个来源）
+		const legacy = { ...boss, skillSources: undefined };
+		const revived = state.normalizeRun({
+			...freshRun(),
+			currentBattle: { status: "battle", isBossBattle: true, rift: null, enemies: [legacy] },
+		});
+		assertEqual(JSON.stringify(revived.currentBattle.enemies[0].skillSources), JSON.stringify({}),
+			"旧档没有来源字段 → 空对象，不伪造来源");
+	} finally {
+		if (prevDonor === undefined) { delete lib.character["来源甲"]; } else { lib.character["来源甲"] = prevDonor; }
+		for (const id of ["src_a1", "src_a2"]) {
+			delete lib.skill[id];
+		}
+	}
+	return "来源落盘 + 白名单清洗 + 旧档不伪造";
+});
+
+check("rogue_copy 是纯标记载体：有 mark 没有效果，双键翻译齐备", () => {
+	const copy = skillsData.helpers.rogue_copy;
+	assert(!!copy, "复制技能载体应随 helpers 导出（mode.js 展开 helpers 即注册）");
+	assert(copy.mark === true && copy.marktext === "复制技能", "应是「复制技能」徽记载体");
+	assert(copy.trigger === undefined && copy.content === undefined && copy.mod === undefined && copy.filter === undefined,
+		"载体不许带任何效果：它只负责多一枚可点的徽记");
+	assert(copy.intro?.nocount === true && copy.popup === false, "应不弹大字、不计入技能数");
+	lib.skill.rogue_copy_probe = {};
+	lib.translate.rogue_copy_probe = "探针技<hr>探针的描述";
+	const html = copy.intro.mark(null, ["rogue_copy_probe", "rogue_copy_missing"], null);
+	assert(html.includes("探针技") && html.includes("rogue_copy_missing"), `徽记说明应逐条列技能名：${html}`);
+	// 描述只在点开的面板里出现，徽记浮窗不铺开长文
+	assert(!html.includes("探针的描述"), "浮窗只给技能名，描述归面板");
+	assertEqual(copy.intro.mark(null, [], null).includes("无复制技能"), true, "空列表给「无复制技能」");
+	assertEqual(skillsData.helperTranslate.rogue_copy, "复制技能", "双键翻译的名字要在");
+	assert(!!skillsData.helperTranslate.rogue_copy_info, "双键翻译的描述要在（本体只认 id/id_info 双键）");
+	delete lib.translate.rogue_copy_probe;
+	delete lib.skill.rogue_copy_probe;
+	return "载体无效果 / 浮窗列名 / 空列表有兜底文案";
+});
+
+check("Boss 深渊标签链路：追加带 boss 标签，词缀清洗排在身份校准之后，普通敌人不保留专属强化", () => {
+	// 夹具：一条带 tags 的专属强化。词缀池里没有实际配置 tags 的项（不为了测试上线真的专属技），
+	// 所以临时插一条，测完在 finally 里原样摘掉——留着会污染按池子数断言的其它用例。
+	const fixture = { id: "abyss_fixture_boss", weight: 1, enabled: true, tags: [abyssConfig.BOSS_AFFIX_TAG] };
+	abyssConfig.AFFIX_POOL.unshift(fixture);
+	// 夹具排在池首：normalizeAbyssIds 按池子顺序重排，所以保留时它在前
+	const both = JSON.stringify(["abyss_fixture_boss", "abyss_buqu"]);
+	const entryOf = (patch) => ({
+		characterId: "本体测试将", stats: {}, abyss: ["abyss_fixture_boss", "abyss_buqu"],
+		skills: [], maxHp: 0, hp: 0, ...patch,
+	});
+	const readBack = (battle, patch) => state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless), ...patch, currentBattle: { status: "battle", rift: null, ...battle },
+	});
+	// 本用例位置上前序用例已删掉若干角色：自己登记一个本体侧角色，保证无尽池非空
+	const prevTestChar = lib.character["本体测试将"];
+	lib.character["本体测试将"] = [4, "male", "qun", [], 1];
+	try {
+		assert(enemy.getEndlessEnemyPool().length > 0, "前提：无尽敌方池非空");
+		// ① 生成：常规那一份按关卡口径（不带标签，所以 Boss 照样随到通用强化），固定追加的那一份带标签
+		const boss = enemy.createBossEnemyConfig(1, cfg.RUN_MODE.endless, () => 0)[0];
+		assert(boss.abyss.includes("abyss_fixture_boss"),
+			`Boss 的固定追加应能随到带 boss 标签的强化：${boss.abyss.join(",")}`);
+		assert(boss.abyss.includes("abyss_buqu"), `常规强化仍从通用池来：${boss.abyss.join(",")}`);
+		// ② 普通敌人不得因为这条标签获得专属强化
+		for (const entry of enemy.createEnemyConfigs(1, cfg.RUN_MODE.endless, () => 0)) {
+			assert(!entry.abyss.includes("abyss_fixture_boss"), `普通敌人不得随到专属强化：${entry.abyss.join(",")}`);
+		}
+		// ③ 合法 Boss 读档：专属强化必须还在
+		const keep = readBack({ isBossBattle: true, enemies: [entryOf({ boss: true })] });
+		assertEqual(keep.currentBattle.isBossBattle, true, "整场仍是 Boss 战");
+		assertEqual(JSON.stringify(keep.currentBattle.enemies[0].abyss), both, "Boss 的专属强化读档后还在");
+		// ④ 普通敌人读档：专属强化剔除
+		const drop = readBack({ isBossBattle: false, enemies: [entryOf({ boss: false })] });
+		assertEqual(JSON.stringify(drop.currentBattle.enemies[0].abyss), JSON.stringify(["abyss_buqu"]),
+			"普通敌人不得保留 Boss 专属强化");
+		// ⑤ 关键顺序：整场写着 Boss 战、敌人却漏了 boss 字段（残缺形态）。补齐之后专属强化仍要在——
+		//    清洗若排在校准之前，这里会先被默认空标签删掉，补回 boss 也找不回来。
+		const patched = readBack({ isBossBattle: true, enemies: [entryOf({})] });
+		assertEqual(patched.currentBattle.enemies[0].boss, true, "缺失的 boss 字段被补齐");
+		assertEqual(JSON.stringify(patched.currentBattle.enemies[0].abyss), both, "补齐 Boss 身份后专属强化必须还在");
+		// ⑥ v11 旧档（没有 isBossBattle、带整局 bossRun、阵容里有 boss 敌人才折算）
+		const legacy = readBack({ enemies: [entryOf({ boss: true })] }, { version: 11, bossRun: true });
+		assertEqual(legacy.currentBattle.isBossBattle, true, "旧档按既有规则折算成本场 Boss 战");
+		assertEqual(JSON.stringify(legacy.currentBattle.enemies[0].abyss), both, "旧档折算后专属强化还在");
+		// ⑦ 无效形状（多名敌人）：整场降级，谁都不许留专属强化
+		const multi = readBack({ isBossBattle: true, enemies: [entryOf({ boss: true }), entryOf({ boss: true })] });
+		assertEqual(multi.currentBattle.isBossBattle, false, "多人形状不是 Boss 战的合法形状");
+		for (const entry of multi.currentBattle.enemies) {
+			assertEqual(JSON.stringify(entry.abyss), JSON.stringify(["abyss_buqu"]), "降级后专属强化一并剔除");
+		}
+	} finally {
+		abyssConfig.AFFIX_POOL.shift();
+		if (prevTestChar === undefined) { delete lib.character["本体测试将"]; } else { lib.character["本体测试将"] = prevTestChar; }
+	}
+	return "生成带标签 / 校准后再清洗 / 普通敌人剔除 / 旧档与补齐仍保留";
 });
 
 check("禁将复查：单条技能属于当前禁将角色（含衍生技、含共享）一律拦截", () => {
