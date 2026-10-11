@@ -293,6 +293,27 @@ function normalizePendingEvent(raw) {
 	return { id, choices, createdAt: Math.max(0, toInt(raw.createdAt, 0)) };
 }
 
+/**
+ * Boss 战胜利惩罚的待处理状态（v13）：玩家自己挑要失去的技能与奇物，所以「还欠哪几项」必须随存档走。
+ * 形状只有这一种：`{ reason: "bossVictory", needSkill, needCurio }`。
+ * 两条纪律：
+ *   · **绝不重新随机、也绝不重复扣**——两个 need 记的是尚未兑现的那几项，玩家挑一次就落一次盘，
+ *     中途关游戏/刷新后回到同一张页面，只欠没还清的那几项；
+ *   · 两项都已还清（或本来就没东西可还）却还挂着这条记录，说明状态没落地——直接收掉返回 null，
+ *     免得读档后停在一张「无可选择」的惩罚页上把存档卡死。
+ */
+function normalizePendingBossPenalty(raw) {
+	if (!isPlainObject(raw) || raw.reason !== "bossVictory") {
+		return null;
+	}
+	const needSkill = raw.needSkill === true;
+	const needCurio = raw.needCurio === true;
+	if (!needSkill && !needCurio) {
+		return null;
+	}
+	return { reason: "bossVictory", needSkill, needCurio };
+}
+
 /** 图鉴：已发现事件 + 曾经拥有过的奇物（卖掉/丢弃也留在图鉴里），只记有效 id 并去重 */
 export function normalizeCollection(raw) {
 	const collection = { events: [], curios: [] };
@@ -540,6 +561,9 @@ export function normalizeRun(raw, options = {}) {
 		shopRefreshesRemaining,
 		// v4：无尽模式的事件 / 图鉴 / 奇物。旧档（v3 及更早）没有这些字段时按默认值补齐，不影响读取
 		pendingEvent: normalizePendingEvent(raw.pendingEvent),
+		// v13：Boss 战胜利惩罚的待处理项（玩家自选）。旧档（v12 及更早）没有这个字段时按「不欠惩罚」补齐——
+		// 那时随机惩罚在结算这一刻就已经兑现完了，绝不能在读档时补一笔出来，否则等于让玩家多失去一次
+		pendingBossPenalty: normalizePendingBossPenalty(raw.pendingBossPenalty),
 		collection: normalizeCollection(raw.collection),
 		curios,
 		// v6：奇物品质升级。旧档（v5 及更早）没有这个字段时按空表补齐 = 全部停在初始品质

@@ -211,14 +211,28 @@ export function createEnemyConfigs(level, mode, rng = Math.random, options = {})
 // ---------------------------------------------------------------- Boss 战
 
 /**
- * 「别的角色」候选：除 Boss 本人外的全部角色（禁将也可以当技能来源——规格明确不加这条限制），
+ * 技能来源角色的准入：只拦「AI 操控不了」的那一类。
+ * 来源角色在本场战斗里**不出场**，只贡献技能表，所以这里刻意不调 isEnemyUsable()——
+ * 那道闸还包含禁将名单与本体角色可用性（characterDisabled/isUnseen），会把「禁将角色也能供能」
+ * 这条规格误伤掉。但 forbidai / isAiForbidden 是另一回事：Boss 由 AI 操控，
+ * 一个角色之所以被列进 forbidai 就是因为 AI 碰它会出问题，它的技能绝不能抄给 Boss。
+ */
+function isBossSkillDonorBlocked(id, info) {
+	if (Array.isArray(lib.config?.forbidai) && lib.config.forbidai.includes(id)) {
+		return true;
+	}
+	return info?.isAiForbidden === true;
+}
+
+/**
+ * 「别的角色」候选：除 Boss 本人外的全部可用来源（禁将也可以当来源——规格明确不加这条限制），
  * 每人带一份过兼容性校验（isRogueSkillAllowed，与商城同一道安全闸）后的可用技能表；
  * 一条可用技能都没有的角色当不了来源。
  */
-function getBossSkillDonorCandidates(bossId) {
+export function getBossSkillDonorCandidates(bossId) {
 	const candidates = [];
 	for (const [id, info] of Object.entries(lib.character ?? {})) {
-		if (id === bossId) {
+		if (id === bossId || isBossSkillDonorBlocked(id, info)) {
 			continue;
 		}
 		const skills = [];
@@ -243,6 +257,8 @@ function getBossSkillDonorCandidates(bossId) {
  *     ——禁将绝不入选担当 Boss（闯关池本身刻意不拦禁将，那是固定配置「照打」的口径，这里不适用）；
  *   · 额外获得另外两个不同角色（不与 Boss 本体重复）的全部技能，全部随阵容落盘、
  *     由 battle.js 的 grantSkills 真正挂到 Player 上（不是 UI 摆设）；
+ *     （来源角色只过「AI 可操控」这道闸：forbidai / isAiForbidden 的角色不当来源；
+ *      禁将角色照常可以当来源，但它的每条技能仍要过 isRogueSkillAllowed）
  *   · 深渊强化 = 当前关卡正常计算的那一份 + Boss 固定追加的 BOSS_EXTRA_AFFIXES 个
  *     （appendAbyssAffixes 不放回，追加的永远是新的强化，也不占正常计算的数量）；
  *   · 体力 ×2 不在这里做：存档只记 boss 标记，battle.js 建局初始化该 Player 时翻倍一次。
@@ -264,10 +280,14 @@ export function createBossEnemyConfig(level, mode, rng = Math.random, options = 
 		const j = Math.floor(rng() * (i + 1));
 		[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
 	}
+	// 本体直接已有的技能不再重复列进复制技能：只按角色的**直接技能表**比对，
+	// 不自己展开 group / derivation——展开是本体 grantSkills 的事，这里展开会误删本体技的合法伙伴。
+	const native = new Set(skillsOf(lib.character?.[characterId] ?? [])
+		.filter(id => typeof id === "string" && id));
 	const skills = [];
 	for (const donor of candidates.slice(0, 2)) {
 		for (const skill of donor.skills) {
-			if (!skills.includes(skill)) {
+			if (!native.has(skill) && !skills.includes(skill)) {
 				skills.push(skill);
 			}
 		}

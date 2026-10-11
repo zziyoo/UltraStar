@@ -3,7 +3,6 @@
 // 替换页与商店共用同一套技能卡渲染（addSkillHead / wm-rogue-shop-desc / sanitizeSkillText）。
 
 import {
-	CURIO_SHOP_RATE,
 	CURRENCIES,
 	CURRENCY_LABEL,
 	LIBRARY_TEXT,
@@ -18,7 +17,7 @@ import {
 	STAT_IDS,
 } from "../config.js";
 import { getPurchasedCount, getRefreshesRemaining } from "../shop.js";
-import { canLockShop, checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getNextCurioQuality, getUpgradableCurios, isShopLocked, CURIOSITY_RARITY } from "../curioManager.js";
+import { canLockShop, checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getCurioShopChance, getNextCurioQuality, getUpgradableCurios, isShopLocked, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import {
@@ -38,10 +37,12 @@ import {
 const moneyName = key => CURRENCY_LABEL[key] ?? key;
 
 /**
- * 奇物商店的刷新概率文案：百分比一律按 config.CURIO_SHOP_RATE 现算。
- * 这个数字以前在界面上手写过三遍「10%」，改配置就会说瞎话——现在只有配置一处。
+ * 奇物商店的刷新概率文案：百分比现读**这一份存档**此刻持有的奇物，与胜利结算掷的那一次
+ * 共用 `curioManager.getCurioShopChance`。以前这里只读 config 的常量，所以六个存档全都在报同一个数：
+ * 罗盘实际是结算里另掷一次独立判定，界面说 20%、商店真实出现率 28%，两头都对不上。
+ * 现在描述、判定、读档后重绘是同一个算式，只有配置一处来源。
  */
-const curioRateText = noun => `每关胜利后有 ${Math.round(CURIO_SHOP_RATE * 100)}% 概率刷新${noun}`;
+const curioRateText = (run, noun) => `每关胜利后有 ${Math.round(getCurioShopChance(run) * 100)}% 概率刷新${noun}`;
 
 /** 商店页的活节点，供购买/升级后原位刷新 */
 let shopView = null;
@@ -142,7 +143,7 @@ export function showCurios(api) {
 	const body = ui.create.div(".wm-rogue-curios-body", panel);
 	if (!owned.length) {
 		ui.create.div(".wm-rogue-skills-empty", "当前没有奇物", body);
-		ui.create.div(".wm-rogue-skills-hint", `${curioRateText("奇物商店")}，事件也可能送奇物。`, body);
+		ui.create.div(".wm-rogue-skills-hint", `${curioRateText(run, "奇物商店")}，事件也可能送奇物。`, body);
 		return;
 	}
 	const cardRow = ui.create.div(".wm-rogue-shop-cards", body);
@@ -348,13 +349,13 @@ export function showShop(api) {
 		if (curioSection) {
 			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
 			curioSection.classList[offers.length ? "remove" : "add"]("wm-rogue-hidden");
-			// 黄金罗盘额外那批：买完当前这批会自动提上货架（curioManager.buyCurio 负责搬运），
-			// 队列里还压着货时得让玩家知道「还能再买一次」，否则看着像商店出故障了
+			// 队列里可能还压着旧档（罗盘走独立判定那版）摇出来的下一批：买完当前这批会自动提上货架
+			// （curioManager.buyCurio 负责搬运），有货就得说清楚，否则清空后看着像商店出故障了
 			if (curioHint) {
 				const queued = (Array.isArray(current.curioOfferQueue) ? current.curioOfferQueue : []).filter(batch => batch.length).length;
 				curioHint.innerHTML = queued
-					? `${curioRateText("候选")}　每次最多购买 1 个　黄金罗盘另指了 ${queued} 批，买完这批接着上`
-					: `${curioRateText("候选")}　每次最多购买 1 个`;
+					? `${curioRateText(current, "候选")}　每次最多购买 1 个　后面还压着 ${queued} 批，买完这批接着上`
+					: `${curioRateText(current, "候选")}　每次最多购买 1 个`;
 			}
 		}
 	};

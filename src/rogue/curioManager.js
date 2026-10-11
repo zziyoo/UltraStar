@@ -14,7 +14,7 @@
 // 结算类效果（expRate/goldRate/goldRateSpread）在 reward.js 胜利结算时用 getBonus 现查。
 // 商店侧：候选与售价在战斗胜利时定死写进存档（curioOffers），本文件负责生成与购买。
 
-import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_UPGRADE_PRICE_MULTIPLIER, MERCHANT_PRICE_MULTIPLIER, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_SHOP_RATE, CURIO_UPGRADE_PRICE_MULTIPLIER, MERCHANT_PRICE_MULTIPLIER, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getEndlessReward } from "./data/rewards.js";
 import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 
@@ -123,6 +123,21 @@ export function getBonus(ids, type, qualityMap) {
 }
 
 /**
+ * 奇物商店的实际刷新概率：**只认这一份存档此刻持有的奇物**，一律现算，绝不缓存。
+ * 黄金罗盘的 `extraCurioShopChance` 是**百分点累加**到 `CURIO_SHOP_RATE` 之上，
+ * 由同一个随机数判一次——不是第二次独立掷骰（两次独立合并会得到 1-(1-p)(1-q) 这种
+ * 与任何一处描述都对不上的数，界面上报 20%、实际生效 28% 就是它留下的坑）。
+ * 商店副标题、奇物空态提示、`reward.js` 的胜利判定与读档后的重绘全都走这里，
+ * 所以「描述里写的数」「真正掷的那个数」「读档后重算的数」按构造必然是同一个。
+ * 结果夹在 [0,1]：多个加成叠出 100% 以上也只是每次都必刷，不会变成负数或超一。
+ * @param {object} run 存档（读 run.curios 与 run.curioQuality）
+ */
+export function getCurioShopChance(run) {
+	const bonus = getBonus(run?.curios ?? [], "extraCurioShopChance", run?.curioQuality);
+	return Math.min(1, Math.max(0, CURIO_SHOP_RATE + bonus));
+}
+
+/**
  * 百分比类效果文案：有配套的 `<key>Spread` 时写成区间（「金币获取 -10%~+10%」），
  * 那个 key 单独不出一行——它只是 base 的波动半径。
  */
@@ -186,7 +201,7 @@ const EFFECT_TEXT = {
 	expRate: (value, effects) => rateLine("expRate", "经验", effects),
 	goldRate: (value, effects) => rateLine("goldRate", "金币", effects),
 	extraShopRefresh: value => `每场战斗结束后，额外获得 ${value} 次技能商城刷新机会`,
-	extraCurioShopChance: value => `每次战斗胜利后有 ${Math.round(Math.abs(value) * 100)}% 概率额外刷出一批奇物商店候选`,
+	extraCurioShopChance: value => `每次战斗胜利后，奇物商店的刷新概率提高 ${Math.round(Math.abs(value) * 100)}%（与基础概率相加，不单独掷骰）`,
 	// 与 goldRate 分开写：那条乘的是本关基础奖励，这条乘的是你手上已有的总额，两者会叠乘
 	goldOfHeld: value => `战斗结束后额外获得当前持有金币的 ${Math.round(Math.abs(value) * 100)}%`,
 	goldOnReplace: value => `每次替换技能时获得本层胜利金币的 ${value} 倍`,

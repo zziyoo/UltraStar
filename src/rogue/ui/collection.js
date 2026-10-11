@@ -12,7 +12,11 @@ import { ui } from "../../../../../noname.js";
 import { addOverlayButton, bindOverlayTap, openDetailPopup, openOverlay, showNotice, skillName } from "./common.js";
 
 const signed = value => `${value > 0 ? "+" : ""}${value}`;
-const byWin = (factor, noun) => `${factor >= 0 ? "获得" : "消耗"} ${Math.abs(factor)} 倍胜利${noun}`;
+/**
+ * 玩家可见的「按本次战斗胜利奖励缩放」一律念成「本层胜利金币 / 本层胜利经验」。
+ * 图鉴、事件页、商店与奇物详情共用这一份说法；内部代码里保留的「基准」只是公式说明，不给玩家看。
+ */
+const byWin = (factor, noun) => `${factor >= 0 ? "获得" : "消耗"} ${Math.abs(factor)} 倍本层胜利${noun}`;
 /** 只保留一位小数：0.35 → 35%，也躲开 30.000000000000004% 这种浮点尾巴 */
 function percentText(chance) {
 	if (!Number.isFinite(chance)) {
@@ -57,7 +61,7 @@ function rewardBrief(reward, choice = null) {
 		const keep = Number.isFinite(reward.expByWin) ? reward.expByWin : 0;
 		const extra = Number.isFinite(reward.expIfNoCurioByWin) ? reward.expIfNoCurioByWin : 0;
 		const note = Number.isFinite(reward.expIfNoCurioByWin) && keep + extra > 0
-			? `（该品质已集齐时改为获得 ${keep + extra} 倍胜利经验）`
+			? `（该品质已集齐时改为获得 ${keep + extra} 倍本层胜利经验）`
 			: "";
 		parts.push(`获得一件${CURIOSITY_RARITY[reward.curioRarity]}奇物${note}`);
 	} else if (Number.isFinite(reward.expIfNoCurioByWin)) {
@@ -103,7 +107,7 @@ function actionBrief(action) {
 				return null;
 			}
 			const affix = RIFT_EXTRA_AFFIXES > 0 ? `，每名敌人自带 ${RIFT_EXTRA_AFFIXES} 个深渊强化` : "";
-			return `开一场 ${tier.enemies} 名敌人的裂隙战（不算层数），胜利得 ${tier.multiplier} 倍胜利金币与胜利经验${affix}`;
+			return `开一场 ${tier.enemies} 名敌人的裂隙战（不算层数），胜利得 ${tier.multiplier} 倍本层胜利金币与本层胜利经验${affix}`;
 		}
 		case "merchant":
 			return `只卖一件奇物，标价 = 奇物基准价 ×${MERCHANT_PRICE_MULTIPLIER}；买下已拥有的那件会直接升一级品质`;

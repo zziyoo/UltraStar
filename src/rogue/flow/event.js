@@ -34,6 +34,33 @@ export function createEventFlow() {
 		});
 	}
 
+	/**
+	 * 交互型子页（流浪商人 / 技能熔炉 / 奇物融合炉）的「右上角返回」＝**玩家明确放弃本次事件**：
+	 * 先把 pendingEvent 清掉并落盘，再走出口。
+	 *
+	 * 为什么必须落盘：以前这里只 closeScreen + 出口，事件仍挂在存档上，于是
+	 * ① 从胜利流程进来时出口是 reloadNow —— 重载后 openEntry 见 pendingEvent 还在，立刻又把同一个事件弹一遍；
+	 * ② 从读档流程进来时出口是 openHub —— 玩家回营地接着打，下一场胜利结算里 maybeCreatePendingEvent
+	 *    见 pendingEvent 非空就原样返回，旧事件于是**每场胜利后都弹一次**，直到他再点一次那个选项。
+	 * 真机症状「进商人页不交易、点返回，之后每场战斗后流浪商人都来一遍」就是这么来的。
+	 *
+	 * 三条纪律：
+	 *   · 只有子页的返回走这里；深渊裂隙的「再想想」仍原样留在事件页（它压根没进子页）；
+	 *   · 结束事件**不发放任何奖励**，也不扣一分钱——放弃就是放弃；
+	 *   · 子页里交易失败（金币不足 / 那件已练满）不叫放弃：那些分支只弹一句，事件照旧挂着，
+	 *     玩家可以重试，也可以按返回明确作罢。
+	 */
+	function abandonEventFlow(onDone) {
+		if (context.run?.pendingEvent) {
+			context.run = { ...context.run, pendingEvent: null };
+			if (!commit()) {
+				return;
+			}
+		}
+		closeScreen();
+		onDone();
+	}
+
 	/** 玩家在事件页点了某个选项：结算事件奖励并落盘，弹层展示结果后走 finishEvent 出口 */
 	function chooseEventFlow(choiceIndex, finishEvent) {
 		const levelBefore = Math.max(0, Math.floor(Number(context.run?.level) || 0));
@@ -76,9 +103,12 @@ export function createEventFlow() {
 
 	/** 交互型选项的分发：四类各走一条落地路径，未落地前事件始终挂著 */
 	function runEventAction(action, choice, ctx, finishEvent) {
+		// 三个子页共用的「右上角返回」：明确放弃本次事件（见 abandonEventFlow 的取证说明）
+		const leaveEvent = () => abandonEventFlow(finishEvent);
 		switch (action.kind) {
 			case "rift":
-				// 裂隙不在这里开打：确认后是「落盘 + 整页重载」，由恢复页在全新会话里开
+				// 裂隙不在这里开打：确认后是「落盘 + 整页重载」，由恢复页在全新会话里开。
+				// 「再想想」什么都不做——它没进子页，事件必须原样留在事件页可重选
 				confirmRiftFlow(action);
 				return;
 			case "merchant":
@@ -86,7 +116,7 @@ export function createEventFlow() {
 					action,
 					getRun: () => context.run,
 					buy: () => merchantBuyFlow(action, finishEvent),
-					leave: finishEvent,
+					leave: leaveEvent,
 				});
 				return;
 			case "curioForge":
@@ -95,14 +125,14 @@ export function createEventFlow() {
 					// 融合费在事件构建期就定死了，页面只负责显示与判经验够不够，不在这里重算
 					action,
 					forge: curioId => curioForgeFlow(action, curioId, finishEvent),
-					leave: finishEvent,
+					leave: leaveEvent,
 				});
 				return;
 			case "skillForge":
 				showSkillForge({
 					getRun: () => context.run,
 					pick: skillId => skillForgeFlow(action, choice, skillId, ctx, finishEvent),
-					leave: finishEvent,
+					leave: leaveEvent,
 				});
 				return;
 			default:

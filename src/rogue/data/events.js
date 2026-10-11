@@ -202,14 +202,14 @@ export const events = {
 		image: "extension/奥特之星/assets/events/skill_forge.png",
 		choices: [
 			{
-				text: "失去一个技能 → 换取大量经验",
+				text: "失去一个技能换取大量经验",
 				// 基准数 ×2 的经验就是这里的 2 倍本层胜利经验（构建期换算成固定值）
 				reward: { expByWin: 2 },
 				action: { kind: "skillForge", grant: "exp" },
 				blockedText: "技能不足，炉子里没有可以熔炼的东西。",
 			},
 			{
-				text: "失去一个技能 → 换一个随机新技能",
+				text: "失去一个技能换一个随机新技能",
 				reward: {},
 				action: { kind: "skillForge", grant: "skill" },
 				blockedText: "技能不足，炉子里没有可以熔炼的东西。",
@@ -228,7 +228,7 @@ export const events = {
 		choices: [
 			{
 				// 三项全满时不置灰：点了弹这句、一分经验也不扣（写了 blockedText 就不再走「满级换随机奇物」的改写）
-				text: "接受训练 → 随机属性 +1",
+				text: "接受训练",
 				reward: { expByWin: -0.5, statUp: "random" },
 				blockedText: "你太厉害了，没什么能学到的东西。",
 			},

@@ -66,9 +66,14 @@ export const COLLECTION_KEY = "rogueCollection";
  * 并移除整局的 bossRun 字段。旧 v11 档迁移：正处于未完成战斗的，按旧 bossRun + 阵容里的 boss 敌人
  * 折算出这一场的 isBossBattle（保留原阵容与原结算规则）；没有未完成战斗的一律不补，
  * 下一场按新的逐场规则独立判定，旧字段绝不会再把整局锁成 Boss 战。
+ * v13 新增 pendingBossPenalty（Boss 战胜利的待处理惩罚：改为**玩家自己挑**要失去的技能与奇物，
+ * 形状 `{ reason: "bossVictory", needSkill, needCurio }`）。它记的是「还欠哪几项」而不是「随机抽到了谁」，
+ * 所以中途关游戏、刷新、重进页面都回到同一张选择页，兑现一项就落盘一项；两项都还清（或本来就没有
+ * 可失去的对象）时字段整体归 null，读档绝不会重新随机、也不会重复删除或重复发胜利奖励。
+ * 旧档（v12 及更早）没有这个字段按「不欠惩罚」补齐——那一版的随机惩罚在结算那一刻就已兑现完毕。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 12;
+export const RUN_VERSION = 13;
 export const SLOT_COUNT = 6;
 
 /**
@@ -161,13 +166,16 @@ export const CURIO_UPGRADE_PRICE_MULTIPLIER = 5;
 /** 每批奇物候选的个数 */
 export const CURIO_OFFER_COUNT = 3;
 /**
- * 奇物商店的触发概率：无尽模式每关战斗胜利后先于事件判定掷骰，命中才刷新一批候选，
+ * 奇物商店的基础触发概率：无尽模式每关战斗胜利后先于事件判定掷骰，命中才刷新一批候选，
  * **未命中直接清空**（旧批次不留着，避免同一批货挂十几关不动）；rng 可注入。
  * 一批只卖一个：买到即整批下架（buyCurio 清空 curioOffers），商店分区随之隐藏。
  * 注意这条概率同时决定「商店多久出现一次」——批次不再留存后，平均 1/该值 关才看得到一次
- * （0.2 = 约 5 关一次）。界面上那句「有 N% 概率刷新」由 `ui/hub.js` 按这个数现算，改这里就够。
+ * （0.1 = 约 10 关一次）。
+ * 黄金罗盘的 `extraCurioShopChance` 是**百分点累加到本值之上**、由同一个随机数判一次
+ * （见 curioManager.getCurioShopChance），不是第二次独立掷骰。
+ * 界面上那句「有 N% 概率刷新」与结算判定、读档描述共用同一个函数，改这里就够。
  */
-export const CURIO_SHOP_RATE = 0.2;
+export const CURIO_SHOP_RATE = 0.1;
 
 /**
  * 深渊裂隙的三档赌局（选项顺序即 data/events.js 里写死的顺序）：

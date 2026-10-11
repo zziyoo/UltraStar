@@ -136,3 +136,40 @@ export function lowerStat(run, statId, now) {
 		to: level - 1,
 	};
 }
+
+/**
+ * Boss 战胜利惩罚「由玩家自己挑」时的候选名单：只报这一份存档此刻真实持有的东西。
+ * 技能只认 `run.skills`（肉鸽技能槽本来就只装购买/替换来的技能，角色本体技能不在这里，
+ * 所以这一栏不可能误删本体技能）；奇物只认 `run.curios`。
+ * 返回的是新建数组，调用方怎么排布都不会污染 run。
+ */
+export function getBossPenaltyTargets(run) {
+	return {
+		skills: (Array.isArray(run?.skills) ? run.skills : []).slice(0),
+		curios: (Array.isArray(run?.curios) ? run.curios : []).slice(0),
+	};
+}
+
+/**
+ * Boss 战胜利惩罚之二（玩家自选版）：失去指定的那一件已拥有奇物。
+ * 与 loseRandomCurio 同一条清理纪律：`curioQuality` 里那一条一并删掉（不留悬挂覆盖表项），
+ * 图鉴 `collection.curios` 的「曾经拥有过」一个字都不动；未拥有时 ok:false 且零副作用。
+ */
+export function loseCurio(run, curioId, now = 0) {
+	const curios = Array.isArray(run?.curios) ? run.curios : [];
+	if (!curios.includes(curioId)) {
+		return { ok: false, error: "并未拥有该奇物", run, removed: null };
+	}
+	const next = {
+		...run,
+		curios: curios.filter(id => id !== curioId),
+		curioQuality: { ...(run.curioQuality ?? {}) },
+		collection: {
+			events: (run.collection?.events ?? []).slice(0),
+			curios: (run.collection?.curios ?? []).slice(0),
+		},
+		updatedAt: now,
+	};
+	delete next.curioQuality[curioId];
+	return { ok: true, error: null, run: next, removed: curioId };
+}

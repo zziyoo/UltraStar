@@ -60,7 +60,6 @@ const battleFlow = createBattleFlow({
 });
 
 const { openShop } = shopFlow;
-const { openEventPage } = eventFlow;
 const { startBattle, startFromSavedBattle, onover } = battleFlow;
 
 // ---------------------------------------------------------------- 页面路由
@@ -128,11 +127,10 @@ function slotsApi() {
 			}
 			if (run.currentBattle) {
 				askResume(run);
-			} else if (run.pendingEvent) {
-				// 存档里挂着待处理事件：优先回到事件页（选项与结果都是存档里定死的，不重掷）
-				openEventPage(openHub);
 			} else {
-				openHub();
+				// 打完一场之后的统一收尾：先补没还清的 Boss 惩罚，再处理待处理事件，最后进营地。
+				// 两步都只看存档此刻挂着什么，所以中途关游戏回来接上的是没走完的那几步（不重来第二次）
+				resultFlow.continueRun(openHub);
 			}
 		},
 		remove(index) {
@@ -232,12 +230,9 @@ function openEntry() {
 			askResume(context.run);
 			return;
 		}
-		if (context.run.pendingEvent) {
-			// 上次胜利后挂着的事件还没处理：优先恢复事件页（绝不重新触发、绝不重掷）
-			openEventPage(openHub);
-			return;
-		}
-		openHub();
+		// 上次打完一场还挂着没走完的收尾（Boss 惩罚没挑完 / 事件没处理）：
+		// 优先回到对应页面，欠的东西与定死的结果都从存档原样接上，绝不重新随机、绝不重掷
+		resultFlow.continueRun(openHub);
 		return;
 	}
 

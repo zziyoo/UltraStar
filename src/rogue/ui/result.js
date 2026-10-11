@@ -5,6 +5,7 @@
 import { CURRENCIES, CURRENCY_LABEL, RUN_MODE_LABEL, STAT_IDS } from "../config.js";
 import { ui } from "../../../../../noname.js";
 import { stats } from "../data/stats.js";
+import { describeCurio, getCurio, getCurioQuality, CURIOSITY_RARITY } from "../curioManager.js";
 import {
 	addButton,
 	addDisabledButton,
@@ -13,6 +14,7 @@ import {
 	addOverlayButton,
 	openOverlay,
 	openScreen,
+	skillInfo,
 	skillName,
 	translateCharacter,
 } from "./common.js";
@@ -151,5 +153,47 @@ export function showPenaltyChoice(run, fallback, api) {
 		}
 	} else {
 		addDisabledButton("属性等级 -1", content, "所有属性都已是最低等级");
+	}
+}
+
+/**
+ * Boss 战胜利惩罚的选择页（v13）：把「随机弃置」换成玩家自己挑。
+ * 需要失去哪几项由存档里的 pendingBossPenalty 说（`run` 与 `pending` 都是模式层现读后喂进来的，
+ * 这一页不认识任何「随机抽到了谁」）；每一栏列出条目名与效果，点一下就失去它。
+ * 已经还清 / 本来就没有可作用对象的那一栏只写一句说明、不放按钮——按既有规则一句带过，
+ * 绝不拿别的类型凑数。
+ * 页面没有「跳过」按钮：这场代价必须付清。玩家直接关游戏也不影响，读档回来仍是这张页、仍只欠没还清的那几项。
+ * 纯 UI：删除与落盘一律交回 api（见 flow/result.js）。
+ */
+export function showBossPenaltyChoice(run, pending, api) {
+	const content = openScreen("Boss 战的代价：选择要失去的东西");
+	addLine(content, "按规则，Boss 战胜利后要从你<b>当前持有</b>的技能与奇物里各失去一项。点条目即确认失去，落盘后不可撤销。");
+	addGap(content);
+	if (pending.needSkill) {
+		addLine(content, "<b>失去一个技能</b>");
+		for (const id of run.skills) {
+			const intro = skillInfo(id);
+			addButton(skillName(id), content, () => api.loseSkill(id));
+			addLine(content, intro || "（该技能没有描述）");
+		}
+	} else {
+		// 两种「不需要再选」要分得开：玩家手上确实没东西可失去，还是这一项方才已经挑完并落盘了
+		addLine(content, run.skills.length ? "技能：这一项已经选好，不必再动。" : "技能：没有可失去的已购买技能，这一项按规则带过。");
+	}
+	addGap(content);
+	if (pending.needCurio) {
+		addLine(content, "<b>失去一件奇物</b>");
+		for (const id of run.curios) {
+			const def = getCurio(id);
+			const quality = getCurioQuality(id, run.curioQuality);
+			addButton(`${def?.name ?? id}（${CURIOSITY_RARITY[quality] ?? quality}）`, content, () => api.loseCurio(id));
+			addLine(content, describeCurio(id, run.curioQuality).join("；"));
+		}
+	} else {
+		addLine(content, run.curios.length ? "奇物：这一项已经选好，不必再动。" : "奇物：当前没有奇物可失去，这一项按规则带过。");
+	}
+	if (pending.needSkill && pending.needCurio) {
+		addGap(content);
+		addLine(content, "两项都选完才会离开这一页。");
 	}
 }

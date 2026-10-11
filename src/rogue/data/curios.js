@@ -39,11 +39,14 @@
 //                     hurtDamageGame   受到伤害后，本局游戏你造成的伤害 +N（战斗内，反击护符史诗档）
 //                                        上面三档都只加一层，反复受伤不会越叠越高
 //                     extraCurioShopChance
-//                                        每次战斗胜利后按 N 的概率额外刷一批奇物商店候选（结算，黄金罗盘 0.1 = 10%）
+//                                        把奇物商店的刷新概率**加 N 个百分点**（结算，黄金罗盘 0.1 = +10%）。
+//                                        与 config.CURIO_SHOP_RATE 相加后只掷一次判定（getCurioShopChance），
+//                                        不是另起一次独立掷骰——两件各 10% 独立掷等于 1-(1-0.1)² = 19%，
+//                                        与任何一处界面文案都对不上，所以概率类加成一律走累加。
 //                     goldOfHeld       战斗结束后额外获得「当前持有金币」的 N 倍（结算，储蓄罐 0.05 = 5%）。
 //                                        与 goldRate 不是一回事：goldRate 乘的是本关基础奖励，这个乘的是手上总额
-//                     goldOnReplace    每次替换技能时额外获得「本层基准金币」的 N 倍（商店，遗忘之石 5）
-//                     expOnReplace     每次替换技能时额外获得「本层基准经验」的 N 倍（商店，贪食魔盒 5）
+//                     goldOnReplace    每次替换技能时额外获得「本层基准金币」的 N 倍（商店，遗忘之石 10）
+//                     expOnReplace     每次替换技能时额外获得「本层基准经验」的 N 倍（商店，贪食魔盒 10）
 //                     dyingRecallChance
 //                                        进入濒死状态时按 N 的概率（1 = 必定）获得本局游戏你使用过、
 //                                        且当前位于弃牌堆的实体牌（战斗内，回响之铃 0.5/0.75/1）
@@ -212,7 +215,7 @@ export const curios = {
 		image: "extension/奥特之星/assets/curios/oblivion_stone.png",
 		rarity: "epic",
 		priceMultiplier: 1,
-		effect: { goldOnReplace: 5 },
+		effect: { goldOnReplace: 10 },
 	},
 	echo_bell: {
 		id: "echo_bell",
@@ -247,7 +250,7 @@ export const curios = {
 		image: "extension/奥特之星/assets/curios/gluttonous_box.png",
 		rarity: "epic",
 		priceMultiplier: 1,
-		effect: { expOnReplace: 5 },
+		effect: { expOnReplace: 10 },
 	},
 	hungry_box: {
 		id: "hungry_box",

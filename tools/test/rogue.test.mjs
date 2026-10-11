@@ -3231,10 +3231,11 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("counter_amulet")[0], "当你受到伤害后，你下一次造成的伤害 +1", "反击护符普通档");
 	assertEqual(lines("counter_amulet", "rare")[0], "当你受到伤害后，本回合你造成的伤害 +1", "稀有档换时机不换句式");
 	assertEqual(lines("counter_amulet", "epic")[0], "当你受到伤害后，本局游戏你造成的伤害 +1", "史诗档");
-	assert(lines("golden_compass")[0].includes("10%") && lines("golden_compass")[0].includes("额外刷出一批奇物商店候选"), `黄金罗盘：${lines("golden_compass")[0]}`);
+	assert(lines("golden_compass")[0].includes("10%") && lines("golden_compass")[0].includes("奇物商店的刷新概率提高"), `黄金罗盘要说清是百分点累加：${lines("golden_compass")[0]}`);
+	assert(!lines("golden_compass")[0].includes("额外刷出一批"), "罗盘不再是「另掷一次的一批」，文案不能还这么写");
 	assert(lines("piggy_bank")[0].includes("当前持有金币的 5%"), `储蓄罐要说清乘的是余额：${lines("piggy_bank")[0]}`);
 	assert(!lines("piggy_bank")[0].includes("经验获取"), "储蓄罐不能混进 goldRate 那条文案");
-	assert(lines("oblivion_stone")[0].includes("替换技能时") && lines("oblivion_stone")[0].includes("5 倍"), `遗忘之石：${lines("oblivion_stone")[0]}`);
+	assert(lines("oblivion_stone")[0].includes("替换技能时") && lines("oblivion_stone")[0].includes("10 倍"), `遗忘之石：${lines("oblivion_stone")[0]}`);
 	// 本轮新增的五件：回响之铃按概率出句、破碎王冠三档合成一句、魔盒的替换经验、饥饿之匣四档、橱窗两个开关
 	assertEqual(lines("echo_bell")[0], "当你进入濒死状态时，有 50% 的概率获得本局游戏你使用过且位于弃牌堆的牌", "回响之铃普通档");
 	assertEqual(lines("echo_bell", "rare")[0], "当你进入濒死状态时，有 75% 的概率获得本局游戏你使用过且位于弃牌堆的牌", "稀有档只换概率");
@@ -3243,7 +3244,7 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("broken_crown", "rare")[0], "你杀死一名角色后，你增加 1 点体力上限并回复 1 点体力，然后摸牌至体力上限", "稀有档补摸牌至上限");
 	assertEqual(lines("broken_crown", "epic")[0], "你杀死一名角色后，你增加 1 点体力上限并回复体力至上限，然后摸体力上限张牌", "史诗档回满 + 摸上限张");
 	assertEqual(lines("broken_crown").length, 1, "破碎王冠的三个配套键不得单独出行");
-	assertEqual(lines("gluttonous_box")[0], "每次替换技能时获得本层胜利经验的 5 倍", "贪食魔盒");
+	assertEqual(lines("gluttonous_box")[0], "每次替换技能时获得本层胜利经验的 10 倍", "贪食魔盒");
 	const hungry = lines("hungry_box").join(" / ");
 	assert(hungry.includes("金币获取 -15%") && hungry.includes("经验获取 +5%"), `饥饿之匣负面档：${hungry}`);
 	assertEqual(lines("hungry_box").length, 2, "饥饿之匣两行（一扣一加）");
@@ -3359,24 +3360,24 @@ check("储蓄罐与遗忘之石：结算侧两处加成", () => {
 	assertEqual(got.run.currency.gold, 1000 + expected, "全部入账");
 	const plain = reward.settleVictory({ ...bank, curios: [] }, NOW, () => 0.999);
 	assertEqual(plain.gained.gold, BASE_GOLD, "没有储蓄罐就只发基础");
-	// 黄金罗盘：正常那批与罗盘那批互不排斥，于是同一关能买两次
+	// 黄金罗盘：概率统一为「百分点累加 + 一次判定」（v13 口径），不再单独掷第二次
 	const compass = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 0, exp: 0 }, curios: ["golden_compass"] };
-	const onlyCompass = reward.settleVictory(compass, NOW, seq([0.5, 0]));
-	assert(onlyCompass.run.curioOffers.length, "罗盘命中就直接把那一批摆上货架，不留空队列");
-	assertEqual(onlyCompass.run.curioOfferQueue.length, 0, "只有一批时不留队列");
-	const both = reward.settleVictory(compass, NOW, seq([0, 0]));
-	assertEqual(both.run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "第一批照常");
-	assertEqual(both.run.curioOfferQueue.length, 1, "第二批进队列");
-	const offered = [...both.run.curioOffers, ...both.run.curioOfferQueue[0]].map(offer => offer.id);
-	assertEqual(new Set(offered).size, offered.length, "两批之间不得出现同一件货");
-	const none = reward.settleVictory(compass, NOW, seq([0.9, 0.9]));
-	assertEqual(none.run.curioOffers.length, 0, "都没中 → 清空当前批");
-	assertEqual(none.run.curioOfferQueue.length, 0, "都没中 → 清空队列");
-	// 遗忘之石：本层基准金币 ×5，没有这块奇物返回 0
+	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.15, 0.999]));
+	assert(hitByBonus.run.curioOffers.length > 0, "10%+10%=20%，0.15 必须命中（基础 10% 是命不中的）");
+	assertEqual(hitByBonus.run.curioOfferQueue.length, 0, "一次结算只摇这一批，罗盘不再生产第二批");
+	// 与旧写法的分歧点：以前「基础未中 + 第二次独立判定命中」会凭空多出一批，现在必须整体未命中
+	const noSecondRoll = reward.settleVictory(compass, NOW, seq([0.25, 0]));
+	assertEqual(noSecondRoll.run.curioOffers.length, 0, "第二个随机数不得再决定一次商店刷新");
+	assertEqual(noSecondRoll.run.curioOfferQueue.length, 0, "同样不留队列");
+	// 无罗盘的存档判定线仍是 10%
+	const plainSave = { ...compass, curios: [] };
+	assert(reward.settleVictory(plainSave, NOW, seq([0.05])).run.curioOffers.length > 0, "0.05 < 10% → 出货");
+	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.15])).run.curioOffers.length, 0, "0.15 ≥ 10% → 不出货");
+	// 遗忘之石：本层基准金币 ×10，没有这块奇物返回 0
 	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["oblivion_stone"] };
-	assertEqual(curioManager.getReplaceRewardGold(stone), BASE_GOLD * 5, "五倍本层基准金币");
+	assertEqual(curioManager.getReplaceRewardGold(stone), BASE_GOLD * 10, "十倍本层基准金币");
 	assertEqual(curioManager.getReplaceRewardGold({ ...stone, curios: [] }), 0, "没这块石头不发钱");
-	return `储蓄罐 +${expected - BASE_GOLD} / 罗盘两批 / 石头 ${BASE_GOLD * 5}`;
+	return `储蓄罐 +${expected - BASE_GOLD} / 罗盘按百分点累加一次判定 / 石头 ${BASE_GOLD * 10}`;
 });
 
 check("深渊词缀追加：与常规随机同一条不放回规则", () => {
@@ -3584,11 +3585,11 @@ check("饥饿之匣与贪食魔盒：金币换经验、替换技能发经验", (
 	const maxedGained = reward.settleVictory(maxed, NOW, () => 0.999).gained;
 	assertEqual(maxedGained.gold, BASE_GOLD, "史诗档金币不再打折扣");
 	assertEqual(maxedGained.exp, Math.round(BASE_EXP * 1.2), "史诗档经验 +20%");
-	// 贪食魔盒：本层基准经验 ×5，与遗忘之石的金币同一条口径；没有它返回 0
+	// 贪食魔盒：本层基准经验 ×10，与遗忘之石的金币同一条口径；没有它返回 0
 	const box = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["gluttonous_box"] };
-	assertEqual(curioManager.getReplaceRewardExp(box), BASE_EXP * 5, "五倍本层基准经验");
+	assertEqual(curioManager.getReplaceRewardExp(box), BASE_EXP * 10, "十倍本层基准经验");
 	assertEqual(curioManager.getReplaceRewardExp({ ...box, curios: [] }), 0, "没有魔盒不发经验");
-	return `饥饿之匣 ${gained.gold}/${gained.exp} → 史诗 ${maxedGained.gold}/${maxedGained.exp}；魔盒 ${BASE_EXP * 5}`;
+	return `饥饿之匣 ${gained.gold}/${gained.exp} → 史诗 ${maxedGained.gold}/${maxedGained.exp}；魔盒 ${BASE_EXP * 10}`;
 });
 
 check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", () => {
@@ -3737,7 +3738,7 @@ check("新增四事件：倍率按刚打赢那关的基准换算成固定值，�
 
 check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBattle 往返且读档不重掷", () => {
 	assertEqual(cfg.BOSS_RUN_RATE, 0.05, "判定概率仍是 5%（本次只改判定时机，不改概率）");
-	assertEqual(cfg.RUN_VERSION, 12, "存档版本抬到 v12");
+	assertEqual(cfg.RUN_VERSION, 13, "存档版本抬到 v13（新增 pendingBossPenalty）");
 	// 新档不再带整局的 bossRun：这个字段一旦还能被读到，就可能继续影响后面的关卡
 	const fresh = freshRun(cfg.RUN_MODE.endless);
 	assertEqual(fresh.bossRun, undefined, "新档没有整局 bossRun");
@@ -3764,7 +3765,7 @@ check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBa
 		bossRun: true,
 		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null },
 	}]);
-	assert(midBoss.errors.some(error => error.includes("迁移到12")), "v11 旧档报一条迁移提示");
+	assert(midBoss.errors.some(error => error.includes(`迁移到${cfg.RUN_VERSION}`)), "v11 旧档报一条迁移提示");
 	assertEqual(midBoss.slots[0].bossRun, undefined, "迁移后整局 bossRun 字段消失，无法再影响后续关卡");
 	assertEqual(midBoss.slots[0].currentBattle.isBossBattle, true, "正在进行的这一场保住 Boss 战身份");
 	assertEqual(midBoss.slots[0].currentBattle.enemies[0].boss, true, "敌方阵容原样保留");
@@ -4022,6 +4023,126 @@ check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的�
 	}
 });
 
+check("Boss 技能来源候选：只拦 AI 不可操控的角色，禁将角色继续供能", () => {
+	const prevForbidai = lib.config.forbidai;
+	const prevAll = lib.config.all;
+	const prevBanned = lib.config.identity_banned;
+	Object.assign(lib.character, {
+		来源禁AI: [4, "male", "ao", ["donor_forbidai"], 1],
+		来源AI字段: [4, "male", "ao", ["donor_aifield"], 1],
+		来源禁将: [4, "male", "ao", ["donor_banned"], 1],
+		来源混合: [4, "male", "ao", ["donor_mixed_ok", "donor_zhu"], 1],
+		本体测试将: [4, "male", "qun", [], 1],
+	});
+	// 注册后的角色条目是数组，本体把 isAiForbidden 挂在数组对象上，这里照同一形状写
+	lib.character["来源AI字段"].isAiForbidden = true;
+	for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok"]) {
+		lib.skill[id] = {};
+	}
+	lib.skill.donor_zhu = { zhuSkill: true };
+	lib.config.forbidai = ["来源禁AI"];
+	lib.config.all = { mode: ["identity"] };
+	lib.config.identity_banned = ["来源禁将"];
+	try {
+		const found = enemy.getBossSkillDonorCandidates("本体测试将");
+		const ids = found.map(item => item.id);
+		assert(!ids.includes("来源禁AI"), "forbidai 里的角色不能当技能来源");
+		assert(!ids.includes("来源AI字段"), "isAiForbidden 的角色不能当技能来源");
+		assert(ids.includes("来源禁将"), "禁将角色仍可作为技能来源（规格明确不加这条限制）");
+		// 角色过闸 ≠ 技能全过闸：同一条技能表里不兼容的那条照样被剔掉
+		const mixed = found.find(item => item.id === "来源混合");
+		assertEqual(JSON.stringify(mixed.skills), JSON.stringify(["donor_mixed_ok"]), "逐技能兼容性校验必须保留");
+		// 端到端也拦得住：无论抽到哪两个来源，被禁 AI 角色的技能都不许出现
+		const challengePool = enemy.getChallengeEnemyPool();
+		const boss = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0)[0];
+		assert(!boss.skills.includes("donor_forbidai") && !boss.skills.includes("donor_aifield"),
+			`Boss 不得复制到 AI 不可操控角色的技能：${boss.skills.join(",")}`);
+		assertEqual(boss.characterId, challengePool[0], "Boss 本体抽取口径不变");
+	} finally {
+		for (const id of ["来源禁AI", "来源AI字段", "来源禁将", "来源混合", "本体测试将"]) {
+			delete lib.character[id];
+		}
+		for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok", "donor_zhu"]) {
+			delete lib.skill[id];
+		}
+		if (prevForbidai === undefined) { delete lib.config.forbidai; } else { lib.config.forbidai = prevForbidai; }
+		if (prevAll === undefined) { delete lib.config.all; } else { lib.config.all = prevAll; }
+		if (prevBanned === undefined) { delete lib.config.identity_banned; } else { lib.config.identity_banned = prevBanned; }
+	}
+	return "forbidai/isAiForbidden 拦来源 + 禁将照常供能 + 逐技能校验仍在";
+});
+
+check("Boss 技能来源不排除本扩展角色：注册过、技能过了兼容闸就能供能", () => {
+	const extIds = [...enemy.getExtensionCharacterIds()];
+	assert(extIds.length > 0, "角色包应给出本扩展角色 id");
+	const extId = extIds[0];
+	// Boss 本人用夹具角色，不用 extIds[0]：来源扫描只排除「Boss 本人」，
+	// 而闯关敌人池的第一名恰恰就是 extIds[0]，拿它当 Boss 会把要验的角色当成排除对象。
+	const prevCharacter = lib.character[extId];
+	const prevSkill = lib.skill.donor_ext;
+	try {
+		// 用真实的本扩展角色 id，但把技能表换成夹具技能：断言只关心「本扩展角色能不能当来源」，
+		// 不依赖该角色实际有哪些技能（换角色包也不会红）。
+		lib.character[extId] = [4, "male", "ao", ["donor_ext"], 1];
+		lib.skill.donor_ext = {};
+		const found = enemy.getBossSkillDonorCandidates("本体测试将");
+		const donor = found.find(item => item.id === extId);
+		assert(!!donor, `本扩展角色 ${extId} 应能进入 Boss 技能来源候选`);
+		assert(donor.skills.includes("donor_ext"), "其通过校验的技能应可被复制");
+		// 来源不属于当前模式的常规敌人池也照样供能：无尽池刻意排除本扩展角色，那是本体抽取的口径
+		const endlessPool = enemy.getEndlessEnemyPool();
+		assert(!endlessPool.includes(extId), "前提：无尽常规敌人池不含本扩展角色，但它照样能当技能来源");
+	} finally {
+		if (prevCharacter === undefined) { delete lib.character[extId]; } else { lib.character[extId] = prevCharacter; }
+		if (prevSkill === undefined) { delete lib.skill.donor_ext; } else { lib.skill.donor_ext = prevSkill; }
+	}
+	return `本扩展角色 ${extId} 可作为 Boss 技能来源`;
+});
+
+check("Boss 复制技能不含本体直接已有的技能（只比直接技能表，不做 group/derivation 展开）", () => {
+	const pool = enemy.getChallengeEnemyPool();
+	const bossId = pool[0];
+	const prevBoss = lib.character[bossId];
+	const fixtureDonors = [];
+	for (let i = 1; i <= 12; i++) {
+		fixtureDonors.push({ id: `共有来源${i}`, skills: ["own_shared", `donor_new_${i}`] });
+	}
+	try {
+		// Boss 本体带 own_shared + own_only；每个夹具来源都共有 own_shared，另带一条自己的新技能。
+		// 铺 12 个来源是为了让「至少有一个夹具来源真被抽中」成为可断言的前提，
+		// 否则「own_shared 没出现在复制列表里」可能是空转。
+		lib.character[bossId] = [4, "male", "ao", ["own_shared", "own_only"], 1];
+		for (const donor of fixtureDonors) {
+			lib.character[donor.id] = [4, "male", "ao", donor.skills, 1];
+		}
+		for (const id of ["own_shared", "own_only"]) {
+			lib.skill[id] = {};
+		}
+		for (let i = 1; i <= 12; i++) {
+			lib.skill[`donor_new_${i}`] = {};
+		}
+		const boss = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0)[0];
+		assert(boss.skills.some(id => id.startsWith("donor_new_")),
+			`前提：夹具来源应真的被选中，否则本用例是空转：${boss.skills.join(",")}`);
+		assert(!boss.skills.includes("own_shared"),
+			`本体已有的直接技能不该再进复制技能列表：${boss.skills.join(",")}`);
+		assert(!boss.skills.includes("own_only"), `本体独有技能同样不该出现：${boss.skills.join(",")}`);
+		assert(!boss.skills.includes(bossId), "复制列表里不该出现角色 id");
+	} finally {
+		if (prevBoss === undefined) { delete lib.character[bossId]; } else { lib.character[bossId] = prevBoss; }
+		for (const donor of fixtureDonors) {
+			delete lib.character[donor.id];
+		}
+		for (const id of ["own_shared", "own_only"]) {
+			delete lib.skill[id];
+		}
+		for (let i = 1; i <= 12; i++) {
+			delete lib.skill[`donor_new_${i}`];
+		}
+	}
+	return "与本体直接技能同名的 id 在生成阶段就被滤掉";
+});
+
 check("禁将复查：单条技能属于当前禁将角色（含衍生技、含共享）一律拦截", () => {
 	Object.assign(lib.character, {
 		复查甲: [4, "male", "ao", ["bancheck_shared"], 1],
@@ -4136,6 +4257,206 @@ check("Boss 战强制惩罚：随机失去 1 个购买技能与 1 件奇物，�
 	// 原 run 一个字节都不动
 	assertEqual(JSON.stringify(run.skills), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "传入 run 不被修改");
 	return "技能/奇物各丢一件 + 两次空列表兜底";
+});
+
+check("黄金罗盘：刷新概率按存档实算、存档之间互不影响、边界夹住", () => {
+	const base = cfg.CURIO_SHOP_RATE;
+	const saveOf = curios => state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), curios });
+	const plain = saveOf([]);
+	const owned = saveOf(["golden_compass"]);
+	assertEqual(curioManager.getCurioShopChance(plain), base, "无罗盘 = 基础概率");
+	assertEqual(curioManager.getCurioShopChance(owned), base + 0.1, "初始品质罗盘 = 基础 + 10 个百分点");
+	// 存档之间互不影响：先算有罗盘的那份、再算没罗盘的那份，结果不许被前一次「带跑」（没有全局缓存）
+	assertEqual(curioManager.getCurioShopChance(owned), base + 0.1, "连着算两次同一个存档结果一致");
+	assertEqual(curioManager.getCurioShopChance(plain), base, "算过别人的罗盘之后，无罗盘存档仍是基础概率");
+	// 描述与判定同源：奇物文案里的百分数就是加进判定线的那个数
+	const line = curioManager.describeCurio("golden_compass")[0];
+	const quoted = Number(line.match(/(\d+)%/)?.[1]);
+	assertEqual(quoted, Math.round((curioManager.getCurioShopChance(owned) - base) * 100), "文案报的百分点 == 实际抬高的判定线");
+	// 图鉴只读定义，绝不能把「曾经拥有过」当成本存档的效果
+	assertEqual(curioManager.getCurioUpgradeTrack("golden_compass").length, 1, "罗盘只有史诗一档（初始即链尾）");
+	// 边界：叠出 100% 以上只夹到 1，非法入参与缺字段按基础概率
+	assertEqual(curioManager.getCurioShopChance({ curios: Array(20).fill("golden_compass") }), 1, "上限夹到 100%");
+	assertEqual(curioManager.getCurioShopChance({}), base, "缺字段按无奇物算");
+	assertEqual(curioManager.getCurioShopChance(null), base, "null 不抛错");
+	// 读档往返：概率不从存档里读，永远按此刻持有的奇物现算
+	assertEqual(curioManager.getCurioShopChance(state.cloneRun(owned)), base + 0.1, "cloneRun 后仍是 20%");
+	return `无罗盘 ${Math.round(base * 100)}% / 有罗盘 ${Math.round((base + 0.1) * 100)}% / 上限 100%`;
+});
+
+check("黄金罗盘：额外候选批次的旧档仍能显示、购买、读档恢复，且新结算绝不重复生成", () => {
+	const legacy = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		currency: { gold: 5000, exp: 5000 },
+		curios: ["golden_compass"],
+		curioOffers: [{ id: "broken_watch", price: 100 }],
+		curioOfferQueue: [[{ id: "energy_core", price: 120 }], [], ["nope"]],
+	});
+	assertEqual(legacy.curioOfferQueue.length, 1, "读档洗掉空批与下架货，合法那批原样留着、不重摇");
+	assertEqual(JSON.stringify(legacy.curioOfferQueue[0]), JSON.stringify([{ id: "energy_core", price: 120 }]), "价格随存档定死");
+	// 买完当前这批，队列提上货架（机制没变，只是不再由罗盘生产）
+	const bought = curioManager.buyCurio(legacy, "broken_watch");
+	assertEqual(bought.ok, true, "买得掉");
+	assertEqual(JSON.stringify(bought.run.curioOffers), JSON.stringify([{ id: "energy_core", price: 120 }]), "队列提上货架");
+	assertEqual(bought.run.curioOfferQueue.length, 0, "提完即空");
+	// 重进页面 / 反复读档都不会凭空多出一批
+	const again = state.cloneRun(bought.run);
+	assertEqual(again.curioOfferQueue.length, 0, "读档不重复生成");
+	// 新一次胜利结算：命中也只留这一批
+	const settled = reward.settleVictory(legacy, NOW, seq([0])).run;
+	assert(settled.curioOffers.length > 0, "rng=0 命中 → 有货");
+	assertEqual(settled.curioOfferQueue.length, 0, "新口径不再生产第二批");
+	return "旧队列可显示可购买 / 读档不重复生成";
+});
+
+check("未知实验室：预掷 ±1 两分支各自兑现、存档往返不重掷不反转、上下限不破", () => {
+	const ids = cfg.STAT_IDS;
+	const mk = (stats, rolls) => {
+		const run = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 6, stats });
+		const pending = eventManager.buildPendingEvent("unknown_lab", 5, seq(rolls), NOW, {
+			level: 7, statLevels: run.stats, curios: [], run,
+		});
+		return { run: { ...run, pendingEvent: pending }, pending };
+	};
+	// 第一掷决定 ±：≤0.5 增益、>0.5 减益；第二掷定具体属性
+	const up = mk({ defense: 3, draw: 2, attack: 2 }, [0.1, 0.2]);
+	const down = mk({ defense: 3, draw: 2, attack: 2 }, [0.9, 0.2]);
+	assertEqual(up.pending.choices[0].reward.statUp, ids[0], "增益分支当场定死具体属性");
+	assertEqual(down.pending.choices[0].reward.statDown, ids[0], "减益分支当场定死具体属性");
+	const upDone = eventManager.resolveEventChoice(up.run, 0, {}, seq([0.5]));
+	const downDone = eventManager.resolveEventChoice(down.run, 0, {}, seq([0.5]));
+	assertEqual(upDone.run.stats[ids[0]], 4, "增益那一支 +1");
+	assertEqual(downDone.run.stats[ids[0]], 2, "减益那一支 -1（不许跟着描述变号）");
+	assertEqual(upDone.run.pendingEvent, null, "结算后事件收掉");
+	// 只动被点到的那一项，其余两项原样
+	assertEqual(downDone.run.stats[ids[1]], 2, "没点到的属性不动");
+	assertEqual(downDone.run.stats[ids[2]], 2, "没点到的属性不动");
+	// 读档 / 重进页面 / 重复渲染都不重掷、不反转
+	for (let i = 0; i < 3; i++) {
+		const revived = state.cloneRun(down.run);
+		assertEqual(JSON.stringify(revived.pendingEvent.choices[0].reward), JSON.stringify({ statDown: ids[0] }), `第 ${i + 1} 次读档结果不变`);
+	}
+	// 结算只看存档里定死的那一项，不看事件描述、也不看选项序号
+	const swapped = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 6,
+		stats: { defense: 4, draw: 1, attack: 0 },
+		pendingEvent: {
+			id: "unknown_lab",
+			choices: [
+				{ text: "进入", reward: { statDown: "draw" } },
+				{ text: "离开", reward: { statUp: "attack" } },
+			],
+			createdAt: NOW,
+		},
+	});
+	const pickDown = eventManager.resolveEventChoice(swapped, 0, {}, seq([0.5]));
+	assertEqual(pickDown.run.stats.draw, 0, "选项 0 写着减益就必减");
+	assertEqual(pickDown.run.stats.attack, 0, "没点的选项一个字都不生效");
+	// 上下限：满级走增益不越界、零级走减益不为负、也不反过来涨
+	const maxed = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 6,
+		stats: Object.fromEntries(ids.map(id => [id, statsData.stats[id].maxLevel])),
+		pendingEvent: { id: "unknown_lab", choices: [{ text: "进入", reward: { statUp: ids[0] } }], createdAt: NOW },
+	});
+	const capped = eventManager.resolveEventChoice(maxed, 0, {}, seq([0.5]));
+	assertEqual(capped.run.stats[ids[0]], statsData.stats[ids[0]].maxLevel, "满级增益保持满级");
+	assert(capped.lines.some(line => line.includes("已达最高等级")), `满级要说清未生效：${capped.lines}`);
+	const floor = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 6,
+		stats: { defense: 0, draw: 0, attack: 0 },
+		pendingEvent: { id: "unknown_lab", choices: [{ text: "进入", reward: { statDown: ids[0] } }], createdAt: NOW },
+	});
+	const floored = eventManager.resolveEventChoice(floor, 0, {}, seq([0.5]));
+	assertEqual(floored.run.stats[ids[0]], 0, "零级减益停在 0，绝不出现负等级");
+	assert(floored.lines.some(line => line.includes("已是最低等级")), `零级要说清未生效：${floored.lines}`);
+	return "±1 两支各兑现 / 三次读档不变 / 上下限守住";
+});
+
+check("Boss 惩罚改为玩家自选：候选只认真实持有、删除各归各的账、欠项随存档往返", () => {
+	const base = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		skills: [SKILL_A, SKILL_B],
+		curios: ["energy_core", "cursed_coin"],
+		curioQuality: { energy_core: "rare", cursed_coin: "common" },
+		collection: { events: [], curios: ["energy_core", "cursed_coin", "broken_watch"] },
+		pendingBossPenalty: { reason: "bossVictory", needSkill: true, needCurio: true },
+	});
+	// 候选名单 = 这一局真实持有的购买技能与奇物（角色本体技能从来不在 run.skills 里）
+	const targets = penalty.getBossPenaltyTargets(base);
+	assertEqual(JSON.stringify(targets.skills), JSON.stringify([SKILL_A, SKILL_B]), "技能栏只列已购买技能");
+	assertEqual(JSON.stringify(targets.curios), JSON.stringify(["energy_core", "cursed_coin"]), "奇物栏只列当前持有");
+	assertEqual(JSON.stringify(penalty.getBossPenaltyTargets(null)), JSON.stringify({ skills: [], curios: [] }), "空入参安全返回空表");
+	// 选奇物：只删点到的那件，品质条目一并清掉、别的品质留着、图鉴一个字不动
+	const lostCurio = penalty.loseCurio(base, "cursed_coin", NOW);
+	assertEqual(lostCurio.ok, true, "持有即能删");
+	assertEqual(JSON.stringify(lostCurio.run.curios), JSON.stringify(["energy_core"]), "只删点到的那件");
+	assertEqual(lostCurio.run.curioQuality.cursed_coin, undefined, "品质覆盖表不留悬挂条目");
+	assertEqual(lostCurio.run.curioQuality.energy_core, "rare", "没被删的奇物品质保留");
+	assertEqual(JSON.stringify(lostCurio.run.collection.curios), JSON.stringify(["energy_core", "cursed_coin", "broken_watch"]), "图鉴「曾经拥有过」不受影响");
+	assertEqual(JSON.stringify(base.curios), JSON.stringify(["energy_core", "cursed_coin"]), "传入的 run 不被原地修改");
+	// 没持有的东西删不动，且不产生任何副作用
+	const notOwned = penalty.loseCurio(base, "broken_watch", NOW);
+	assert(!notOwned.ok && notOwned.run === base && notOwned.removed === null, "未拥有 → ok:false 且零副作用");
+	// 选技能：只作用于 run.skills
+	const lostSkill = penalty.loseSkill(base, SKILL_A, NOW);
+	assertEqual(lostSkill.ok, true, "已购买技能可删");
+	assertEqual(JSON.stringify(lostSkill.run.skills), JSON.stringify([SKILL_B]), "只删点到的那一个");
+	assertEqual(lostSkill.run.pendingBossPenalty.needCurio, true, "删技能不该顺手把奇物那项也标记成已还（欠项各记各的）");
+	// 欠项状态随存档往返：部分兑现后读档，只欠没还的那几项，绝不重新随机
+	const halfDone = { ...lostCurio.run, pendingBossPenalty: { reason: "bossVictory", needSkill: true, needCurio: false } };
+	const revived = state.cloneRun(halfDone);
+	assertEqual(JSON.stringify(revived.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: true, needCurio: false }), "读档回到同一个待处理惩罚");
+	assertEqual(revived.curios.length, 1, "已删掉的那件不会回来");
+	// 两项都还清 / 形状非法 / 旧档缺字段 —— 一律归 null，读档后绝不会停在无处可点的页上
+	assertEqual(state.cloneRun({ ...halfDone, pendingBossPenalty: { reason: "bossVictory", needSkill: false, needCurio: false } }).pendingBossPenalty, null, "还清即归 null");
+	assertEqual(state.cloneRun({ ...halfDone, pendingBossPenalty: { reason: "别的", needSkill: true } }).pendingBossPenalty, null, "认不出的 reason 不认");
+	assertEqual(state.cloneRun({ ...halfDone, pendingBossPenalty: "x" }).pendingBossPenalty, null, "非法类型安全归 null");
+	assertEqual(freshRun(cfg.RUN_MODE.endless).pendingBossPenalty, null, "新档不欠惩罚");
+	// v12 及更早的旧档没有这个字段：那一版随机惩罚当场就已兑现，读档绝不能凭空补出一笔债
+	const legacy = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), version: 12 });
+	assertEqual(legacy.pendingBossPenalty, null, "旧档不补待处理惩罚");
+	// 随机惩罚函数保持兼容（其它流程若还需要它，行为不变）
+	assertEqual(penalty.loseRandomSkill(base, () => 0.9, NOW).removed, SKILL_B, "loseRandomSkill 仍可用");
+	assertEqual(penalty.loseRandomCurio(base, () => 0.1, NOW).removed, "energy_core", "loseRandomCurio 仍可用");
+	return "候选现读 / 各删各的 / 欠项往返 / 旧档不补债";
+});
+
+check("玩家可见事件文案：指代胜利奖励的一律「本层胜利金币/本层胜利经验」", () => {
+	const banned = [/基准金币/, /基准经验/, /基准奖励/];
+	const visible = [];
+	for (const def of Object.values(eventsData.events)) {
+		visible.push(["事件名", def.id, def.name], ["事件描述", def.id, def.description]);
+		for (const choice of def.choices ?? []) {
+			visible.push(["选项文案", def.id, choice.text], ["选项提示", def.id, choice.blockedText ?? ""]);
+			for (const item of choice.outcomes ?? []) {
+				visible.push(["随机结果说明", def.id, item.text ?? ""]);
+			}
+		}
+	}
+	// 奇物效果、事件结算行这一类由代码生成的说明也一起扫（它们同样是玩家看到的字）
+	for (const id of curiosData.curioIds) {
+		for (const quality of curioManager.CURIOSITY_QUALITY_CHAIN) {
+			visible.push(["奇物效果", id, curioManager.describeCurio(id, { [id]: quality }).join(" / ")]);
+		}
+	}
+	const offenders = [];
+	for (const [kind, id, text] of visible) {
+		for (const pattern of banned) {
+			if (pattern.test(text)) {
+				offenders.push(`${kind}「${id}」含 ${pattern}：${text}`);
+			}
+		}
+	}
+	assertEqual(offenders.join("；"), "", "玩家可见文案不得出现「基准金币/基准经验/基准奖励」");
+	// 反向上也要求：凡是按胜利奖励倍率写的奇物效果行，必须带「本层」
+	for (const id of ["oblivion_stone", "gluttonous_box"]) {
+		const line = curioManager.describeCurio(id)[0];
+		assert(line.includes("本层胜利"), `${id} 的效果文案要用统一命名：${line}`);
+	}
+	return `扫描 ${visible.length} 条玩家可见文案，零残留`;
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

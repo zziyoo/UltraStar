@@ -299,6 +299,30 @@ function clickBossBattle(label = "开始下一关") {
 	}
 }
 
+/**
+ * 点最上层本体对话框里的按钮。惩罚页本身就是本体对话框，它弹出的确认提示是**叠在上面的另一个**
+ * dialog，而 screenRoot() 会优先返回 currentScreenNode()（页面那一个），所以这里必须显式指定作用域。
+ */
+function clickTopDialog(label) {
+	const top = ui.dialogs[ui.dialogs.length - 1];
+	assert(top, "当前没有打开的本体对话框");
+	return click(label, top);
+}
+
+/**
+ * 把 Boss 惩罚页走完一遍（v13 起惩罚由玩家自选）：结算页「继续」→ 点一条技能 → 确定 →
+ * 回本页点奇物 → 确定，两项还清才交给出口。
+ * 夹具里两处 Boss 场的手上都是 `skills:[own_one, own_two]` + `curios:[energy_core]`，
+ * 所以技能标签写死、奇物按名字匹配（品质后缀由页面自己拼，不必在这里抄）。
+ */
+function payBossPenalty(skillLabel) {
+	click("继续");
+	click(skillLabel);
+	clickTopDialog("确定");
+	click("能量核心");
+	clickTopDialog("确定");
+}
+
 console.log("奥特之星·肉鸽 模式流程冒烟\n");
 
 await check("注册：game.addMode 收到模式 id、封面与显示名，且防重复注册", () => {
@@ -2092,7 +2116,7 @@ await check("无尽胜利触发事件：结算页「继续」进事件页，选�
 	}
 });
 
-await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体力×2 + 复制技能），中途退出恢复不重掷，胜利 20 倍并强制弃置与刷奇物商店", async () => {
+await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体力×2 + 复制技能），中途退出恢复不重掷，胜利 20 倍并刷奇物商店、惩罚由玩家自选", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
@@ -2158,8 +2182,9 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 		assert(won.curioOffers.length > 0, "Boss 战胜利后奇物商城强制刷新出一批");
 		const text = screenText();
 		assert(text.includes("Boss 战 · 战斗胜利"), `结算页标题：${text}`);
-		assert(text.includes("没有已购买技能可失去") && text.includes("没有奇物可失去"), `空列表的安全话术：${text}`);
-		// 再来一场：手上有购买技能与奇物时，强制各失去一件（有则执行）
+		assert(text.includes("当前没有已购买技能与奇物可失去"), `空列表的安全话术：${text}`);
+		assertEqual(lib.storage.rogueSlots[0].pendingBossPenalty, null, "没东西可失去时不挂待处理惩罚，也不弹选择页");
+		// 再来一场：手上有购买技能与奇物时，惩罚**由玩家自己挑**（v13）。
 		// 存档里已经没有 bossRun 了——这一场是不是 Boss 战，完全取决于创建它时的那一掷
 		putRun(0, {
 			mode: "endless",
@@ -2169,6 +2194,8 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 			skills: ["rogue_extra", "own_one", "own_two"],
 			curios: ["energy_core"],
 			curioQuality: { energy_core: "rare" },
+			// 图鉴里先记上「曾经拥有过」，才能验失去时它不会被抹掉
+			collection: { events: [], curios: ["energy_core"] },
 		});
 		session();
 		clickBossBattle();
@@ -2179,14 +2206,45 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 		boss2.hp = 0;
 		lib.element.player.dieAfter.call(boss2);
 		await flush();
+		const owed = lib.storage.rogueSlots[0];
+		// 胜利这一刻一个东西都不删：只把「还欠技能 + 还欠奇物」写进存档（先删再让玩家挑等于替他做了决定）
+		assertEqual(JSON.stringify(owed.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: true, needCurio: true }), "结算只挂欠项");
+		assertEqual(JSON.stringify(owed.skills), JSON.stringify(["rogue_extra", "own_one", "own_two"]), "选择前不提前删技能");
+		assertEqual(JSON.stringify(owed.curios), JSON.stringify(["energy_core"]), "选择前不提前删奇物");
+		assertEqual(owed.curioQuality.energy_core, "rare", "选择前品质覆盖表原样保留");
+		assert(screenText().includes("由你自己挑出要失去的那一项"), `结算页要预告这一件事：${screenText()}`);
+		// 中途退出重开：读档回到同一张惩罚页，欠的还是那两项——不重新随机，也不自动替玩家删
+		session();
+		const pageText = screenText();
+		assert(pageText.includes("Boss 战的代价"), `读档直接回到待处理惩罚页：${pageText.slice(0, 120)}`);
+		for (const token of ["额外", "own_one", "own_two", "能量核心（稀有）"]) {
+			assert(pageText.includes(token), `惩罚页要列出真实持有项：缺 ${token}`);
+		}
+		assert(pageText.includes("摸牌阶段额外摸 2 张牌"), `奇物条目要带效果说明：${pageText}`);
+		// 挑一个技能：点下去即确认，只删选中的那一个，另一项仍欠着
+		click("own_two");
+		clickTopDialog("确定");
+		const half = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(half.skills), JSON.stringify(["rogue_extra", "own_one"]), "只删点到的那一个，其余原序保留");
+		assertEqual(JSON.stringify(half.curios), JSON.stringify(["energy_core"]), "奇物一栏还没选，一个都不动");
+		assertEqual(JSON.stringify(half.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: false, needCurio: true }), "欠项标记随选择落盘");
+		assertEqual(half.curioQuality.energy_core, "rare", "没失去的奇物品质保留");
+		// 再退出重开一次：只欠奇物那一项。技能一栏改成「已选好」且不再列条目——
+		// 还清的那一栏如果还可点，读档回来就能再删一次，这正是这条用例要挡住的
+		session();
+		assert(screenText().includes("这一项已经选好"), `技能已付清要说清：${screenText()}`);
+		assert(!screenText().includes("own_one"), "还清后不再列技能（不给第二次删除的机会）");
+		assert(screenText().includes("能量核心（稀有）"), `仍欠奇物，那一栏必须在：${screenText()}`);
+		click("能量核心（稀有）");
+		clickTopDialog("确定");
 		const punished = lib.storage.rogueSlots[0];
-		assertEqual(punished.skills.length, 2, "强制失去 1 个购买技能（3 → 2）");
-		// rng=0.5 → floor(0.5×3)=1 → 丢 own_one，其余原序保留
-		assertEqual(JSON.stringify(punished.skills), JSON.stringify(["rogue_extra", "own_two"]), "恰好随机丢一个，其余保留");
-		assertEqual(JSON.stringify(punished.curios), JSON.stringify([]), "强制失去 1 件奇物");
+		assertEqual(punished.pendingBossPenalty, null, "两项都还清 → 待处理状态收掉");
+		assertEqual(JSON.stringify(punished.curios), JSON.stringify([]), "奇物按玩家的选择失去");
 		assertEqual(punished.curioQuality.energy_core, undefined, "被丢奇物的品质条目一并清掉");
+		assertEqual(JSON.stringify(punished.collection.curios).includes("energy_core"), true, "图鉴「曾经拥有过」不因失去而消失");
+		assertEqual(punished.skills.length, 2, "失去奇物不该回头再动技能");
 		assertEqual(punished.currentBattle, null, "本场结束后战斗状态清空，Boss 身份随之消失");
-		return "建局不判定 → 逐场掷中换单 Boss → 中途恢复不重掷 → 20 倍奖励 + 强制刷新 → 强制弃置";
+		return "建局不判定 → 逐场掷中换单 Boss → 中途恢复不重掷 → 20 倍奖励 + 强刷 → 惩罚改玩家自选（含两次中断续选）";
 	} finally {
 		Math.random = originalRandom;
 	}
@@ -2249,10 +2307,15 @@ await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的
 		assertEqual(slot.currency.gold - goldBefore, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 = 20 倍基准");
 		assertEqual(slot.currency.exp - expBefore, base.exp * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场经验 = 20 倍基准");
 		assert(slot.curioOffers.length > 0, "Boss 场胜利后奇物商城强制刷新");
-		assertEqual(slot.skills.length, 1, "Boss 场胜利弃掉 1 个技能");
-		assertEqual(slot.curios.length, 0, "Boss 场胜利弃掉 1 件奇物");
+		assertEqual(slot.skills.length, 2, "惩罚改玩家自选：胜利这一刻一个技能都不删");
+		assertEqual(slot.curios.length, 1, "奇物同样还没被删");
+		assertEqual(JSON.stringify(slot.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: true, needCurio: true }), "结算只挂「还欠哪几项」");
 		assert(screenText().includes("Boss 战 · 战斗胜利"), `Boss 场标题：${screenText()}`);
-		click("返回营地");
+		// 结清这一场的惩罚（挑技能 → 挑奇物），才能接着打第 3 场
+		payBossPenalty("own_one");
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_two"]), "只有点到的那一个被删掉");
+		assertEqual(slot.pendingBossPenalty, null, "两项还清后欠账标记收掉");
 		session();
 		// ---- 第 3 场：刚打完 Boss，下一场也必须回到普通结算（这是本次修改的核心目的）
 		clickNormalBattle();
@@ -2266,7 +2329,7 @@ await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的
 		slot = lib.storage.rogueSlots[0];
 		assertEqual(slot.currency.gold - goldBefore3, base.gold, "第 3 场回到 1 倍基准，20 倍没有跟过来");
 		assertEqual(slot.curioOffers.length, 0, "第 3 场不再强制刷新奇物商店");
-		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one"]), "第 3 场不弃技能");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_two"]), "第 3 场不弃技能（上一场只失去玩家挑中的 own_one）");
 		assertEqual(slot.level, 15, "关卡照常推进");
 		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss 战"), `第 3 场标题：${screenText()}`);
 		return "普通(1×)→Boss(20×+弃置+强刷)→普通(1×)，三场各判各的";
@@ -2291,7 +2354,7 @@ await check("v11 旧档迁移：整局 bossRun 只折算进正在进行的这一
 			},
 		});
 		session();
-		// 旧档读入会先弹一条「已从版本11迁移到12」的提示，确认后才是恢复页
+		// 旧档读入会先弹一条「已从版本11迁移到当前版本」的提示，确认后才是恢复页
 		click("确定");
 		// 读档这一刻还没有落盘：存档里仍是原始的 v11 形状（带整局 bossRun）。
 		// 旧字段只被折算进「正在进行的这一场」，它本身不再被任何代码读取——
@@ -2537,10 +2600,14 @@ await check("矛盾存档对齐：整场与敌人标记冲突时按规则归一�
 		slot = lib.storage.rogueSlots[0];
 		assertEqual(slot.currency.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "保持 Boss 身份的这一场照拿 20 倍");
 		assert(slot.curioOffers.length > 0, "照常强制刷新奇物商店");
-		assertEqual(slot.skills.length, 1, "照常执行 Boss 的技能弃置");
-		assertEqual(slot.curios.length, 0, "照常执行 Boss 的奇物弃置");
+		assertEqual(slot.skills.length, 2, "Boss 惩罚改玩家挑：胜利这一刻不弃技能");
+		assertEqual(slot.curios.length, 1, "也不弃奇物");
+		assertEqual(slot.pendingBossPenalty.needSkill, true, "两项欠账都随本场胜利写进存档");
 		assert(screenText().includes("Boss 战 · 战斗胜利"), `结算页标题走 Boss 口径：${screenText()}`);
-		return "明确 false 降级(体力/奖励/惩罚/标题) / 缺字段补齐(翻倍一次+20倍+弃置+标题) / 普通场残留标记抹平";
+		payBossPenalty("own_one");
+		assertEqual(lib.storage.rogueSlots[0].skills.length, 1, "挑完才真正失去点到的那一个");
+		assertEqual(lib.storage.rogueSlots[0].curios.length, 0, "奇物按选择失去");
+		return "明确 false 降级(体力/奖励/惩罚/标题) / 缺字段补齐(翻倍一次+20倍+自选弃置+标题) / 普通场残留标记抹平";
 	} finally {
 		Math.random = originalRandom;
 	}
@@ -2824,7 +2891,7 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 	// 详情只列选项与结果：名称/介绍卡片上已有，弹层里不再重复
 	assertEqual(
 		JSON.stringify(coin),
-		JSON.stringify(["「拾取」", "　50%：获得 1 倍胜利金币", "　50%：消耗 0.4 倍胜利金币", "「观察」", "　无奖励"]),
+		JSON.stringify(["「拾取」", "　50%：获得 1 倍本层胜利金币", "　50%：消耗 0.4 倍本层胜利金币", "「观察」", "　无奖励"]),
 		`幸运硬币逐行版式：${coin.join(" / ")}`
 	);
 	const lab = openDetail("未知实验室");
@@ -2995,15 +3062,15 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	// 深渊裂隙：三档的敌人数与倍率读 config.RIFT_TIERS，每名敌人的深渊强化读 RIFT_EXTRA_AFFIXES
 	const rift = openDetail("深渊裂隙");
 	for (let i = 0; i < cfg.RIFT_TIERS.length; i++) {
-		const expect = `　开一场 ${cfg.RIFT_TIERS[i].enemies} 名敌人的裂隙战（不算层数），胜利得 ${cfg.RIFT_TIERS[i].multiplier} 倍胜利金币与胜利经验，每名敌人自带 ${cfg.RIFT_EXTRA_AFFIXES} 个深渊强化`;
+		const expect = `　开一场 ${cfg.RIFT_TIERS[i].enemies} 名敌人的裂隙战（不算层数），胜利得 ${cfg.RIFT_TIERS[i].multiplier} 倍本层胜利金币与本层胜利经验，每名敌人自带 ${cfg.RIFT_EXTRA_AFFIXES} 个深渊强化`;
 		assert(rift.includes(expect), `裂隙第 ${i + 1} 档应写明奖励规则：${rift.join(" / ")}`);
 	}
 	assert(!rift.includes("无奖励"), `裂隙选项不该再显示无奖励：${rift.join(" / ")}`);
 	// 古代遗迹：三扇门写明品质与折算经验（折算额 = expByWin + expIfNoCurioByWin）
 	const ruins = openDetail("古代遗迹");
-	assert(ruins.some(line => line.includes("获得一件普通奇物（该品质已集齐时改为获得 2 倍胜利经验）")),
+	assert(ruins.some(line => line.includes("获得一件普通奇物（该品质已集齐时改为获得 2 倍本层胜利经验）")),
 		`白门应写明普通奇物与 0.5+1.5=2 倍折算：${ruins.join(" / ")}`);
-	assert(ruins.some(line => line.includes("获得一件稀有奇物（该品质已集齐时改为获得 2 倍胜利经验）")),
+	assert(ruins.some(line => line.includes("获得一件稀有奇物（该品质已集齐时改为获得 2 倍本层胜利经验）")),
 		`紫门不再是「无奖励」：${ruins.join(" / ")}`);
 	assert(ruins.some(line => line.includes("获得一件负面奇物") && !line.includes("改为获得")),
 		`黑门没写折算就不写「改为」：${ruins.join(" / ")}`);
@@ -3019,7 +3086,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 		`换技能选项不该是「无奖励」：${skillForge.join(" / ")}`);
 	// 经验泉「再饮一口」：奖励与深渊债写同一行
 	const spring = openDetail("经验泉");
-	assert(spring.some(line => line.includes("获得 1 倍胜利经验") && line.includes(`每名敌人追加 ${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`)),
+	assert(spring.some(line => line.includes("获得 1 倍本层胜利经验") && line.includes(`每名敌人追加 ${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`)),
 		`再饮一口应连深渊债一起写：${spring.join(" / ")}`);
 	// 属性训练场：写了 blockedText 的 statUp，全满注记换成原话，不再是「改送随机奇物」
 	const training = openDetail("属性训练场");
@@ -3957,6 +4024,200 @@ await check("经验泉的债：下一场每名敌人追加词缀，开战即兑�
 	assertEqual(new Set(run.currentBattle.enemies[0].abyss).size, 2, "追加的两个不重复");
 	assertEqual(run.currentBattle.rift, null, "普通战斗不带裂隙参数（结算照旧推进关卡、照旧掷事件）");
 	return "债在开战时兑现并清零";
+});
+
+await check("流浪商人：子页「右上角返回」即放弃本次事件并落盘，此后每场胜利不再重复弹同一个事件", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	/** 商人事件：一件货、标价定死，另有一个「不买了」的出口（与 data/events.js 同形状） */
+	const merchantEvent = {
+		id: "wandering_merchant",
+		choices: [
+			{ text: "和商人交易", reward: {}, action: { kind: "merchant", curioId: "energy_core", price: 100 } },
+			{ text: "不买了", reward: {} },
+		],
+		createdAt: 1,
+	};
+	try {
+		putRun(0, {
+			mode: "endless",
+			characterId: "迪迦",
+			level: 4,
+			currency: { gold: 1000, exp: 100 },
+			pendingEvent: merchantEvent,
+		});
+		session();
+		assert(screenText().includes("和商人交易"), `进档应落在事件页：${screenText()}`);
+		click("和商人交易");
+		assert(screenText().includes("买下"), `应进入商人子页：${screenText()}`);
+		click("返回");
+		// 真机症状就是这一步：以前只关页面、事件仍挂在存档上，
+		// 于是回营地接着打，之后**每场胜利后**都把同一个流浪商人再弹一次
+		const slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.pendingEvent, null, "返回＝放弃本次事件，并当场落盘");
+		assertEqual(slot.currency.gold, 1000, "放弃不扣一分钱");
+		assertEqual((slot.curios ?? []).length, 0, "放弃也不凭空送一件货");
+		assert(screenText().includes("开始下一关"), `返回后应落在营地：${screenText()}`);
+		// 重进页面（等同关游戏再开）：不该又被弹回事件页
+		session();
+		assert(!screenText().includes("和商人交易"), "重进页面不再弹流浪商人");
+		assert(screenText().includes("开始下一关"), `重进后在营地：${screenText()}`);
+		// 再打赢一场：事件判定不命中，存档里绝不躺着那个旧事件
+		Math.random = () => 0.999;
+		clickNormalBattle();
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		const won = lib.storage.rogueSlots[0];
+		assertEqual(won.pendingEvent, null, "下一场胜利没有再把流浪商人弹回来");
+		assert(screenText().includes("战斗胜利") && !screenText().includes("继续"), `结算页直接回营地：${screenText()}`);
+		return "返回即放弃并落盘 / 重进与下一场都不复发 / 金币货物分文不动";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("流浪商人成交与读档：一次交易只扣一次钱，事件只结束一次", async () => {
+	freshWorld();
+	const merchantEvent = {
+		id: "wandering_merchant",
+		choices: [
+			{ text: "和商人交易", reward: {}, action: { kind: "merchant", curioId: "energy_core", price: 100 } },
+			{ text: "不买了", reward: {} },
+		],
+		createdAt: 1,
+	};
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 1000, exp: 100 },
+		pendingEvent: merchantEvent,
+	});
+	session();
+	click("和商人交易");
+	click("买下");
+	click("确定");
+	const bought = lib.storage.rogueSlots[0];
+	assertEqual(bought.currency.gold, 900, "成交只扣这一笔");
+	assertEqual(JSON.stringify(bought.curios), JSON.stringify(["energy_core"]), "奇物入袋");
+	assertEqual(bought.pendingEvent, null, "成交后事件正确结束");
+	assertEqual(JSON.stringify(bought.collection.curios), JSON.stringify(["energy_core"]), "图鉴记下曾经拥有");
+	// 读档重进：不重复扣费、不重复发货、也不再弹同一个事件
+	session();
+	const again = lib.storage.rogueSlots[0];
+	assertEqual(again.currency.gold, 900, "读档不再扣第二次");
+	assertEqual(JSON.stringify(again.curios), JSON.stringify(["energy_core"]), "读档不重复发货");
+	assert(!screenText().includes("和商人交易"), "读档不再弹这次已完成的交易");
+	// 另一条既有规则：钱不够时点了只弹一句，事件与金币都不动
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 10, exp: 100 },
+		pendingEvent: merchantEvent,
+	});
+	session();
+	click("和商人交易");
+	// 钱不够是「置灰、点了毫无反应」那一类（不是「没对象可作用」的弹一句）：按钮文字本身变成金币不足
+	click("金币不足");
+	const poor = lib.storage.rogueSlots[0];
+	assertEqual(poor.currency.gold, 10, "买不成一个钱都不扣");
+	assertEqual(poor.pendingEvent.id, "wandering_merchant", "买不成事件照旧挂着，可以重试");
+});
+
+await check("Boss 判定边界与不重掷：5% 用严格小于、恢复沿用的是那场原判定、下一场各掷各的", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	const rate = cfg.BOSS_RUN_RATE;
+	try {
+		// ① 判定线四档（严格小于）：不必实战几十场就能验概率口径
+		for (const [value, expectBoss] of [[rate - 1e-6, true], [rate, false], [rate * 0.5, true], [0.999, false]]) {
+			freshWorld();
+			putRun(0, { mode: "endless", characterId: "迪迦", level: 3, currency: { gold: 0, exp: 0 } });
+			session();
+			Math.random = () => value;
+			click("开始下一关");
+			await flush();
+			const battle = lib.storage.rogueSlots[0].currentBattle;
+			assertEqual(battle.isBossBattle, expectBoss, `创建这一场的第一掷 ${value} → ${expectBoss}`);
+			assertEqual(battle.enemies.length, expectBoss ? 1 : enemyModule.getEnemyCount(3, "endless"), "抽中才换成单 Boss 阵容");
+		}
+		// ② 抽中 Boss 后中途退出重进：恢复分支不重掷——把随机钉成「远高于判定线」也仍是那一场
+		freshWorld();
+		putRun(0, { mode: "endless", characterId: "迪迦", level: 3, currency: { gold: 0, exp: 0 } });
+		session();
+		Math.random = () => 0;
+		click("开始下一关");
+		await flush();
+		const bossName = game.players[1].name;
+		session();
+		assert(screenText().includes("战斗未正常结算"), `重进应先落到恢复页：${screenText()}`);
+		Math.random = () => 0.999;
+		click("重新挑战这一关");
+		await flush();
+		assertEqual(game.players.length, 2, "恢复的仍是那一场单 Boss（没按 0.999 重掷成多敌普通场）");
+		assertEqual(game.players[1].name, bossName, "敌人原样，没有重掷");
+		assertEqual(game.players[1].maxHp, lib.character[bossName].maxHp * 2, "Boss 体力翻倍规则照常生效");
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.isBossBattle, true, "本场身份沿用存档里的判定");
+		// ③ 打完这一场，下一场重新独立判定（标记不跨场）
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "结算后战斗标记清空，Boss 身份随之消失");
+		session();
+		clickNormalBattle();
+		await flush();
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.isBossBattle, false, "下一场各掷各的：没抽中就是普通场");
+		return "四档边界(含正好 5%) / 恢复不重掷 / 逐场独立";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("Boss 惩罚只有一类有对象：另一类按「没有可失去的」带过，绝不拿它凑数", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		// 手上有两个购买技能、奇物一件都没有：按规则只欠技能那一项
+		putRun(0, {
+			mode: "endless",
+			characterId: "迪迦",
+			level: 2,
+			currency: { gold: 50, exp: 50 },
+			skills: ["own_one", "own_two"],
+			curios: [],
+		});
+		session();
+		clickBossBattle();
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		const owed = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(owed.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: true, needCurio: false }), "只欠技能，奇物一项都不该记成欠");
+		click("继续");
+		const page = screenText();
+		assert(page.includes("失去一个技能"), `技能栏该可选择：${page.slice(0, 160)}`);
+		assert(page.includes("没有奇物可失去"), `奇物栏要说「没有可失去的」：${page.slice(0, 200)}`);
+		assert(!page.includes("失去一件奇物"), "没有对象的这一栏不给按钮");
+		click("own_one");
+		clickTopDialog("确定");
+		const done = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(done.skills), JSON.stringify(["own_two"]), "只删点到的那一个");
+		assertEqual(done.pendingBossPenalty, null, "唯一欠项还清 → 状态收掉，不再逼玩家选第二件");
+		assertEqual(done.curios.length, 0, "奇物一栏没有对象，一个都不该被扣");
+		return "只欠技能 → 奇物按规则带过 → 还清即放行";
+	} finally {
+		Math.random = originalRandom;
+	}
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);
