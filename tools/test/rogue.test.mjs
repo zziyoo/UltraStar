@@ -4645,6 +4645,54 @@ check("统一失去技能：从背包删除、已装备的同时卸下、遗忘�
 	return "单件/批量/无奇物/零副作用 + 卸下不算失去";
 });
 
+check("技能失去奖励的基准关卡：Boss 结算必须传刚打赢的那一关，不能读推进后的 level", () => {
+	const wonLevel = 2;
+	// 真跑一次 Boss 胜利结算：无尽结算会把 level 从 2 推进到 3 —— 这正是「误用下一关基准」的来源
+	const atBoss = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		level: wonLevel,
+		currency: { gold: 0, exp: 0 },
+		skills: [SKILL_A, SKILL_B, SKILL_C],
+		skillInventory: [SKILL_A, SKILL_B, SKILL_C],
+		curios: ["oblivion_stone", "gluttonous_box"],
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null, isBossBattle: true },
+	});
+	const settled = reward.settleVictory(atBoss, NOW, () => 0.999);
+	assertEqual(settled.run.level, wonLevel + 1, "胜利结算已把关卡推进到下一关");
+	const goldBefore = settled.run.currency.gold;
+	const expBefore = settled.run.currency.exp;
+	const wonBase = rewardsData.getEndlessReward(wonLevel, ["gold", "exp"]);
+	const nextBase = rewardsData.getEndlessReward(wonLevel + 1, ["gold", "exp"]);
+	assert(wonBase.gold !== nextBase.gold && wonBase.exp !== nextBase.exp, "两关基准必须不同，否则这个用例分辨不出用了哪一关");
+	// Boss 流程（flow/result.js 的做法）：显式传刚打赢的那一关，遗石/魔盒都按它的基准 ×10 ×件数
+	const fixed = penalty.loseSkills(settled.run, [SKILL_A, SKILL_B, SKILL_C], NOW, wonLevel);
+	assert(fixed.ok, fixed.error ?? "批量失去应当成功");
+	assertEqual(fixed.gold, wonBase.gold * 10 * 3, `遗忘之石 = 第 ${wonLevel} 关基准 ${wonBase.gold} ×10 ×3 件`);
+	assertEqual(fixed.exp, wonBase.exp * 10 * 3, `贪食魔盒 = 第 ${wonLevel} 关基准 ${wonBase.exp} ×10 ×3 件`);
+	assert(fixed.gold !== nextBase.gold * 10 * 3, "奖励不得按推进后的下一关基准算");
+	// 显式基准不是 Boss 倍率：它必须是**基础奖励**，绝不叠 ×20 金币 / ×8 经验
+	assert(fixed.gold !== wonBase.gold * cfg.BOSS_REWARD_MULTIPLIER * 10 * 3, "不得拿乘过 20 倍的金币当基准");
+	assert(fixed.exp !== wonBase.exp * cfg.BOSS_EXP_MULTIPLIER * 10 * 3, "不得拿乘过 8 倍的经验当基准");
+	// 与原口径的对照：不传基准时仍读 run.level（事件熔炉、失败惩罚等路径一个字没变）
+	const byRunLevel = penalty.loseSkills(settled.run, [SKILL_A, SKILL_B, SKILL_C], NOW);
+	assertEqual(byRunLevel.gold, nextBase.gold * 10 * 3, "不传基准时按 run.level 现算（其余路径的原口径）");
+	assertEqual(byRunLevel.exp, nextBase.exp * 10 * 3, "经验同理");
+	// 单件版与两个奖励函数本身都要认这个可选基准
+	assertEqual(penalty.loseSkill(settled.run, SKILL_C, NOW, wonLevel).gold, wonBase.gold * 10, "单件版认显式基准");
+	assertEqual(curioManager.getSkillLossRewardGold(settled.run, wonLevel), wonBase.gold * 10, "奖励函数认显式基准");
+	assertEqual(curioManager.getSkillLossRewardExp(settled.run, wonLevel), wonBase.exp * 10, "奖励函数认显式基准（经验）");
+	assertEqual(curioManager.getSkillLossRewardGold(settled.run), nextBase.gold * 10, "不传时仍按 run.level（原口径）");
+	// 没有对应奇物时，显式基准也不改变「一分钱不发」
+	const bare = { ...settled.run, curios: [] };
+	const nothing = penalty.loseSkills(bare, [SKILL_A], NOW, wonLevel);
+	assert(nothing.ok && nothing.gold === 0 && nothing.exp === 0, "没有奇物照样不发奖");
+	// 传入的 run 不被原地修改（基准只是读数，不写档）
+	assertEqual(JSON.stringify(settled.run.skills), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "传入 run 不被原地修改");
+	assertEqual(settled.run.currency.gold, goldBefore, "传入 run 的货币一分不动");
+	assertEqual(settled.run.currency.exp, expBefore, "同上（经验）");
+	return `第 ${wonLevel} 关 Boss：遗石 ${wonBase.gold * 10} ×3 件 / 魔盒 ${wonBase.exp * 10} ×3 件`;
+});
+
 check("黄金罗盘：刷新概率按存档实算、存档之间互不影响、边界夹住", () => {
 	const base = cfg.CURIO_SHOP_RATE;
 	const saveOf = curios => state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), curios });

@@ -5017,11 +5017,18 @@ await check("Boss 胜利 + 遗忘之石/贪食魔盒：按件结算、账目随�
 		lib.element.player.dieAfter.call(game.players[1]);
 		await flush();
 		const bossBase = rewardsData.getEndlessReward(2, ["gold", "exp"]);
-		// 失去发生在结算之后，run.level 已推进到 3：遗石/魔盒按「失去时的 run.level」现算（与商店那条路同一个口径）
-		const lossBase = rewardsData.getEndlessReward(3, ["gold", "exp"]);
+		// 失去技能发生在结算之后（run.level 已推进到 3），但奖励基准必须是**刚打赢的那一关**（第 2 关）——
+		// 误用推进后的 level 就会按第 3 关的基准多发一份
+		const lossBase = rewardsData.getEndlessReward(2, ["gold", "exp"]);
+		const nextBase = rewardsData.getEndlessReward(3, ["gold", "exp"]);
+		assert(lossBase.gold !== nextBase.gold && lossBase.exp !== nextBase.exp, "第 2 / 3 关基准必须不同，否则这个用例分辨不出用了哪一关");
+		const bossGold = bossBase.gold * cfg.BOSS_REWARD_MULTIPLIER;
+		const bossExp = bossBase.exp * cfg.BOSS_EXP_MULTIPLIER;
 		const slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currency.gold, bossBase.gold * cfg.BOSS_REWARD_MULTIPLIER + lossBase.gold * 10 * 3, "金币 = Boss 20 倍奖励 + 遗忘之石按件三次");
-		assertEqual(slot.currency.exp, bossBase.exp * cfg.BOSS_EXP_MULTIPLIER + lossBase.exp * 10 * 3, "经验 = Boss 8 倍奖励 + 贪食魔盒按件三次");
+		assertEqual(slot.currency.gold, bossGold + lossBase.gold * 10 * 3, "金币 = Boss 20 倍奖励 + 遗忘之石按第 2 关基准 ×10 ×3 件");
+		assertEqual(slot.currency.exp, bossExp + lossBase.exp * 10 * 3, "经验 = Boss 8 倍奖励 + 贪食魔盒按第 2 关基准 ×10 ×3 件");
+		assert(slot.currency.gold !== bossGold + nextBase.gold * 10 * 3, "不得按推进后的第 3 关基准算");
+		assert(slot.currency.exp !== bossExp + nextBase.exp * 10 * 3, "经验同理");
 		assertEqual(JSON.stringify(slot.skills), JSON.stringify([]), "三个装备技能全部失去");
 		assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify([]), "背包同步清空");
 		// 惩罚页必须把这几行账目展示出来（自动跳转不能把这些反馈吞掉）

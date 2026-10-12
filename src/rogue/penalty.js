@@ -81,8 +81,11 @@ export function settleDefeat(run, now, policy = FAILURE_POLICY) {
  * 返回 { ok, error, run, removed: string[], gold, exp, lines }：奖励已并进 run.currency，
  * 删除与奖励是同一次提交的一部分，调用方落盘一次即全部生效（绝不重复发奖）。
  * @param {string[]} skillIds 想失去的技能；其中未拥有的会被忽略
+ * @param {number} [level] 奖励基准关卡；省略时取 run.level。
+ *   **Boss 胜利流程必须显式传「刚打赢的那一关」**：胜利结算已经把 run.level 推进到下一关，
+ *   不传就会拿下一关的基准发遗石/魔盒奖励（其余路径传不传都一样，因为它们的 run.level 没被推进过）
  */
-export function loseSkills(run, skillIds, now = 0) {
+export function loseSkills(run, skillIds, now = 0, level = run?.level) {
 	const inventory = Array.isArray(run?.skillInventory) ? run.skillInventory : [];
 	const removed = [];
 	for (const raw of Array.isArray(skillIds) ? skillIds : []) {
@@ -103,8 +106,8 @@ export function loseSkills(run, skillIds, now = 0) {
 		updatedAt: now,
 	};
 	// 按件结算：每失去一个技能各算一次（Boss 一次清除 3 个装备技能 = 3 次技能失去奖励）
-	const gold = removed.length * getSkillLossRewardGold(run);
-	const exp = removed.length * getSkillLossRewardExp(run);
+	const gold = removed.length * getSkillLossRewardGold(run, level);
+	const exp = removed.length * getSkillLossRewardExp(run, level);
 	if (gold > 0) {
 		next.currency.gold = (next.currency.gold ?? 0) + gold;
 	}
@@ -121,9 +124,9 @@ export function loseSkills(run, skillIds, now = 0) {
 	return { ok: true, error: null, run: next, removed, gold, exp, lines };
 }
 
-/** loseSkills 的单件版：失去一个指定技能（失败也走同一条：不可失去时 ok:false、零副作用） */
-export function loseSkill(run, skillId, now = 0) {
-	const result = loseSkills(run, [skillId], now);
+/** loseSkills 的单件版：失去一个指定技能（失败也走同一条：不可失去时 ok:false、零副作用）；基准关卡的语义见 loseSkills */
+export function loseSkill(run, skillId, now = 0, level = run?.level) {
+	const result = loseSkills(run, [skillId], now, level);
 	if (!result.ok) {
 		return { ok: false, error: "并未拥有该技能", run, removed: null, gold: 0, exp: 0, lines: [] };
 	}

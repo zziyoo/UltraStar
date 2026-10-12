@@ -611,32 +611,36 @@ export function grantCurioById(run, curioId, rng = Math.random) {
 
 /**
  * 遗忘之石「失去技能时」的单件金币 = 本层胜利金币 × 效果值。
- * 关卡取 run.level，与商店给技能定价用的是同一个「当前关卡」口径（两处数字才对得上）。
+ * 关卡默认取 run.level（与商店给技能定价用的是同一个「当前关卡」口径，两处数字才对得上）；
+ * 也可以显式指定基准关卡——Boss 胜利流程**必须**传刚打赢的那一关：胜利结算已经把 run.level
+ * 推进到下一关，不传就会拿下一关的基准发奖（见 penalty.loseSkills 的 level 参数）。
  * 没有这块奇物（加成为 0）一律返回 0；调用方（penalty.loseSkills）只在**真的删掉了技能**时才发，
  * 一次失去 N 个技能就按件累加 N 次——绝不乘 Boss 奖励倍率，也不重复套用金币加成。
+ * @param {object} run 存档（读 curios / curioQuality / level）
+ * @param {number} [level] 奖励基准关卡；省略时取 run.level
  */
-export function getSkillLossRewardGold(run) {
+export function getSkillLossRewardGold(run, level = run?.level) {
 	const mult = getBonus(run?.curios ?? [], "goldOnSkillLoss", run?.curioQuality);
 	if (!(mult > 0)) {
 		return 0;
 	}
-	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
-	const base = getEndlessReward(level, ["gold"]).gold ?? 0;
+	const basis = Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
+	const base = getEndlessReward(basis, ["gold"]).gold ?? 0;
 	return Math.max(0, Math.round(base * mult));
 }
 
 /**
  * 贪食魔盒「失去技能时」的单件经验 = 本层胜利经验 × 效果值。
- * 与 getSkillLossRewardGold 逐字同一条口径：关卡取 run.level，没有这块奇物返回 0；
+ * 与 getSkillLossRewardGold 逐字同一条口径（含可选的基准关卡参数）：没有这块奇物返回 0；
  * 调用方同样只在真的删掉了技能时才按件发。
  */
-export function getSkillLossRewardExp(run) {
+export function getSkillLossRewardExp(run, level = run?.level) {
 	const mult = getBonus(run?.curios ?? [], "expOnSkillLoss", run?.curioQuality);
 	if (!(mult > 0)) {
 		return 0;
 	}
-	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
-	const base = getEndlessReward(level, ["exp"]).exp ?? 0;
+	const basis = Number.isFinite(level) ? Math.max(1, Math.floor(level)) : 1;
+	const base = getEndlessReward(basis, ["exp"]).exp ?? 0;
 	return Math.max(0, Math.round(base * mult));
 }
 

@@ -37,7 +37,10 @@ export function createResultFlow(host) {
 		const penaltyLines = [];
 		if (result.isBossBattle) {
 			const equipped = Array.isArray(run.skills) ? run.skills : [];
-			const removal = loseSkills(run, equipped, now());
+			// 奖励基准显式传**刚打赢的那一关**（wonLevel）：上面的 settleVictory 已经把 run.level 推进到
+			// 下一关，遗石/魔盒若按 run.level 现算就会多发一份「下一关基准」；基准本身也只用基础奖励，
+			// 不拿结算里乘过 20 倍/8 倍的 Boss 金币经验（那是另一笔账，绝不重复乘）
+			const removal = loseSkills(run, equipped, now(), wonLevel);
 			if (removal.ok) {
 				run = removal.run;
 				penaltyLines.push(`Boss 战的代价：失去了全部 ${removal.removed.length} 个装备技能。`);
@@ -147,6 +150,8 @@ export function createResultFlow(host) {
 				return;
 			}
 			if (pending.needSkill === true) {
+				// 奖励基准只能取 run.level：v13 旧档没记下刚打赢的那一关（档案里的 level 当时就已推进），
+				// 无法可靠还原，这里是唯一一处拿不到 wonLevel 的失去路径（只服务 v13 旧档的一次性迁移）
 				const removal = loseSkills(run, Array.isArray(run.skills) ? run.skills : [], now());
 				const nextPending = { ...pending, needSkill: false };
 				const remaining = nextPending.needCurio === true;
