@@ -4693,6 +4693,38 @@ check("技能失去奖励的基准关卡：Boss 结算必须传刚打赢的那�
 	return `第 ${wonLevel} 关 Boss：遗石 ${wonBase.gold * 10} ×3 件 / 魔盒 ${wonBase.exp * 10} ×3 件`;
 });
 
+check("v13 旧档的基准还原：按推进规则反推「刚打赢的那一关」", () => {
+	const at = patch => state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), ...patch });
+	// 无尽：每胜利必 +1 → 档案里的 level 是「下一关」
+	assertEqual(penalty.recoverBossWonLevel(at({ mode: "endless", level: 46 })), 45, "无尽第 46 关的档案 → 刚打赢的是第 45 关");
+	// 闯关没打完最后一关：同样 +1
+	assertEqual(penalty.recoverBossWonLevel(at({ mode: "challenge", level: 5, totalLevels: 30, cleared: false })), 4, "闯关推进过 → level - 1");
+	// 闯关刚好打通最后一关：level 原地不动、只记 cleared → 刚打赢的就是 level 本身
+	assertEqual(penalty.recoverBossWonLevel(at({ mode: "challenge", level: 30, totalLevels: 30, cleared: true })), 30, "通关那一局 level 不推进 → 基准就是 level");
+	// 下限与非法值：绝不返回 0 或负数（第 1 关是最低档）
+	assertEqual(penalty.recoverBossWonLevel(at({ mode: "endless", level: 1 })), 1, "最低第 1 关");
+	assertEqual(penalty.recoverBossWonLevel({ mode: "endless", level: Number.NaN }), 1, "非法 level 兜底第 1 关");
+	assertEqual(penalty.recoverBossWonLevel(null), 1, "空存档兜底第 1 关");
+	// 与显式基准合流：迁移路径把反推值当第 4 参传下去，最终算式与正常 Boss 结算同一份
+	const archive = at({
+		mode: "endless",
+		level: 46,
+		currency: { gold: 0, exp: 0 },
+		skills: [SKILL_A, SKILL_B],
+		skillInventory: [SKILL_A, SKILL_B],
+		curios: ["oblivion_stone", "gluttonous_box"],
+	});
+	const wonLevel = penalty.recoverBossWonLevel(archive);
+	const wonBase = rewardsData.getEndlessReward(wonLevel, ["gold", "exp"]);
+	const advancedBase = rewardsData.getEndlessReward(46, ["gold", "exp"]);
+	assert(wonBase.gold !== advancedBase.gold && wonBase.exp !== advancedBase.exp, "第 45 / 46 关基准必须不同，否则分辨不出用了哪一关");
+	const lost = penalty.loseSkills(archive, [SKILL_A, SKILL_B], NOW, wonLevel);
+	assertEqual(lost.gold, wonBase.gold * 10 * 2, "迁移清算按反推出的第 45 关基准 ×10 ×2 件");
+	assertEqual(lost.exp, wonBase.exp * 10 * 2, "经验同理");
+	assert(lost.gold !== advancedBase.gold * 10 * 2, "不得按档案里已推进的第 46 关算");
+	return `无尽 46 → 45 / 闯关 5 → 4 / 通关 30 → 30 / 下限 1`;
+});
+
 check("黄金罗盘：刷新概率按存档实算、存档之间互不影响、边界夹住", () => {
 	const base = cfg.CURIO_SHOP_RATE;
 	const saveOf = curios => state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), curios });

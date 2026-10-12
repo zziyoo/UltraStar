@@ -163,6 +163,24 @@ export function getBossPenaltyTargets(run) {
 }
 
 /**
+ * v13 旧档迁移专用：从**已经推进过**的存档里还原「刚打赢的那一关」，用作失去技能的奖励基准。
+ * 旧版的待处理 Boss 惩罚是在胜利结算、关卡推进之后才写进存档的（档案里没有 wonLevel），
+ * 但推进规则是确定的，照它反推即可：
+ *   · 无尽：每胜利必 +1 → 刚打赢的那一关 = level - 1；
+ *   · 闯关没打完最后一关（cleared 为假）：同样 +1 → level - 1；
+ *   · 闯关刚好打通最后一关：level 原地不动、只记 cleared → 刚打赢的那一关 = level 本身。
+ * 只服务这一条迁移路径；正常 Boss 胜利流程手里就有 wonLevel，不许拿它反推、更不许拿它当通用口径。
+ * 下限夹到第 1 关（异常存档不返回 0 或负数）。
+ */
+export function recoverBossWonLevel(run) {
+	const level = Number.isFinite(run?.level) ? Math.max(1, Math.floor(run.level)) : 1;
+	if (run?.mode === RUN_MODE.challenge && run?.cleared === true) {
+		return level;
+	}
+	return Math.max(1, level - 1);
+}
+
+/**
  * Boss 战胜利惩罚之二（玩家自选版）：失去指定的那一件已拥有奇物。
  * 与 loseCurio / 奇物商店的清理纪律同一条：`curioQuality` 里那一条一并删掉（不留悬挂覆盖表项），
  * 图鉴 `collection.curios` 的「曾经拥有过」一个字都不动；未拥有时 ok:false 且零副作用。

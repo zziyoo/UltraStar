@@ -5,7 +5,7 @@ import { RUN_MODE } from "../config.js";
 import { settleVictory } from "../reward.js";
 import { maybeCreatePendingEvent } from "../eventManager.js";
 import { getCurio } from "../data/curios.js";
-import { getBossPenaltyTargets, loseCurio, loseSkill, loseSkills, lowerStat, settleDefeat } from "../penalty.js";
+import { getBossPenaltyTargets, loseCurio, loseSkill, loseSkills, lowerStat, recoverBossWonLevel, settleDefeat } from "../penalty.js";
 import { setSlot, updateBest, updateBestChallenge } from "../state.js";
 import { commit, context, now, persist, reloadNow, saveBest, saveBestChallenge } from "../runtime.js";
 import { showNotice, skillName } from "../ui/common.js";
@@ -150,9 +150,9 @@ export function createResultFlow(host) {
 				return;
 			}
 			if (pending.needSkill === true) {
-				// 奖励基准只能取 run.level：v13 旧档没记下刚打赢的那一关（档案里的 level 当时就已推进），
-				// 无法可靠还原，这里是唯一一处拿不到 wonLevel 的失去路径（只服务 v13 旧档的一次性迁移）
-				const removal = loseSkills(run, Array.isArray(run.skills) ? run.skills : [], now());
+				// v13 旧档没记下刚打赢的那一关（写档时 level 已被推进），按推进规则反推（penalty.recoverBossWonLevel）：
+				// 不还原就会拿推进后的 level 当基准，和正常 Boss 结算一样多发一份「下一关基准」
+				const removal = loseSkills(run, Array.isArray(run.skills) ? run.skills : [], now(), recoverBossWonLevel(run));
 				const nextPending = { ...pending, needSkill: false };
 				const remaining = nextPending.needCurio === true;
 				context.run = {

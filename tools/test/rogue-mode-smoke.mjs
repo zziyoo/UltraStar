@@ -4966,11 +4966,13 @@ await check("Boss 惩罚：技能自动清算、奇物自选；没有对象就�
 		assertEqual(JSON.stringify(legacyDone.skills), JSON.stringify(["own_one"]), "技能一个都不许动");
 		assertEqual(JSON.stringify(legacyDone.skillInventory), JSON.stringify(["own_one"]), "背包一个都不许动");
 		assertEqual(legacyDone.pendingBossPenalty, null, "奇物罚完即走");
-		// ⑤ v13 旧档 + 遗忘之石：迁移清算的奖励只发一次，反复读档不重复派钱
+		// ⑤ v13 旧档 + 遗忘之石：**真实的旧档形状是「惩罚写档时关卡已经推进」**——第 2 关打赢 Boss、
+		//    结算把 level 推到 3 之后才挂上欠项，所以档案里 level=3。迁移清算必须按反推出的第 2 关基准发奖，
+		//    且只发一次、反复读档不重复派钱
 		putRun(0, {
 			mode: "endless",
 			characterId: "迪迦",
-			level: 2,
+			level: 3,
 			currency: { gold: 50, exp: 0 },
 			skills: ["own_one", "own_two"],
 			curios: ["oblivion_stone", "energy_core"],
@@ -4981,7 +4983,8 @@ await check("Boss 惩罚：技能自动清算、奇物自选；没有对象就�
 		click("确定");
 		let migrated = lib.storage.rogueSlots[0];
 		const lossReward = rewardsData.getEndlessReward(2, ["gold"]).gold * 10 * 2;
-		assertEqual(migrated.currency.gold, 50 + lossReward, "两次失去按件发两次遗忘之石奖励");
+		assert(rewardsData.getEndlessReward(3, ["gold"]).gold !== rewardsData.getEndlessReward(2, ["gold"]).gold, "第 2 / 3 关基准必须不同，否则这个用例分辨不出用了哪一关");
+		assertEqual(migrated.currency.gold, 50 + lossReward, "按刚打赢的第 2 关基准 ×10 ×2 件（不是档案里已推进的第 3 关）");
 		assertEqual(JSON.stringify(migrated.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: false, needCurio: true }), "技能欠项一次性清掉");
 		session();
 		migrated = lib.storage.rogueSlots[0];
