@@ -218,6 +218,9 @@ export const skills = {
 			use: {
 				enable: "phaseUse",
 				usable: 1,
+				filter(event, player) {
+					return player.countMark("nkssguangshi_shi") > 0;
+				},
 				filterTarget(card, player, target) {
 					return target !== player && lib.filter.targetEnabled({ name: "sha" }, player, target);
 				},

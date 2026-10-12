@@ -201,7 +201,7 @@ const EFFECT_TEXT = {
 	expRate: (value, effects) => rateLine("expRate", "经验", effects),
 	goldRate: (value, effects) => rateLine("goldRate", "金币", effects),
 	extraShopRefresh: value => `每场战斗结束后，额外获得 ${value} 次技能商城刷新机会`,
-	extraCurioShopChance: value => `每次战斗胜利后，奇物商店的刷新概率提高 ${Math.round(Math.abs(value) * 100)}%（与基础概率相加，不单独掷骰）`,
+	extraCurioShopChance: value => `每次战斗胜利后，奇物商店的刷新概率提高 ${Math.round(Math.abs(value) * 100)}%`,
 	// 与 goldRate 分开写：那条乘的是本关基础奖励，这条乘的是你手上已有的总额，两者会叠乘
 	goldOfHeld: value => `战斗结束后额外获得当前持有金币的 ${Math.round(Math.abs(value) * 100)}%`,
 	goldOnReplace: value => `每次替换技能时获得本层胜利金币的 ${value} 倍`,

@@ -4002,20 +4002,21 @@ check("Boss 状态一致性：isBossBattle 是整场唯一权威标记，敌人�
 	assertEqual(JSON.stringify(withoutBoss(cleared.enemies[0])), JSON.stringify(withoutBoss(bossEnemy())), "除 boss 外每个字段原样保留（不重建阵容）");
 	// 对齐过的数据再存再读必须稳定：不会来回翻转，也不会重掷
 	assertEqual(JSON.stringify(battleOf({ enemies: cleared.enemies, isBossBattle: cleared.isBossBattle })), JSON.stringify(cleared), "二次归一化完全幂等");
-	// 结算层拿到同一份状态：整场 false 就按普通奖励走，不翻倍、不强刷奇物商店
+	// 结算层拿到同一份状态：整场 false 就按普通奖励走，不翻倍、商店按概率（rng=0.999 未命中）
 	const clearedWin = reward.settleVictory(runOf({ enemies: [bossEnemy()], isBossBattle: false }), NOW, rng);
 	assertEqual(clearedWin.isBossBattle, false, "结算按普通场处理");
 	assertEqual(clearedWin.gained.gold, base.gold, "矛盾状态修正后不再拿 20 倍");
-	assertEqual(clearedWin.run.curioOffers.length, 0, "也不强制刷新奇物商店");
-	// ② 整场 true + 敌人明确 boss: true（合法的进行中 Boss 战）：标记、倍率、强刷全部照常
+	assertEqual(clearedWin.run.curioOffers.length, 0, "奇物商店按概率判定，未命中即空");
+	// ② 整场 true + 敌人明确 boss: true（合法的进行中 Boss 战）：标记与倍率全部照常
 	const legal = battleOf({ enemies: [bossEnemy()], isBossBattle: true });
 	assertEqual(legal.isBossBattle, true, "合法 Boss 战原样保留");
 	assertEqual(legal.enemies[0].boss, true, "敌人 Boss 标记原样保留");
 	assertEqual(JSON.stringify(withoutBoss(legal.enemies[0])), JSON.stringify(withoutBoss(bossEnemy())), "合法场也不会被重建");
 	const legalWin = reward.settleVictory(runOf({ enemies: [bossEnemy()], isBossBattle: true }), NOW, rng);
 	assertEqual(legalWin.isBossBattle, true, "合法 Boss 战仍按 Boss 结算");
-	assertEqual(legalWin.gained.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "合法 Boss 战仍拿 20 倍");
-	assert(legalWin.run.curioOffers.length > 0, "合法 Boss 战仍强制刷新奇物商店");
+	assertEqual(legalWin.gained.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "合法 Boss 战金币仍拿 20 倍");
+	assertEqual(legalWin.gained.exp, base.exp * cfg.BOSS_EXP_MULTIPLIER, "合法 Boss 战经验拿 8 倍");
+	assertEqual(legalWin.run.curioOffers.length, 0, "奇物商店不再因 Boss 战特权刷新：rng=0.999 与普通场一样未命中");
 	// ③ 整场 true 但敌人**明确写着** boss: false：存档自己说这名敌人是普通的，
 	//    不许因为「只有一人」就升级成 Boss → 整场安全降级为普通战斗
 	const explicitPlain = battleOf({ enemies: [{ ...bossEnemy(), boss: false }], isBossBattle: true });
@@ -4054,15 +4055,16 @@ check("Boss 状态一致性：isBossBattle 是整场唯一权威标记，敌人�
 	return "false+boss 抹平 / 合法场保留 / 明确 false 降级 / 缺字段补齐 / 非法值降级 / 多人降级 / 裂隙不参与";
 });
 
-check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的全部技能、自带一个深渊强化", () => {
+check("Boss 战阵容：单敌、非禁将抽取、复制三个其他非禁将角色的全部技能、自带一个深渊强化", () => {
 	Object.assign(lib.character, {
 		测试甲: [4, "male", "ao", ["donor_a1", "donor_a2"], 1],
 		测试乙: [4, "male", "ao", ["donor_b1", "donor_bad"], 1],
 		测试丙: [4, "male", "ao", ["donor_c1"], 1],
+		测试丁: [4, "male", "ao", ["donor_d1"], 1],
 		本体测试将: [4, "male", "qun", [], 1],
 	});
 	Object.assign(lib.skill, {
-		donor_a1: {}, donor_a2: {}, donor_b1: {}, donor_c1: {},
+		donor_a1: {}, donor_a2: {}, donor_b1: {}, donor_c1: {}, donor_d1: {},
 		donor_bad: { zhuSkill: true },
 	});
 	try {
@@ -4074,8 +4076,14 @@ check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的�
 		const boss = enemies[0];
 		assertEqual(boss.boss, true, "boss 标记随阵容落盘");
 		assertEqual(boss.characterId, challengePool[0], "Boss 从当前模式敌方池抽取（闯关 = 扩展角色池）");
-		// 技能来源是「另外两个不同角色」：来源角色可以是禁将（规格不限制），但技能要过兼容性校验
-		assert(boss.skills.length >= 2, `至少复制到两个来源角色的技能：${boss.skills.join(",")}`);
+		// 四个候选来源（甲/乙/丙/丁）里 rng=0 洗牌后取前三：乙、丙、丁，第一个甲落选——
+		// 「取三个」而不是「取全部」就是这条可观察的判据
+		assertEqual(JSON.stringify(boss.skills), JSON.stringify(["donor_b1", "donor_c1", "donor_d1"]),
+			`复制三个来源角色的全部技能，且第四名来源不许沾：${boss.skills.join(",")}`);
+		assertEqual(boss.skills.length, 3, "三个来源各一条可用技能 → 恰好三条");
+		assertEqual([...new Set(Object.values(boss.skillSources))].length, cfg.BOSS_SKILL_DONOR_COUNT,
+			"来源角色记在 skillSources 里随阵容落盘，且是三个不同的人");
+		// 技能来源角色必须是非禁将的：来源可以是本扩展角色，也可以是别种来源，但禁将一律不供能
 		assert(!boss.skills.includes("donor_bad"), "主公技等不兼容技能不得复制");
 		assert(!boss.skills.includes("donor_b1") || boss.characterId !== "测试乙", "不能复制 Boss 自己的技能");
 		// 深渊：正常计算（闯关恒为 0）之外固定追加 1 个
@@ -4093,7 +4101,13 @@ check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的�
 		lib.config.identity_banned = challengePool.slice(1);
 		const forced = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0);
 		assertEqual(forced[0].characterId, challengePool[0], "被禁用的角色不能当 Boss");
-		assertEqual(JSON.stringify(forced[0].skills), JSON.stringify(["donor_b1", "donor_c1"]), "技能来源不受禁将限制（规格明确不加这条）");
+		assertEqual(JSON.stringify(forced[0].skills), JSON.stringify(["donor_b1", "donor_c1", "donor_d1"]),
+			"担当 Boss 的禁将过滤不影响来源抽取（来源只看禁将名单本身）");
+		// 把来源角色也禁掉：禁将角色一律不再供能，剩下的来源不足三个就全用（不凑数、不重复）
+		lib.config.identity_banned = [...challengePool.slice(1), "测试乙", "测试丁"];
+		const bannedDonors = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0);
+		assertEqual(JSON.stringify(bannedDonors[0].skills), JSON.stringify(["donor_c1", "donor_a1", "donor_a2"]),
+			`禁将角色不得当技能来源，剩下的两个来源全用：${bannedDonors[0].skills.join(",")}`);
 		// 全员禁用：返回空阵容交给上层提示，而不是报错
 		lib.config.identity_banned = challengePool;
 		assertEqual(enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0).length, 0, "可用池为空返回空阵容");
@@ -4103,13 +4117,13 @@ check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的�
 		const stored = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies: forced, rift: null, isBossBattle: true } });
 		assertEqual(stored.currentBattle.enemies[0].boss, true, "boss 标记读档保留");
 		assertEqual(stored.currentBattle.isBossBattle, true, "本场 Boss 身份与阵容一起落盘、一起读回");
-		assertEqual(JSON.stringify(stored.currentBattle.enemies[0].skills), JSON.stringify(["donor_b1", "donor_c1"]), "复制来的技能读档保留");
-		return "单敌 / 禁将拦 Boss / 两来源全技能 / 自带 1 强化 / 空池兜底";
+		assertEqual(JSON.stringify(stored.currentBattle.enemies[0].skills), JSON.stringify(["donor_b1", "donor_c1", "donor_d1"]), "复制来的技能读档保留");
+		return "单敌 / 禁将拦 Boss / 三来源全技能 / 禁将不供能 / 自带 1 强化 / 空池兜底";
 	} finally {
-		for (const id of ["测试甲", "测试乙", "测试丙", "本体测试将"]) {
+		for (const id of ["测试甲", "测试乙", "测试丙", "测试丁", "本体测试将"]) {
 			delete lib.character[id];
 		}
-		for (const id of ["donor_a1", "donor_a2", "donor_b1", "donor_c1", "donor_bad"]) {
+		for (const id of ["donor_a1", "donor_a2", "donor_b1", "donor_c1", "donor_d1", "donor_bad"]) {
 			delete lib.skill[id];
 		}
 		delete lib.config.identity_banned;
@@ -4117,7 +4131,7 @@ check("Boss 战阵容：单敌、非禁将抽取、复制两个其他角色的�
 	}
 });
 
-check("Boss 技能来源候选：只拦 AI 不可操控的角色，禁将角色继续供能", () => {
+check("Boss 技能来源候选：禁将角色与 AI 不可操控的角色都不供能（共享技能同样硬否决）", () => {
 	const prevForbidai = lib.config.forbidai;
 	const prevAll = lib.config.all;
 	const prevBanned = lib.config.identity_banned;
@@ -4126,11 +4140,12 @@ check("Boss 技能来源候选：只拦 AI 不可操控的角色，禁将角色�
 		来源AI字段: [4, "male", "ao", ["donor_aifield"], 1],
 		来源禁将: [4, "male", "ao", ["donor_banned"], 1],
 		来源混合: [4, "male", "ao", ["donor_mixed_ok", "donor_zhu"], 1],
+		来源共有: [4, "male", "ao", ["donor_banned", "donor_shared_ok"], 1],
 		本体测试将: [4, "male", "qun", [], 1],
 	});
 	// 注册后的角色条目是数组，本体把 isAiForbidden 挂在数组对象上，这里照同一形状写
 	lib.character["来源AI字段"].isAiForbidden = true;
-	for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok"]) {
+	for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok", "donor_shared_ok"]) {
 		lib.skill[id] = {};
 	}
 	lib.skill.donor_zhu = { zhuSkill: true };
@@ -4142,28 +4157,34 @@ check("Boss 技能来源候选：只拦 AI 不可操控的角色，禁将角色�
 		const ids = found.map(item => item.id);
 		assert(!ids.includes("来源禁AI"), "forbidai 里的角色不能当技能来源");
 		assert(!ids.includes("来源AI字段"), "isAiForbidden 的角色不能当技能来源");
-		assert(ids.includes("来源禁将"), "禁将角色仍可作为技能来源（规格明确不加这条限制）");
+		assert(!ids.includes("来源禁将"), "禁将角色不能当技能来源");
 		// 角色过闸 ≠ 技能全过闸：同一条技能表里不兼容的那条照样被剔掉
 		const mixed = found.find(item => item.id === "来源混合");
 		assertEqual(JSON.stringify(mixed.skills), JSON.stringify(["donor_mixed_ok"]), "逐技能兼容性校验必须保留");
-		// 端到端也拦得住：无论抽到哪两个来源，被禁 AI 角色的技能都不许出现
+		// 共享技能硬否决：donor_banned 同时挂在一个没被禁的角色身上也照样不抄（与商店同一口径）
+		const shared = found.find(item => item.id === "来源共有");
+		assertEqual(JSON.stringify(shared.skills), JSON.stringify(["donor_shared_ok"]),
+			"属于禁将角色的技能即使由未禁角色供能也不复制");
+		// 端到端也拦得住：无论抽到哪三个来源，被禁 AI 与被禁将角色的技能都不许出现
 		const challengePool = enemy.getChallengeEnemyPool();
 		const boss = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0)[0];
 		assert(!boss.skills.includes("donor_forbidai") && !boss.skills.includes("donor_aifield"),
 			`Boss 不得复制到 AI 不可操控角色的技能：${boss.skills.join(",")}`);
+		assert(!boss.skills.includes("donor_banned"),
+			`Boss 不得复制到禁将角色的技能：${boss.skills.join(",")}`);
 		assertEqual(boss.characterId, challengePool[0], "Boss 本体抽取口径不变");
 	} finally {
-		for (const id of ["来源禁AI", "来源AI字段", "来源禁将", "来源混合", "本体测试将"]) {
+		for (const id of ["来源禁AI", "来源AI字段", "来源禁将", "来源混合", "来源共有", "本体测试将"]) {
 			delete lib.character[id];
 		}
-		for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok", "donor_zhu"]) {
+		for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok", "donor_shared_ok", "donor_zhu"]) {
 			delete lib.skill[id];
 		}
 		if (prevForbidai === undefined) { delete lib.config.forbidai; } else { lib.config.forbidai = prevForbidai; }
 		if (prevAll === undefined) { delete lib.config.all; } else { lib.config.all = prevAll; }
 		if (prevBanned === undefined) { delete lib.config.identity_banned; } else { lib.config.identity_banned = prevBanned; }
 	}
-	return "forbidai/isAiForbidden 拦来源 + 禁将照常供能 + 逐技能校验仍在";
+	return "forbidai/isAiForbidden 拦来源 + 禁将不供能 + 共享技能硬否决 + 逐技能校验仍在";
 });
 
 check("Boss 技能来源不排除本扩展角色：注册过、技能过了兼容闸就能供能", () => {
@@ -4399,9 +4420,9 @@ check("禁将复查：单条技能属于当前禁将角色（含衍生技、含�
 	}
 });
 
-check("Boss 战胜利：本场标记回传 + 20 倍奖励（不吃奇物加成）+ 奇物商店强制刷新，下一场普通战斗不受牵连", () => {
+check("Boss 战胜利：本场标记回传 + 金币 20 倍 / 经验 8 倍（不吃奇物加成）+ 奇物商店只按概率刷，下一场普通战斗不受牵连", () => {
 	const rng = () => 0.999;
-	// rng 钉在 0.999：普通场必不刷奇物商店（0.999 ≥ 0.2），Boss 场必须刷出——证明是强制而非概率
+	// rng 钉在 0.999：这一掷无论 Boss 还是普通场都不刷奇物商店（0.999 ≥ 10%）
 	// v12：Boss 身份只写在「刚打完的这一场」currentBattle.isBossBattle 上
 	const run = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
@@ -4412,12 +4433,15 @@ check("Boss 战胜利：本场标记回传 + 20 倍奖励（不吃奇物加成�
 	const bossWin = reward.settleVictory(run, NOW, rng);
 	assertEqual(bossWin.isBossBattle, true, "本场标记随结算回传（next 里 currentBattle 已清空，只能靠回传）");
 	assertEqual(bossWin.gained.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER, "金币 = 20 倍本关胜利金币");
-	assertEqual(bossWin.gained.exp, base.exp * cfg.BOSS_REWARD_MULTIPLIER, "经验 = 20 倍本关胜利经验");
-	assert(bossWin.run.curioOffers.length > 0, "奇物商店强制刷新出一批");
+	assertEqual(bossWin.gained.exp, base.exp * cfg.BOSS_EXP_MULTIPLIER, "经验 = 8 倍本关胜利经验");
+	assertEqual(bossWin.run.curioOffers.length, 0, "Boss 战胜利不再强制刷新奇物商店：rng=0.999 就按未命中清空");
 	assertEqual(bossWin.run.level, run.level + 1, "关卡照常推进");
 	assertEqual(bossWin.run.currentBattle, null, "本场战斗状态已清理");
 	assertEqual(bossWin.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "免费刷新次数照常恢复");
-	// 关键：Boss 的倍率与强刷只生效这一次。下一场是普通战斗（currentBattle 已空 = 由 flow 重新判定），
+	// 反过来也得验：命中概率时 Boss 场照常出货——它现在吃的就是普通场那一条概率
+	const hit = reward.settleVictory(run, NOW, () => 0.05);
+	assert(hit.run.curioOffers.length > 0, "0.05 < 10% 时 Boss 场与普通场一样刷出一批");
+	// 关键：Boss 的倍率只生效这一次。下一场是普通战斗（currentBattle 已空 = 由 flow 重新判定），
 	// 结算必须回到 1 倍基准、商店按概率不刷——绝不能把 Boss 规则带给下一关
 	const nextNormal = reward.settleVictory(bossWin.run, NOW, rng);
 	assertEqual(nextNormal.isBossBattle, false, "下一场不再是 Boss 战");
@@ -4440,7 +4464,7 @@ check("Boss 战胜利：本场标记回传 + 20 倍奖励（不吃奇物加成�
 	assertEqual(normalWin.gained.gold, base.gold, "普通场保持 1 倍基准");
 	assertEqual(normalWin.gained.exp, base.exp, "普通场经验不加倍");
 	assertEqual(normalWin.run.curioOffers.length, 0, "普通场 rng=0.999 不刷奇物商店");
-	// 收藏家的橱窗（史诗档）锁着旧货：Boss 场照样强制刷新替换
+	// 收藏家的橱窗（史诗档）锁着旧货：Boss 场不再有任何特权，与普通场一样整批留货
 	const locked = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
 		level: 4,
@@ -4451,9 +4475,9 @@ check("Boss 战胜利：本场标记回传 + 20 倍奖励（不吃奇物加成�
 		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null, isBossBattle: true },
 	});
 	const lockedWin = reward.settleVictory(locked, NOW, rng);
-	assert(!lockedWin.run.curioOffers.some(offer => offer.id === "energy_core"), "锁着的旧货被强制刷新替换");
-	assert(lockedWin.run.curioOffers.length > 0, "强制刷新后仍有新货");
-	return `第 4 关 Boss ${base.gold * 20}/${base.exp * 20}，下一场回 1 倍 + 强制刷新与锁覆盖各验一次`;
+	assertEqual(lockedWin.run.curioOffers.map(offer => offer.id).join(","), "energy_core", "锁着的旧货原样保留（Boss 场不再强刷顶替）");
+	assertEqual(lockedWin.run.curioOffers[0].price, 100, "连价定死的那一份也保留");
+	return `第 4 关 Boss 金币 ${base.gold * 20} / 经验 ${base.exp * 8}，下一场回 1 倍 + 商店改回按概率、锁照常生效`;
 });
 
 check("Boss 战强制惩罚：随机失去 1 个购买技能与 1 件奇物，空列表安全跳过", () => {

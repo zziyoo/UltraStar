@@ -244,6 +244,55 @@ const CSS = `
 .wm-rogue-btn.wm-rogue-result-btn { padding: 12px 46px; font-size: 21px; border-color: rgba(255,200,120,0.75);
 	background: linear-gradient(rgba(150,105,40,0.95), rgba(100,65,20,0.95)); }
 
+/* ---- Boss 战胜利惩罚选择页（自建浮层，不再走本体 Dialog）----
+   整屏一张面板：标题区与奖励区固定在顶上，中间「技能 / 奇物」两栏自己滚，底部说明钉底。
+   面板限高 = 视口减去 stage 的上下 padding（height:100% 先把 stage 定死，max-height:100% 才解析得出来，
+   与 .wm-rogue-stat-panel 同一套做法）；正文条是唯一可伸缩项，min-height:0 让 overflow 真的出滚动条。
+   宽屏两栏并排（col 的 flex-basis 320px 决定几行放得下），窄屏自动换行成上下排列。
+   尺寸旋钮：面板 width/padding、标题字号、col 的 flex-basis、卡片 gap */
+#wm-rogue-overlay.wm-rogue-boss-overlay .wm-rogue-stage { padding: 20px 12px; height: 100%; }
+.wm-rogue-boss { display: flex; flex-direction: column; margin: auto; box-sizing: border-box;
+	width: min(1000px, calc(100% - 24px)); max-height: 100%; padding: 20px 22px 14px; border-radius: 10px;
+	background: linear-gradient(rgba(30,24,23,0.96), rgba(12,10,10,0.98));
+	border: 1px solid rgba(255,150,110,0.42); box-shadow: 0 6px 26px rgba(0,0,0,0.68); }
+.wm-rogue-boss-title { flex: none; margin-top: 2px; text-align: center; font-size: 32px; font-weight: bold;
+	color: #fff; letter-spacing: 6px; text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
+.wm-rogue-boss-subtitle { flex: none; margin-top: 6px; text-align: center; font-size: 15px;
+	color: rgba(255,255,255,0.66); letter-spacing: 1px; }
+/* 分隔线：两端淡出的金色渐变，比白色实线更贴「代价」这个语境 */
+.wm-rogue-boss-divider { flex: none; height: 1px; margin: 14px 0 12px;
+	background: linear-gradient(90deg, rgba(255,180,80,0), rgba(255,180,80,0.65), rgba(255,180,80,0)); }
+/* 奖励说明区：让「胜利已经入账」看得见，免得自动跳过结算页后玩家以为奖励没了 */
+.wm-rogue-boss-reward { flex: none; padding: 10px 12px; border-radius: 8px; text-align: center;
+	background: linear-gradient(rgba(255,180,80,0.13), rgba(255,120,60,0.05));
+	border: 1px solid rgba(255,200,120,0.35); }
+.wm-rogue-boss-reward-title { font-size: 15px; color: #ffd479; letter-spacing: 2px; }
+.wm-rogue-boss-reward .wm-rogue-res { margin: 8px 0 0; justify-content: center; }
+.wm-rogue-boss-reward .wm-rogue-res-cell { flex: 0 1 180px; }
+/* 正文：两栏各自伸缩，超长时在面板内部滚 */
+.wm-rogue-boss-body { flex: 1 1 auto; min-height: 0; margin-top: 12px; padding: 0 2px;
+	overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.wm-rogue-boss-cols { align-items: flex-start; }
+.wm-rogue-boss-col { flex: 1 1 320px; min-width: 0; }
+.wm-rogue-boss-col-title { margin: 2px 0 8px; font-size: 21px; font-weight: bold; color: #ff9d7a;
+	letter-spacing: 3px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+.wm-rogue-boss-cards { align-items: stretch; }
+/* 可失去的条目卡：在商店卡的基础上换成警示色描边 + 悬停/按下反馈，与信息卡一眼就能分开 */
+.wm-rogue-boss-card { border-color: rgba(255,120,100,0.5);
+	transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease; }
+.wm-rogue-boss-card:hover { border-color: rgba(255,120,100,0.95); transform: translateY(-2px);
+	box-shadow: 0 0 16px rgba(255,90,70,0.25), 0 2px 10px rgba(0,0,0,0.5); }
+.wm-rogue-boss-card:active { transform: translateY(0); opacity: 0.88; }
+.wm-rogue-boss-card-action { margin-top: auto; padding-top: 10px; font-size: 14px; letter-spacing: 1px;
+	color: #ff9d7a; }
+/* 「这一项已经选好 / 没有可失去的」的说明块：与卡片同一尺寸但不可点，灰色描边 */
+.wm-rogue-boss-note { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 15px;
+	line-height: 1.6; color: rgba(255,255,255,0.62);
+	background: linear-gradient(rgba(22,22,22,0.6), rgba(0,0,0,0.7));
+	border: 1px dashed rgba(255,255,255,0.22); }
+.wm-rogue-boss-foot { flex: none; margin-top: 14px; padding-top: 10px; text-align: center; font-size: 15px;
+	line-height: 1.6; color: #ffb347; border-top: 1px solid rgba(255,255,255,0.14); }
+
 /* ---- 替换技能页：新技能居中突出，下面三张已有技能卡等宽横排 ----
    层级：标题 28 > 新技能卡（名 26、强调边框光晕）> 区域标题 24 > 已有卡（名 22）
    > 描述 17 / 箭头与说明 14~15
@@ -504,6 +553,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-skills,
 #wm-rogue-overlay .wm-rogue-curios,
 #wm-rogue-overlay .wm-rogue-replace,
+#wm-rogue-overlay .wm-rogue-boss,
 #wm-rogue-overlay .wm-rogue-resume,
 #wm-rogue-overlay .wm-rogue-event,
 #wm-rogue-overlay .wm-rogue-index,
@@ -514,6 +564,8 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-hub-row,
 #wm-rogue-overlay .wm-rogue-mode-cards,
 #wm-rogue-overlay .wm-rogue-replace-cards,
+#wm-rogue-overlay .wm-rogue-boss-cols,
+#wm-rogue-overlay .wm-rogue-boss-cards,
 #wm-rogue-overlay .wm-rogue-resume-enemies,
 #wm-rogue-overlay .wm-rogue-index-cards,
 #wm-rogue-overlay .wm-rogue-res { display: flex !important; flex-wrap: wrap !important; }
@@ -594,6 +646,17 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-mode-name,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best,
+#wm-rogue-overlay .wm-rogue-boss-title,
+#wm-rogue-overlay .wm-rogue-boss-subtitle,
+#wm-rogue-overlay .wm-rogue-boss-divider,
+#wm-rogue-overlay .wm-rogue-boss-reward,
+#wm-rogue-overlay .wm-rogue-boss-reward-title,
+#wm-rogue-overlay .wm-rogue-boss-body,
+#wm-rogue-overlay .wm-rogue-boss-col,
+#wm-rogue-overlay .wm-rogue-boss-col-title,
+#wm-rogue-overlay .wm-rogue-boss-card-action,
+#wm-rogue-overlay .wm-rogue-boss-note,
+#wm-rogue-overlay .wm-rogue-boss-foot,
 #wm-rogue-overlay .wm-rogue-detail-head,
 #wm-rogue-overlay .wm-rogue-detail-body,
 #wm-rogue-overlay .wm-rogue-detail-art,
@@ -630,6 +693,12 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-index-desc,
 #wm-rogue-overlay .wm-rogue-result-line,
 #wm-rogue-overlay .wm-rogue-mode-line,
+#wm-rogue-overlay .wm-rogue-boss-subtitle,
+#wm-rogue-overlay .wm-rogue-boss-reward-title,
+#wm-rogue-overlay .wm-rogue-boss-col-title,
+#wm-rogue-overlay .wm-rogue-boss-card-action,
+#wm-rogue-overlay .wm-rogue-boss-note,
+#wm-rogue-overlay .wm-rogue-boss-foot,
 #wm-rogue-overlay .wm-rogue-mode-best { white-space: normal !important; overflow-wrap: break-word !important; }
 #wm-rogue-overlay .wm-rogue-name { white-space: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-no { white-space: nowrap !important; }

@@ -1,6 +1,6 @@
 // 战斗结算页（胜利 / 失败 / 无尽删档）、未正常结算战斗的恢复页，与失败惩罚的 fallback 选择页。
-// 结算页与恢复页是自建浮层：大标题 + 标记 + 信息卡 + 显著操作按钮；
-// 惩罚选择页是本体 Dialog 列表（条目平铺在 dialog.content 下，见 ui/common.js 顶部说明）。
+// 结算页、恢复页与 Boss 惩罚选择页都是自建浮层（大标题 + 信息卡 + 显著操作按钮 / 分栏卡片）；
+// 只有「失败惩罚的 fallback 选择页」还是本体 Dialog 列表（条目平铺在 dialog.content 下，见 ui/common.js 顶部说明）。
 
 import { CURRENCIES, CURRENCY_LABEL, RUN_MODE_LABEL, STAT_IDS } from "../config.js";
 import { ui } from "../../../../../noname.js";
@@ -12,10 +12,13 @@ import {
 	addGap,
 	addLine,
 	addOverlayButton,
+	addResCell,
+	bindOverlayTap,
 	openOverlay,
 	openScreen,
 	skillInfo,
 	skillName,
+	skillOwner,
 	translateCharacter,
 } from "./common.js";
 
@@ -159,41 +162,110 @@ export function showPenaltyChoice(run, fallback, api) {
 /**
  * Boss 战胜利惩罚的选择页（v13）：把「随机弃置」换成玩家自己挑。
  * 需要失去哪几项由存档里的 pendingBossPenalty 说（`run` 与 `pending` 都是模式层现读后喂进来的，
- * 这一页不认识任何「随机抽到了谁」）；每一栏列出条目名与效果，点一下就失去它。
- * 已经还清 / 本来就没有可作用对象的那一栏只写一句说明、不放按钮——按既有规则一句带过，
+ * 这一页不认识任何「随机抽到了谁」）；技能与奇物各一栏、每项一张卡，点卡片就失去它。
+ * 已经还清 / 本来就没有可作用对象的那一栏只写一句说明、不放卡——按既有规则一句带过，
  * 绝不拿别的类型凑数。
- * 页面没有「跳过」按钮：这场代价必须付清。玩家直接关游戏也不影响，读档回来仍是这张页、仍只欠没还清的那几项。
+ * 页面没有「跳过」按钮，点遮罩也不退出：这场代价必须付清。玩家直接关游戏也不影响，
+ * 读档回来仍是这张页、仍只欠没还清的那几项。
+ *
+ * `reward`（刚打赢的关卡 + 本场金币/经验）是胜利流程顺手带过来的**临时展示数据**，不写存档：
+ * 自动跳转把中间那张结算页省掉了，奖励只能在这一点给玩家看。从存档恢复回到这一页时它不存在，
+ * 那种场合只说明「奖励已入账」，选择照常继续。
  * 纯 UI：删除与落盘一律交回 api（见 flow/result.js）。
  */
-export function showBossPenaltyChoice(run, pending, api) {
-	const content = openScreen("Boss 战的代价：选择要失去的东西");
-	addLine(content, "按规则，Boss 战胜利后要从你<b>当前持有</b>的技能与奇物里各失去一项。点条目即确认失去，落盘后不可撤销。");
-	addGap(content);
+export function showBossPenaltyChoice(run, pending, reward, api) {
+	const stage = openOverlay("wm-rogue-boss-overlay");
+	const panel = ui.create.div(".wm-rogue-boss", stage);
+	ui.create.div(".wm-rogue-boss-title", "BOSS 战的代价", panel);
+	ui.create.div(".wm-rogue-boss-subtitle", "按规则，Boss 战胜利后要从你当前持有的技能与奇物里各失去一项", panel);
+	ui.create.div(".wm-rogue-boss-divider", panel);
+
+	// 奖励说明区：中间结算页省掉了，这一场「赢了多少」就只在这里给玩家看
+	const rewardBox = ui.create.div(".wm-rogue-boss-reward", panel);
+	const gained = CURRENCIES.filter(key => Number.isFinite(reward?.gained?.[key]) && reward.gained[key] > 0);
+	if (gained.length) {
+		ui.create.div(".wm-rogue-boss-reward-title",
+			Number.isFinite(reward.level) ? `Boss 战胜利 · 已通关第 ${reward.level} 关` : "Boss 战胜利 · 本场奖励", rewardBox);
+		const res = ui.create.div(".wm-rogue-res", rewardBox);
+		for (const key of gained) {
+			addResCell(res, CURRENCY_LABEL[key] ?? key).innerHTML = `+${reward.gained[key]}`;
+		}
+	} else {
+		ui.create.div(".wm-rogue-boss-reward-title", "本场 Boss 战已胜利，奖励与关卡进度都已入账", rewardBox);
+	}
+
+	/**
+	 * 一次渲染只认一次点击：回调里会整页重画，重复触发本来就没有第二次删除的机会，
+	 * 这里再把同一次同步调用链里的重入也挡住，与 addButton 同一条保护。
+	 */
+	let busy = false;
+	const pick = fn => () => {
+		if (busy) {
+			return;
+		}
+		busy = true;
+		try {
+			fn();
+		} finally {
+			busy = false;
+		}
+	};
+
+	const body = ui.create.div(".wm-rogue-boss-body", panel);
+	const cols = ui.create.div(".wm-rogue-boss-cols", body);
+
+	const skillCol = ui.create.div(".wm-rogue-boss-col", cols);
+	ui.create.div(".wm-rogue-boss-col-title", "失去一个技能", skillCol);
 	if (pending.needSkill) {
-		addLine(content, "<b>失去一个技能</b>");
+		const rows = ui.create.div(".wm-rogue-boss-cards", skillCol);
 		for (const id of run.skills) {
-			const intro = skillInfo(id);
-			addButton(skillName(id), content, () => api.loseSkill(id));
-			addLine(content, intro || "（该技能没有描述）");
+			const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-boss-card", rows);
+			const top = ui.create.div(".wm-rogue-shop-top", card);
+			const owner = skillOwner(id);
+			if (owner) {
+				ui.create.div(".wm-rogue-shop-avatar", top).setBackground(owner, "character");
+			}
+			ui.create.div(".wm-rogue-shop-name", skillName(id), top);
+			if (owner) {
+				ui.create.div(".wm-rogue-shop-owner", `出自 ${translateCharacter(owner)}`, card);
+			}
+			// 卡片要看全，这里不截断：完整效果描述直接铺在卡面上
+			ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(id) || "（该技能没有描述）", card);
+			ui.create.div(".wm-rogue-boss-card-action", "点击失去这个技能", card);
+			bindOverlayTap(card, pick(() => api.loseSkill(id)));
 		}
 	} else {
 		// 两种「不需要再选」要分得开：玩家手上确实没东西可失去，还是这一项方才已经挑完并落盘了
-		addLine(content, run.skills.length ? "技能：这一项已经选好，不必再动。" : "技能：没有可失去的已购买技能，这一项按规则带过。");
+		ui.create.div(".wm-rogue-boss-note",
+			run.skills.length ? "技能：这一项已经选好，不必再动。" : "技能：没有可失去的已购买技能，这一项按规则带过。", skillCol);
 	}
-	addGap(content);
+
+	const curioCol = ui.create.div(".wm-rogue-boss-col", cols);
+	ui.create.div(".wm-rogue-boss-col-title", "失去一件奇物", curioCol);
 	if (pending.needCurio) {
-		addLine(content, "<b>失去一件奇物</b>");
+		const rows = ui.create.div(".wm-rogue-boss-cards", curioCol);
 		for (const id of run.curios) {
 			const def = getCurio(id);
 			const quality = getCurioQuality(id, run.curioQuality);
-			addButton(`${def?.name ?? id}（${CURIOSITY_RARITY[quality] ?? quality}）`, content, () => api.loseCurio(id));
-			addLine(content, describeCurio(id, run.curioQuality).join("；"));
+			const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-boss-card", rows);
+			const top = ui.create.div(".wm-rogue-shop-top", card);
+			if (def?.image) {
+				ui.create.div(".wm-rogue-curio-art", top).style.backgroundImage = `url("${def.image}")`;
+			}
+			// 名字带着当前品质一起写，品质同时按该档配色（与战斗中奇物面板同一条口径）
+			ui.create.div(`.wm-rogue-shop-name.wm-rogue-rarity-${quality}`,
+				`${def?.name ?? id}（${CURIOSITY_RARITY[quality] ?? quality}）`, top);
+			// 效果问 curioManager 拿「当前品质实际生效的那几行」，UI 不自己算
+			ui.create.div(".wm-rogue-curio-effect", describeCurio(id, run.curioQuality).join("；"), card);
+			ui.create.div(".wm-rogue-boss-card-action", "点击失去这件奇物", card);
+			bindOverlayTap(card, pick(() => api.loseCurio(id)));
 		}
 	} else {
-		addLine(content, run.curios.length ? "奇物：这一项已经选好，不必再动。" : "奇物：当前没有奇物可失去，这一项按规则带过。");
+		ui.create.div(".wm-rogue-boss-note",
+			run.curios.length ? "奇物：这一项已经选好，不必再动。" : "奇物：当前没有奇物可失去，这一项按规则带过。", curioCol);
 	}
-	if (pending.needSkill && pending.needCurio) {
-		addGap(content);
-		addLine(content, "两项都选完才会离开这一页。");
-	}
+
+	ui.create.div(".wm-rogue-boss-foot", pending.needSkill && pending.needCurio
+		? "点卡片即确认失去，删除会立刻写进存档、无法撤销。两项都选完才会离开这一页。"
+		: "点卡片即确认失去，删除会立刻写进存档、无法撤销。这一项选完就离开这一页。", panel);
 }

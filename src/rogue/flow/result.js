@@ -65,7 +65,20 @@ export function createResultFlow(host) {
 		// 无尽模式按概率触发事件：事件与随机结果在此定死写进存档，中途关游戏也不重掷
 		run = maybeCreatePendingEvent(run, wonLevel, now(), Math.random);
 		context.run = run;
-		commit();
+		const saved = commit();
+		// Boss 战胜利且确实欠着惩罚：不再让玩家多点一次结果页，直接把这一场的代价摊开。
+		// 跳转的前提是「本场奖励 + 关卡进度 + pendingBossPenalty 已经落盘」——commit 失败时
+		// persist() 已经弹了错误提示，这里就停住：欠项还没写进存档，惩罚页点了也白点，
+		// 更不能让玩家以为已经付过了。
+		// `reward` 只给这一场看（关卡 + 金币/经验），不写存档：读档回到这一页时它不存在，
+		// 惩罚页自己会退化成「奖励已入账」那句说明。settleVictory 上面只调用过一次，
+		// 这里绝不重复发奖或推关；后面的收尾顺序仍走 continueRun（惩罚 → 待处理事件 → 营地）。
+		if (result.isBossBattle && run.pendingBossPenalty) {
+			if (saved) {
+				afterVictoryResult({ level: wonLevel, gained: result.gained });
+			}
+			return;
+		}
 		showResult({
 			kind: "victory",
 			title: result.isBossBattle ? "Boss 战 · 战斗胜利" : "战斗胜利",
@@ -85,10 +98,12 @@ export function createResultFlow(host) {
 	 * `next` 由调用方给：胜利流程是「重载回营地」，读档流程是「直接进营地」（没有战斗要收尾）。
 	 * 每一步都只看存档此刻挂着什么，所以中途关游戏再进来，接上的仍是没走完的那几步，
 	 * 已兑现的惩罚与已处理的事件都不会重来第二次。
+	 * `bossReward` 只在「刚打完这一场 Boss 就直接进惩罚页」时传（给那一页显示本场关卡与金币/经验），
+	 * 从存档恢复的路径一律不传——惩罚欠什么写在地档里，奖励长什么样不需要重述。
 	 */
-	function continueRun(next) {
+	function continueRun(next, bossReward) {
 		if (context.run?.pendingBossPenalty) {
-			openBossPenaltyPage(() => continueRun(next));
+			openBossPenaltyPage(() => continueRun(next), bossReward);
 			return;
 		}
 		if (context.run?.pendingEvent) {
@@ -99,19 +114,19 @@ export function createResultFlow(host) {
 	}
 
 	/** 结算页按钮的下一步：按统一顺序把没收尾的事走完，最后重载回营地 */
-	function afterVictoryResult() {
-		continueRun(() => reloadNow(false));
+	function afterVictoryResult(bossReward) {
+		continueRun(() => reloadNow(false), bossReward);
 	}
 
 	/**
-	 * Boss 惩罚选择页：把「还欠哪几项」摊给玩家，点一条就是确认失去、当场落盘。
+	 * Boss 惩罚选择页：把「还欠哪几项」摊给玩家，点一张卡就是确认失去、当场落盘。
 	 * 名单一律现读存档（不吃渲染时缓存的布尔值），只列这一局真实持有的购买技能与奇物——
 	 * 角色本体技能从来不在 `run.skills` 里，所以不可能被误删。
 	 * 这一页没有「跳过」：设计不允许绕过惩罚，但也不会卡死——需要的那一项若此刻已无对象
 	 * （比如中途被别处扣光），按既有规则就地记为已还清并一句带过，绝不改删另一类的东西。
 	 * 中途关游戏 / 刷新：欠的项仍写在存档上，读档由 mode.js 的路由重新回到这一页。
 	 */
-	function openBossPenaltyPage(onDone) {
+	function openBossPenaltyPage(onDone, bossReward) {
 		const paint = () => {
 			const run = context.run;
 			const pending = run?.pendingBossPenalty;
@@ -140,7 +155,7 @@ export function createResultFlow(host) {
 				}
 			}
 			const current = context.run;
-			showBossPenaltyChoice(current, current.pendingBossPenalty, {
+			showBossPenaltyChoice(current, current.pendingBossPenalty, bossReward, {
 				loseSkill: skillId => takeBossPenalty(
 					"needSkill",
 					() => loseSkill(current, skillId, now()),

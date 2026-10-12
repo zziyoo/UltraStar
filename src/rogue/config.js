@@ -204,18 +204,26 @@ export const FORGE_EXP_MULTIPLIER = 3;
  * Boss 战替换概率：即将创建一场新的常规关卡战斗时 Math.random() < BOSS_RUN_RATE 即本场为 Boss 战。
  * 判定点只有一处（flow/battle.js 的 startBattle，且只在 currentBattle 为空时）：结果写进
  * currentBattle.isBossBattle 并与敌方阵容同一次落盘；读档恢复、页面重进、失败后重战都只认存档里
- * 这一场的结果，绝不重新随机。结算（奖励倍率 / 强制弃置 / 奇物商店强刷 / 结算页标题）同样只看这一场，
+ * 这一场的结果，绝不重新随机。结算（奖励倍率 / 强制弃置 / 结算页标题）同样只看这一场，
  * 战斗状态清掉后标记随之消失，下一场重新独立判定。
  * 深渊裂隙那一场不走这里（它有独立结算，创建时显式记为普通战斗）。
  */
-export const BOSS_RUN_RATE = 0.05;
+// 临时调试值：1 = 每场新战斗必定是 Boss 战。测试无误后改回 0.05。
+export const BOSS_RUN_RATE = 1;
 
 /**
- * Boss 战胜利奖励：本关胜利金币/胜利经验基准（getEndlessReward / getChallengeReward）的倍数。
+ * Boss 战胜利奖励：本关胜利金币基准（getEndlessReward / getChallengeReward）的倍数。
+ * 经验另有 `BOSS_EXP_MULTIPLIER`，两种倍率都只乘「基准」这一次。
  * 与深渊裂隙同一条「胜利加成不生效」的口径：这一份固定倍率奖励不再吃奇物的金币/经验加成，
  * 也不要在结算入口外再乘一次，否则倍率会叠加错。
  */
 export const BOSS_REWARD_MULTIPLIER = 20;
+
+/** Boss 战胜利经验基准的倍数（金币走上面的 `BOSS_REWARD_MULTIPLIER`） */
+export const BOSS_EXP_MULTIPLIER = 8;
+
+/** Boss 复制几个不同角色的全部技能：不足这个数就用现有全部来源，不凑数、不重复 */
+export const BOSS_SKILL_DONOR_COUNT = 3;
 
 /** Boss 自带的深渊强化个数：在当前关卡正常计算的强化之外额外追加（不放回、不占正常数量） */
 export const BOSS_EXTRA_AFFIXES = 1;
