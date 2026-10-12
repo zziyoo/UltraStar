@@ -5,6 +5,11 @@
 //   → 事件页展示 pendingEvent.choices（玩家选择）→ resolveEventChoice 结算事件奖励 → 返回营地
 //   带 action 的选项不在这里落地：resolveEventChoice 只回一句「该交回 mode.js 了」，
 //   由 mode.js 编排子页面（商人 / 技能熔炉 / 奇物融合炉）或立刻开一场深渊裂隙战。
+//   带 followUp 的选项同理分两趟：第一趟只把追问那一句回给流程层（钱不扣、事件挂着），
+//   玩家答完再进来一趟，ctx.followUpTaken 为真时两口并成一次结算（经验泉的「再饮一口」）。
+//
+// 按钮文案：消耗类选项的价钱在构建期追加（作者写 hideCost 的除外——属性训练场只留「接受训练」，
+// 价钱仍照实写在图鉴里）。
 //
 // 存档保证：事件与随机结果在生成时就地定死写进存档（run.pendingEvent），读档恢复优先展示事件页，
 // 绝不重新触发、绝不重掷——中途关游戏再回来，看到的还是同一个事件、同一批结果。
@@ -285,88 +290,118 @@ export function buildPendingEvent(eventId, wonLevel, rng = Math.random, now = 0,
 	// 跳关的起跳点 = 接下来要打的那一关（刚打赢 level 之后就是 level + 1）
 	const nextLevel = Math.max(1, Math.floor(Number(context?.level) || level + 1));
 	const runLike = isObject(context?.run) ? context.run : null;
+	const env = { base, level, nextLevel, statLevels, ownedCurios, runLike, rng };
 	const choices = [];
 	for (const choice of event.choices) {
-		if (!choice || typeof choice.text !== "string" || !choice.text.trim()) {
-			continue;
+		const built = buildEventChoice(choice, env);
+		if (built) {
+			choices.push(built);
 		}
-		let reward = {};
-		if (Array.isArray(choice.outcomes) && choice.outcomes.length) {
-			// 预掷：chance 依次累计，落在哪段就取哪段的结果（写进存档后永远是这一个）
-			const total = choice.outcomes.reduce((sum, item) => sum + (Number.isFinite(item?.chance) ? item.chance : 0), 0);
-			const roll = total > 0 ? rng() * total : 0;
-			let acc = 0;
-			let picked = choice.outcomes[0]?.reward ?? {};
-			for (const item of choice.outcomes) {
-				acc += Number.isFinite(item?.chance) ? item.chance : 0;
-				if (roll <= acc) {
-					picked = item?.reward ?? {};
-					break;
-				}
-			}
-			reward = picked;
-		} else {
-			reward = choice.reward;
-		}
-		// 先按本次胜利奖励换算倍率（goldByWin / expByWin → 固定值），再把三扇门掷定，
-		// 最后走白名单清洗：存档里只允许出现固定值，绝不保存倍率、品质名与随机态
-		const scaled = resolveCurioRarity(scaleReward(reward, base), base, ownedCurios, rng);
-		const clean = normalizeEventReward(scaled);
-		// 跳关（虫洞）：把「接下来 N 关」的无尽基础奖励逐关求和，并进 gold/exp 固定值——与裂隙同一套
-		// 「构建期定死、读档不重掷」，基础口径、不吃奇物加成。skipLevels 本身也留着，结算层按它推关卡
-		if (clean.skipLevels) {
-			const gain = sumEndlessRewards(nextLevel, clean.skipLevels);
-			for (const [key, value] of Object.entries(gain)) {
-				clean[key] = (Number(clean[key]) || 0) + value;
-			}
-		}
-		// statUp/statDown 的 "random" 就地解析成具体属性（消费 rng），与 outcomes 预掷同属生成期随机，
-		// 存档里只保存定死后的属性 id，读档不重掷
-		for (const key of ["statUp", "statDown"]) {
-			if (clean[key] !== "random") {
-				continue;
-			}
-			// statUp 只从「还能升」的属性里掷：抽中已满项等于让玩家白付代价（训练场要扣经验）。
-			// 三项全满时没有候选、退回全体——结果无所谓：写了 blockedText 的会被拦下弹提示，
-			// 没写的一律在下面被改写成随机奇物。statDown 保持全体：它是惩罚向，掷空对玩家有利
-			const pool = key === "statUp" && isObject(statLevels)
-				? STAT_IDS.filter(id => statHasRoom(statLevels, id))
-				: [];
-			const list = pool.length ? pool : STAT_IDS;
-			clean[key] = list[Math.floor(rng() * list.length)];
-		}
-		const blockedText = typeof choice.blockedText === "string" ? choice.blockedText.trim() : "";
-		// 属性全满时 statUp 必然落空，换成随机奇物；放在生成期是为了随存档定死、读档不重掷。
-		// 作者为这个选项写了 blockedText 就不换——他要的是「点了弹一句、钱也不扣」，不是白得一个奇物。
-		if (clean.statUp && !blockedText && allStatsMaxed(statLevels)) {
-			delete clean.statUp;
-			clean.curio = "random";
-		}
-		const action = buildEventAction(choice.action, base, level, rng);
-		const built = { text: choice.text.trim(), reward: clean };
-		if (action) {
-			built.action = action;
-		}
-		if (blockedText) {
-			built.blockedText = blockedText;
-		}
-		// 「此刻没有可作用的对象」（属性已满 / 没技能 / 没奇物）的选项点下去一个钱都不扣，
-		// 所以也不该在按钮上标价——标了等于骗玩家点。判据与事件页、结算层共用 getBlockedMessage 一份
-		const blockedNow = runLike ? !!getBlockedMessage(runLike, built) : false;
-		// 消耗类选项把价钱写进文案：倍率是按本次胜利奖励现算的，玩家点之前就该看到要花多少，
-		// 而不是结算完才发现。文案随存档定死，读档后显示不变。
-		const fromOutcomes = Array.isArray(choice.outcomes) && choice.outcomes.length > 0;
-		let text = blockedNow ? built.text : withCostText(built.text, clean, fromOutcomes);
-		if (action && !blockedNow) {
-			text = withActionText(text, action);
-		}
-		built.text = text;
-		choices.push(built);
 	}
 	if (!choices.length) {
 		return null;
 	}
 	return { id: event.id, choices, createdAt: Math.max(0, Math.floor(Number(now) || 0)) };
+}
+
+/**
+ * 构建一个选项。主选项与它的 followUp（追问那一句，经验泉的「再饮一口」）走这同一份代码，
+ * 好让「生成时就地定死」的口径只有一份：倍率换算、三扇门与随机属性的掷定、白名单清洗、文案追加全一样。
+ * 随机数在这里消费，顺序按选项在定义里的先后排定，追问句紧跟它的主选项。
+ */
+function buildEventChoice(choice, env) {
+	const { base, level, nextLevel, statLevels, ownedCurios, runLike, rng } = env;
+	if (!choice || typeof choice.text !== "string" || !choice.text.trim()) {
+		return null;
+	}
+	let reward = {};
+	if (Array.isArray(choice.outcomes) && choice.outcomes.length) {
+		// 预掷：chance 依次累计，落在哪段就取哪段的结果（写进存档后永远是这一个）
+		const total = choice.outcomes.reduce((sum, item) => sum + (Number.isFinite(item?.chance) ? item.chance : 0), 0);
+		const roll = total > 0 ? rng() * total : 0;
+		let acc = 0;
+		let picked = choice.outcomes[0]?.reward ?? {};
+		for (const item of choice.outcomes) {
+			acc += Number.isFinite(item?.chance) ? item.chance : 0;
+			if (roll <= acc) {
+				picked = item?.reward ?? {};
+				break;
+			}
+		}
+		reward = picked;
+	} else {
+		reward = choice.reward;
+	}
+	// 先按本次胜利奖励换算倍率（goldByWin / expByWin → 固定值），再把三扇门掷定，
+	// 最后走白名单清洗：存档里只允许出现固定值，绝不保存倍率、品质名与随机态
+	const scaled = resolveCurioRarity(scaleReward(reward, base), base, ownedCurios, rng);
+	const clean = normalizeEventReward(scaled);
+	// 跳关（虫洞）：把「接下来 N 关」的无尽基础奖励逐关求和，并进 gold/exp 固定值——与裂隙同一套
+	// 「构建期定死、读档不重掷」，基础口径、不吃奇物加成。skipLevels 本身也留着，结算层按它推关卡
+	if (clean.skipLevels) {
+		const gain = sumEndlessRewards(nextLevel, clean.skipLevels);
+		for (const [key, value] of Object.entries(gain)) {
+			clean[key] = (Number(clean[key]) || 0) + value;
+		}
+	}
+	// statUp/statDown 的 "random" 就地解析成具体属性（消费 rng），与 outcomes 预掷同属生成期随机，
+	// 存档里只保存定死后的属性 id，读档不重掷
+	for (const key of ["statUp", "statDown"]) {
+		if (clean[key] !== "random") {
+			continue;
+		}
+		// statUp 只从「还能升」的属性里掷：抽中已满项等于让玩家白付代价（训练场要扣经验）。
+		// 三项全满时没有候选、退回全体——结果无所谓：写了 blockedText 的会被拦下弹提示，
+		// 没写的一律在下面被改写成随机奇物。statDown 保持全体：它是惩罚向，掷空对玩家有利
+		const pool = key === "statUp" && isObject(statLevels)
+			? STAT_IDS.filter(id => statHasRoom(statLevels, id))
+			: [];
+		const list = pool.length ? pool : STAT_IDS;
+		clean[key] = list[Math.floor(rng() * list.length)];
+	}
+	const blockedText = typeof choice.blockedText === "string" ? choice.blockedText.trim() : "";
+	// 属性全满时 statUp 必然落空，换成随机奇物；放在生成期是为了随存档定死、读档不重掷。
+	// 作者为这个选项写了 blockedText 就不换——他要的是「点了弹一句、钱也不扣」，不是白得一个奇物。
+	if (clean.statUp && !blockedText && allStatsMaxed(statLevels)) {
+		delete clean.statUp;
+		clean.curio = "random";
+	}
+	const action = buildEventAction(choice.action, base, level, rng);
+	const built = { text: choice.text.trim(), reward: clean };
+	if (action) {
+		built.action = action;
+	}
+	if (blockedText) {
+		built.blockedText = blockedText;
+	}
+	// 追问句要说的那句话（只有 followUp 用得上）：作者写的原话，随存档定死
+	const question = typeof choice.question === "string" ? choice.question.trim() : "";
+	if (question) {
+		built.question = question;
+	}
+	// 「此刻没有可作用的对象」（属性已满 / 没技能 / 没奇物）的选项点下去一个钱都不扣，
+	// 所以也不该在按钮上标价——标了等于骗玩家点。判据与事件页、结算层共用 getBlockedMessage 一份
+	const blockedNow = runLike ? !!getBlockedMessage(runLike, built) : false;
+	// 消耗类选项把价钱写进文案：倍率是按本次胜利奖励现算的，玩家点之前就该看到要花多少，
+	// 而不是结算完才发现。文案随存档定死，读档后显示不变。
+	// 作者写了 hideCost 的（属性训练场）不在按钮上标价，只留选项名——价钱在图鉴里照实写全
+	const fromOutcomes = Array.isArray(choice.outcomes) && choice.outcomes.length > 0;
+	let text = blockedNow || choice.hideCost === true
+		? built.text
+		: withCostText(built.text, clean, fromOutcomes);
+	if (action && !blockedNow) {
+		text = withActionText(text, action);
+	}
+	built.text = text;
+	// 追问句：与主选项同一条构建路径，随存档定死。只认一层——followUp 里再嵌 followUp 不认
+	if (isObject(choice.followUp)) {
+		const followUp = buildEventChoice(choice.followUp, env);
+		if (followUp) {
+			delete followUp.followUp;
+			built.followUp = followUp;
+		}
+	}
+	return built;
 }
 
 /**
@@ -555,7 +590,29 @@ export function pickRandomSkillId(run, ctx = {}, rng = Math.random) {
 }
 
 /**
- * 玩家选择后结算事件奖励。返回 { ok, error, run, lines, skillId?, curioId?, action? }；
+ * 把「主选项 + 玩家答应的那一句追问」并成一次结算用的选项（经验泉两口 → 一口总额）。
+ * 只合并货币：gold/exp 相加，其余键以追问那一句为准（现在用 followUp 的只有经验泉，写的全是 expByWin）。
+ * 合并而不是分两次扣，是为了守住「一次点击 = 一遍 applyEventCurrency = 一行账」的既有口径。
+ */
+function mergeSips(choice, followUp) {
+	const first = choice.reward ?? {};
+	const second = followUp.reward ?? {};
+	const reward = { ...first, ...second };
+	for (const key of ["gold", "exp"]) {
+		if (Number.isFinite(first[key]) || Number.isFinite(second[key])) {
+			reward[key] = (Number(first[key]) || 0) + (Number(second[key]) || 0);
+		}
+	}
+	return {
+		text: followUp.text ?? choice.text,
+		reward,
+		action: followUp.action ?? choice.action,
+		blockedText: followUp.blockedText ?? choice.blockedText,
+	};
+}
+
+/**
+ * 玩家选择后结算事件奖励。返回 { ok, error, run, lines, skillId?, curioId?, action?, followUp? }；
  * 失败时 run 与传入的 run 是同一份未修改数据。普通选项成功时 pendingEvent 清空。
  *
  * 带 action 的选项是个例外：这里**一律不扣钱、不清事件**，只把参数原样回给调用方，
@@ -563,8 +620,10 @@ export function pickRandomSkillId(run, ctx = {}, rng = Math.random) {
  * 中途关游戏时 pendingEvent 还挂着，回来仍是这个事件，不会白点一次。
  * @param {object} run 存档
  * @param {number} choiceIndex 玩家点选的选项下标
- * @param {{ candidates?: {id:string}[], characterSkills?: string[] }} [ctx]
- *        技能奖励的候选池与当前角色原生技能（由 mode.js 从 lib 现算后传入，保持本文件纯逻辑）
+ * @param {{ candidates?: {id:string}[], characterSkills?: string[], followUpTaken?: boolean }} [ctx]
+ *        技能奖励的候选池与当前角色原生技能（由 mode.js 从 lib 现算后传入，保持本文件纯逻辑）；
+ *        followUpTaken 是玩家对「追问那一句」答的那声要不要——字段缺失＝还没问过，
+ *        带 followUp 的选项这一趟只把追问回给调用方，一个钱都不扣
  * @param {() => number} [rng] 随机奇物/技能的抽取源
  */
 export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random) {
@@ -594,7 +653,15 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	if (choice.action && choice.action.kind !== "abyssDebt") {
 		return { ok: true, error: null, run, lines: [], skillId: null, curioId: null, action: choice.action };
 	}
-	const reward = choice.reward ?? {};
+	// 带追问句的选项（经验泉：页面上只有「饮用」，点完才问「再饮一口」）分两趟走：
+	// 第一趟 ctx.followUpTaken 是 undefined，这里一个钱都不扣、事件照旧挂着，只把追问那一句回给流程层；
+	// 玩家答了再进来一次，ctx.followUpTaken 带布尔值才真落地。与商人/熔炉/裂隙「未落地前事件挂着」同一条纪律
+	if (isObject(choice.followUp) && ctx?.followUpTaken === undefined) {
+		return { ok: true, error: null, run, lines: [], skillId: null, curioId: null, action: null, followUp: choice.followUp };
+	}
+	// 答应了就把两口并成一次结算：货币相加、深渊债照原路径兑现，一条账只走一遍 applyEventCurrency
+	const sip = ctx?.followUpTaken === true && isObject(choice.followUp) ? mergeSips(choice, choice.followUp) : choice;
+	const reward = sip.reward ?? {};
 	// 随机奇物不可得（图鉴已集齐）时整个选项落空：不扣任何货币、不入袋，
 	// 只提示一句并照常关闭事件（神秘商人「拥有所有奇物则不扣金币直接跳过」走的就是这条）。
 	// 必须排在 isChoiceAffordable 之前：跳过分支不花钱，不能因为金币不够就把选项卡死。
@@ -708,8 +775,8 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 
 	// 经验泉「再饮一口」欠下的债：只记在存档上，开战那一刻消费并清零（见 mode.js:startBattle）。
 	// 累加而不是覆盖——连着喝两次的债不该被后一次抹掉。
-	if (choice.action?.kind === "abyssDebt" && choice.action.perEnemy > 0) {
-		next.abyssDebt = (Number(run.abyssDebt) || 0) + choice.action.perEnemy;
+	if (sip.action?.kind === "abyssDebt" && sip.action.perEnemy > 0) {
+		next.abyssDebt = (Number(run.abyssDebt) || 0) + sip.action.perEnemy;
 		lines.push(`下一场战斗每个敌人获得 ${next.abyssDebt} 个随机深渊强化`);
 	}
 

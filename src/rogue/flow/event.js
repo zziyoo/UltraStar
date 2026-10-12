@@ -61,16 +61,28 @@ export function createEventFlow() {
 		onDone();
 	}
 
-	/** 玩家在事件页点了某个选项：结算事件奖励并落盘，弹层展示结果后走 finishEvent 出口 */
-	function chooseEventFlow(choiceIndex, finishEvent) {
+	/**
+	 * 玩家在事件页点了某个选项：结算事件奖励并落盘，弹层展示结果后走 finishEvent 出口。
+	 * followUpTaken 只在「带追问句的选项答完之后再进来一趟」时给布尔值（要 / 不要）：
+	 * 第一趟不传，结算层认这个缺字段，只把追问那一句回过来、一个钱都不扣、事件照旧挂着。
+	 */
+	function chooseEventFlow(choiceIndex, finishEvent, followUpTaken) {
 		const levelBefore = Math.max(0, Math.floor(Number(context.run?.level) || 0));
 		const ctx = {
 			characterSkills: characterSkillIds(context.run.characterId),
 			candidates: getShopPool(),
 		};
+		if (followUpTaken !== undefined) {
+			ctx.followUpTaken = !!followUpTaken;
+		}
 		const result = resolveEventChoice(context.run, choiceIndex, ctx, Math.random);
 		if (!result.ok) {
 			showNotice([result.error]);
+			return;
+		}
+		// 追问句（经验泉的「再饮一口」）：先问一句，答了才落地。这一趟什么都没改，不能落盘
+		if (result.followUp) {
+			askFollowUpFlow(choiceIndex, result.followUp, finishEvent);
 			return;
 		}
 		// 交互型选项：resolveEventChoice 一个钱都没扣、pendingEvent 也还挂着，
@@ -99,6 +111,21 @@ export function createEventFlow() {
 			lines.push(`获得技能：${skillName(result.skillId)}`);
 		}
 		showNotice(lines.length ? lines : ["什么也没有发生。"], finishEvent);
+	}
+
+	/**
+	 * 追问那一句（经验泉：点了「饮用」之后才问「再饮一口」）的弹层。
+	 * 一句话浮层 + 两个按钮：答应 = 两口并成一次结算，拒绝 = 只落第一口。
+	 * 按钮文字读的是随存档定死的 followUp（后果说明在构建期就追加在里面），这里不抄第二份数字。
+	 */
+	function askFollowUpFlow(choiceIndex, followUp, finishEvent) {
+		const question = typeof followUp.question === "string" && followUp.question.trim()
+			? followUp.question.trim()
+			: `还要${followUp.text}吗？`;
+		showChoice([question], [
+			{ label: followUp.text, onClick: () => chooseEventFlow(choiceIndex, finishEvent, true) },
+			{ label: "不了", onClick: () => chooseEventFlow(choiceIndex, finishEvent, false) },
+		]);
 	}
 
 	/** 交互型选项的分发：四类各走一条落地路径，未落地前事件始终挂著 */

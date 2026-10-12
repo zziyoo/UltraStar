@@ -231,6 +231,63 @@ function putLegacyV11(index, patch) {
 	return raw;
 }
 
+/**
+ * 把一份**原始**存档（不经 normalizeRun）写进槽位：模拟「旧档刚读进来那一刻」。
+ * 与 putRun 的区别：putRun 先清洗再落盘，验不出迁移本身；这里写什么读什么。
+ */
+function putLegacyRaw(index, raw) {
+	const slots = lib.storage.rogueSlots ?? [];
+	slots[index] = raw;
+	lib.storage.rogueSlots = slots;
+	lib.storage.rogueActive = index;
+	return raw;
+}
+
+/**
+ * 10-06 实机旧档的原始形状（无尽 45 关，存档 v9——v10~v13 的字段一个都还没有）。
+ * 值取自该机器游戏 UserData/IndexedDB 里解出的真实数据：等级/资源/奇物/品质/空货架都对得上，
+ * 只把三个技能 id 换成夹具里已注册的（技能身份与 Boss/商店判定无关；真档里的本体技能在桩里不存在，
+ * 挂技能时只会多打印一条 warn）。这份形状是「旧存档长期不触发 Boss 与奇物商店」报告的主角，
+ * 三个用例共用它：迁移后逐场判定、残留锁清零、以及商人成交后的判定。
+ */
+function realV9Run(patch = {}) {
+	return {
+		version: 9,
+		mode: "endless",
+		characterId: "艾斯",
+		level: 45,
+		totalLevels: 0,
+		challengeStages: [],
+		currency: { gold: 14785, exp: 1402 },
+		skills: ["own_one", "own_two", "own_three"],
+		stats: { defense: 10, draw: 10, attack: 10 },
+		currentBattle: null,
+		shopOffers: [{ id: "rogue_extra", price: 385, sold: false, carried: false }],
+		shopRefreshesRemaining: 0,
+		pendingEvent: null,
+		collection: { events: ["lost_robot"], curios: ["loop_button"] },
+		curios: ["loop_button", "energy_core", "cursed_coin", "broken_watch", "lucky_stone", "echo_bell"],
+		curioQuality: { cursed_coin: "epic", loop_button: "epic" },
+		curioOffers: [],
+		curioOfferQueue: [],
+		skillShopLocked: false,
+		curioShopLocked: false,
+		abyssDebt: 0,
+		cleared: false,
+		createdAt: 1791131233227,
+		updatedAt: 1791281575494,
+		...patch,
+	};
+}
+
+/**
+ * 桩的 session() 会重建 lib.character（只留固定角色表），真实旧档的主控角色「艾斯」会被一起擦掉；
+ * 不重新登记，开战时 resolveBattle 会判「角色当前不可用」并静默不开局。每次 session() 之后都要补一句。
+ */
+function ensureAceInRoster() {
+	lib.character["艾斯"] ??= { hp: 4, maxHp: 4, skills: [] };
+}
+
 async function newRunByUi(modeLabel) {
 	// 建局只创建存档，不再掷 Boss 骰（v12 起判定挪到每场新战斗，见 clickNormalBattle / clickBossBattle）。
 	// 这里仍把随机钉在 0.9：闯关建局要一次性抽定前 10 关的敌方配置，钉住后各用例的关卡配置可复现。
@@ -2524,6 +2581,119 @@ await check("v11 旧档迁移：整局 bossRun 只折算进正在进行的这一
 	}
 });
 
+await check("10-06 实机旧档（存档 v9，无尽 45 关）：迁移后连续三场战斗逐场掷 Boss，中与不中各判各的", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		putLegacyRaw(0, realV9Run());
+		session();
+		ensureAceInRoster();
+		// 读档先弹一条「已从版本9迁移到当前版本」的提示（旧档才有），确认后落回营地
+		click("确定");
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.version, 9, "读档这一刻存档还是原始 v9（尚未被任何写入覆盖）");
+		assertEqual(slot.bossRun, undefined, "v9 旧档本来就没有整局 bossRun 字段");
+		assert(screenText().includes("开始下一关"), `确认提示后应落在营地：${screenText()}`);
+		// ---- 第 1 场：这一掷不抽中 → 普通场，阵容按 45 关 3 人
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.version, cfg.RUN_VERSION, "开战落盘后版本升到当前");
+		assertEqual(slot.bossRun, undefined, "新代码不再写整局字段，旧档也不会被补一个");
+		assertEqual(slot.currentBattle.isBossBattle, false, "旧档第 1 场照样逐场掷：这一掷没抽中");
+		assertEqual(slot.currentBattle.enemies.length, enemyModule.getEnemyCount(45, "endless"), "45 关 3 名敌人");
+		assert(slot.currentBattle.enemies.every(enemy => enemy.boss !== true), "普通场没有一个按 Boss 规则落地（缺省不写 boss 字段）");
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle, null, "第 1 场结算后战斗标记清空（Boss 身份随之消失）");
+		assertEqual(slot.level, 46, "关卡照常推进");
+		assertEqual(slot.curioOffers.length, 0, "奇物商店这一掷（0.5）未命中 → 旧批次清空");
+		assertEqual(slot.pendingEvent, null, "事件判定未命中");
+		click("返回营地");
+		session();
+		ensureAceInRoster();
+		// ---- 第 2 场：同一份旧档，这一掷抽中 → 单 Boss，拿 20 倍并强刷奇物商店
+		clickBossBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "第 2 场独立掷中 Boss（不继承第 1 场的 false）");
+		assertEqual(slot.currentBattle.enemies.length, 1, "抽中即换单 Boss 阵容");
+		assertEqual(slot.currentBattle.enemies[0].boss, true, "boss 标记随阵容落盘");
+		const goldBefore2 = slot.currency.gold;
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold - goldBefore2, rewardsData.getEndlessReward(46, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 = 20 倍基准");
+		assert(slot.curioOffers.length > 0, "Boss 场胜利强制刷新奇物商店");
+		assert(screenText().includes("Boss 战 · 战斗胜利"), `结算页标题：${screenText()}`);
+		assertEqual(JSON.stringify(slot.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: true, needCurio: true }), "旧档的 Boss 惩罚待办照常挂上");
+		payBossPenalty("own_one");
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.pendingBossPenalty, null, "惩罚照常可结清");
+		assert(!slot.skills.includes("own_one"), "玩家挑中的技能失去");
+		session();
+		ensureAceInRoster();
+		// ---- 第 3 场：再回到普通场，标记不跨场
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "第 3 场各掷各的：没抽中就是普通场");
+		assertEqual(slot.currentBattle.enemies.length, enemyModule.getEnemyCount(47, "endless"), "第 3 场按普通关卡生成");
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.curioOffers.length, 0, "第 3 场不再继承上一场的强制刷新");
+		assertEqual(slot.level, 48, "三场结束关卡推进到 48");
+		return "普通(45)→Boss(46, 20×)→普通(47)，中与不中各判各的";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("10-06 实机旧档带残留的商店锁（没有橱窗）：读档清零，本应发生的奇物刷新照常发生", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		// 旧版本写下的锁字段（或玩家后来失去了橱窗）：读档一律清零，不许挡住本应发生的刷新
+		putLegacyRaw(0, realV9Run({ level: 3, curioShopLocked: true, skillShopLocked: true }));
+		session();
+		ensureAceInRoster();
+		click("确定");
+		clickNormalBattle();
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.curioShopLocked, false, "没有橱窗 → 残留的奇物锁清零");
+		assertEqual(slot.skillShopLocked, false, "没有橱窗 → 残留的技能锁清零");
+		// 打赢这一场：结算里的奇物商店判定照常执行（这一份旧档拥有史诗诅咒金币，
+		// 结算里没有波动项掷骰，奇物商店的判定就是第一次 rng 消费），钉中 10% 即整批新货
+		let calls = 0;
+		Math.random = () => (calls++ === 0 ? 0.05 : 0.5);
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.curioOffers.length, cfg.CURIO_OFFER_COUNT, "锁字段清零后，本应发生的刷新照常发生（10% 抽中 → 整批新货）");
+		assert(slot.curioOffers.every(offer => !slot.curios.includes(offer.id)), "新货不含已拥有的奇物");
+		return "残留锁清零 / 刷新判定照常执行并抽中";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
 await check("闯关模式共用同一套逐场判定：抽中的那一关换单 Boss 拿 20 倍，下一关照常走关卡配置池", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
@@ -3185,16 +3355,20 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	const skillForge = openDetail("技能熔炉");
 	assert(skillForge.some(line => line.includes("失去一个技能，换一个随机新技能")),
 		`换技能选项不该是「无奖励」：${skillForge.join(" / ")}`);
-	// 经验泉「再饮一口」：奖励与深渊债写同一行
+	// 经验泉「再饮一口」：奖励与深渊债写同一行，并写明它是点了「饮用」之后才追问的那一句
 	const spring = openDetail("经验泉");
 	assert(spring.some(line => line.includes("获得 1 倍本层胜利经验") && line.includes(`每名敌人追加 ${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`)),
 		`再饮一口应连深渊债一起写：${spring.join(" / ")}`);
+	assert(spring.some(line => line.includes("再饮一口") && line.includes("点了「饮用」之后才会问这一句")),
+		`图鉴要写明第二口不是并列的按钮：${spring.join(" / ")}`);
 	// 属性训练场：写了 blockedText 的 statUp，全满注记换成原话，不再是「改送随机奇物」
 	const training = openDetail("属性训练场");
 	assert(training.some(line => line.includes("随机一项属性 +1（属性已满时：你太厉害了，没什么能学到的东西。）")),
 		`训练场的全满注记应引自 blockedText：${training.join(" / ")}`);
 	assert(!training.some(line => line.includes("改送一个随机奇物")),
 		`训练场不该写「改送随机奇物」：${training.join(" / ")}`);
+	assert(training.some(line => line.includes("消耗 0.5 倍本层胜利经验")),
+		`按钮上不标价，图鉴里照实写全：${training.join(" / ")}`);
 	// 虫洞：跳关与奖励口径照实写在图鉴里（数字读事件数据，不在这里抄第二份）
 	const wormhole = openDetail("虫洞");
 	const skipLevels = eventsData.events.wormhole.choices[0].reward.skipLevels;
@@ -3769,25 +3943,33 @@ await check("深渊化：第 120 关新开战必定带词缀并随阵容落盘�
 });
 
 await check("深渊化不影响普通玩法：闯关高层与无尽低层的敌人都没有深渊技能", async () => {
-	for (const [mode, level, label] of [
-		["challenge", 30, "闯关封顶关"],
-		["endless", 5, "无尽低层"],
-	]) {
-		freshWorld();
-		lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
-		putRun(0, { mode, level }, stateModule.createRun(mode, "迪迦", 1));
-		session();
-		clickNormalBattle();
-		await flush();
-		const enemies = lib.storage.rogueSlots[0].currentBattle?.enemies ?? [];
-		assert(enemies.length >= 1, `${label} 应组出敌人`);
-		for (const entry of enemies) {
-			assertEqual(entry.abyss.length, 0, `${label} 不该有词缀`);
+	// rng 钉在 0.999：无尽低层的词缀数是「每名敌人 rng() < stage% 才拿 1 个」的真随机，
+	// 不钉住这条断言会以约 5%（5 层 1 名敌人）的概率偶然变红——与玩法无关的抖动，不是回归
+	const originalRandom = Math.random;
+	Math.random = () => 0.999;
+	try {
+		for (const [mode, level, label] of [
+			["challenge", 30, "闯关封顶关"],
+			["endless", 5, "无尽低层"],
+		]) {
+			freshWorld();
+			lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
+			putRun(0, { mode, level }, stateModule.createRun(mode, "迪迦", 1));
+			session();
+			clickNormalBattle();
+			await flush();
+			const enemies = lib.storage.rogueSlots[0].currentBattle?.enemies ?? [];
+			assert(enemies.length >= 1, `${label} 应组出敌人`);
+			for (const entry of enemies) {
+				assertEqual(entry.abyss.length, 0, `${label} 不该有词缀`);
+			}
+			game.players.slice(1).forEach(player => {
+				assert(!player.hasSkill("abyss_affix"), `${label} 的敌人不该挂深渊徽记`);
+			});
+			assertEqual(lib.hookmap.damageBegin4, undefined, `${label} 不该登记深渊受伤时机`);
 		}
-		game.players.slice(1).forEach(player => {
-			assert(!player.hasSkill("abyss_affix"), `${label} 的敌人不该挂深渊徽记`);
-		});
-		assertEqual(lib.hookmap.damageBegin4, undefined, `${label} 不该登记深渊受伤时机`);
+	} finally {
+		Math.random = originalRandom;
 	}
 	return "闯关 30 关 / 无尽 5 层 均无深渊技能";
 });
@@ -3807,7 +3989,7 @@ await check("事件页资源条与「没对象可作用」：余额看得见，�
 		pendingEvent: {
 			id: "stat_training_ground",
 			choices: [
-				{ text: "接受训练 → 随机属性 +1（-20 经验）", reward: { exp: -20, statUp: "defense" }, blockedText: "你太厉害了，没什么能学到的东西。" },
+				{ text: "接受训练", reward: { exp: -20, statUp: "defense" }, blockedText: "你太厉害了，没什么能学到的东西。" },
 				{ text: "离开", reward: {} },
 			],
 			createdAt: 1,
@@ -3843,7 +4025,7 @@ await check("事件页置灰仍按「付不起」：经验不够时选项置灰�
 		pendingEvent: {
 			id: "stat_training_ground",
 			choices: [
-				{ text: "接受训练 → 随机属性 +1（-20 经验）", reward: { exp: -20, statUp: "defense" }, blockedText: "你太厉害了，没什么能学到的东西。" },
+				{ text: "接受训练", reward: { exp: -20, statUp: "defense" }, blockedText: "你太厉害了，没什么能学到的东西。" },
 				{ text: "离开", reward: {} },
 			],
 			createdAt: 1,
@@ -3882,6 +4064,29 @@ await check("属性训练场满级：按钮不标价、缺经验也不置灰，�
 	click("确定");
 	assertEqual(lib.storage.rogueSlots[0].currency.exp, 5, "一分不扣");
 	return "满级不标价 / 缺经验不置灰 / 弹提示";
+});
+
+await check("属性训练场（还能升、经验够）：按钮只显示「接受训练」，扣费与涨属性照旧", async () => {
+	freshWorld();
+	const low = {};
+	for (const id of cfg.STAT_IDS) {
+		low[id] = 0;
+	}
+	// 真实构建路径：价钱是构建期折算并进文案的那一步，hideCost 要在这一步把按钮文字收干净
+	const base = stateModule.createRun("endless", "迪迦", 1);
+	const pending = eventManager.buildPendingEvent("stat_training_ground", 4, () => 0, 1, {
+		level: 5, statLevels: low, curios: [], run: { ...base, level: 5, stats: low, currency: { gold: 0, exp: 999 } },
+	});
+	putRun(0, { mode: "endless", level: 5, stats: low, currency: { gold: 0, exp: 999 }, pendingEvent: pending });
+	session();
+	const choice = nodesWithClass("wm-rogue-event-choice")[0];
+	assertEqual(textOf(choice), "接受训练", `按钮上不写要花多少经验：${textOf(choice)}`);
+	click("接受训练");
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 999 - 20, "第 4 关基准 40 经验，照旧扣半层 = 20");
+	assertEqual(lib.storage.rogueSlots[0].stats[cfg.STAT_IDS[0]], 1, "随机到的那一项照旧 +1");
+	click("确定");
+	assertEqual(lib.storage.rogueSlots[0].pendingEvent, null, "事件收掉");
+	return "按钮只有「接受训练」/ 扣 20 经验 / 随机一项 +1";
 });
 
 await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记录记到跳过的最后一关", async () => {
@@ -4106,6 +4311,45 @@ await check("深渊裂隙：先确认再进场，敌人数与词缀按事件参�
 	return "确认 → 5 名带词缀 → 只发定死的钱";
 });
 
+await check("经验泉：事件页只有「饮用」，点完才追问「再饮一口」，答了才两口一起到账", async () => {
+	freshWorld();
+	// 走真实构建路径：第二口的倍率、深渊债与那句问话都得在构建期定死、跟着存档走
+	const build = () => eventManager.buildPendingEvent("spring_of_wisdom", 4, () => 0, 1, { level: 5, curios: [] });
+	/** 追问弹层上有同名说明行，按文字找会点中没有监听了那一句，所以直接挑按钮节点 */
+	const clickAskButton = prefix => {
+		const node = nodesWithClass("wm-rogue-btn").find(item => textOf(item).startsWith(prefix));
+		assert(node, `浮层里找不到「${prefix}」按钮：${screenText().slice(0, 400)}`);
+		clickNode(node);
+		return node;
+	};
+	putRun(0, { mode: "endless", characterId: "迪迦", level: 5, currency: { gold: 0, exp: 0 }, pendingEvent: build() });
+	session();
+	const buttons = nodesWithClass("wm-rogue-event-choice").map(node => textOf(node));
+	assertEqual(buttons.length, 2, `事件页只给「饮用 / 离开」两个按钮：${buttons.join(" | ")}`);
+	assert(!buttons.some(line => line.includes("再饮一口")), `第二口不该挂在按钮上：${buttons.join(" | ")}`);
+	click("饮用");
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "点了饮用才问那一句");
+	assert(screenText().includes("泉水的滋味还留在嘴里"), `问句用的是作者写的原话：${screenText()}`);
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 0, "问话阶段一分不结、不落盘");
+	assert(lib.storage.rogueSlots[0].pendingEvent, "没答应之前事件照旧挂着");
+	clickAskButton("再饮一口");
+	const drank = lib.storage.rogueSlots[0];
+	assertEqual(drank.currency.exp, 100, `两口相加（60 + 40）才落盘：${drank.currency.exp}`);
+	assertEqual(drank.abyssDebt, cfg.SPRING_DEBT_AFFIXES, "第二口的债记进存档");
+	assertEqual(drank.pendingEvent, null, "事件收掉");
+	click("确定");
+	// 另一条分支：拒绝追问就只落第一口，一分经验不少、也一分债不欠
+	putRun(0, { mode: "endless", characterId: "迪迦", level: 5, currency: { gold: 0, exp: 0 }, pendingEvent: build() });
+	session();
+	click("饮用");
+	clickAskButton("不了");
+	const oneSip = lib.storage.rogueSlots[0];
+	assertEqual(oneSip.currency.exp, 60, "不喝第二口就只拿 150% 那一口");
+	assertEqual(oneSip.abyssDebt, 0, "拒绝了就不欠债");
+	click("确定");
+	return "两按钮 → 追问 → 两口 100 经验 + 债 / 拒了只落 60";
+});
+
 await check("经验泉的债：下一场每名敌人追加词缀，开战即兑现并清零", async () => {
 	freshWorld();
 	putRun(0, {
@@ -4228,6 +4472,90 @@ await check("流浪商人成交与读档：一次交易只扣一次钱，事件�
 	const poor = lib.storage.rogueSlots[0];
 	assertEqual(poor.currency.gold, 10, "买不成一个钱都不扣");
 	assertEqual(poor.pendingEvent.id, "wandering_merchant", "买不成事件照旧挂着，可以重试");
+});
+
+await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「商店刷新」照旧，Boss 判定与奇物商店刷新流程不受影响", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		// 商人手里那件（气息腰带）正在货架上——买走它就会撤下该格并补一件新货，
+		// 这正是玩家看到的「买完之后奇物商店刷新了」的来源
+		const merchantEvent = {
+			id: "wandering_merchant",
+			choices: [
+				{ text: "和商人交易", reward: {}, action: { kind: "merchant", curioId: "breath_belt", price: 100 } },
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: 1,
+		};
+		putLegacyRaw(0, realV9Run({
+			level: 15,
+			pendingEvent: merchantEvent,
+			curioOffers: [
+				{ id: "breath_belt", price: 210 },
+				{ id: "piggy_bank", price: 260 },
+				{ id: "broken_crown", price: 180 },
+			],
+		}));
+		session();
+		ensureAceInRoster();
+		click("确定");
+		let slot = lib.storage.rogueSlots[0];
+		assert(screenText().includes("和商人交易"), `旧档直接恢复事件页：${screenText()}`);
+		click("和商人交易");
+		click("买下");
+		click("确定");
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.pendingEvent, null, "成交后事件正确结束");
+		assert(slot.curios.includes("breath_belt"), "买到的奇物入袋");
+		assertEqual(slot.currency.gold, 14785 - 100, "只扣这一笔");
+		assertEqual(slot.curioOffers.length, cfg.CURIO_OFFER_COUNT, "撤下买掉的那件后补满货架（「商店刷新」的来源）");
+		assert(!slot.curioOffers.some(offer => offer.id === "breath_belt"), "已拥有的那件不再挂回货架");
+		for (const id of ["piggy_bank", "broken_crown"]) {
+			assert(slot.curioOffers.some(offer => offer.id === id), `既有候选保留：${id}`);
+		}
+		// ---- 打完下一场普通战斗：奇物商店的 10% 判定照常掷（这一掷钉中）
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "成交后的下一场照样逐场判定：这一掷没抽中");
+		let calls = 0;
+		Math.random = () => (calls++ === 0 ? 0.05 : 0.5);
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.curioOffers.length, cfg.CURIO_OFFER_COUNT, "成交后的胜利里，奇物商店 10% 判定照常执行并抽中");
+		assert(slot.curioOffers.every(offer => !slot.curios.includes(offer.id)), "新一批候选同样不含已拥有的奇物");
+		assertEqual(slot.pendingEvent, null, "事件判定未命中");
+		click("返回营地");
+		session();
+		ensureAceInRoster();
+		// ---- 再开一场：这一掷抽中 → 单 Boss，20 倍 + 强刷，全部照旧
+		clickBossBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "商人成交后，Boss 判定照常按这一场掷（抽中）");
+		assertEqual(slot.currentBattle.enemies.length, 1, "抽中即换单 Boss 阵容（15 关普通场本来是 2 人）");
+		const goldBefore = slot.currency.gold;
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold - goldBefore, rewardsData.getEndlessReward(16, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场 20 倍奖励照发");
+		assert(slot.curioOffers.length > 0, "Boss 场强制刷新照常");
+		payBossPenalty("own_one");
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.pendingBossPenalty, null, "惩罚照常可结清");
+		return "成交撤货补货 → 10% 判定照常 → Boss 判定照常（含 20 倍与强刷）";
+	} finally {
+		Math.random = originalRandom;
+	}
 });
 
 await check("Boss 判定边界与不重掷：5% 用严格小于、恢复沿用的是那场原判定、下一场各掷各的", async () => {

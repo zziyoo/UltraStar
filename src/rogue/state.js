@@ -287,6 +287,8 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
  * 事件定义已删除（下架）时整个事件丢弃；选项与奖励按白名单重建，形状非法的条目剔除。
  * action（交互型选项的参数）与 blockedText（「此刻没有对象可作用」要对玩家说的话）同样随存档定死——
  * 商人手里那件货、裂隙的五个敌人、融合炉的融合费，读档恢复时都必须是同一个。
+ * followUp（点了主选项之后追问的那一句，经验泉的「再饮一口」）照同一个形状一起洗，
+ * 读档回到事件页后点主选项仍会问出同一句、给的仍是同一口。
  * 只要这里还能还原出合法事件，读档就优先回到事件页——绝不重新触发、绝不重掷。
  */
 function normalizePendingEvent(raw) {
@@ -299,23 +301,10 @@ function normalizePendingEvent(raw) {
 	}
 	const choices = [];
 	for (const choice of Array.isArray(raw.choices) ? raw.choices : []) {
-		if (!isPlainObject(choice)) {
-			continue;
+		const built = normalizeEventChoice(choice);
+		if (built) {
+			choices.push(built);
 		}
-		const text = sanitizeString(choice.text);
-		if (!text) {
-			continue;
-		}
-		const built = { text, reward: normalizeEventReward(choice.reward) };
-		const action = normalizeEventAction(choice.action);
-		if (action) {
-			built.action = action;
-		}
-		const blockedText = sanitizeString(choice.blockedText);
-		if (blockedText) {
-			built.blockedText = blockedText;
-		}
-		choices.push(built);
 		if (choices.length >= 6) {
 			break;
 		}
@@ -324,6 +313,41 @@ function normalizePendingEvent(raw) {
 		return null;
 	}
 	return { id, choices, createdAt: Math.max(0, toInt(raw.createdAt, 0)) };
+}
+
+/**
+ * 单个选项的清洗：文字 + 白名单奖励 + 交互参数 + 「没对象可作用」要说的那一句。
+ * followUp（点了主选项之后追问的那一句，经验泉的「再饮一口」）形状完全相同，只是不再往里嵌第二层——
+ * 数据层与构建层都只认一层，这里跟着只认一层。
+ */
+function normalizeEventChoice(raw, nested = false) {
+	if (!isPlainObject(raw)) {
+		return null;
+	}
+	const text = sanitizeString(raw.text);
+	if (!text) {
+		return null;
+	}
+	const built = { text, reward: normalizeEventReward(raw.reward) };
+	const action = normalizeEventAction(raw.action);
+	if (action) {
+		built.action = action;
+	}
+	const blockedText = sanitizeString(raw.blockedText);
+	if (blockedText) {
+		built.blockedText = blockedText;
+	}
+	const question = sanitizeString(raw.question);
+	if (question) {
+		built.question = question;
+	}
+	if (!nested) {
+		const followUp = normalizeEventChoice(raw.followUp, true);
+		if (followUp) {
+			built.followUp = followUp;
+		}
+	}
+	return built;
 }
 
 /**

@@ -140,8 +140,8 @@ function isWagerMiss(reward) {
  * 选项名单独一行，会拿到什么缩进写在下面；固定奖励与赌局的每一支同版式。
  * 概率照写不藏——图鉴是收集册，事件页才讲「不剧透」。
  */
-function choiceLines(choice) {
-	const label = `「${choice.text}」`;
+function choiceLines(choice, mark = "") {
+	const label = `「${choice.text}」${mark}`;
 	const note = actionBrief(choice.action);
 	const all = Array.isArray(choice.outcomes) ? choice.outcomes : null;
 	if (!all || !all.length) {
@@ -158,6 +158,10 @@ function eventLines(def) {
 	const lines = [];
 	for (const choice of def.choices ?? []) {
 		lines.push(...choiceLines(choice));
+		// 追问句（经验泉的「再饮一口」）照实列全：它在事件页上不是按钮，点了上面那一项才会问出来
+		if (choice.followUp) {
+			lines.push(...choiceLines(choice.followUp, `点了「${choice.text}」之后才会问这一句`));
+		}
 	}
 	return lines;
 }

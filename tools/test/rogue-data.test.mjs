@@ -706,6 +706,34 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 			if (choice?.blockedText !== undefined && !(typeof choice.blockedText === "string" && choice.blockedText.trim())) {
 				problems.push(`${key} 第${index + 1}个选项: 写了 blockedText 就必须是非空句子（它是「此刻没有对象可作用」时对玩家说的话）`);
 			}
+			// 追问句（经验泉的「再饮一口」）：形状就是一个选项，写坏了事件页点完主选项什么也不会问
+			const followUp = choice?.followUp;
+			if (followUp !== undefined) {
+				if (!followUp || typeof followUp.text !== "string" || !followUp.text.trim()) {
+					problems.push(`${key} 第${index + 1}个选项: followUp 缺少 text（追问那一句的按钮名）`);
+				}
+				if (!followUp?.reward || typeof followUp.reward !== "object") {
+					problems.push(`${key} 第${index + 1}个选项: followUp 必须写 reward（答应追问那一句给什么）`);
+				} else {
+					for (const field of Object.keys(followUp.reward)) {
+						if (!EVENT_REWARD_KEYS.includes(field)) {
+							problems.push(`${key} 第${index + 1}个选项: followUp 里不支持的奖励键 ${field}（可用：${EVENT_REWARD_KEYS.join("/")}）`);
+						}
+					}
+				}
+				if (followUp?.action !== undefined && (!followUp.action || typeof followUp.action !== "object" || !EVENT_ACTION_KINDS.includes(followUp.action.kind))) {
+					problems.push(`${key} 第${index + 1}个选项: followUp 的 action.kind 应为 ${EVENT_ACTION_KINDS.join("/")}`);
+				}
+				if (followUp?.question !== undefined && !(typeof followUp.question === "string" && followUp.question.trim())) {
+					problems.push(`${key} 第${index + 1}个选项: 写了 question 就必须是非空句子（追问弹层上说的那句话）`);
+				}
+				if (followUp?.followUp !== undefined) {
+					problems.push(`${key} 第${index + 1}个选项: followUp 里不再嵌第二层追问（只认一层）`);
+				}
+			}
+			if (choice?.hideCost !== undefined && typeof choice.hideCost !== "boolean") {
+				problems.push(`${key} 第${index + 1}个选项: hideCost 只认 true（写了就不在按钮上标消耗金额）`);
+			}
 		}
 	}
 	assert(!problems.length, problems.join("；"));

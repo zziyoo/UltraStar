@@ -2958,33 +2958,52 @@ const BASE_EXP = rewardsData.getEndlessReward(BASE_LEVEL, ["exp"]).exp;
 const damageEvent = (fields, phase) => makeEvent("damage", { name: "damage", num: 1, ...(fields ?? {}) }, phase ? [phase] : []);
 const makeCarrier = storage => ({ storage: { rogue_curio: storage }, hp: 4, maxHp: 4, isAlive: () => true });
 
-check("经验泉：饮用与再饮一口，后者把深渊债记进存档", () => {
+check("经验泉：页面上只有「饮用」，点了才追问「再饮一口」，两口并成一次结算", () => {
 	const spring = eventManager.buildPendingEvent("spring_of_wisdom", BASE_LEVEL, () => 0, NOW, { curios: [] });
-	assertEqual(spring.choices.length, 3, "三个选项");
+	assertEqual(spring.choices.length, 2, "事件页只给「饮用 / 离开」两个按钮");
+	assertEqual(spring.choices[0].text, "饮用", "第一个按钮就叫饮用");
 	assertEqual(JSON.stringify(spring.choices[0].reward), JSON.stringify({ exp: Math.round(BASE_EXP * 1.5) }), "饮用 = 150% 本层胜利经验");
-	assertEqual(JSON.stringify(spring.choices[1].reward), JSON.stringify({ exp: BASE_EXP }), "再饮一口 = 100%");
-	assertEqual(JSON.stringify(spring.choices[1].action), JSON.stringify({ kind: "abyssDebt", perEnemy: cfg.SPRING_DEBT_AFFIXES }), "债的个数由配置注入");
+	const sip = spring.choices[0].followUp;
+	assert(sip, "「饮用」带一句追问");
+	assertEqual(JSON.stringify(sip.reward), JSON.stringify({ exp: BASE_EXP }), "再饮一口 = 在第一口之上再加 100%");
+	assertEqual(JSON.stringify(sip.action), JSON.stringify({ kind: "abyssDebt", perEnemy: cfg.SPRING_DEBT_AFFIXES }), "债的个数由配置注入");
+	assert(sip.text.includes(`每个敌人 +${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`), `按钮上要写明代价：${sip.text}`);
+	assert(sip.question.includes("再饮一口"), `追问那句话随存档定死：${sip.question}`);
+	// 追问句跟着存档往返：读档回到事件页，点「饮用」问出来的必须还是同一句、同一口
+	const round = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), pendingEvent: spring });
+	assertEqual(JSON.stringify(round.pendingEvent.choices[0].followUp), JSON.stringify(sip), "读档不重掷、追问原样回来");
+
 	const run = { ...freshRun(cfg.RUN_MODE.endless), pendingEvent: spring, currency: { gold: 0, exp: 5 } };
-	const drank = eventManager.resolveEventChoice(run, 1, {}, () => 0);
+	// 第一趟（流程层还没问过）：只把追问回过去，存档一个字都不改
+	const asked = eventManager.resolveEventChoice(run, 0, {}, () => 0);
+	assert(asked.ok && asked.followUp && !asked.lines.length, "第一趟只回追问，不结算");
+	assertEqual(asked.run, run, "第一趟原样返回，事件照旧挂着");
+	// 答应：两口并成一次结算——经验相加、深渊债照记
+	const drank = eventManager.resolveEventChoice(run, 0, { followUpTaken: true }, () => 0);
 	assert(drank.ok && drank.action === null, "再饮一口在本层就结算完，不需要子页面");
+	assertEqual(drank.run.currency.exp, 5 + Math.round(BASE_EXP * 1.5) + BASE_EXP, "两口的经验一起到账");
 	assertEqual(drank.run.abyssDebt, cfg.SPRING_DEBT_AFFIXES, "债记进存档");
-	assertEqual(drank.run.currency.exp, 5 + BASE_EXP, "经验照发");
 	assertEqual(drank.run.pendingEvent, null, "事件收掉");
 	assert(drank.lines.some(line => line.includes("深渊强化")), `文案要写明欠了什么：${drank.lines.join(" / ")}`);
+	// 拒绝：只落第一口，一分不欠
+	const oneSip = eventManager.resolveEventChoice(run, 0, { followUpTaken: false }, () => 0);
+	assertEqual(oneSip.run.currency.exp, 5 + Math.round(BASE_EXP * 1.5), "不喝第二口就只拿第一口的经验");
+	assertEqual(oneSip.run.abyssDebt, 0, "拒绝追问就不欠债");
 	// 连着欠两次的债是累加的，不能被后一次抹掉
-	const twice = eventManager.resolveEventChoice({ ...drank.run, pendingEvent: spring }, 1, {}, () => 0);
+	const twice = eventManager.resolveEventChoice({ ...drank.run, pendingEvent: spring }, 0, { followUpTaken: true }, () => 0);
 	assertEqual(twice.run.abyssDebt, cfg.SPRING_DEBT_AFFIXES * 2, "债累加不覆盖");
-	return `饮用 ${Math.round(BASE_EXP * 1.5)} 经验 / 再饮 ${BASE_EXP} 经验 + 债 ${cfg.SPRING_DEBT_AFFIXES}`;
+	return `饮用 ${Math.round(BASE_EXP * 1.5)} + 再饮 ${BASE_EXP} 经验 / 追问一次 · 债 ${cfg.SPRING_DEBT_AFFIXES}`;
 });
 
-check("属性训练场：半层基准经验换随机属性，全满时只弹提示不扣钱", () => {
+check("属性训练场：按钮不标价，半层基准经验换随机属性，全满时只弹提示不扣钱", () => {
 	const maxed = {};
 	for (const id of cfg.STAT_IDS) {
 		maxed[id] = statsData.stats[id].maxLevel;
 	}
 	const ground = eventManager.buildPendingEvent("stat_training_ground", BASE_LEVEL, () => 0, NOW, { statLevels: maxed, curios: [] });
 	assertEqual(JSON.stringify(ground.choices[0].reward), JSON.stringify({ exp: -Math.round(BASE_EXP * 0.5), statUp: cfg.STAT_IDS[0] }), "消耗半层基准经验 + 定死随机到的那一项");
-	assert(ground.choices[0].text.includes(`${-Math.round(BASE_EXP * 0.5)} 经验`), `花经验也要把价钱写进文案：${ground.choices[0].text}`);
+	assertEqual(ground.choices[0].text, "接受训练", "hideCost：按钮上只显示「接受训练」，不写要花多少经验");
+	assertEqual(ground.choices[0].reward.exp, -Math.round(BASE_EXP * 0.5), "价钱照旧定死在奖励里（只是不写在按钮上）");
 	assertEqual(ground.choices[0].blockedText, "你太厉害了，没什么能学到的东西。", "作者给的提示句随存档定死");
 	// 全满：照常可点、只弹那句、经验一分不扣、属性一格不动
 	const rich = { ...freshRun(cfg.RUN_MODE.endless), stats: { ...maxed }, currency: { gold: 0, exp: 999 }, pendingEvent: ground };
@@ -2995,13 +3014,13 @@ check("属性训练场：半层基准经验换随机属性，全满时只弹提�
 	assertEqual(blocked.run.currency.exp, 999, "被拦下时不扣经验");
 	assertEqual(JSON.stringify(blocked.run.stats), JSON.stringify(maxed), "属性不动");
 	assertEqual(blocked.run.pendingEvent, null, "事件照样收掉");
-	// 生产路径会给完整存档：满级的那一项按钮上不再标价（点了本来就不花钱），
-	// 而且经验不够也不会被「货币不足」挡下——否则作者那句提示永远看不到
+	// 生产路径（会给完整存档）下按钮同样不写价钱，而且经验不够也不会被「货币不足」挡下——
+	// 满级是「没对象可作用」，挡下了作者那句提示就永远看不到
 	const liveRun = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL + 1, stats: { ...maxed }, curios: [] };
 	const live = eventManager.buildPendingEvent("stat_training_ground", BASE_LEVEL, () => 0, NOW, {
 		level: liveRun.level, statLevels: liveRun.stats, curios: liveRun.curios, run: liveRun,
 	});
-	assert(!live.choices[0].text.includes("经验"), `满级时不再写价钱：${live.choices[0].text}`);
+	assert(!live.choices[0].text.includes("经验"), `生产路径的按钮也不写价钱：${live.choices[0].text}`);
 	const poor = { ...liveRun, currency: { gold: 0, exp: 5 }, pendingEvent: live };
 	assertEqual(eventManager.getBlockedMessage(poor, live.choices[0]), live.choices[0].blockedText, "满级是「没对象」，优先于「付不起」");
 	const told = eventManager.resolveEventChoice(poor, 0, {}, () => 0);
@@ -3797,6 +3816,69 @@ check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBa
 	assert(old.slots[0] !== null, "v10 旧档照常读入");
 	assertEqual(old.slots[0].bossRun, undefined, "v10 旧档不带整局 bossRun");
 	return "字段移除 / true·false 原样往返 / v11 三态迁移 / v10 补齐";
+});
+
+check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对比：字段集合一致、判定字段全中性、进度原样保留、再读幂等", () => {
+	// 该机器游戏 UserData/IndexedDB 里解出的真实旧档：写于 10-06，存档版本 9，
+	// v10（challengeComboStages）/v11（bossRun）/v12（isBossBattle）/v13（pendingBossPenalty）的字段一个都还没有。
+	// 「旧存档长期不触发 Boss 与奇物商店」的报告就是指这份形状——它读进来必须与新建存档行为同构。
+	const realV9 = {
+		version: 9,
+		mode: "endless",
+		characterId: "艾斯",
+		level: 45,
+		totalLevels: 0,
+		challengeStages: [],
+		currency: { gold: 14785, exp: 1402 },
+		skills: ["olpaoxiao", "mbshiju", "repojun"],
+		stats: { defense: 10, draw: 10, attack: 10 },
+		currentBattle: null,
+		shopOffers: [
+			{ id: "jsrgzhengbing", price: 385, sold: false, carried: false },
+			{ id: "sxrmqiewang", price: 294, sold: false, carried: false },
+		],
+		shopRefreshesRemaining: 0,
+		pendingEvent: null,
+		collection: { events: ["lost_robot", "wandering_merchant"], curios: ["loop_button"] },
+		curios: ["loop_button", "energy_core", "cursed_coin", "broken_watch", "lucky_stone", "echo_bell"],
+		curioQuality: { cursed_coin: "epic", loop_button: "epic" },
+		curioOffers: [],
+		curioOfferQueue: [],
+		skillShopLocked: false,
+		curioShopLocked: false,
+		abyssDebt: 0,
+		cleared: false,
+		createdAt: 1791131233227,
+		updatedAt: 1791281575494,
+	};
+	const old = state.normalizeRun(realV9);
+	const fresh = state.createRun(cfg.RUN_MODE.endless, "迪迦", 1);
+	// ① 字段集合一致：旧档不会缺字段、也不会多出下游判断不了的键（「旧档当新档用」的底线）
+	assertEqual(JSON.stringify(Object.keys(old).sort()), JSON.stringify(Object.keys(fresh).sort()), "归一化后的字段集合与新建存档完全一致");
+	// ② 判定用字段全部是中性值：逐场 Boss 判定、商店概率、事件、惩罚都从零开始，没有任何残留能绕过它们
+	assertEqual(old.version, cfg.RUN_VERSION, "版本升到当前");
+	assertEqual(old.bossRun, undefined, "不输出整局 bossRun（旧档本来也没有它）");
+	assertEqual(old.currentBattle, null, "没有进行中的战斗");
+	assertEqual(old.skillShopLocked, false, "没有橱窗 → 技能锁清零");
+	assertEqual(old.curioShopLocked, false, "没有橱窗 → 奇物锁清零");
+	assertEqual(old.pendingEvent, null, "无待处理事件");
+	assertEqual(old.pendingBossPenalty, null, "无待处理惩罚");
+	assertEqual(old.abyssDebt, 0, "无深渊债");
+	assertEqual(JSON.stringify(old.curioOfferQueue), "[]", "无压着的候选批次");
+	// ③ 进度照原样保留：等级/资源/奇物/品质/属性/刷新额度都不能被「迁移」洗掉
+	assertEqual(old.level, 45, "关卡保留");
+	assertEqual(old.currency.gold, 14785, "金币保留");
+	assertEqual(old.currency.exp, 1402, "经验保留");
+	assertEqual(JSON.stringify(old.curios), JSON.stringify(realV9.curios), "奇物保序保留");
+	assertEqual(old.curioQuality.cursed_coin, "epic", "品质覆盖表保留");
+	assertEqual(JSON.stringify(old.stats), JSON.stringify(realV9.stats), "属性等级保留");
+	assertEqual(old.shopRefreshesRemaining, 0, "刷新次数为 0 原样保留（读档不白送次数）");
+	// ④ 过期候选的合法性清理由 store 层注入闸门负责；本层只做形状清洗，字符串 id 一律不剔
+	assertEqual(old.shopOffers.length, 2, "缺省 options 下只做形状清洗");
+	assertEqual(state.normalizeRun(old, { isSkillAllowed: () => false }).shopOffers.length, 0, "注入闸门后过期候选被清掉（真机读档走这条）");
+	// ⑤ 反复归一化幂等：旧档被读第二遍、第三遍不会持续「变形」
+	assertEqual(JSON.stringify(state.normalizeRun(old)), JSON.stringify(old), "二次归一化逐字节相同");
+	return "45 关旧档：字段集合一致 / 判定字段中性 / 进度保留 / 幂等";
 });
 
 check("v11 旧档阵容带 boss 敌人但旧 bossRun 为 false：折算结果仍是普通战斗", () => {
