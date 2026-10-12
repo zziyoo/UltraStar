@@ -75,6 +75,10 @@ function openHub() {
 		run: context.run,
 		startBattle,
 		openShop,
+		// 营地也能直接进技能管理页（装备/卸下）：返回键回营地，与从商店进的那条路各回各的
+		openSkills: () => shopFlow.openSkills(openHub),
+		// 奇物管理页同理：营地进来返回回营地（商店进来仍回商店，由 shopFlow 记住入口）
+		openCurios: () => shopFlow.openCurios(openHub),
 		openCollection,
 		backToSlots: openSlots,
 		leaveMode,

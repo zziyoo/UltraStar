@@ -1,4 +1,4 @@
-// 商店逻辑：技能候选随机、购买、满槽替换、属性升级。纯函数，可在 Node 里直接测。
+// 商店逻辑：技能候选随机、购买（只进背包）、装备/卸下、属性升级。纯函数，可在 Node 里直接测。
 // 候选结果由调用方写进存档（shopOffers），本文件不碰 game；候选池本身见 skillPool.js。
 
 import {
@@ -80,14 +80,15 @@ export function getStatUpgradePrice(run, statId, level) {
 }
 
 /**
- * 随机时要排除的技能 id：当前角色原生技能 + 当前持有的购买技能。
- * 只按“当前状态”算，不做永久购买历史——被替换/删掉的技能下次商店还能再出现。
+ * 随机时要排除的技能 id：当前角色原生技能 + **当前拥有的全部技能**（run.skillInventory，
+ * 含没装备的那些——卸下不等于丢失，重复购买的口子就是这么堵的）。
+ * 只按“当前拥有状态”算，不做永久购买历史——真正被删除/失去的技能下次商店还能再出现。
  * @param {object} run 存档
  * @param {string[]} [characterSkills] 角色原生技能（由 mode.js 从 lib.character 取出后传入，保持本文件纯逻辑）
  */
 export function getExcludedSkillIds(run, characterSkills = []) {
 	const excluded = new Set();
-	for (const list of [run?.skills, characterSkills]) {
+	for (const list of [run?.skillInventory, characterSkills]) {
 		for (const id of Array.isArray(list) ? list : []) {
 			if (typeof id === "string" && id) {
 				excluded.add(id);
@@ -108,7 +109,7 @@ export function getExcludedSkillIds(run, characterSkills = []) {
  */
 export function rollSkillOffers(run, rng = Math.random, characterSkills = [], candidates = []) {
 	const excluded = getExcludedSkillIds(run, characterSkills);
-	const owned = new Set(run?.skills ?? []);
+	const owned = new Set(run?.skillInventory ?? []);
 	const pickedFrom = (Array.isArray(candidates) ? candidates : []).filter(entry => {
 		if (!entry || typeof entry.id !== "string" || !entry.id) {
 			return false;
@@ -221,15 +222,16 @@ export function checkSkillPurchase(run, offerId, options = {}) {
 }
 
 /**
- * 购买技能。槽位满时必须给出合法的 replaceId（已有技能之一）。
+ * 购买技能。v14 起购买只进背包（run.skillInventory），**不再替换、不再自动装备**：
+ * 装备位满也照买不误，由玩家在技能管理页自己决定装哪个（装备上限只约束 equipSkill）。
  * 三道闸门：
  *   1. 本局购买次数上限由 SKILL_PURCHASE_COUNT 真正驱动（不再只是刷新时的旁敲侧击）；
  *   2. 技能合法性最终校验：技能存在、当前仍允许进入肉鸽池、不是已禁用/已失效技能；
- *   3. 货币、重复持有、槽位等原有规则。
+ *   3. 货币、重复持有（按完整背包判重）等原有规则。
  * 返回 { ok, error, run }；失败时 run 与传入的 run 是同一份未修改数据。
  * @param {{ isSkillAllowed?: (id: string) => boolean }} [options] 见 checkSkillPurchase
  */
-export function buySkill(run, offerId, replaceId = null, options = {}) {
+export function buySkill(run, offerId, options = {}) {
 	const check = checkSkillPurchase(run, offerId, options);
 	if (!check.ok) {
 		return { ok: false, error: check.error };
@@ -238,27 +240,56 @@ export function buySkill(run, offerId, replaceId = null, options = {}) {
 	if (!Number.isFinite(offer.price) || !hasCurrency(run, SKILL_CURRENCY, offer.price)) {
 		return { ok: false, error: `${SKILL_CURRENCY_NAME}不足` };
 	}
-	if (run.skills.includes(offerId) && !ALLOW_DUPLICATE_SKILLS) {
+	const inventory = Array.isArray(run.skillInventory) ? run.skillInventory : [];
+	if (inventory.includes(offerId) && !ALLOW_DUPLICATE_SKILLS) {
 		return { ok: false, error: "已拥有该技能" };
 	}
 
-	const next = { ...run, skills: run.skills.slice(0), currency: { ...run.currency }, shopOffers: run.shopOffers.map(item => ({ ...item })) };
-
-	if (next.skills.length >= SKILL_SLOTS) {
-		if (!replaceId || !next.skills.includes(replaceId)) {
-			return { ok: false, error: `技能槽已满（${next.skills.length}/${SKILL_SLOTS}），需要先替换一个已有技能` };
-		}
-		next.skills = next.skills.filter(id => id !== replaceId);
-	}
-
-	next.skills.push(offerId);
+	const next = {
+		...run,
+		skillInventory: inventory.slice(0),
+		currency: { ...run.currency },
+		shopOffers: run.shopOffers.map(item => ({ ...item })),
+	};
+	next.skillInventory.push(offerId);
 	spend(next, SKILL_CURRENCY, offer.price);
 	const target = next.shopOffers.find(item => item.id === offerId);
 	if (target) {
 		target.sold = true;
 	}
 
-	return { ok: true, error: null, run: next, removed: replaceId ?? null };
+	return { ok: true, error: null, run: next };
+}
+
+/**
+ * 装备一个已拥有的技能：只改 run.skills（从背包挪进装备位），背包与货币一个字不动。
+ * 不满足时 ok:false 且零副作用；换装策略由玩家决定——装备位满时必须先卸下（这里不提供隐式替换）。
+ */
+export function equipSkill(run, skillId) {
+	const inventory = Array.isArray(run?.skillInventory) ? run.skillInventory : [];
+	if (!inventory.includes(skillId)) {
+		return { ok: false, error: "并未拥有该技能", run };
+	}
+	const skills = Array.isArray(run?.skills) ? run.skills : [];
+	if (skills.includes(skillId)) {
+		return { ok: false, error: "该技能已经装备", run };
+	}
+	if (skills.length >= SKILL_SLOTS) {
+		return { ok: false, error: `装备位已满（${skills.length}/${SKILL_SLOTS}），先卸下一个技能再装备`, run };
+	}
+	return { ok: true, error: null, run: { ...run, skills: [...skills, skillId] } };
+}
+
+/**
+ * 卸下一个已装备的技能：只把它从 run.skills 拿掉，技能仍留在 run.skillInventory——
+ * 「卸下」不是「失去」，既不触发遗忘之石/贪食魔盒，也不影响任何以持有为准的判定。
+ */
+export function unequipSkill(run, skillId) {
+	const skills = Array.isArray(run?.skills) ? run.skills : [];
+	if (!skills.includes(skillId)) {
+		return { ok: false, error: "该技能并未装备", run };
+	}
+	return { ok: true, error: null, run: { ...run, skills: skills.filter(id => id !== skillId) } };
 }
 
 /** 属性升级检查：当前等级、上限、货币三项一起判 */

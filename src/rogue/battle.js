@@ -99,7 +99,7 @@ function bindMarkTap(mark, open) {
  * 所以少了这一步，买到的带 group 技能就只剩主技能那半边。
  * expandSkills 是「原地去重追加同一个数组」（`Array.prototype.add` 自带 includes 判断），
  * 只展开一层、group 写字符串或数组都吃，这里不自己重写一遍 group 解析。
- * 展开出来的伙伴技能只活在当前 Player 上：不写回 run.skills / 敌人配置 / 属性表，也就一个都不占肉鸽技能槽。
+ * 展开出来的伙伴技能只活在当前 Player 上：不写回 run.skills / 敌人配置 / 属性表，也就一个都不占装备位。
  * @param {object} player 目标 Player
  * @param {string[]} skillIds 调用方给的技能 id（来自存档、敌人配置或属性表）
  * @param {string} missingLabel 未注册 id 的警告文案前缀，保持原来的三种提示不变
@@ -317,7 +317,7 @@ export async function beginBattle(event, run, enemies) {
 	game.me.init(run.characterId);
 	game.me.rogueStatRun = { openPanel: () => showBattleStats(run) };
 	game.me.rogueCurioRun = { openPanel: () => showBattleCurios(run) };
-	// 买来的技能在这里展开 group 伙伴；存档与技能槽统计始终只看 run.skills 本身
+	// 装备中的技能在这里展开 group 伙伴；存档与「装备位」统计始终只看 run.skills 本身（背包里的不参战）
 	grantSkills(game.me, run.skills, "存档里的技能未注册");
 	const bonuses = sumStatEffects(run.stats);
 	applyEffects(game.me, bonuses, true);

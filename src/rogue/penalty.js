@@ -1,10 +1,13 @@
-// 失败结算：无尽删档、闯关扣货币、货币不足时的 fallback 惩罚。纯函数。
+// 失败结算：无尽删档、闯关扣货币、货币不足时的 fallback 惩罚；
+// 外加**统一的「真正失去技能」操作**（loseSkill / loseSkills）：从背包删除、已装备的一并卸下、
+// 按持有的遗忘之石/贪食魔盒（当前品质）结算金币与经验。纯函数。
 //
 // 规格书对「货币不足」未给出精确判据，本文件的实现是：
 // 按比例算下来一项都扣不动（所有货币都已为 0）→ 视为不足 → 走 fallback。
 // 只要还有任何一项货币能扣，就按正常比例扣，关卡不后退、不降级、不删技能。
 
 import { CURRENCIES, FAILURE_POLICY, RUN_MODE, STAT_IDS } from "./config.js";
+import { getSkillLossRewardExp, getSkillLossRewardGold } from "./curioManager.js";
 import { stats } from "./data/stats.js";
 
 function rateFor(policy, key) {
@@ -19,10 +22,10 @@ function rateFor(policy, key) {
 	return 0;
 }
 
-/** 可执行的 fallback 惩罚；都没有时返回全 false，上层据此跳过惩罚 */
+/** 可执行的 fallback 惩罚；都没有时返回全 false，上层据此跳过惩罚。技能按**完整背包**算（含未装备的） */
 export function getFallbackOptions(run) {
 	return {
-		canLoseSkill: (run?.skills?.length ?? 0) > 0,
+		canLoseSkill: (run?.skillInventory?.length ?? 0) > 0,
 		canLowerStat: STAT_IDS.some(id => (run?.stats?.[id] ?? 0) > 0),
 	};
 }
@@ -65,61 +68,66 @@ export function settleDefeat(run, now, policy = FAILURE_POLICY) {
 	return { kind: "fallback", run: applied, lost, fallback };
 }
 
-/** fallback 之一：失去一个指定技能 */
-export function loseSkill(run, skillId, now) {
-	if (!run.skills.includes(skillId)) {
-		return { ok: false, error: "并未拥有该技能", run };
-	}
-	return {
-		ok: true,
-		run: { ...run, skills: run.skills.filter(id => id !== skillId), updatedAt: now },
-		removed: skillId,
-	};
-}
-
 /**
- * Boss 战胜利的强制惩罚之一：随机失去一个已购买技能。
- * 只动 run.skills（肉鸽技能槽，本来就只装购买技能），绝不碰角色本体技能；
- * 一个购买技能都没有时 ok:false 原样返回，不报错、不凑数。
- * 被丢掉的技能不做任何「历史记录」：下次商店仍可再刷出来（当前持有状态过滤，见 shop.js）。
+ * 统一的「真正失去技能」操作（v14）：**所有**真正删除技能的路径都走这里，别再各写一套。
+ * 语义（缺一不可）：
+ *   · 只从 run.skillInventory 删除——那才是「拥有」的权威列表；run.skills 只是装备视图；
+ *   · 被删的技能若当前装备着，同时从 run.skills 卸下（装备 ⊆ 背包的不变量继续成立）；
+ *   · 每失去一个技能按**当前持有的奇物与品质**结算一次奖励：遗忘之石发本层胜利金币 ×N（goldOnSkillLoss）、
+ *     贪食魔盒发本层胜利经验 ×N（expOnSkillLoss）——一次删 N 个就发 N 次，绝不合并成一次、
+ *     也不叠加 Boss 倍率（基准口径见 curioManager.getSkillLossRewardGold/Exp）；
+ *   · 没有任何技能真的被删（未拥有/空列表）时 ok:false、零副作用、一分钱不发；
+ *   · 只卸下装备（unequipSkill）不算失去，不走这里。
+ * 返回 { ok, error, run, removed: string[], gold, exp, lines }：奖励已并进 run.currency，
+ * 删除与奖励是同一次提交的一部分，调用方落盘一次即全部生效（绝不重复发奖）。
+ * @param {string[]} skillIds 想失去的技能；其中未拥有的会被忽略
  */
-export function loseRandomSkill(run, rng = Math.random, now = 0) {
-	const skills = Array.isArray(run?.skills) ? run.skills : [];
-	if (!skills.length) {
-		return { ok: false, error: "没有可失去的已购买技能", run, removed: null };
+export function loseSkills(run, skillIds, now = 0) {
+	const inventory = Array.isArray(run?.skillInventory) ? run.skillInventory : [];
+	const removed = [];
+	for (const raw of Array.isArray(skillIds) ? skillIds : []) {
+		const skillId = typeof raw === "string" ? raw : "";
+		if (skillId && inventory.includes(skillId) && !removed.includes(skillId)) {
+			removed.push(skillId);
+		}
 	}
-	const removed = skills[Math.floor(rng() * skills.length) % skills.length];
-	return {
-		ok: true,
-		error: null,
-		run: { ...run, skills: skills.filter(id => id !== removed), updatedAt: now },
-		removed,
-	};
-}
-
-/**
- * Boss 战胜利的强制惩罚之一：随机失去一件已拥有的奇物。
- * 只动 run.curios 与它的品质覆盖表（curioQuality 里那一条一并清掉，别留悬挂数据）；
- * 图鉴（collection.curios 记「曾经拥有过」）不受影响，一件奇物都没有时 ok:false 原样返回。
- */
-export function loseRandomCurio(run, rng = Math.random, now = 0) {
-	const curios = Array.isArray(run?.curios) ? run.curios : [];
-	if (!curios.length) {
-		return { ok: false, error: "没有可失去的奇物", run, removed: null };
+	if (!removed.length) {
+		return { ok: false, error: "没有可失去的技能", run, removed: [], gold: 0, exp: 0, lines: [] };
 	}
-	const removed = curios[Math.floor(rng() * curios.length) % curios.length];
+	const removedSet = new Set(removed);
 	const next = {
 		...run,
-		curios: curios.filter(id => id !== removed),
-		curioQuality: { ...(run.curioQuality ?? {}) },
-		collection: {
-			events: (run.collection?.events ?? []).slice(0),
-			curios: (run.collection?.curios ?? []).slice(0),
-		},
+		skillInventory: inventory.filter(id => !removedSet.has(id)),
+		skills: (Array.isArray(run.skills) ? run.skills : []).filter(id => !removedSet.has(id)),
+		currency: { ...run.currency },
 		updatedAt: now,
 	};
-	delete next.curioQuality[removed];
-	return { ok: true, error: null, run: next, removed };
+	// 按件结算：每失去一个技能各算一次（Boss 一次清除 3 个装备技能 = 3 次技能失去奖励）
+	const gold = removed.length * getSkillLossRewardGold(run);
+	const exp = removed.length * getSkillLossRewardExp(run);
+	if (gold > 0) {
+		next.currency.gold = (next.currency.gold ?? 0) + gold;
+	}
+	if (exp > 0) {
+		next.currency.exp = (next.currency.exp ?? 0) + exp;
+	}
+	const lines = [];
+	if (gold > 0) {
+		lines.push(`遗忘之石把失去的技能折成了 ${gold} 金币。`);
+	}
+	if (exp > 0) {
+		lines.push(`贪食魔盒吞下失去的技能，吐回 ${exp} 点经验。`);
+	}
+	return { ok: true, error: null, run: next, removed, gold, exp, lines };
+}
+
+/** loseSkills 的单件版：失去一个指定技能（失败也走同一条：不可失去时 ok:false、零副作用） */
+export function loseSkill(run, skillId, now = 0) {
+	const result = loseSkills(run, [skillId], now);
+	if (!result.ok) {
+		return { ok: false, error: "并未拥有该技能", run, removed: null, gold: 0, exp: 0, lines: [] };
+	}
+	return { ...result, removed: result.removed[0] };
 }
 
 /** fallback 之一：指定属性等级 -1 */
@@ -138,9 +146,10 @@ export function lowerStat(run, statId, now) {
 }
 
 /**
- * Boss 战胜利惩罚「由玩家自己挑」时的候选名单：只报这一份存档此刻真实持有的东西。
- * 技能只认 `run.skills`（肉鸽技能槽本来就只装购买/替换来的技能，角色本体技能不在这里，
- * 所以这一栏不可能误删本体技能）；奇物只认 `run.curios`。
+ * Boss 惩罚的候选名单：只报这一份存档此刻真实持有的东西。
+ * v14 起技能惩罚不再需要玩家挑选（Boss 胜利当场自动失去**全部装备技能**），
+ * 所以这里的 skills 只作「当前装备的是哪几个」的读数（结算与迁移清算都用 run.skills 现取）；
+ * 玩家还要自己选的是奇物：curios 只认 run.curios。
  * 返回的是新建数组，调用方怎么排布都不会污染 run。
  */
 export function getBossPenaltyTargets(run) {
@@ -152,7 +161,7 @@ export function getBossPenaltyTargets(run) {
 
 /**
  * Boss 战胜利惩罚之二（玩家自选版）：失去指定的那一件已拥有奇物。
- * 与 loseRandomCurio 同一条清理纪律：`curioQuality` 里那一条一并删掉（不留悬挂覆盖表项），
+ * 与 loseCurio / 奇物商店的清理纪律同一条：`curioQuality` 里那一条一并删掉（不留悬挂覆盖表项），
  * 图鉴 `collection.curios` 的「曾经拥有过」一个字都不动；未拥有时 ok:false 且零副作用。
  */
 export function loseCurio(run, curioId, now = 0) {

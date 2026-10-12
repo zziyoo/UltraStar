@@ -16,9 +16,7 @@ import {
 	bindOverlayTap,
 	openOverlay,
 	openScreen,
-	skillInfo,
 	skillName,
-	skillOwner,
 	translateCharacter,
 } from "./common.js";
 
@@ -136,8 +134,10 @@ export function showPenaltyChoice(run, fallback, api) {
 
 	if (fallback.canLoseSkill) {
 		addLine(content, "<b>失去一个技能</b>");
-		for (const id of run.skills) {
-			addButton(skillName(id), content, () => api.chooseLoseSkill(id));
+		// 候选 = 完整背包（含没装备的）；已装备的标注出来——失去它会同时把它从装备位卸下
+		const equipped = new Set(Array.isArray(run.skills) ? run.skills : []);
+		for (const id of Array.isArray(run.skillInventory) ? run.skillInventory : []) {
+			addButton(`${skillName(id)}${equipped.has(id) ? "（已装备）" : ""}`, content, () => api.chooseLoseSkill(id));
 		}
 	} else {
 		addDisabledButton("失去一个技能", content, "没有可失去的技能");
@@ -160,24 +160,21 @@ export function showPenaltyChoice(run, fallback, api) {
 }
 
 /**
- * Boss 战胜利惩罚的选择页（v13）：把「随机弃置」换成玩家自己挑。
- * 需要失去哪几项由存档里的 pendingBossPenalty 说（`run` 与 `pending` 都是模式层现读后喂进来的，
- * 这一页不认识任何「随机抽到了谁」）；技能与奇物各一栏、每项一张卡，点卡片就失去它。
- * 已经还清 / 本来就没有可作用对象的那一栏只写一句说明、不放卡——按既有规则一句带过，
- * 绝不拿别的类型凑数。
+ * Boss 战胜利惩罚页（v14）：技能那一半已由胜利结算自动完成（失去全部装备技能），
+ * 这一页只剩「自己挑一件奇物失去」——不再有技能挑选栏，也不再需要 pending 状态里的技能标记。
+ * 每件奇物一张卡（名字带当前品质、效果问 curioManager 拿「当前品质实际生效的那几行」），点卡片即失去。
  * 页面没有「跳过」按钮，点遮罩也不退出：这场代价必须付清。玩家直接关游戏也不影响，
- * 读档回来仍是这张页、仍只欠没还清的那几项。
+ * 读档回来仍是这张页、仍只欠没还清的那一件。
  *
  * `reward`（刚打赢的关卡 + 本场金币/经验）是胜利流程顺手带过来的**临时展示数据**，不写存档：
  * 自动跳转把中间那张结算页省掉了，奖励只能在这一点给玩家看。从存档恢复回到这一页时它不存在，
- * 那种场合只说明「奖励已入账」，选择照常继续。
- * 纯 UI：删除与落盘一律交回 api（见 flow/result.js）。
+ * 那种场合只说明「奖励已入账」，选择照常继续。纯 UI：删除与落盘一律交回 api（见 flow/result.js）。
  */
-export function showBossPenaltyChoice(run, pending, reward, api) {
+export function showBossPenaltyChoice(run, reward, api) {
 	const stage = openOverlay("wm-rogue-boss-overlay");
 	const panel = ui.create.div(".wm-rogue-boss", stage);
 	ui.create.div(".wm-rogue-boss-title", "BOSS 战的代价", panel);
-	ui.create.div(".wm-rogue-boss-subtitle", "按规则，Boss 战胜利后要从你当前持有的技能与奇物里各失去一项", panel);
+	ui.create.div(".wm-rogue-boss-subtitle", "按规则，Boss 战胜利后你已失去当前装备的全部技能；再从你的奇物里失去一件", panel);
 	ui.create.div(".wm-rogue-boss-divider", panel);
 
 	// 奖励说明区：中间结算页省掉了，这一场「赢了多少」就只在这里给玩家看
@@ -192,6 +189,11 @@ export function showBossPenaltyChoice(run, pending, reward, api) {
 		}
 	} else {
 		ui.create.div(".wm-rogue-boss-reward-title", "本场 Boss 战已胜利，奖励与关卡进度都已入账", rewardBox);
+	}
+	// 自动跳转省掉了中间结算页，但那几行账目（失去了几个装备技能、遗忘之石/贪食魔盒折了什么）
+	// 不能跟着丢：由胜利流程作为临时数据带进来，逐行列在奖励区下面。读档恢复时它不存在，这一区自然为空
+	for (const line of Array.isArray(reward?.lines) ? reward.lines : []) {
+		ui.create.div(".wm-rogue-boss-detail", line, rewardBox);
 	}
 
 	/**
@@ -212,60 +214,25 @@ export function showBossPenaltyChoice(run, pending, reward, api) {
 	};
 
 	const body = ui.create.div(".wm-rogue-boss-body", panel);
-	const cols = ui.create.div(".wm-rogue-boss-cols", body);
-
-	const skillCol = ui.create.div(".wm-rogue-boss-col", cols);
-	ui.create.div(".wm-rogue-boss-col-title", "失去一个技能", skillCol);
-	if (pending.needSkill) {
-		const rows = ui.create.div(".wm-rogue-boss-cards", skillCol);
-		for (const id of run.skills) {
-			const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-boss-card", rows);
-			const top = ui.create.div(".wm-rogue-shop-top", card);
-			const owner = skillOwner(id);
-			if (owner) {
-				ui.create.div(".wm-rogue-shop-avatar", top).setBackground(owner, "character");
-			}
-			ui.create.div(".wm-rogue-shop-name", skillName(id), top);
-			if (owner) {
-				ui.create.div(".wm-rogue-shop-owner", `出自 ${translateCharacter(owner)}`, card);
-			}
-			// 卡片要看全，这里不截断：完整效果描述直接铺在卡面上
-			ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(id) || "（该技能没有描述）", card);
-			ui.create.div(".wm-rogue-boss-card-action", "点击失去这个技能", card);
-			bindOverlayTap(card, pick(() => api.loseSkill(id)));
+	const col = ui.create.div(".wm-rogue-boss-col", body);
+	ui.create.div(".wm-rogue-boss-col-title", "失去一件奇物", col);
+	const rows = ui.create.div(".wm-rogue-boss-cards", col);
+	for (const id of run.curios) {
+		const def = getCurio(id);
+		const quality = getCurioQuality(id, run.curioQuality);
+		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-boss-card", rows);
+		const top = ui.create.div(".wm-rogue-shop-top", card);
+		if (def?.image) {
+			ui.create.div(".wm-rogue-curio-art", top).style.backgroundImage = `url("${def.image}")`;
 		}
-	} else {
-		// 两种「不需要再选」要分得开：玩家手上确实没东西可失去，还是这一项方才已经挑完并落盘了
-		ui.create.div(".wm-rogue-boss-note",
-			run.skills.length ? "技能：这一项已经选好，不必再动。" : "技能：没有可失去的已购买技能，这一项按规则带过。", skillCol);
+		// 名字带着当前品质一起写，品质同时按该档配色（与战斗中奇物面板同一条口径）
+		ui.create.div(`.wm-rogue-shop-name.wm-rogue-rarity-${quality}`,
+			`${def?.name ?? id}（${CURIOSITY_RARITY[quality] ?? quality}）`, top);
+		// 效果问 curioManager 拿「当前品质实际生效的那几行」，UI 不自己算
+		ui.create.div(".wm-rogue-curio-effect", describeCurio(id, run.curioQuality).join("；"), card);
+		ui.create.div(".wm-rogue-boss-card-action", "点击失去这件奇物", card);
+		bindOverlayTap(card, pick(() => api.loseCurio(id)));
 	}
 
-	const curioCol = ui.create.div(".wm-rogue-boss-col", cols);
-	ui.create.div(".wm-rogue-boss-col-title", "失去一件奇物", curioCol);
-	if (pending.needCurio) {
-		const rows = ui.create.div(".wm-rogue-boss-cards", curioCol);
-		for (const id of run.curios) {
-			const def = getCurio(id);
-			const quality = getCurioQuality(id, run.curioQuality);
-			const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-boss-card", rows);
-			const top = ui.create.div(".wm-rogue-shop-top", card);
-			if (def?.image) {
-				ui.create.div(".wm-rogue-curio-art", top).style.backgroundImage = `url("${def.image}")`;
-			}
-			// 名字带着当前品质一起写，品质同时按该档配色（与战斗中奇物面板同一条口径）
-			ui.create.div(`.wm-rogue-shop-name.wm-rogue-rarity-${quality}`,
-				`${def?.name ?? id}（${CURIOSITY_RARITY[quality] ?? quality}）`, top);
-			// 效果问 curioManager 拿「当前品质实际生效的那几行」，UI 不自己算
-			ui.create.div(".wm-rogue-curio-effect", describeCurio(id, run.curioQuality).join("；"), card);
-			ui.create.div(".wm-rogue-boss-card-action", "点击失去这件奇物", card);
-			bindOverlayTap(card, pick(() => api.loseCurio(id)));
-		}
-	} else {
-		ui.create.div(".wm-rogue-boss-note",
-			run.curios.length ? "奇物：这一项已经选好，不必再动。" : "奇物：当前没有奇物可失去，这一项按规则带过。", curioCol);
-	}
-
-	ui.create.div(".wm-rogue-boss-foot", pending.needSkill && pending.needCurio
-		? "点卡片即确认失去，删除会立刻写进存档、无法撤销。两项都选完才会离开这一页。"
-		: "点卡片即确认失去，删除会立刻写进存档、无法撤销。这一项选完就离开这一页。", panel);
+	ui.create.div(".wm-rogue-boss-foot", "点卡片即确认失去，删除会立刻写进存档、无法撤销。选完就离开这一页。", panel);
 }

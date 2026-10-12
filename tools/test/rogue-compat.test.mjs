@@ -462,11 +462,12 @@ check("行殇：求值异常时上下文照样还原（不留半个 ai 在身上
 check("SKILL_PURCHASE_COUNT 真正生效：买满额度后再买直接被拒", () => {
 	const offers = ["g1", "g2", "g3"].map(id => ({ id, price: 10, sold: false }));
 	const run = { ...state.createRun(cfg.RUN_MODE.challenge, "迪迦", NOW), currency: { gold: 999, exp: 0 }, shopOffers: offers, skills: [] };
-	const first = shop.buySkill(run, "g1", null);
+	const first = shop.buySkill(run, "g1");
 	assert(first.ok, first.error ?? "第一次应能买");
 	assertEqual(shop.getPurchasedCount(first.run), 1, "已购计数");
+	assertEqual(first.run.skillInventory.includes("g1"), true, "买到的技能进背包");
 	assertEqual(shop.checkSkillPurchase(first.run, "g2").ok, false, "额度用光后 checkSkillPurchase 应拒");
-	const second = shop.buySkill(first.run, "g2", null);
+	const second = shop.buySkill(first.run, "g2");
 	assert(!second.ok, `第二次必须被拒：${second.error}`);
 	assert(second.error.includes(String(cfg.SKILL_PURCHASE_COUNT)), `提示要带上上限数字：${second.error}`);
 	assertEqual(second.run, undefined, "被拒时不返回改过的 run");
@@ -492,15 +493,16 @@ check("非法/过期 shopOffers 绕不过技能合法性闸门", () => {
 	assertEqual(cleaned.shopOffers[0].id, "pack_yao", "留下的是合法候选");
 	// 2) 就算存档侥幸留着（不做清洗），购买前那道校验也必须挡住
 	for (const id of ["rogue_xushui", "pack_wat"]) {
-		const bad = shop.buySkill(run, id, null, gate);
+		const bad = shop.buySkill(run, id, gate);
 		assert(!bad.ok, `${id} 必须买不到`);
 		assert(bad.error.includes("下架"), `提示要说清是下架/不可售：${bad.error}`);
 	}
-	// 3) 已经买到手上的技能不受影响：清洗只动 shopOffers，skills 原样保留
+	// 3) 已经买到手上的技能不受影响：清洗只动 shopOffers，skills 与背包原样保留
 	const owned = state.normalizeRun({ ...run, skills: ["pack_wat", "pack_yao"] }, gate);
 	assert(owned.skills.includes("pack_wat"), "已持有的技能不得被读档清洗抢走（规则只清 shopOffers）");
+	assert(owned.skillInventory.includes("pack_wat"), "背包里的那条同样保留");
 	// 4) 不传闸门时保持纯逻辑行为（兼容既有调用方）
-	const plain = shop.buySkill(run, "rogue_xushui", null);
+	const plain = shop.buySkill(run, "rogue_xushui");
 	assert(plain.ok, "不传闸门时不额外拦截（纯逻辑层不读 lib）");
 	return "读档清洗 + 购买前校验 双道闸门";
 });

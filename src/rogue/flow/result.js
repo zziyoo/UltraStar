@@ -5,7 +5,7 @@ import { RUN_MODE } from "../config.js";
 import { settleVictory } from "../reward.js";
 import { maybeCreatePendingEvent } from "../eventManager.js";
 import { getCurio } from "../data/curios.js";
-import { getBossPenaltyTargets, loseCurio, loseSkill, lowerStat, settleDefeat } from "../penalty.js";
+import { getBossPenaltyTargets, loseCurio, loseSkill, loseSkills, lowerStat, settleDefeat } from "../penalty.js";
 import { setSlot, updateBest, updateBestChallenge } from "../state.js";
 import { commit, context, now, persist, reloadNow, saveBest, saveBestChallenge } from "../runtime.js";
 import { showNotice, skillName } from "../ui/common.js";
@@ -27,25 +27,30 @@ export function createResultFlow(host) {
 		const alreadyCleared = !!context.run.cleared;
 		const result = settleVictory(context.run, now(), Math.random);
 		let run = result.run;
-		// Boss 战胜利的强制惩罚（v13 起改为**玩家自己挑**）：失去 1 个已购买技能与 1 件已拥有的奇物。
-		// 惩罚的数量、奖励倍率与「各自没有时一句『没有可失去的』带过」的既有规则一概不动，
-		// 变的只是由谁决定失去哪一个。
+		// Boss 战胜利的强制惩罚（v14 起技能部分不再由玩家挑）：
+		//   ① 当场失去**全部当前装备的技能**（从背包里一并删除，确实视为失去），空装备时不删任何东西、
+		//      也不产生虚假的失去奖励；删除与奖励走 penalty.loseSkills 的统一动作、随下面 commit 一次落盘，
+		//      刷新/恢复存档都不会再执行第二次（currentBattle 已在 settleVictory 里清空）；
+		//   ② 仍欠的那一项是奇物：有可失去的就挂 pendingBossPenalty（自动进选择页），没有就一句带过。
 		// 只看「刚刚结束的这一场」是不是 Boss 战（settleVictory 在清掉 currentBattle 之前取出的标记），
 		// 所以它每场只生效一次，绝不会误伤下一场普通战斗。
-		//
-		// 这里只挂「还欠哪几项」的状态，一个东西都不删：删除由下面的选择页在玩家点下那一条时一次性提交落盘。
-		// 于是中途关游戏 / 刷新 / 重进页面都回到同一张选择页，既不重新随机，也不会重复删除或重复领奖励
-		// （胜利奖励已随 settleVictory 落盘，currentBattle 也清空了，下一场是各掷各的）。
 		const penaltyLines = [];
 		if (result.isBossBattle) {
-			const targets = getBossPenaltyTargets(run);
-			const needSkill = targets.skills.length > 0;
-			const needCurio = targets.curios.length > 0;
-			if (needSkill || needCurio) {
-				run = { ...run, pendingBossPenalty: { reason: "bossVictory", needSkill, needCurio } };
-				penaltyLines.push("Boss 战的代价：接下来由你自己挑出要失去的那一项。");
+			const equipped = Array.isArray(run.skills) ? run.skills : [];
+			const removal = loseSkills(run, equipped, now());
+			if (removal.ok) {
+				run = removal.run;
+				penaltyLines.push(`Boss 战的代价：失去了全部 ${removal.removed.length} 个装备技能。`);
+				penaltyLines.push(...removal.lines);
 			} else {
-				penaltyLines.push("Boss 战的代价：当前没有已购买技能与奇物可失去。");
+				penaltyLines.push("Boss 战的代价：当前没有装备技能可失去。");
+			}
+			const targets = getBossPenaltyTargets(run);
+			if (targets.curios.length > 0) {
+				run = { ...run, pendingBossPenalty: { reason: "bossVictory", needSkill: false, needCurio: true } };
+				penaltyLines.push("Boss 战的代价：接下来由你自己挑出要失去的那件奇物。");
+			} else {
+				penaltyLines.push("Boss 战的代价：当前没有奇物可失去。");
 			}
 		}
 		if (run.mode === RUN_MODE.endless) {
@@ -70,12 +75,14 @@ export function createResultFlow(host) {
 		// 跳转的前提是「本场奖励 + 关卡进度 + pendingBossPenalty 已经落盘」——commit 失败时
 		// persist() 已经弹了错误提示，这里就停住：欠项还没写进存档，惩罚页点了也白点，
 		// 更不能让玩家以为已经付过了。
-		// `reward` 只给这一场看（关卡 + 金币/经验），不写存档：读档回到这一页时它不存在，
-		// 惩罚页自己会退化成「奖励已入账」那句说明。settleVictory 上面只调用过一次，
-		// 这里绝不重复发奖或推关；后面的收尾顺序仍走 continueRun（惩罚 → 待处理事件 → 营地）。
+		// `reward` 只给这一场看（关卡 + 金币/经验 + 结算行），不写存档：读档回到这一页时它不存在，
+		// 惩罚页自己会退化成「奖励已入账」那句说明；结算行带着技能自动清算与奇物折钱的全部账目，
+		// 免得自动跳转把「失去了几个技能」「遗忘之石折了多少钱」这类反馈吞掉。
+		// settleVictory 上面只调用过一次，这里绝不重复发奖或推关；后面的收尾顺序仍走 continueRun
+		// （惩罚 → 待处理事件 → 营地）。
 		if (result.isBossBattle && run.pendingBossPenalty) {
 			if (saved) {
-				afterVictoryResult({ level: wonLevel, gained: result.gained });
+				afterVictoryResult({ level: wonLevel, gained: result.gained, lines: penaltyLines });
 			}
 			return;
 		}
@@ -119,12 +126,17 @@ export function createResultFlow(host) {
 	}
 
 	/**
-	 * Boss 惩罚选择页：把「还欠哪几项」摊给玩家，点一张卡就是确认失去、当场落盘。
-	 * 名单一律现读存档（不吃渲染时缓存的布尔值），只列这一局真实持有的购买技能与奇物——
-	 * 角色本体技能从来不在 `run.skills` 里，所以不可能被误删。
-	 * 这一页没有「跳过」：设计不允许绕过惩罚，但也不会卡死——需要的那一项若此刻已无对象
-	 * （比如中途被别处扣光），按既有规则就地记为已还清并一句带过，绝不改删另一类的东西。
+	 * Boss 惩罚页（v14）：技能那一半在胜利结算时就自动做完了（失去全部装备技能），
+	 * 这一页只剩「从奇物里自己挑一件失去」。名单一律现读存档，只列这一局真实持有的奇物——
+	 * 角色本体技能从来不在 run.skills 里，所以不可能被误删。
+	 * 这一页没有「跳过」：设计不允许绕过惩罚，但也不会卡死——奇物若此刻已无对象
+	 * （比如中途被别处扣光），按既有规则就地记为已还清并一句带过，绝不改删别的东西。
 	 * 中途关游戏 / 刷新：欠的项仍写在存档上，读档由 mode.js 的路由重新回到这一页。
+	 *
+	 * v13 旧档迁移：旧版 pendingBossPenalty.needSkill === true 表示「挑一个技能失去」还没完成。
+	 * 这里做**一次性**自动清算：失去当前装备的全部技能（走统一动作，奖励与删除同一次 commit 落盘），
+	 * 随即把 needSkill 记为已完成——反复读档、刷新都只执行这一遍，绝不重复清技能、重复发钱；
+	 * needSkill === false 的旧档一个字都不追加（那一版技能惩罚早已兑现）。
 	 */
 	function openBossPenaltyPage(onDone, bossReward) {
 		const paint = () => {
@@ -134,13 +146,30 @@ export function createResultFlow(host) {
 				onDone();
 				return;
 			}
+			if (pending.needSkill === true) {
+				const removal = loseSkills(run, Array.isArray(run.skills) ? run.skills : [], now());
+				const nextPending = { ...pending, needSkill: false };
+				const remaining = nextPending.needCurio === true;
+				context.run = {
+					...(removal.ok ? removal.run : run),
+					pendingBossPenalty: remaining ? nextPending : null,
+				};
+				if (!commit()) {
+					return;
+				}
+				const lines = removal.ok
+					? [`Boss 战的代价：失去了全部 ${removal.removed.length} 个装备技能。`, ...removal.lines]
+					: ["Boss 战的代价：当前没有装备技能可失去。"];
+				if (remaining) {
+					showNotice(lines, paint);
+				} else {
+					showNotice([...lines, "Boss 战的代价已付清。"], onDone);
+				}
+				return;
+			}
 			const targets = getBossPenaltyTargets(run);
-			const settled = {
-				...pending,
-				needSkill: pending.needSkill === true && targets.skills.length > 0,
-				needCurio: pending.needCurio === true && targets.curios.length > 0,
-			};
-			if (!settled.needSkill && !settled.needCurio) {
+			const needCurio = pending.needCurio === true && targets.curios.length > 0;
+			if (!needCurio) {
 				context.run = { ...run, pendingBossPenalty: null };
 				if (!commit()) {
 					return;
@@ -148,35 +177,28 @@ export function createResultFlow(host) {
 				showNotice(["Boss 战的代价已付清。"], onDone);
 				return;
 			}
-			if (settled.needSkill !== pending.needSkill || settled.needCurio !== pending.needCurio) {
-				context.run = { ...run, pendingBossPenalty: settled };
+			if (pending.needCurio !== true) {
+				context.run = { ...run, pendingBossPenalty: { ...pending, needCurio: true } };
 				if (!commit()) {
 					return;
 				}
 			}
 			const current = context.run;
-			showBossPenaltyChoice(current, current.pendingBossPenalty, bossReward, {
-				loseSkill: skillId => takeBossPenalty(
-					"needSkill",
-					() => loseSkill(current, skillId, now()),
-					`已失去技能：${skillName(skillId)}。`,
-				),
+			showBossPenaltyChoice(current, bossReward, {
 				loseCurio: curioId => takeBossPenalty(
-					"needCurio",
 					() => loseCurio(current, curioId, now()),
 					`已失去奇物：${getCurio(curioId)?.name ?? curioId}。`,
 				),
 			});
 		};
-		/** 兑现一项：清掉对应的欠项标记 → 落盘 → 回到这一页接着选，全部还清才交给出口 */
-		function takeBossPenalty(kind, apply, line) {
+		/** 兑现奇物那一项：清掉欠项标记 → 落盘 → 回到这一页；全部付清才交给出口 */
+		function takeBossPenalty(apply, line) {
 			const result = apply();
 			if (!result.ok) {
 				showNotice([result.error]);
 				return;
 			}
-			const pending = { ...result.run.pendingBossPenalty };
-			pending[kind] = false;
+			const pending = { ...result.run.pendingBossPenalty, needCurio: false };
 			const remaining = pending.needSkill === true || pending.needCurio === true;
 			context.run = { ...result.run, pendingBossPenalty: remaining ? pending : null };
 			if (!commit()) {
@@ -280,7 +302,7 @@ export function createResultFlow(host) {
 					kind: "defeat",
 					title: "战斗失败",
 					level: context.run.level,
-					lines: [`已失去技能：${skillName(skillId)}。`],
+					lines: [`已失去技能：${skillName(skillId)}。`, ...result.lines],
 					onDone: () => reloadNow(false),
 				});
 			},

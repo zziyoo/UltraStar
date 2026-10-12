@@ -3,6 +3,7 @@
 
 import {
 	BATTLE_STATUS,
+	BOSS_PITY_BATTLES,
 	CHALLENGE_COMBO_LEVELS,
 	CHALLENGE_STAGE_LEVELS,
 	CHALLENGE_TOTAL_LEVELS,
@@ -529,6 +530,23 @@ export function normalizeRun(raw, options = {}) {
 		currency[key] = clampInt(raw.currency?.[key], 0, Number.MAX_SAFE_INTEGER, 0);
 	}
 
+	// v14 技能改成「装备区 + 无限背包」：
+	//   · skillInventory = 玩家全部拥有的技能（无游戏规则上限，这里绝不按 SKILL_SLOTS 截断）；
+	//   · skills = 当前装备中的技能，仍以 SKILL_SLOTS 为上限（购买不再替换、新技能先进背包）；
+	//   · 不变量 skills ⊆ skillInventory：装备里的技能若不在背包里（旧档/脏数据）就补进去，
+	//     背包里多出来的技能一律原样保留（它们只是没装备）。
+	// 旧档（v13 及更早）只有 skills：整套迁入背包，原装备原样保持，老玩家不会突然被卸装。
+	const invSeen = new Set();
+	const skillInventory = [];
+	const pushInventory = skillId => {
+		if (skillId && !invSeen.has(skillId) && !isDeprecatedSkill(skillId)) {
+			invSeen.add(skillId);
+			skillInventory.push(skillId);
+		}
+	};
+	for (const id of Array.isArray(raw.skillInventory) ? raw.skillInventory : []) {
+		pushInventory(sanitizeString(id));
+	}
 	const seen = new Set();
 	const skills = [];
 	for (const id of Array.isArray(raw.skills) ? raw.skills : []) {
@@ -536,11 +554,13 @@ export function normalizeRun(raw, options = {}) {
 		if (!skillId || seen.has(skillId) || isDeprecatedSkill(skillId)) {
 			continue;
 		}
+		// 装备中的技能必须同时在背包里——超上限的第 4+ 个也进背包（它们是真拥有的技能，不丢）
+		pushInventory(skillId);
+		if (skills.length >= SKILL_SLOTS) {
+			continue;
+		}
 		seen.add(skillId);
 		skills.push(skillId);
-		if (skills.length >= SKILL_SLOTS) {
-			break;
-		}
 	}
 
 	const statLevels = {};
@@ -606,12 +626,17 @@ export function normalizeRun(raw, options = {}) {
 		// v12 起整局的 bossRun 字段已删除：Boss 判定改为「每场新战斗独立掷一次」，
 		// 结果只存在 currentBattle.isBossBattle 上，随那一场战斗一起落盘、一起结算、一起清掉。
 		// 旧档里残留的 bossRun 只在上文参与「正在进行的这一场」的迁移，这里不再输出该字段。
+		// v14：bossPityCount 是 Boss 保底的唯一计数器（自上一次 Boss 以来成功创建的普通常规战斗数）。
+		// 它只跟着每个存档槽走，旧档缺字段补齐 0；上界就是保底线（到线必定出 Boss，多余的计数没有意义）。
+		bossPityCount: clampInt(raw.bossPityCount, 0, Math.max(0, BOSS_PITY_BATTLES - 1), 0),
 		// v8：闯关前 10 关的敌方配置抽取结果（challenge 模式专用；由 enemy.ensureChallengeStages 生成，本层只清洗）
 		challengeStages: normalizeChallengeStages(raw.challengeStages),
 		// v10：闯关第 11~30 关的双人组合抽取结果（同上由 enemy.ensureChallengeComboStages 生成；旧档按空数组补齐）
 		challengeComboStages: normalizeChallengeComboStages(raw.challengeComboStages),
 		currency,
+		// v14：装备中的技能（参加战斗的就是它，上限 SKILL_SLOTS）与全部拥有的技能（无限背包）
 		skills,
+		skillInventory,
 		stats: statLevels,
 		currentBattle,
 		shopOffers,

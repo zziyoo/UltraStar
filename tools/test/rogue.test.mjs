@@ -196,6 +196,7 @@ check("存档校验：脏数据被修复而不崩溃", () => {
 	assertEqual(run.currency.exp, 0, "NaN 货币归零");
 	assert(!("extra" in run.currency), "未知货币被剔除");
 	assertEqual(run.skills.length, 2, "技能去重后数量");
+	assertEqual(JSON.stringify(run.skillInventory), JSON.stringify([SKILL_A, SKILL_B]), "清洗后的技能同步进背包（装备 ⊆ 背包）");
 	assertEqual(run.stats.defense, statsData.stats.defense.maxLevel, "属性等级封顶");
 	assertEqual(run.stats.draw, 0, "负属性归零");
 	assertEqual(run.stats.attack, 2);
@@ -241,35 +242,78 @@ cyclic.self = cyclic;
 	return "拒绝循环引用";
 });
 
-check("技能上限：最多 SKILL_SLOTS 个，满了必须替换", () => {
+check("装备上限：最多 SKILL_SLOTS 个，购买一律进背包、绝不替换", () => {
 	const run = freshRun();
 	run.currency[cfg.SKILL_CURRENCY] = 9999;
 	run.skills = [SKILL_A, SKILL_B, SKILL_C];
+	run.skillInventory = [SKILL_A, SKILL_B, SKILL_C];
 	run.shopOffers = [{ id: "rogue_swap_in", price: 10, sold: false }];
-	assertEqual(run.skills.length, cfg.SKILL_SLOTS, "先填满技能槽");
-	const noReplace = shop.buySkill(run, "rogue_swap_in", null);
-	assert(!noReplace.ok && noReplace.error.includes("替换"), "满槽未给替换项应被拒");
-	const bought = shop.buySkill(run, "rogue_swap_in", SKILL_A);
-	assert(bought.ok, bought.error ?? "替换购买应成功");
-	assertEqual(bought.run.skills.length, cfg.SKILL_SLOTS, "购买后仍是满槽");
-	assert(!bought.run.skills.includes(SKILL_A), "旧技能已移除");
-	assert(bought.run.skills.includes("rogue_swap_in"), "新技能已加入");
-	// 拥有数永远不超过上限
+	assertEqual(run.skills.length, cfg.SKILL_SLOTS, "先填满装备位");
+	// 装备位已满照样买得动：新技能进背包，一个已装备的技能都不动（不再有替换页）
+	const bought = shop.buySkill(run, "rogue_swap_in");
+	assert(bought.ok, bought.error ?? "满装备也允许购买");
+	assertEqual(JSON.stringify(bought.run.skills), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "购买不动装备");
+	assertEqual(JSON.stringify(bought.run.skillInventory), JSON.stringify([SKILL_A, SKILL_B, SKILL_C, "rogue_swap_in"]), "新技能进入背包");
+	assertEqual(run.currency[cfg.SKILL_CURRENCY], 9999, "不改传入的 run");
+	assertEqual(bought.run.currency[cfg.SKILL_CURRENCY], 9999 - 10, "照常扣款");
+	// 脏数据：装备位截到上限，背包一个都不许丢（背包不设游戏规则上限）
 	const overflow = state.normalizeRun({ ...run, skills: [SKILL_A, SKILL_B, SKILL_C, "rogue_d", "rogue_e"] });
-	assertEqual(overflow.skills.length, cfg.SKILL_SLOTS, "脏数据超槽被截断");
-	return `槽位 ${cfg.SKILL_SLOTS}`;
+	assertEqual(overflow.skills.length, cfg.SKILL_SLOTS, "装备位超槽被截断");
+	for (const id of [SKILL_A, SKILL_B, SKILL_C, "rogue_d", "rogue_e"]) {
+		assert(overflow.skillInventory.includes(id), `背包不得因上限丢技能：${id}`);
+	}
+	return `装备位 ${cfg.SKILL_SLOTS}，背包不设限`;
 });
 
-check("技能替换：非法替换目标被拒绝且不扣钱", () => {
-	const run = freshRun();
-	run.currency[cfg.SKILL_CURRENCY] = 500;
-	run.skills = [SKILL_A, SKILL_B, SKILL_C];
-	run.shopOffers = [{ id: "rogue_new", price: 100, sold: false }];
-	const before = run.currency[cfg.SKILL_CURRENCY];
-	const bad = shop.buySkill(run, "rogue_new", "rogue_not_owned");
-	assert(!bad.ok, "替换未拥有的技能应被拒");
-	assertEqual(run.currency[cfg.SKILL_CURRENCY], before, "原 run 未被修改");
-	return "拒绝非法替换";
+check("装备与卸下：只改装备列表、背包与奖励都不动", () => {
+	const run = state.normalizeRun({ ...freshRun(), skillInventory: [SKILL_A, SKILL_B] });
+	// 装备：背包里的技能进装备位
+	const up = shop.equipSkill(run, SKILL_A);
+	assert(up.ok, up.error ?? "背包里的技能应能装备");
+	assertEqual(JSON.stringify(up.run.skills), JSON.stringify([SKILL_A]), "进装备位");
+	assertEqual(JSON.stringify(up.run.skillInventory), JSON.stringify([SKILL_A, SKILL_B]), "背包原样");
+	// 重复装备 / 未拥有 / 满位都被拒，且零副作用
+	assert(!shop.equipSkill(up.run, SKILL_A).ok, "已装备的不能再装备");
+	assert(!shop.equipSkill(up.run, "rogue_not_owned").ok, "背包里没有的不能装备");
+	const full = shop.equipSkill({ ...up.run, skills: [SKILL_A, SKILL_B, "rogue_c"], skillInventory: [SKILL_A, SKILL_B, "rogue_c", "rogue_d"] }, "rogue_d");
+	assert(!full.ok && full.error.includes("已满"), "装备位满时拒绝并说清原因");
+	// 卸下：只挪装备状态，背包保留，不算失去
+	const down = shop.unequipSkill(up.run, SKILL_A);
+	assert(down.ok, down.error ?? "已装备的应能卸下");
+	assertEqual(JSON.stringify(down.run.skills), JSON.stringify([]), "允许 0 个装备技能");
+	assertEqual(JSON.stringify(down.run.skillInventory), JSON.stringify([SKILL_A, SKILL_B]), "卸下后技能仍在背包");
+	assert(!shop.unequipSkill(down.run, SKILL_A).ok, "没装备的卸不下");
+	return "装备/卸下 = 只用 run.skills 与 run.skillInventory 换位";
+});
+
+check("技能背包迁移：旧档技能全量进背包、装备保持、不截断、二次读档幂等", () => {
+	// v13 及更早只有 skills、没有 skillInventory：原装备保持，技能全量进背包
+	const old = state.normalizeRun({ ...freshRun(), version: 13, skills: [SKILL_A, SKILL_B] });
+	assertEqual(JSON.stringify(old.skills), JSON.stringify([SKILL_A, SKILL_B]), "旧档装备原样保持");
+	assertEqual(JSON.stringify(old.skillInventory), JSON.stringify([SKILL_A, SKILL_B]), "旧档技能全部迁入背包");
+	// 已有背包的：装备必须在背包里（缺的补进去），背包条目一个不丢、去重保序
+	const mixed = state.normalizeRun({ ...freshRun(), skills: [SKILL_A], skillInventory: [SKILL_B, "rogue_c", SKILL_A, SKILL_B] });
+	assertEqual(JSON.stringify(mixed.skills), JSON.stringify([SKILL_A]), "装备不受背包影响");
+	assertEqual(JSON.stringify(mixed.skillInventory), JSON.stringify([SKILL_B, "rogue_c", SKILL_A]), "去重保序");
+	// 装备中但背包缺失的脏数据：补进背包，绝不让「装备里有的不在背包里」
+	const repaired = state.normalizeRun({ ...freshRun(), skills: [SKILL_A], skillInventory: [SKILL_B] });
+	assertEqual(JSON.stringify(repaired.skillInventory), JSON.stringify([SKILL_B, SKILL_A]), "装备里的技能必须存在于背包");
+	// 背包不设游戏规则上限：超过装备位也一条不截
+	const many = state.normalizeRun({ ...freshRun(), skillInventory: [SKILL_A, SKILL_B, SKILL_C, "rogue_d", "rogue_e", "rogue_f"] });
+	assertEqual(many.skillInventory.length, 6, "背包超过 3 个不截断");
+	assertEqual(many.skills.length, 0, "背包里的技能不会自动装备");
+	// 幂等：二次读档（含落盘往返）不再变化
+	const once = state.normalizeRun(old);
+	assertEqual(JSON.stringify(state.normalizeRun(once).skillInventory), JSON.stringify(once.skillInventory), "二次读档背包不变化");
+	assertEqual(JSON.stringify(state.normalizeRun(once).skills), JSON.stringify(once.skills), "二次读档装备不变化");
+	// 函数 / 数字 / 下架技能一律进不了背包
+	const junk = state.normalizeRun({ ...freshRun(), skillInventory: [() => 1, "rogue_xushui", SKILL_A, 123] });
+	assertEqual(JSON.stringify(junk.skillInventory), JSON.stringify([SKILL_A]), "非法与下架技能剔除");
+	// 新档：空装备 + 空背包
+	const fresh = freshRun();
+	assertEqual(JSON.stringify(fresh.skills), JSON.stringify([]), "新档空装备");
+	assertEqual(JSON.stringify(fresh.skillInventory), JSON.stringify([]), "新档空背包");
+	return "旧档全量迁移 / 不截断 / 幂等 / 新档双空";
 });
 
 check("技能候选随机：数量受配置控制且写入存档后可复现", () => {
@@ -283,15 +327,22 @@ check("技能候选随机：数量受配置控制且写入存档后可复现", (
 	return offers.map(offer => offer.id).join(",");
 });
 
-check("重复技能过滤：已拥有的技能不进入候选池", () => {
+check("重复技能过滤：已拥有的技能不进入候选池（按完整背包判，含未装备的）", () => {
 	const run = freshRun();
-	// 拥有整个池（含分包技能）时才应一个候选都刷不出
-	run.skills = skillsData.pool.map(item => item.id);
+	// 拥有整个池（含分包技能）时才应一个候选都刷不出——全放背包、一件都不装备
+	run.skillInventory = skillsData.pool.map(item => item.id);
+	run.skills = [];
 	const offers = shop.rollSkillOffers(run, makeRng(3), [], skillsData.pool);
 	assertEqual(offers.length, 0, "全拥有时候选为空");
-	const repeat = shop.buySkill({ ...run, shopOffers: [{ id: SKILL_A, price: 1, sold: false }] }, SKILL_A, SKILL_C);
-	assert(!repeat.ok, "已拥有的技能不应可重复购买");
-	return "候选 0";
+	// 卸下不等于丢掉：只在背包里（没装备）的技能同样不可重复购买
+	const ownedId = run.skillInventory[0];
+	run.shopOffers = [{ id: ownedId, price: 1, sold: false }];
+	const repeat = shop.buySkill(run, ownedId);
+	assert(!repeat.ok && repeat.error.includes("已拥有"), "背包里已有的技能不应可重复购买");
+	// 背包里的未装备技能同样要被候选排除：把它从背包删掉它才能重新出现
+	const freed = shop.rollSkillOffers({ ...run, skillInventory: run.skillInventory.filter(id => id !== ownedId) }, makeRng(3), [], skillsData.pool);
+	assert(freed.some(offer => offer.id === ownedId), "真正失去后才回到候选池");
+	return `背包 ${run.skillInventory.length} 条全排除`;
 });
 
 check("属性最大等级：不可超过配置上限，且必须配置价格", () => {
@@ -427,11 +478,11 @@ check("货币扣除：余额不足时拒绝购买且不产生负数", () => {
 	const run = freshRun();
 	run.currency[cfg.SKILL_CURRENCY] = 5;
 	run.shopOffers = [{ id: SKILL_A, price: 100, sold: false }];
-	const res = shop.buySkill(run, SKILL_A, null);
+	const res = shop.buySkill(run, SKILL_A);
 	assert(!res.ok, "钱不够应被拒");
 	assertEqual(run.currency[cfg.SKILL_CURRENCY], 5, "余额未变");
 	run.currency[cfg.SKILL_CURRENCY] = 100;
-	const ok = shop.buySkill(run, SKILL_A, null);
+	const ok = shop.buySkill(run, SKILL_A);
 	assert(ok.ok, ok.error ?? "刚好够时应成功");
 	assertEqual(ok.run.currency[cfg.SKILL_CURRENCY], 0, "扣到 0");
 	assertEqual(ok.run.shopOffers.find(offer => offer.id === SKILL_A).sold, true, "候选标记为已购");
@@ -444,6 +495,7 @@ check("货币不足 fallback：清零后给出可选惩罚，全 0 时不惩罚"
 		broke.currency[key] = 0;
 	}
 	broke.skills = [SKILL_A];
+	broke.skillInventory = [SKILL_A];
 	broke.stats[cfg.STAT_IDS[0]] = 1;
 	const res = penalty.settleDefeat(broke, NOW);
 	assertEqual(res.kind, "fallback", "货币全 0 走 fallback");
@@ -1341,31 +1393,33 @@ check("闯关经验：第28关结算后 310，第29关结算后 330", () => {
 	return "进入第29关前 310，完成第29关后 330";
 });
 
-check("商店排除：角色原生技能与当前持有不上架，替换掉的可以再出现", () => {
+check("商店排除：角色原生技能与当前拥有（含未装备）不上架，真正失去的可以再出现", () => {
 	const poolIds = skillsData.pool.map(item => item.id);
-	const free = poolIds[poolIds.length - 1]; // 既非持有也非原生的「自由」技能
-	const run = { ...freshRun(), characterId: "迪迦", skills: [SKILL_B], level: 1 };
+	const free = poolIds[poolIds.length - 1]; // 既非拥有也非原生的「自由」技能
+	// 装备一个 + 背包里再放一个（没装备）：两者都算「当前拥有」，都必须被排除
+	const run = { ...freshRun(), characterId: "迪迦", skills: [SKILL_B], skillInventory: [SKILL_B, SKILL_A], level: 1 };
 	const characterSkills = poolIds.filter(id => id !== free);
 
 	const excluded = shop.getExcludedSkillIds(run, characterSkills);
 	assert(excluded.has(SKILL_B), "当前持有应被排除");
+	assert(excluded.has(SKILL_A), "只在背包里（没装备）的技能同样应被排除");
 	assert(excluded.has(characterSkills[0]), "角色原生技能应被排除");
 	assert(!excluded.has(free), "既非持有也非原生时不该被排除");
 
 	// 池子被排到只剩一个：不死循环、不重复、不返回被排除项
-	const offers = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(3), characterSkills, skillsData.pool);
+	const offers = shop.rollSkillOffers({ ...run, skills: [], skillInventory: [] }, makeRng(3), characterSkills, skillsData.pool);
 	assertEqual(offers.length, 1, "候选不足时按实际数量返回");
 	assertEqual(offers[0].id, free, "只能是没被排除的那个");
 
-	// 曾经买过但已不在 run.skills 里的技能可以重新出现（用池内技能验证这条）
+	// 曾经拥有、后来真正失去（从背包删除）的技能可以重新出现（用池内技能验证这条）
 	const poolOwned = poolIds[0];
-	const replaced = shop.rollSkillOffers({ ...run, skills: [] }, makeRng(5), poolIds.filter(id => id !== poolOwned), skillsData.pool);
-	assertEqual(replaced.length, 1, "只剩原持有那一个候选");
-	assertEqual(replaced[0].id, poolOwned, "被替换掉的技能可以再出现");
+	const freed = shop.rollSkillOffers({ ...run, skills: [], skillInventory: [] }, makeRng(5), poolIds.filter(id => id !== poolOwned), skillsData.pool);
+	assertEqual(freed.length, 1, "只剩「失去过的」那一个候选");
+	assertEqual(freed[0].id, poolOwned, "真正失去的技能可以再出现");
 
 	// 全被排除：返回空候选而不是报错/死循环
-	assertEqual(shop.rollSkillOffers({ ...run, skills: [] }, makeRng(1), poolIds, skillsData.pool).length, 0, "全被排除时返回空候选");
-	return "原生/持有/替换/边界";
+	assertEqual(shop.rollSkillOffers({ ...run, skills: [], skillInventory: [] }, makeRng(1), poolIds, skillsData.pool).length, 0, "全被排除时返回空候选");
+	return "原生/装备/背包/失去后回归 四态";
 });
 
 check("候选池：并上全体武将技能，禁用武将的技能与其衍生技不上架", () => {
@@ -1473,7 +1527,7 @@ check("刷新会重掷技能与价格，价格定死后写进存档不再变", (
 check("刷新不得绕过一局限买一个：买过之后刷新直接被拒且不扣次数", () => {
 	const base = { ...freshRun(), currency: { gold: 9999, exp: 0 } };
 	const run = { ...base, shopOffers: shop.rollSkillOffers(base, makeRng(5), [], skillsData.pool) };
-	const bought = shop.buySkill(run, run.shopOffers[0].id, null);
+	const bought = shop.buySkill(run, run.shopOffers[0].id);
 	assert(bought.ok, bought.error ?? "先买一个技能");
 	assert(bought.run.shopOffers.some(offer => offer.sold), "已购标记写在候选上");
 	const tryRefresh = shop.refreshSkillOffers(bought.run, makeRng(6), [], skillsData.pool);
@@ -1486,10 +1540,10 @@ check("刷新不得绕过一局限买一个：买过之后刷新直接被拒且�
 	return "买过后刷新被拒 + 次数不扣";
 });
 
-check("刷新后排除规则不变：原生/持有仍排除，被替换掉的仍可回来", () => {
+check("刷新后排除规则不变：原生/拥有仍排除，真正失去的仍可回来", () => {
 	const poolIds = skillsData.pool.map(item => item.id);
 	const [p0, p1, p2] = poolIds;
-	const base = { ...freshRun(), characterId: "迪迦", level: 1, skills: [p1] };
+	const base = { ...freshRun(), characterId: "迪迦", level: 1, skills: [p1], skillInventory: [p1] };
 	const run = { ...base, shopOffers: shop.rollSkillOffers(base, makeRng(2), [], skillsData.pool) };
 	const characterSkills = poolIds.filter(id => id !== p0 && id !== p1);
 	const next = shop.refreshSkillOffers(run, makeRng(8), characterSkills, skillsData.pool);
@@ -1504,8 +1558,8 @@ check("刷新后排除规则不变：原生/持有仍排除，被替换掉的仍
 	assertEqual(reuse.offers.length, narrow.length - 1, "只把当前持有的那条排掉，其余旧候选允许重新出现");
 	assert(reuse.offers.every(offer => offer.id !== p1), "池子再窄也不能给当前持有的技能");
 	assertEqual(new Set(reuse.offers.map(offer => offer.id)).size, reuse.offers.length, "不得重复填充凑数");
-	// 以前买过、后来被替换掉的（p2 已不在 run.skills 里），刷新池里照样能再出现
-	assert(reuse.offers.some(offer => offer.id === p2), "被替换掉的技能可以重新出现");
+	// 曾经拥有、后来真正失去的（p2 已不在背包里），刷新池里照样能再出现
+	assert(reuse.offers.some(offer => offer.id === p2), "真正失去的技能可以重新出现");
 	return "原生/持有排除不变 + 窄池不卡死";
 });
 
@@ -1922,7 +1976,7 @@ check("事件结算：入账与扣款、奇物/技能/属性奖励、pendingEven
 	assert(dismantle.run.curios.includes(dismantle.curioId), "奇物入袋");
 	assert(dismantle.run.collection.curios.includes(dismantle.curioId), "图鉴记录");
 	assert(dismantle.lines.some(line => line.includes("获得奇物")), "文案说明奇物");
-	// 随机技能：从候选池排除持有与原生，槽满时落空
+	// 随机技能：从候选池排除持有（含未装备）与原生，一律进背包、不自动装备；装备位满也照收
 	const skillRun = freshRun(cfg.RUN_MODE.endless);
 	skillRun.pendingEvent = { id: "mystery_merchant", choices: [{ text: "购买情报", reward: { skill: "random" } }], createdAt: NOW };
 	const learned = eventManager.resolveEventChoice(skillRun, 0, {
@@ -1930,11 +1984,18 @@ check("事件结算：入账与扣款、奇物/技能/属性奖励、pendingEven
 		characterSkills: [SKILL_A],
 	}, () => 0);
 	assert(learned.ok && learned.skillId === SKILL_B, "原生技能被排除后取 SKILL_B");
-	assertEqual(learned.run.skills.join(","), SKILL_B, "技能入槽");
-	const fullSlots = { ...skillRun, skills: [SKILL_B, SKILL_C, "rogue_extra"], pendingEvent: skillRun.pendingEvent };
+	assertEqual(JSON.stringify(learned.run.skillInventory), JSON.stringify([SKILL_B]), "技能入背包");
+	assertEqual(learned.run.skills.length, 0, "事件拿到的技能不自动装备");
+	const fullSlots = {
+		...skillRun,
+		skills: [SKILL_B, SKILL_C, "rogue_extra"],
+		skillInventory: [SKILL_B, SKILL_C, "rogue_extra"],
+		pendingEvent: skillRun.pendingEvent,
+	};
 	const noRoom = eventManager.resolveEventChoice(fullSlots, 0, { candidates: [{ id: SKILL_A }] }, () => 0);
-	assert(noRoom.ok && noRoom.lines.some(line => line.includes("技能槽已满")), "槽满落空但不报错");
-	assertEqual(noRoom.run.skills.length, 3, "槽满不加技能");
+	assert(noRoom.ok && noRoom.skillId === SKILL_A, "装备位满也照常学到技能");
+	assertEqual(JSON.stringify(noRoom.run.skillInventory), JSON.stringify([SKILL_B, SKILL_C, "rogue_extra", SKILL_A]), "新技能进背包，绝不因装备满而丢失");
+	assertEqual(noRoom.run.skills.length, 3, "装备位不被自动占用");
 	// 属性随机 +1：rng 定死属性、越界钳制并写明
 	const labRun = freshRun(cfg.RUN_MODE.endless);
 	labRun.pendingEvent = { id: "unknown_lab", choices: [{ text: "进入", reward: { statUp: "attack" } }], createdAt: NOW };
@@ -2746,11 +2807,11 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	assertEqual(curioManager.getNextCurioQuality("broken_watch", {}), null, "史诗没有下一档");
 	assert(curioManager.isCurioMaxQuality("broken_watch", {}), "破损怀表已是链尾");
 	assert(!curioManager.isCurioMaxQuality("cursed_coin", {}), "负面奇物照样升得动");
-	// 费用 = 5 × 本层胜利经验（floor(20×√关卡)），按「升级时」的关卡现算
-	assertEqual(curioManager.getCurioUpgradePrice({ level: 31 }, "energy_core"), 555, "31 层：胜利经验 111 → 555");
-	assertEqual(curioManager.getCurioUpgradePrice({ level: 100 }, "energy_core"), 1000, "100 层：胜利经验 200 → 1000");
-	assertEqual(curioManager.getCurioUpgradePrice({ level: 234 }, "energy_core"), 1525, "234 层：胜利经验 305 → 1525");
-	assertEqual(curioManager.getCurioUpgradePrice({ level: 1 }, "energy_core"), 100, "第 1 层：胜利经验 20 → 100（5 倍胜利经验）");
+	// 费用 = 10 × 本层胜利经验（floor(20×√关卡)），按「升级时」的关卡现算
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 31 }, "energy_core"), 1110, "31 层：胜利经验 111 → 1110");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 100 }, "energy_core"), 2000, "100 层：胜利经验 200 → 2000");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 234 }, "energy_core"), 3050, "234 层：胜利经验 305 → 3050");
+	assertEqual(curioManager.getCurioUpgradePrice({ level: 1 }, "energy_core"), 200, "第 1 层：胜利经验 20 → 200（10 倍胜利经验）");
 	assertEqual(
 		curioManager.getCurioUpgradePrice({ level: 50 }, "cursed_coin"),
 		curioManager.getCurioUpgradePrice({ level: 50 }, "energy_core"),
@@ -2761,7 +2822,7 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	const run = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 100, exp: 5000 }, curios: ["energy_core"] };
 	const first = curioManager.upgradeCurio(run, "energy_core");
 	assert(first.ok, first.error ?? "升级应成功");
-	assertEqual(first.run.currency.exp, 5000 - 555, "扣掉当层费用");
+	assertEqual(first.run.currency.exp, 5000 - 1110, "扣掉当层费用");
 	assertEqual(first.run.currency.gold, 100, "金币不动");
 	assertEqual(first.run.curioQuality.energy_core, "rare", "品质写进 curioQuality");
 	assertEqual(run.currency.exp, 5000, "原 run 的经验没被扣");
@@ -2773,7 +2834,7 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	assert(!top.ok && top.error.includes("最高"), `史诗不能再升：${top.error}`);
 	assertEqual(top.run.currency.exp, second.run.currency.exp, "被拒时不扣经验");
 	// 负面奇物一路净化到史诗
-	let coin = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 555 * 3 }, curios: ["cursed_coin"] };
+	let coin = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1110 * 3 }, curios: ["cursed_coin"] };
 	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
 	assertEqual(coin.curioQuality.cursed_coin, "common", "负面 → 普通");
 	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
@@ -2781,14 +2842,14 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 	coin = curioManager.upgradeCurio(coin, "cursed_coin").run;
 	assertEqual(coin.curioQuality.cursed_coin, "epic", "稀有 → 史诗");
 	// 幸运石：稀有 → 史诗
-	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 555 }, curios: ["lucky_stone"] };
+	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1110 }, curios: ["lucky_stone"] };
 	assertEqual(curioManager.upgradeCurio(stone, "lucky_stone").run.curioQuality.lucky_stone, "epic", "幸运石 稀有 → 史诗");
 	// 经验差一点都不行
-	const broke = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 554 }, curios: ["energy_core"] };
+	const broke = { ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 1109 }, curios: ["energy_core"] };
 	const denied = curioManager.upgradeCurio(broke, "energy_core");
 	assert(!denied.ok && denied.error.includes("经验不足"), `差 1 点也要拒：${denied.error}`);
 	assertEqual(denied.run, broke, "失败时原样返回传入的 run");
-	assertEqual(denied.run.currency.exp, 554, "经验不变");
+	assertEqual(denied.run.currency.exp, 1109, "经验不变");
 	assertEqual(JSON.stringify(denied.run.curioQuality), "{}", "品质不变");
 	// 未拥有 / 已下架
 	const notOwned = curioManager.upgradeCurio({ ...freshRun(cfg.RUN_MODE.endless), level: 31, currency: { gold: 0, exp: 9999 }, curios: [] }, "energy_core");
@@ -3088,18 +3149,19 @@ check("虫洞：跳过十关，期间的基础金币与经验一次性入账", (
 	return `第 ${from}~${from + 9} 关共 ${expect.gold} 金币 / ${expect.exp} 经验`;
 });
 
-check("技能熔炉：交回 mode.js 且一个钱都不扣，没有技能时弹提示", () => {
+check("技能熔炉：交回 mode.js 且一个钱都不扣，背包为空时才弹提示", () => {
 	const forge = eventManager.buildPendingEvent("skill_forge", BASE_LEVEL, () => 0, NOW, { curios: [] });
 	assertEqual(JSON.stringify(forge.choices[0].reward), JSON.stringify({ exp: BASE_EXP * 2 }), "熔炼换的 = 2 倍本层基准经验");
 	assertEqual(JSON.stringify(forge.choices[0].action), JSON.stringify({ kind: "skillForge", grant: "exp" }), "第一档：换经验");
 	assertEqual(JSON.stringify(forge.choices[1].action), JSON.stringify({ kind: "skillForge", grant: "skill" }), "第二档：换技能");
 	assertEqual(forge.choices[0].blockedText, forge.choices[1].blockedText, "两档说的是同一件事");
-	const noSkill = { ...freshRun(cfg.RUN_MODE.endless), skills: [], pendingEvent: forge };
+	const noSkill = { ...freshRun(cfg.RUN_MODE.endless), skills: [], skillInventory: [], pendingEvent: forge };
 	const told = eventManager.resolveEventChoice(noSkill, 0, {}, () => 0);
 	assertEqual(told.lines[0], forge.choices[0].blockedText, "没技能时弹提示而不是置灰");
 	assertEqual(told.run.currency.exp, noSkill.currency.exp, "没技能时经验不进账");
-	// 有技能：本层不扣不发、事件还挂着，等子页面里真选定
-	const holder = { ...freshRun(cfg.RUN_MODE.endless), skills: ["rogue_any"], pendingEvent: forge };
+	// 有技能：本层不扣不发、事件还挂着，等子页面里真选定；
+	// 「有对象」按**完整背包**判——只躺在背包里、没装备的技能同样能熔（熔炉候选也走它）
+	const holder = { ...freshRun(cfg.RUN_MODE.endless), skills: [], skillInventory: ["rogue_any"], pendingEvent: forge };
 	const handed = eventManager.resolveEventChoice(holder, 0, {}, () => 0);
 	assertEqual(JSON.stringify(handed.action), JSON.stringify(forge.choices[0].action), "回给 mode.js 的就是存档里那份参数");
 	assert(handed.run === holder, "一个钱都不扣、事件也不清");
@@ -3146,7 +3208,7 @@ check("流浪商人：单件货与恒定售价，只有练满了才拦", () => {
 	return `${upgradable} 标价 ${price}`;
 });
 
-check("奇物融合炉：融合费 = 本层基准经验 ×3，没有可融合的才弹提示", () => {
+check("奇物融合炉：融合费 = 本层基准经验 ×5，没有可融合的才弹提示", () => {
 	const forge = eventManager.buildPendingEvent("curio_forge", BASE_LEVEL, () => 0, NOW, { curios: [] });
 	const cost = Math.round(BASE_EXP * cfg.FORGE_EXP_MULTIPLIER);
 	assertEqual(forge.choices[0].action.costExp, cost, "融合费按配置折算成固定值");
@@ -3265,7 +3327,8 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assert(!lines("golden_compass")[0].includes("额外刷出一批"), "罗盘不再是「另掷一次的一批」，文案不能还这么写");
 	assert(lines("piggy_bank")[0].includes("当前持有金币的 5%"), `储蓄罐要说清乘的是余额：${lines("piggy_bank")[0]}`);
 	assert(!lines("piggy_bank")[0].includes("经验获取"), "储蓄罐不能混进 goldRate 那条文案");
-	assert(lines("oblivion_stone")[0].includes("替换技能时") && lines("oblivion_stone")[0].includes("10 倍"), `遗忘之石：${lines("oblivion_stone")[0]}`);
+	assertEqual(lines("oblivion_stone")[0], "每次失去技能时获得本层胜利金币的 10 倍", "遗忘之石：失去即结账，不再写「替换技能时」");
+	assert(!lines("oblivion_stone")[0].includes("替换"), "购买不再替换技能，文案不许再提替换");
 	// 本轮新增的五件：回响之铃按概率出句、破碎王冠三档合成一句、魔盒的替换经验、饥饿之匣四档、橱窗两个开关
 	assertEqual(lines("echo_bell")[0], "当你进入濒死状态时，有 50% 的概率获得本局游戏你使用过且位于弃牌堆的牌", "回响之铃普通档");
 	assertEqual(lines("echo_bell", "rare")[0], "当你进入濒死状态时，有 75% 的概率获得本局游戏你使用过且位于弃牌堆的牌", "稀有档只换概率");
@@ -3274,7 +3337,7 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("broken_crown", "rare")[0], "你杀死一名角色后，你增加 1 点体力上限并回复 1 点体力，然后摸牌至体力上限", "稀有档补摸牌至上限");
 	assertEqual(lines("broken_crown", "epic")[0], "你杀死一名角色后，你增加 1 点体力上限并回复体力至上限，然后摸体力上限张牌", "史诗档回满 + 摸上限张");
 	assertEqual(lines("broken_crown").length, 1, "破碎王冠的三个配套键不得单独出行");
-	assertEqual(lines("gluttonous_box")[0], "每次替换技能时获得本层胜利经验的 10 倍", "贪食魔盒");
+	assertEqual(lines("gluttonous_box")[0], "每次失去技能时获得本层胜利经验的 10 倍", "贪食魔盒");
 	const hungry = lines("hungry_box").join(" / ");
 	assert(hungry.includes("金币获取 -15%") && hungry.includes("经验获取 +5%"), `饥饿之匣负面档：${hungry}`);
 	assertEqual(lines("hungry_box").length, 2, "饥饿之匣两行（一扣一加）");
@@ -3392,21 +3455,25 @@ check("储蓄罐与遗忘之石：结算侧两处加成", () => {
 	assertEqual(plain.gained.gold, BASE_GOLD, "没有储蓄罐就只发基础");
 	// 黄金罗盘：概率统一为「百分点累加 + 一次判定」（v13 口径），不再单独掷第二次
 	const compass = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 0, exp: 0 }, curios: ["golden_compass"] };
-	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.15, 0.999]));
-	assert(hitByBonus.run.curioOffers.length > 0, "10%+10%=20%，0.15 必须命中（基础 10% 是命不中的）");
+	// 基础线 15% + 罗盘 10 个百分点＝25%：0.2 落在两条线之间，只有罗盘能救回来
+	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.2, 0.999]));
+	assert(hitByBonus.run.curioOffers.length > 0, "15%+10 个百分点＝25%，0.2 必须命中（基础线 15% 自己是命不中的）");
 	assertEqual(hitByBonus.run.curioOfferQueue.length, 0, "一次结算只摇这一批，罗盘不再生产第二批");
 	// 与旧写法的分歧点：以前「基础未中 + 第二次独立判定命中」会凭空多出一批，现在必须整体未命中
 	const noSecondRoll = reward.settleVictory(compass, NOW, seq([0.25, 0]));
 	assertEqual(noSecondRoll.run.curioOffers.length, 0, "第二个随机数不得再决定一次商店刷新");
 	assertEqual(noSecondRoll.run.curioOfferQueue.length, 0, "同样不留队列");
-	// 无罗盘的存档判定线仍是 10%
+	// 没有罗盘时判定线就是基础概率本身：线下一丝出货、恰好压在线上不出货（严格小于）
 	const plainSave = { ...compass, curios: [] };
-	assert(reward.settleVictory(plainSave, NOW, seq([0.05])).run.curioOffers.length > 0, "0.05 < 10% → 出货");
-	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.15])).run.curioOffers.length, 0, "0.15 ≥ 10% → 不出货");
+	assertEqual(cfg.CURIO_SHOP_RATE, 0.15, "奇物商店基础概率按本轮定为 15%");
+	assert(reward.settleVictory(plainSave, NOW, seq([0.149])).run.curioOffers.length > 0, "0.149 < 15% → 出货");
+	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.15])).run.curioOffers.length, 0, "0.15 正压在线上 → 严格小于才命中");
 	// 遗忘之石：本层基准金币 ×10，没有这块奇物返回 0
 	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["oblivion_stone"] };
-	assertEqual(curioManager.getReplaceRewardGold(stone), BASE_GOLD * 10, "十倍本层基准金币");
-	assertEqual(curioManager.getReplaceRewardGold({ ...stone, curios: [] }), 0, "没这块石头不发钱");
+	assertEqual(curioManager.getSkillLossRewardGold(stone), BASE_GOLD * 10, "十倍本层基准金币");
+	assertEqual(curioManager.getSkillLossRewardGold({ ...stone, curios: [] }), 0, "没这块石头不发钱");
+	// 品质按当前档现查：遗忘之石是史诗（无更高档），数值不因品质变化
+	assertEqual(curioManager.getSkillLossRewardGold({ ...stone, curioQuality: { oblivion_stone: "epic" } }), BASE_GOLD * 10, "按当前品质现查");
 	return `储蓄罐 +${expected - BASE_GOLD} / 罗盘按百分点累加一次判定 / 石头 ${BASE_GOLD * 10}`;
 });
 
@@ -3598,7 +3665,7 @@ await checkAsync("破碎王冠：击杀后涨上限、回血、按（涨过的�
 	return "普通回 1 / 稀有补至手牌上限 / 史诗回满 + 摸上限张";
 });
 
-check("饥饿之匣与贪食魔盒：金币换经验、替换技能发经验", () => {
+check("饥饿之匣与贪食魔盒：金币换经验、失去技能发经验", () => {
 	const at = quality => curioManager.getCurioEffectAt("hungry_box", quality);
 	assertEqual(at("negative").goldRate, -0.15, "负面档金币 -15%");
 	assertEqual(at("negative").expRate, 0.05, "负面档经验 +5%");
@@ -3617,8 +3684,8 @@ check("饥饿之匣与贪食魔盒：金币换经验、替换技能发经验", (
 	assertEqual(maxedGained.exp, Math.round(BASE_EXP * 1.2), "史诗档经验 +20%");
 	// 贪食魔盒：本层基准经验 ×10，与遗忘之石的金币同一条口径；没有它返回 0
 	const box = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["gluttonous_box"] };
-	assertEqual(curioManager.getReplaceRewardExp(box), BASE_EXP * 10, "十倍本层基准经验");
-	assertEqual(curioManager.getReplaceRewardExp({ ...box, curios: [] }), 0, "没有魔盒不发经验");
+	assertEqual(curioManager.getSkillLossRewardExp(box), BASE_EXP * 10, "十倍本层基准经验");
+	assertEqual(curioManager.getSkillLossRewardExp({ ...box, curios: [] }), 0, "没有魔盒不发经验");
 	return `饥饿之匣 ${gained.gold}/${gained.exp} → 史诗 ${maxedGained.gold}/${maxedGained.exp}；魔盒 ${BASE_EXP * 10}`;
 });
 
@@ -3677,7 +3744,7 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	assert(!shop.checkSkillPurchase(afterBuy, SKILL_A).ok, "A 买不动（不会再进替换页被「已拥有该技能」挡回来）");
 	assert(shop.checkSkillPurchase(afterBuy, SKILL_B).ok, "留下的候选在新的一关确实买得动");
 	// 新的一关再买 B：额度用光 → C 被挡；再通关时 A、B 都算留货，第三关又是新的一次进店
-	const boughtAgain = shop.buySkill(afterBuy, SKILL_B, null, { isSkillAllowed: () => true }).run;
+	const boughtAgain = shop.buySkill(afterBuy, SKILL_B, { isSkillAllowed: () => true }).run;
 	assertEqual(shop.getPurchasedCount(boughtAgain), 1, "本局买过 B → 购买额度用光");
 	assertEqual(shop.checkSkillPurchase(boughtAgain, SKILL_C).error, `本局最多只能购买 ${cfg.SKILL_PURCHASE_COUNT} 个技能`, "C 被本局额度挡住");
 	const secondKeep = reward.settleVictory(boughtAgain, NOW, () => 0.999).run;
@@ -3767,8 +3834,9 @@ check("新增四事件：倍率按刚打赢那关的基准换算成固定值，�
 });
 
 check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBattle 往返且读档不重掷", () => {
-	assertEqual(cfg.BOSS_RUN_RATE, 0.05, "判定概率仍是 5%（本次只改判定时机，不改概率）");
-	assertEqual(cfg.RUN_VERSION, 13, "存档版本抬到 v13（新增 pendingBossPenalty）");
+	// Boss 判定是逐场独立的 5%，保底是独立的第二道保证（不吃这个概率），两条线各测各的
+	assertEqual(cfg.BOSS_PITY_BATTLES, 20, "保底场数与规格一致（计数 19 → 第 20 场必出）");
+	assertEqual(cfg.RUN_VERSION, 14, "存档版本抬到 v14（新增 bossPityCount 与 skillInventory）");
 	// 新档不再带整局的 bossRun：这个字段一旦还能被读到，就可能继续影响后面的关卡
 	const fresh = freshRun(cfg.RUN_MODE.endless);
 	assertEqual(fresh.bossRun, undefined, "新档没有整局 bossRun");
@@ -3818,6 +3886,46 @@ check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBa
 	return "字段移除 / true·false 原样往返 / v11 三态迁移 / v10 补齐";
 });
 
+check("Boss 保底：计数 19 → 第 20 场必出、提前命中归零、受保底时不掷骰、越界夹住", () => {
+	assertEqual(cfg.BOSS_PITY_BATTLES, 20, "保底场数按规格定为 20");
+	// 未到保底：仍按概率正常判定（严格小于），概率注入保持测试可跑在 0.05 口径上
+	assertEqual(enemy.shouldBossBattle(0, () => 0.999, 0.05), false, "0.999 未命中");
+	assertEqual(enemy.shouldBossBattle(0, () => 0.049, 0.05), true, "低于判定线命中");
+	assertEqual(enemy.shouldBossBattle(18, () => 0.999, 0.05), false, "计数 18（第 19 场）仍按概率");
+	// 计数 19：下一场（第 20 场）必定 Boss，且**不消费随机源**——传一个会抛的 rng 证明没掷骰
+	const boom = () => {
+		throw new Error("受保底保护时不应掷骰");
+	};
+	assertEqual(enemy.shouldBossBattle(19, boom, 0.05), true, "计数 19 → 下一场必定 Boss（不掷骰）");
+	assertEqual(enemy.shouldBossBattle(999, boom, 0.05), true, "计数超了也必出，绝不拖到第 21 场");
+	// 计数推进：普通 +1、Boss 归零、脏数据安全
+	assertEqual(enemy.advanceBossPity(0, false), 1, "普通战斗成功创建 → +1");
+	assertEqual(enemy.advanceBossPity(18, false), 19, "第 19 场普通 → 计数 19");
+	assertEqual(enemy.advanceBossPity(19, true), 0, "Boss 出现即归零");
+	assertEqual(enemy.advanceBossPity(-3, false), 1, "脏计数按 0 起算");
+	// 全流程模拟：第 5 场提前命中 → 归零重数，第 25 场（其后第 20 场）保底
+	let count = 0;
+	const bossAt = [];
+	for (let i = 1; i <= 25; i++) {
+		const isBoss = enemy.shouldBossBattle(count, () => (i === 5 ? 0 : 0.999), 0.05);
+		if (isBoss) {
+			bossAt.push(i);
+		}
+		count = enemy.advanceBossPity(count, isBoss);
+	}
+	assertEqual(JSON.stringify(bossAt), JSON.stringify([5, 25]), "第 5 场提前命中后重新计数，第 25 场保底");
+	// 存档往返：新档 0、旧档补齐 0、越界夹到保底线、合法值幂等
+	assertEqual(freshRun(cfg.RUN_MODE.endless).bossPityCount, 0, "新档计数从 0 开始");
+	assertEqual(state.normalizeRun({ ...freshRun(), version: 13 }).bossPityCount, 0, "v13 旧档补齐 0");
+	assertEqual(state.normalizeRun({ ...freshRun(), bossPityCount: -5 }).bossPityCount, 0, "负值归零");
+	assertEqual(state.normalizeRun({ ...freshRun(), bossPityCount: 999 }).bossPityCount, cfg.BOSS_PITY_BATTLES - 1, "越界夹到保底线");
+	assertEqual(state.normalizeRun({ ...freshRun(), bossPityCount: "x" }).bossPityCount, 0, "非法值归零");
+	const round = state.normalizeRun({ ...freshRun(), bossPityCount: 7 });
+	assertEqual(round.bossPityCount, 7, "合法值原样往返");
+	assertEqual(state.normalizeRun(round).bossPityCount, 7, "二次读档幂等");
+	return "19→20 边界 / 提前命中重数 / 不消费随机 / 往返";
+});
+
 check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对比：字段集合一致、判定字段全中性、进度原样保留、再读幂等", () => {
 	// 该机器游戏 UserData/IndexedDB 里解出的真实旧档：写于 10-06，存档版本 9，
 	// v10（challengeComboStages）/v11（bossRun）/v12（isBossBattle）/v13（pendingBossPenalty）的字段一个都还没有。
@@ -3864,6 +3972,7 @@ check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对�
 	assertEqual(old.pendingEvent, null, "无待处理事件");
 	assertEqual(old.pendingBossPenalty, null, "无待处理惩罚");
 	assertEqual(old.abyssDebt, 0, "无深渊债");
+	assertEqual(old.bossPityCount, 0, "保底计数补齐 0（旧档从没数过 Boss）");
 	assertEqual(JSON.stringify(old.curioOfferQueue), "[]", "无压着的候选批次");
 	// ③ 进度照原样保留：等级/资源/奇物/品质/属性/刷新额度都不能被「迁移」洗掉
 	assertEqual(old.level, 45, "关卡保留");
@@ -3872,6 +3981,8 @@ check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对�
 	assertEqual(JSON.stringify(old.curios), JSON.stringify(realV9.curios), "奇物保序保留");
 	assertEqual(old.curioQuality.cursed_coin, "epic", "品质覆盖表保留");
 	assertEqual(JSON.stringify(old.stats), JSON.stringify(realV9.stats), "属性等级保留");
+	assertEqual(JSON.stringify(old.skills), JSON.stringify(realV9.skills), "旧档装备原样保留");
+	assertEqual(JSON.stringify(old.skillInventory), JSON.stringify(realV9.skills), "旧档三个技能全部迁入背包（不丢、不截断）");
 	assertEqual(old.shopRefreshesRemaining, 0, "刷新次数为 0 原样保留（读档不白送次数）");
 	// ④ 过期候选的合法性清理由 store 层注入闸门负责；本层只做形状清洗，字符串 id 一律不剔
 	assertEqual(old.shopOffers.length, 2, "缺省 options 下只做形状清洗");
@@ -4480,31 +4591,58 @@ check("Boss 战胜利：本场标记回传 + 金币 20 倍 / 经验 8 倍（不�
 	return `第 4 关 Boss 金币 ${base.gold * 20} / 经验 ${base.exp * 8}，下一场回 1 倍 + 商店改回按概率、锁照常生效`;
 });
 
-check("Boss 战强制惩罚：随机失去 1 个购买技能与 1 件奇物，空列表安全跳过", () => {
-	const run = {
+check("统一失去技能：从背包删除、已装备的同时卸下、遗忘之石/贪食魔盒按件结算", () => {
+	const base = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
-		skills: [SKILL_A, SKILL_B, SKILL_C],
-		curios: ["energy_core", "cursed_coin"],
-		curioQuality: { energy_core: "rare" },
-		collection: { events: [], curios: ["energy_core", "cursed_coin"] },
-	};
-	const lostSkill = penalty.loseRandomSkill(run, () => 0, NOW);
-	assertEqual(lostSkill.removed, SKILL_A, "rng=0 丢第一个");
-	assertEqual(JSON.stringify(lostSkill.run.skills), JSON.stringify([SKILL_B, SKILL_C]), "其余技能保留");
-	const lostCurio = penalty.loseRandomCurio(lostSkill.run, () => 0.99, NOW);
-	assertEqual(lostCurio.removed, "cursed_coin", "rng=0.99 丢第二件");
-	assertEqual(JSON.stringify(lostCurio.run.curios), JSON.stringify(["energy_core"]), "其余奇物保留");
-	assertEqual(lostCurio.run.curioQuality.energy_core, "rare", "没丢的奇物品质保留");
-	assertEqual(lostCurio.run.curioQuality.cursed_coin, undefined, "被丢奇物的品质条目一并清掉");
-	assertEqual(JSON.stringify(lostCurio.run.collection.curios), JSON.stringify(["energy_core", "cursed_coin"]), "图鉴「曾经拥有过」不受影响");
-	// 空列表安全：ok:false 原样返回，绝不报错、绝不动别的数据
-	const noSkills = penalty.loseRandomSkill({ ...freshRun(), skills: [] }, () => 0, NOW);
-	assert(!noSkills.ok && noSkills.run.skills.length === 0, "没有购买技能时不报错");
-	const noCurios = penalty.loseRandomCurio({ ...freshRun(), curios: [] }, () => 0, NOW);
-	assert(!noCurios.ok && noCurios.run.curios.length === 0, "没有奇物时不报错");
-	// 原 run 一个字节都不动
-	assertEqual(JSON.stringify(run.skills), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "传入 run 不被修改");
-	return "技能/奇物各丢一件 + 两次空列表兜底";
+		level: 31,
+		currency: { gold: 0, exp: 0 },
+		skills: [SKILL_A, SKILL_B],
+		skillInventory: [SKILL_A, SKILL_B, SKILL_C],
+		curios: ["oblivion_stone", "gluttonous_box"],
+	});
+	const reward = rewardsData.getEndlessReward(31, ["gold", "exp"]);
+	// 单件：失去背包里未装备的那个 → 只从背包删、装备不动、按件发奖
+	const one = penalty.loseSkill(base, SKILL_C, NOW);
+	assert(one.ok, one.error ?? "背包里有的技能应当可以失去");
+	assertEqual(one.removed, SKILL_C, "回传被删除的技能");
+	assertEqual(JSON.stringify(one.run.skillInventory), JSON.stringify([SKILL_A, SKILL_B]), "从背包删除");
+	assertEqual(JSON.stringify(one.run.skills), JSON.stringify([SKILL_A, SKILL_B]), "未装备的不动装备");
+	assertEqual(one.gold, reward.gold * 10, "遗忘之石：10 倍本层胜利金币");
+	assertEqual(one.exp, reward.exp * 10, "贪食魔盒：10 倍本层胜利经验");
+	assertEqual(one.run.currency.gold, one.gold, "金币入账");
+	assertEqual(one.run.currency.exp, one.exp, "经验入账");
+	assertEqual(one.lines.length, 2, "两件奇物各出一条结算行");
+	// 已装备的：同时从装备位卸下
+	const equipped = penalty.loseSkill(base, SKILL_A, NOW);
+	assertEqual(JSON.stringify(equipped.run.skills), JSON.stringify([SKILL_B]), "已装备的被一并卸下");
+	assertEqual(JSON.stringify(equipped.run.skillInventory), JSON.stringify([SKILL_B, SKILL_C]), "背包同步删除");
+	// 批量（Boss 清算走这条）：一次失去 3 个 → 按件累加三次奖励
+	const all = penalty.loseSkills(base, [SKILL_A, SKILL_B, SKILL_C], NOW);
+	assert(all.ok, all.error ?? "批量失去应当成功");
+	assertEqual(all.removed.length, 3, "三个都删掉");
+	assertEqual(JSON.stringify(all.run.skills), JSON.stringify([]), "装备清空");
+	assertEqual(JSON.stringify(all.run.skillInventory), JSON.stringify([]), "背包清空");
+	assertEqual(all.gold, reward.gold * 10 * 3, "金币按件累加");
+	assertEqual(all.exp, reward.exp * 10 * 3, "经验按件累加");
+	// 没有遗忘之石/贪食魔盒：删除照常、一分钱不发
+	const plain = { ...base, curios: [] };
+	const plainLost = penalty.loseSkill(plain, SKILL_C, NOW);
+	assert(plainLost.ok && plainLost.gold === 0 && plainLost.exp === 0, "没有对应奇物就不发奖");
+	assertEqual(plainLost.run.currency.gold, 0, "金币不动");
+	// 未拥有 / 重复删除：ok:false 且零副作用（绝不偷偷再发一次奖）
+	const notOwned = penalty.loseSkill(base, "rogue_none", NOW);
+	assert(!notOwned.ok && notOwned.run === base && notOwned.removed === null, "未拥有 → ok:false 零副作用");
+	const again = penalty.loseSkill(one.run, SKILL_C, NOW);
+	assert(!again.ok && again.run === one.run, "重复执行同一删除不再派奖励");
+	// 卸下不算失去：unequipSkill 只动装备、背包留人、不发奖（与 loseSkill 是两件事）
+	const unequipped = shop.unequipSkill(base, SKILL_A);
+	assert(unequipped.ok, unequipped.error ?? "卸下应成功");
+	assertEqual(JSON.stringify(unequipped.run.skillInventory), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "卸下后技能仍留在背包");
+	assertEqual(unequipped.run.currency.gold, 0, "卸下不触发遗忘之石");
+	// 传入的 run 一个字节都不动
+	assertEqual(JSON.stringify(base.skills), JSON.stringify([SKILL_A, SKILL_B]), "传入 run 不被原地修改");
+	assertEqual(JSON.stringify(base.skillInventory), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "背包同样不被原地修改");
+	return "单件/批量/无奇物/零副作用 + 卸下不算失去";
 });
 
 check("黄金罗盘：刷新概率按存档实算、存档之间互不影响、边界夹住", () => {
@@ -4528,7 +4666,7 @@ check("黄金罗盘：刷新概率按存档实算、存档之间互不影响、�
 	assertEqual(curioManager.getCurioShopChance({}), base, "缺字段按无奇物算");
 	assertEqual(curioManager.getCurioShopChance(null), base, "null 不抛错");
 	// 读档往返：概率不从存档里读，永远按此刻持有的奇物现算
-	assertEqual(curioManager.getCurioShopChance(state.cloneRun(owned)), base + 0.1, "cloneRun 后仍是 20%");
+	assertEqual(curioManager.getCurioShopChance(state.cloneRun(owned)), base + 0.1, "cloneRun 后仍是基础 + 10 个百分点");
 	return `无罗盘 ${Math.round(base * 100)}% / 有罗盘 ${Math.round((base + 0.1) * 100)}% / 上限 100%`;
 });
 
@@ -4648,10 +4786,11 @@ check("Boss 惩罚改为玩家自选：候选只认真实持有、删除各归�
 	// 没持有的东西删不动，且不产生任何副作用
 	const notOwned = penalty.loseCurio(base, "broken_watch", NOW);
 	assert(!notOwned.ok && notOwned.run === base && notOwned.removed === null, "未拥有 → ok:false 且零副作用");
-	// 选技能：只作用于 run.skills
+	// 选技能：从背包删除，同时解除装备（这两个技能本来就装备着）
 	const lostSkill = penalty.loseSkill(base, SKILL_A, NOW);
-	assertEqual(lostSkill.ok, true, "已购买技能可删");
+	assertEqual(lostSkill.ok, true, "已拥有技能可删");
 	assertEqual(JSON.stringify(lostSkill.run.skills), JSON.stringify([SKILL_B]), "只删点到的那一个");
+	assertEqual(JSON.stringify(lostSkill.run.skillInventory), JSON.stringify([SKILL_B]), "背包同步删除");
 	assertEqual(lostSkill.run.pendingBossPenalty.needCurio, true, "删技能不该顺手把奇物那项也标记成已还（欠项各记各的）");
 	// 欠项状态随存档往返：部分兑现后读档，只欠没还的那几项，绝不重新随机
 	const halfDone = { ...lostCurio.run, pendingBossPenalty: { reason: "bossVictory", needSkill: true, needCurio: false } };
@@ -4666,9 +4805,10 @@ check("Boss 惩罚改为玩家自选：候选只认真实持有、删除各归�
 	// v12 及更早的旧档没有这个字段：那一版随机惩罚当场就已兑现，读档绝不能凭空补出一笔债
 	const legacy = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), version: 12 });
 	assertEqual(legacy.pendingBossPenalty, null, "旧档不补待处理惩罚");
-	// 随机惩罚函数保持兼容（其它流程若还需要它，行为不变）
-	assertEqual(penalty.loseRandomSkill(base, () => 0.9, NOW).removed, SKILL_B, "loseRandomSkill 仍可用");
-	assertEqual(penalty.loseRandomCurio(base, () => 0.1, NOW).removed, "energy_core", "loseRandomCurio 仍可用");
+	// v13 旧档的 needSkill: true 原样保留（由流程层按新规则做一次性自动清算，绝不在清洗层动手）
+	const v13 = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), version: 13, pendingBossPenalty: { reason: "bossVictory", needSkill: true, needCurio: false } });
+	assertEqual(JSON.stringify(v13.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: true, needCurio: false }), "v13 的欠技能标记读档保留，等流程层清算");
+	assertEqual(JSON.stringify(state.normalizeRun(v13).pendingBossPenalty), JSON.stringify(v13.pendingBossPenalty), "清洗层幂等、绝不重复处罚");
 	return "候选现读 / 各删各的 / 欠项往返 / 旧档不补债";
 });
 

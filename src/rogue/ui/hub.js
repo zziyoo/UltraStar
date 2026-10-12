@@ -1,4 +1,4 @@
-// 肉鸽 Hub、商店与替换技能页。同样只画界面，一切数据变更走 api 交给 mode.js。
+// 肉鸽 Hub、商店、技能管理页与奇物页。同样只画界面，一切数据变更走 api 交给 mode.js。
 // 各页面都是自建浮层 + wm-rogue-* 样式（见 ui/common.js 顶部说明）；
 // 替换页与商店共用同一套技能卡渲染（addSkillHead / wm-rogue-shop-desc / sanitizeSkillText）。
 
@@ -50,6 +50,9 @@ let shopView = null;
 /** 奇物管理页的活节点，供升级后原位刷新 */
 let curioView = null;
 
+/** 技能管理页的活节点，供装备/卸下后原位刷新 */
+let skillView = null;
+
 /** 某项属性升到 level 后的累计效果，一行一条；文案在 data/stats.js，与战斗中的「强化」标记共用 */
 function statEffectLines(statId, level) {
 	const lines = describeStatEffects(sumStatEffects({ [statId]: level }));
@@ -84,13 +87,20 @@ export function showHub(api) {
 		buildStatSummary(statRow, run, statId);
 	}
 
-	// 动作区分两行：第一行是「继续玩」（开始/商店/图鉴），第二行才是离开当前局（返回存档/退出）
+	// 动作区分两行：第一行是「继续玩」（开始/商店/技能/奇物/图鉴），第二行才是离开当前局（返回存档/退出）
 	const actions = ui.create.div(".wm-rogue-hub-actions", body);
 	const mainRow = ui.create.div(".wm-rogue-hub-row", actions);
 	const exitRow = ui.create.div(".wm-rogue-hub-row", actions);
 	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
 	addOverlayButton(fightLabel, mainRow, () => api.startBattle(), "wm-rogue-hub-primary");
 	addOverlayButton("商店", mainRow, () => api.openShop(), "wm-rogue-hub-shop");
+	// 技能管理页在营地也有一等入口：装备/卸下是打之前要定的事，不该只在商店里点得到
+	addOverlayButton("技能", mainRow, () => api.openSkills(), "wm-rogue-hub-skills");
+	// 奇物管理页同样是一等入口：看已拥有的奇物、花经验升品质，不必先绕进商店。
+	// 只在无尽给——闯关没有奇物来源（无事件、无奇物商店），空页上的提示会变成假信息
+	if (run.mode === RUN_MODE.endless) {
+		addOverlayButton("奇物", mainRow, () => api.openCurios(), "wm-rogue-hub-curios");
+	}
 	// 图鉴是六个存档共有的收集册：闯关自己不产出内容，但照样能翻开看别的存档解锁了什么
 	addOverlayButton("图鉴", mainRow, () => api.openCollection(), "wm-rogue-hub-index");
 	addOverlayButton("返回存档", exitRow, () => api.backToSlots(), "wm-rogue-hub-secondary");
@@ -100,28 +110,98 @@ export function showHub(api) {
 	}
 }
 
-/** 只读的技能查看页：只展示已购买技能，不买卖、不写存档 */
+/** 清空一个容器（真实 DOM 与测试桩的 DOM 都支持 firstChild/removeChild，不用 innerHTML） */
+function clearChildren(node) {
+	while (node.firstChild) {
+		node.removeChild(node.firstChild);
+	}
+}
+
+/** 技能管理页的一张技能卡：出处 + 名字 + 完整描述 + 一个动作按钮（装备 / 卸下 / 装备已满） */
+function buildSkillManageCard(parent, id, action) {
+	const card = ui.create.div(".wm-rogue-shop-card", parent);
+	addSkillHead(card, id);
+	ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(id) || "（该技能没有描述）", card);
+	const foot = ui.create.div(".wm-rogue-shop-foot", card);
+	const button = addOverlayButton(action.label, foot, () => action.onClick(), "wm-rogue-skill-btn");
+	if (action.disabled) {
+		button.classList.add("wm-rogue-disabled");
+	}
+	return card;
+}
+
+/**
+ * 技能管理页（入口在商店顶部的「技能」资源块与营地）：装备 / 卸下已拥有的技能。
+ * 两栏：当前装备（上限 SKILL_SLOTS，允许 0 个出战）与技能背包（全部拥有但没装备的，数量不限）。
+ * 装备只把技能从背包挪进 run.skills、卸下只挪回去——两个动作都不删除技能、不发任何奖励；
+ * 真正改存档与落盘由流程层负责（api.setEquipped(id, equipped)），失败提示也在那里。
+ */
 export function showSkills(api) {
-	const run = api.run;
 	const stage = openOverlay("wm-rogue-skills-overlay");
 	const panel = ui.create.div(".wm-rogue-skills", stage);
 
 	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
-	ui.create.div(".wm-rogue-title", `技能（${run.skills.length}/${SKILL_SLOTS}）`, titlebar);
+	const title = ui.create.div(".wm-rogue-title", "技能", titlebar);
 	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.back());
 
 	const body = ui.create.div(".wm-rogue-skills-body", panel);
-	if (!run.skills.length) {
-		ui.create.div(".wm-rogue-skills-empty", "当前没有已购买技能", body);
-		ui.create.div(".wm-rogue-skills-hint", "回到营地后可以进商店购买。", body);
-		return;
+	const equippedTitle = ui.create.div(".wm-rogue-shop-section-title", "", body);
+	const equippedRow = ui.create.div(".wm-rogue-shop-cards", body);
+	const equippedEmpty = ui.create.div(".wm-rogue-skills-empty", "当前没有装备技能，可以 0 技能出战。", body);
+	const inventoryTitle = ui.create.div(".wm-rogue-shop-section-title", "", body);
+	const inventoryHint = ui.create.div(".wm-rogue-skills-hint", "装备中的技能才会参加战斗；背包里的技能随取随装，装备位满了先卸下一个。", body);
+	const inventoryRow = ui.create.div(".wm-rogue-shop-cards", body);
+	const inventoryEmpty = ui.create.div(".wm-rogue-skills-empty", "背包里还没有技能，去商店买一个吧。", body);
+
+	const paint = run => {
+		const equipped = Array.isArray(run.skills) ? run.skills : [];
+		const inventory = Array.isArray(run.skillInventory) ? run.skillInventory : [];
+		const backpack = inventory.filter(id => !equipped.includes(id));
+		title.textContent = `技能（装备 ${equipped.length}/${SKILL_SLOTS} · 背包 ${backpack.length}）`;
+		equippedTitle.textContent = `当前装备 ${equipped.length}/${SKILL_SLOTS}`;
+		inventoryTitle.textContent = `技能背包 ${backpack.length}`;
+		equippedEmpty.classList[equipped.length ? "add" : "remove"]("wm-rogue-hidden");
+		inventoryEmpty.classList[backpack.length ? "add" : "remove"]("wm-rogue-hidden");
+		equippedRow.classList[equipped.length ? "remove" : "add"]("wm-rogue-hidden");
+		inventoryRow.classList[backpack.length ? "remove" : "add"]("wm-rogue-hidden");
+		clearChildren(equippedRow);
+		clearChildren(inventoryRow);
+		for (const id of equipped) {
+			buildSkillManageCard(equippedRow, id, {
+				label: "卸下",
+				onClick: () => api.setEquipped(id, false),
+			});
+		}
+		const full = equipped.length >= SKILL_SLOTS;
+		for (const id of backpack) {
+			// 装备位满：按钮写明「装备已满」并置灰（与「付不起」同一类容量不足，点了毫无反应）
+			buildSkillManageCard(inventoryRow, id, {
+				label: full ? "装备已满" : "装备",
+				disabled: full,
+				onClick: () => {
+					if (full) {
+						return;
+					}
+					api.setEquipped(id, true);
+				},
+			});
+		}
+	};
+	skillView = { node: currentScreenNode(), paint };
+	paint(api.run);
+}
+
+/**
+ * 原位刷新技能管理页（装备/卸下后不重开窗口，重开会把滚动位置甩回顶部）。
+ * @returns {boolean} 页面还是当初那个管理页、已刷新为 true；否则 false，调用方退回整页重绘
+ */
+export function refreshSkills(run) {
+	if (!skillView || currentScreenNode() !== skillView.node) {
+		skillView = null;
+		return false;
 	}
-	const cardRow = ui.create.div(".wm-rogue-shop-cards", body);
-	for (const id of run.skills) {
-		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-shop-card-read", cardRow);
-		addSkillHead(card, id);
-		ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(id), card);
-	}
+	skillView.paint(run);
+	return true;
 }
 
 /**
@@ -242,15 +322,25 @@ export function showShop(api) {
 	const res = ui.create.div(".wm-rogue-res", head);
 	const goldCell = addResCell(res, moneyName(SKILL_CURRENCY));
 	const expCell = addResCell(res, moneyName(STAT_CURRENCY));
-	const skillNum = addResCell(res, "技能");
-	// 第三块「技能 n/3」本身是入口：点它查看已购买技能（只读，不买卖、不写存档）
+	const skillNum = addResCell(res, "技能·背包 0");
+	// 第三块「技能 n/3 · 背包 m」本身是入口：点它进技能管理页（装备/卸下）。
+	// 数字只报**装备数**（参加战斗的就是这几个），总持有量在标签与页面标题里单列，别把 3/3 当成总持有
 	const skillCell = skillNum.parentNode;
 	skillCell.classList.add("wm-rogue-res-skill");
 	bindOverlayTap(skillCell, () => api.openSkills());
+	const skillLabel = skillCell.children[1];
 	const resCells = [
 		{ node: goldCell, read: current => current.currency[SKILL_CURRENCY] ?? 0 },
 		{ node: expCell, read: current => current.currency[STAT_CURRENCY] ?? 0 },
-		{ node: skillNum, read: current => `${current.skills.length}/${SKILL_SLOTS}` },
+		{ node: skillNum, read: current => `${(current.skills ?? []).length}/${SKILL_SLOTS}` },
+		{
+			node: skillLabel,
+			read: current => {
+				const equipped = new Set(Array.isArray(current.skills) ? current.skills : []);
+				const backpack = (Array.isArray(current.skillInventory) ? current.skillInventory : []).filter(id => !equipped.has(id));
+				return `技能·背包 ${backpack.length}`;
+			},
+		},
 	];
 	// 无尽模式第四块「奇物 n」：与「技能」同一套入口样式，点开只读查看已拥有奇物
 	if (run.mode === RUN_MODE.endless) {
@@ -590,49 +680,6 @@ function setBuyable(row, buyable) {
 	row.card.classList[buyable ? "remove" : "add"]("wm-rogue-off");
 }
 
-/**
- * 技能槽满时的替换页：上方居中突出新技能，下方三张已有技能卡横排，点「替换此技能」让位。
- * 纯 UI：替换走 api.confirmReplace(offerId, 被替换的技能)，返回商店走 api.backToShop；
- * 技能卡复用商店渲染（addSkillHead + sanitize 后的描述），没有出处的不标来源。
- */
-export function showReplace(api, offerId) {
-	const run = api.run;
-	const stage = openOverlay("wm-rogue-replace-overlay");
-	const panel = ui.create.div(".wm-rogue-replace", stage);
-
-	// 返回固定在标题栏右上角，与商店/技能查看页同一设计，不再额外铺底部取消按钮
-	const titlebar = ui.create.div(".wm-rogue-titlebar", panel);
-	ui.create.div(".wm-rogue-title", "选择要替换的技能", titlebar);
-	addOverlayButton(LIBRARY_TEXT.back, ui.create.div(".wm-rogue-back", titlebar), () => api.backToShop());
-
-	const body = ui.create.div(".wm-rogue-replace-body", panel);
-	ui.create.div(".wm-rogue-replace-subtitle", "技能槽已满，请选择一个已有技能进行替换", body);
-
-	// 新技能：整页重点——加大卡居中，强调边框，完整描述
-	const newHead = ui.create.div(".wm-rogue-shop-section-row", body);
-	ui.create.div(".wm-rogue-shop-section-title", "新技能", newHead);
-	ui.create.div(".wm-rogue-replace-slot", `技能槽 ${run.skills.length}/${SKILL_SLOTS}`, newHead);
-	const newCard = ui.create.div(".wm-rogue-shop-card.wm-rogue-replace-new", body);
-	addSkillHead(newCard, offerId);
-	ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(offerId) || "（该技能没有描述）", newCard);
-
-	ui.create.div(".wm-rogue-replace-arrow", "↓ 选择一个要被替换的技能 ↓", body);
-
-	// 已有技能：三张等宽卡横排（窄屏自动换行），描述限高，按钮钉在卡片底部对齐
-	const cards = ui.create.div(".wm-rogue-replace-cards", body);
-	for (const id of run.skills) {
-		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-replace-card", cards);
-		addSkillHead(card, id);
-		const intro = skillInfo(id);
-		const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
-		desc.title = intro;
-		// 与商店一致：点卡片看完整描述，按钮上的点击会阻止冒泡，不会连带打开
-		bindOverlayTap(card, () => showNotice([skillName(id), intro || "（该技能没有描述）"]));
-		const foot = ui.create.div(".wm-rogue-shop-foot", card);
-		addOverlayButton("替换此技能", foot, () => api.confirmReplace(offerId, id), "wm-rogue-replace-btn");
-	}
-}
-
 // ---------------------------------------------------------------- 事件子页面
 //
 // 流浪商人 / 技能熔炉 / 奇物融合炉：共同点是「先挑对象，挑中那一刻才扣钱」，
@@ -722,20 +769,27 @@ function paintMerchant(row, run, action) {
 }
 
 /**
- * 技能熔炉：挑一个已有技能投进炉子。模式层已经拦掉「一个技能都没有」的情况，
- * 这里的空列表只是兜底（比如子页停着的时候技能被别处扣光）。
+ * 技能熔炉：从**完整背包**里挑一个技能投进炉子——装备中的与只躺在背包里的都能熔，
+ * 装备中的熔掉会一并卸下（结算走 penalty.loseSkill 的统一动作）。
+ * 模式层已经拦掉「一件都没有」的情况，这里的空列表只是兜底（比如子页停着的时候技能被别处扣光）。
  */
 export function showSkillForge(api) {
 	const run = api.getRun();
 	const body = openEventSubPage(api, "wm-rogue-skill-forge-overlay", "技能熔炉", "炉子吃一个技能，吐一样东西回来。选一个投进去。");
-	if (!run.skills.length) {
+	const equipped = new Set(Array.isArray(run.skills) ? run.skills : []);
+	const inventory = Array.isArray(run.skillInventory) ? run.skillInventory : [];
+	if (!inventory.length) {
 		ui.create.div(".wm-rogue-skills-empty", "当前没有技能", body);
 		return;
 	}
 	const cards = ui.create.div(".wm-rogue-replace-cards", body);
-	for (const id of run.skills) {
+	for (const id of inventory) {
 		const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-replace-card", cards);
 		addSkillHead(card, id);
+		// 「已装备」只是一枚状态签：熔掉它照样允许，流程层会把装备位一起腾出来
+		if (equipped.has(id)) {
+			ui.create.div(".wm-rogue-skill-state", "已装备", card);
+		}
 		const intro = skillInfo(id);
 		const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
 		desc.title = intro;

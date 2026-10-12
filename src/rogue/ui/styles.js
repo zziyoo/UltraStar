@@ -208,6 +208,13 @@ const CSS = `
 /* 图鉴用紫：收集册的识别色（与本项目的史诗品质、深渊系列同一族），尺寸与商店一致好对齐第一行 */
 .wm-rogue-btn.wm-rogue-hub-index { padding: 12px 34px; font-size: 20px; border-color: rgba(190,150,255,0.75);
 	background: linear-gradient(rgba(108,74,168,0.95), rgba(58,36,104,0.95)); }
+/* 技能管理用绿：与商店（蓝）、图鉴（紫）分开，三个并列入口一眼可辨 */
+.wm-rogue-btn.wm-rogue-hub-skills { padding: 12px 34px; font-size: 20px; border-color: rgba(150,235,180,0.7);
+	background: linear-gradient(rgba(52,138,90,0.95), rgba(24,80,50,0.95)); }
+/* 奇物管理用琥珀：奇物页本身是金色系，与商店（蓝）、技能（绿）、图鉴（紫）都分得开。
+   尺寸旋钮与另外三个并列入口同一行：想统一调长短只改这一族的 padding 左右值 */
+.wm-rogue-btn.wm-rogue-hub-curios { padding: 12px 34px; font-size: 20px; border-color: rgba(255,170,110,0.75);
+	background: linear-gradient(rgba(168,96,52,0.95), rgba(104,52,24,0.95)); }
 /* 营地两个次级按钮：比 wm-rogue-small 更长，字号比商店（20）小两号，尺寸旋钮就这一行（padding 的左右值管长度，font-size 一起管字与高） */
 .wm-rogue-btn.wm-rogue-hub-secondary { padding: 8px 40px; font-size: 18px; }
 .wm-rogue-hub-hint { margin-top: 10px; font-size: 14px; color: #ffb347; text-align: center; }
@@ -216,7 +223,13 @@ const CSS = `
 /* 营地的属性卡是只读的：去掉底部操作行后整体更矮 */
 .wm-rogue-stat-card.wm-rogue-stat-read { padding-bottom: 12px; }
 
-/* ---- 技能查看页（只读）：复用商店卡片 ---- */
+/* ---- 技能管理页：装备栏（上限 3）与技能背包（不限量）两栏，卡片复用商店卡 ----
+   尺寸旋钮：标题字号在 .wm-rogue-title、卡片尺寸随 .wm-rogue-shop-card、状态签与按钮只调字号与内距 */
+.wm-rogue-btn.wm-rogue-skill-btn { flex: none; min-width: 92px; }
+/* 「已装备」状态签（技能熔炉的候选卡上）：金色小胶囊，与商店的出处行同一档字号 */
+.wm-rogue-skill-state { display: inline-flex; align-items: center; align-self: flex-start; margin-top: 5px;
+	padding: 1px 10px; border-radius: 10px; font-size: 13px; color: #ffd479;
+	border: 1px solid rgba(255,200,120,0.5); }
 .wm-rogue-skills { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
 .wm-rogue-skills-empty { margin: 34px 0 0; font-size: 20px; color: rgba(255,255,255,0.72); text-align: center; }
 .wm-rogue-skills-hint { margin-top: 10px; font-size: 15px; color: rgba(255,255,255,0.5); text-align: center; }
@@ -267,6 +280,8 @@ const CSS = `
 	background: linear-gradient(rgba(255,180,80,0.13), rgba(255,120,60,0.05));
 	border: 1px solid rgba(255,200,120,0.35); }
 .wm-rogue-boss-reward-title { font-size: 15px; color: #ffd479; letter-spacing: 2px; }
+/* 自动跳转省掉的结算行（技能清算 / 奇物折钱）：列在奖励数值下面，读档恢复时自然为空 */
+.wm-rogue-boss-detail { margin-top: 8px; font-size: 15px; line-height: 1.55; color: rgba(255,255,255,0.82); }
 .wm-rogue-boss-reward .wm-rogue-res { margin: 8px 0 0; justify-content: center; }
 .wm-rogue-boss-reward .wm-rogue-res-cell { flex: 0 1 180px; }
 /* 正文：两栏各自伸缩，超长时在面板内部滚 */
@@ -293,25 +308,13 @@ const CSS = `
 .wm-rogue-boss-foot { flex: none; margin-top: 14px; padding-top: 10px; text-align: center; font-size: 15px;
 	line-height: 1.6; color: #ffb347; border-top: 1px solid rgba(255,255,255,0.14); }
 
-/* ---- 替换技能页：新技能居中突出，下面三张已有技能卡等宽横排 ----
-   层级：标题 28 > 新技能卡（名 26、强调边框光晕）> 区域标题 24 > 已有卡（名 22）
-   > 描述 17 / 箭头与说明 14~15
-   事件子页面（流浪商人 / 技能熔炉 / 奇物融合炉）整页复用这一套版式，所以标题字号的选择器把它们一并列上：
-   同一视觉语言，也免得为三个页面新写一遍 id 级加固 ---- */
+/* ---- 事件子页面（流浪商人 / 技能熔炉 / 奇物融合炉）共用的版式骨架 ----
+   同一视觉语言，标题字号在下面按各 overlay 一并列上，免得为三个页面新写一遍 id 级加固 ---- */
 .wm-rogue-replace { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
-#wm-rogue-overlay.wm-rogue-replace-overlay .wm-rogue-title,
 #wm-rogue-overlay.wm-rogue-merchant-overlay .wm-rogue-title,
 #wm-rogue-overlay.wm-rogue-skill-forge-overlay .wm-rogue-title,
 #wm-rogue-overlay.wm-rogue-curio-forge-overlay .wm-rogue-title { font-size: 28px; letter-spacing: 5px; }
 .wm-rogue-replace-subtitle { margin: 0 0 12px; font-size: 14px; color: rgba(255,255,255,0.58); text-align: center; }
-.wm-rogue-replace-slot { margin-left: auto; font-size: 16px; color: #ffd479; }
-/* 新技能卡：加宽居中 + 暖色边框光晕，名字随卡片放大 */
-.wm-rogue-replace-new { width: min(640px, 100%); margin: 0 auto; cursor: default;
-	border-color: rgba(255,200,120,0.6);
-	box-shadow: 0 0 18px rgba(255,180,80,0.15), 0 2px 10px rgba(0,0,0,0.5); }
-.wm-rogue-replace-new .wm-rogue-shop-name { font-size: 26px; color: #ffe2a8; }
-.wm-rogue-replace-arrow { margin: 16px 0 10px; font-size: 15px; letter-spacing: 4px; text-align: center;
-	color: rgba(255,255,255,0.55); }
 /* 三张已有技能卡：等宽横排、窄屏换行；描述限高防止一张卡把别张挤乱，按钮钉底对齐 */
 .wm-rogue-replace-cards { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
 .wm-rogue-replace-card { flex: 1 1 260px; transition: transform 0.12s ease, border-color 0.12s ease; }
@@ -615,8 +618,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-skills-empty,
 #wm-rogue-overlay .wm-rogue-skills-hint,
 #wm-rogue-overlay .wm-rogue-replace-subtitle,
-#wm-rogue-overlay .wm-rogue-replace-slot,
-#wm-rogue-overlay .wm-rogue-replace-arrow,
 #wm-rogue-overlay .wm-rogue-resume-mark,
 #wm-rogue-overlay .wm-rogue-resume-title,
 #wm-rogue-overlay .wm-rogue-resume-card,
@@ -651,6 +652,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-boss-divider,
 #wm-rogue-overlay .wm-rogue-boss-reward,
 #wm-rogue-overlay .wm-rogue-boss-reward-title,
+#wm-rogue-overlay .wm-rogue-boss-detail,
 #wm-rogue-overlay .wm-rogue-boss-body,
 #wm-rogue-overlay .wm-rogue-boss-col,
 #wm-rogue-overlay .wm-rogue-boss-col-title,
@@ -672,6 +674,8 @@ const CSS = `
 /* 「关闭」那一行钉在底部：正文再长也不会把按钮挤出去 */
 #wm-rogue-overlay .wm-rogue-detail-box > .wm-rogue-popup-actions { flex: none !important; }
 #wm-rogue-overlay .wm-rogue-detail-rarity { display: inline-flex !important; }
+/* 「已装备」状态签：inline-flex 胶囊，别被上面的 block 名单压成整行 */
+#wm-rogue-overlay .wm-rogue-skill-state { display: inline-flex !important; align-items: center !important; }
 #wm-rogue-overlay .wm-rogue-detail-desc,
 #wm-rogue-overlay .wm-rogue-detail-effect,
 #wm-rogue-overlay .wm-rogue-detail-same { white-space: normal !important; overflow-wrap: break-word !important; }

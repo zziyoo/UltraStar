@@ -27,7 +27,6 @@ import {
 	RIFT_EXTRA_AFFIXES,
 	RIFT_TIERS,
 	RUN_MODE,
-	SKILL_SLOTS,
 	SPRING_DEBT_AFFIXES,
 	STAT_IDS,
 } from "./config.js";
@@ -498,7 +497,8 @@ export function getBlockedMessage(run, choice) {
 	}
 	const kind = choice?.action?.kind;
 	if (kind === "skillForge") {
-		return (run?.skills ?? []).length ? null : text;
+		// 按**完整背包**判：躺在背包里、没装备的技能同样能投进炉子
+		return (run?.skillInventory ?? []).length ? null : text;
 	}
 	if (kind === "curioForge") {
 		return getUpgradableCurios(run).length ? null : text;
@@ -570,14 +570,14 @@ export function applyEventCurrency(run, reward, asGain = false) {
 }
 
 /**
- * 从商店候选池里随机挑一个「当前角色自带」与「已持有」都排除掉的技能 id；池子空了返回 null。
+ * 从商店候选池里随机挑一个「当前角色自带」与「已拥有（含未装备的）」都排除掉的技能 id；池子空了返回 null。
  * 事件奖励的「随机给技能」与技能熔炉的「换一个随机新技能」共用这一份判据，免得两处各自漂移。
- * @param {object} run 存档（读 run.skills）
+ * @param {object} run 存档（读 run.skillInventory——那才是完整的拥有列表）
  * @param {{ candidates?: {id:string}[], characterSkills?: string[] }} [ctx] 由 mode.js 从 lib 现算后传入
  */
 export function pickRandomSkillId(run, ctx = {}, rng = Math.random) {
 	const excluded = new Set([
-		...(Array.isArray(run?.skills) ? run.skills : []),
+		...(Array.isArray(run?.skillInventory) ? run.skillInventory : []),
 		...(Array.isArray(ctx.characterSkills) ? ctx.characterSkills : []),
 	]);
 	const pool = (Array.isArray(ctx.candidates) ? ctx.candidates : [])
@@ -684,6 +684,7 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	const next = {
 		...credited.run,
 		skills: (run.skills ?? []).slice(0),
+		skillInventory: (run.skillInventory ?? []).slice(0),
 		stats: { ...run.stats },
 		collection: {
 			events: (run.collection?.events ?? []).slice(0),
@@ -743,16 +744,13 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	}
 
 	if (reward.skill === "random") {
-		if (next.skills.length >= SKILL_SLOTS) {
-			lines.push("技能槽已满，未能学会技能");
+		// v14：技能一律进背包，装备位满也不落空、也不自动装备（由玩家在技能管理页决定装哪个）
+		skillId = pickRandomSkillId(next, ctx, rng);
+		if (skillId) {
+			next.skillInventory.push(skillId);
+			lines.push("获得一个随机技能");
 		} else {
-			skillId = pickRandomSkillId(next, ctx, rng);
-			if (skillId) {
-				next.skills.push(skillId);
-				lines.push("获得一个随机技能");
-			} else {
-				lines.push("没有可学的技能");
-			}
+			lines.push("没有可学的技能");
 		}
 	}
 

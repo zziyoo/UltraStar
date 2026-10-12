@@ -71,9 +71,20 @@ export const COLLECTION_KEY = "rogueCollection";
  * 所以中途关游戏、刷新、重进页面都回到同一张选择页，兑现一项就落盘一项；两项都还清（或本来就没有
  * 可失去的对象）时字段整体归 null，读档绝不会重新随机、也不会重复删除或重复发胜利奖励。
  * 旧档（v12 及更早）没有这个字段按「不欠惩罚」补齐——那一版的随机惩罚在结算那一刻就已兑现完毕。
+ *
+ * v14 两处结构变化：
+ *   ① 技能改成「装备区 + 无限背包」：新增 skillInventory（玩家全部拥有的技能，无游戏规则上限），
+ *      run.skills 收窄为「当前装备中的技能」（仍以 SKILL_SLOTS 为上限，购买不再替换、新技能先进背包），
+ *      不变量是 run.skills ⊆ run.skillInventory。旧档只有 skills 时整套迁入背包、装备保持原样；
+ *      读档清洗只对 skills 施加装备上限，绝不对 skillInventory 截断（二次读档幂等）。
+ *   ② 新增 bossPityCount（Boss 保底计数）：自上一次 Boss 出现以来**成功创建并落盘的常规非 Boss 战斗**数。
+ *      创建新战斗时计数 ≥ BOSS_PITY_BATTLES-1 就必定安排 Boss，否则仍按 BOSS_RUN_RATE 掷；
+ *      普通战斗落盘后 +1、Boss 落盘后归零，深渊裂隙与恢复存档不参与。旧档缺字段补齐 0。
+ *      同一版把 pendingBossPenalty 的 needSkill 收掉（Boss 胜利当场自动失去全部装备技能），
+ *      旧档里 needSkill: true 由流程层做一次性自动清算（commit 原子化，绝不重复发奖）。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 13;
+export const RUN_VERSION = 14;
 export const SLOT_COUNT = 6;
 
 /**
@@ -118,6 +129,11 @@ export const CURRENCY_LABEL = { gold: "金币", exp: "经验" };
 /** 属性强化：三项，顺序即商店展示顺序 */
 export const STAT_IDS = ["defense", "draw", "attack"];
 
+/**
+ * 技能装备位上限：run.skills 是**当前装备中的技能**，实际参加战斗，最多这么多；
+ * 玩家**拥有**的全部技能记在 run.skillInventory（无游戏规则上限，卸下/失去以它为准）。
+ * 购买技能只进背包、不自动装备，要换装先卸下已装备的技能——这里不再表示「可购买的技能总数」。
+ */
 export const SKILL_SLOTS = 3;
 export const SKILL_OFFER_COUNT = 3;
 export const SKILL_PURCHASE_COUNT = 1;
@@ -162,7 +178,7 @@ export const CURIO_PRICE_SPREAD = 0.25;
  * 奇物品质升级价：升级费用 = CURIO_UPGRADE_PRICE_MULTIPLIER × 本层胜利经验（getEndlessReward exp）。
  * 即「N 倍胜利经验」：按**当前升级时**的关卡现算，与购买时的价格无关，也与奇物基准价无关。
  */
-export const CURIO_UPGRADE_PRICE_MULTIPLIER = 5;
+export const CURIO_UPGRADE_PRICE_MULTIPLIER = 10;
 /** 每批奇物候选的个数 */
 export const CURIO_OFFER_COUNT = 3;
 /**
@@ -170,12 +186,12 @@ export const CURIO_OFFER_COUNT = 3;
  * **未命中直接清空**（旧批次不留着，避免同一批货挂十几关不动）；rng 可注入。
  * 一批只卖一个：买到即整批下架（buyCurio 清空 curioOffers），商店分区随之隐藏。
  * 注意这条概率同时决定「商店多久出现一次」——批次不再留存后，平均 1/该值 关才看得到一次
- * （0.1 = 约 10 关一次）。
+ * （0.15 = 约 7 关一次）。
  * 黄金罗盘的 `extraCurioShopChance` 是**百分点累加到本值之上**、由同一个随机数判一次
  * （见 curioManager.getCurioShopChance），不是第二次独立掷骰。
  * 界面上那句「有 N% 概率刷新」与结算判定、读档描述共用同一个函数，改这里就够。
  */
-export const CURIO_SHOP_RATE = 0.1;
+export const CURIO_SHOP_RATE = 0.15;
 
 /**
  * 深渊裂隙的三档赌局（选项顺序即 data/events.js 里写死的顺序）：
@@ -194,11 +210,12 @@ export const SPRING_DEBT_AFFIXES = 1;
 /** 流浪商人的售价 = 奇物基准价 ×该倍数，恒定不打 ±CURIO_PRICE_SPREAD 波动、也不乘品质倍率 */
 export const MERCHANT_PRICE_MULTIPLIER = 4;
 /** 奇物融合炉的融合费 = 本层胜利经验 ×该倍数（品质仍只走一级，与商店升级同一条链） */
-export const FORGE_EXP_MULTIPLIER = 3;
+export const FORGE_EXP_MULTIPLIER = 5;
 
 // ---------------------------------------------------------------- Boss 战
 // 以下参数作用于两种模式：每场新战斗创建时独立掷一次概率，抽中就把**那一场**替换为 Boss 战。
-// 判定不看整局、也不看上一场的结果，所以既不连续锁定、也不因之前没抽中而提高概率。
+// 判定不看整局、也不看上一场的结果，所以既不连续锁定、也不因之前没抽中而抬高单次概率；
+// 连续没命中只由下面的 BOSS_PITY_BATTLES 兜底（第 20 场必定是 Boss 战）。
 
 /**
  * Boss 战替换概率：即将创建一场新的常规关卡战斗时 Math.random() < BOSS_RUN_RATE 即本场为 Boss 战。
@@ -208,8 +225,21 @@ export const FORGE_EXP_MULTIPLIER = 3;
  * 战斗状态清掉后标记随之消失，下一场重新独立判定。
  * 深渊裂隙那一场不走这里（它有独立结算，创建时显式记为普通战斗）。
  */
-// 临时调试值：1 = 每场新战斗必定是 Boss 战。测试无误后改回 0.05。
-export const BOSS_RUN_RATE = 1;
+export const BOSS_RUN_RATE = 0.05;
+
+/**
+ * Boss 战保底：连续 BOSS_PITY_BATTLES 场「成功创建并落盘的常规非 Boss 战斗」之后，
+ * 下一场新建的常规战斗必定是 Boss 战——与 BOSS_RUN_RATE 相互独立的第二道保证：
+ * 概率 0.05 连着掷不中也好、第 20 场一定出。
+ * 计数口径（run.bossPityCount，自上一次 Boss 出现以来成功创建的普通常规战斗数）：
+ *   · 新档与旧档都从 0 开始；创建新战斗时计数 ≥ 本值-1（即 19）→ 判定为 Boss 战、**不掷骰**，
+ *     并且不消费随机源（保底路径与概率路径互不干扰）；
+ *   · 普通战斗落盘后 +1、Boss 战斗落盘后归零——都算在创建那一次 commit 里；
+ *   · 创建失败（阵容生成/校验不过）不写任何计数，保底留到下次；
+ *   · 深渊裂隙战、恢复未完成的战斗、失败后重打已保存的同一场战斗一律不参与计数。
+ * 例如：第 5 场提前命中 Boss → 从该场重新计数，其后的第 20 场（第 25 场）保底触发。
+ */
+export const BOSS_PITY_BATTLES = 20;
 
 /**
  * Boss 战胜利奖励：本关胜利金币基准（getEndlessReward / getChallengeReward）的倍数。

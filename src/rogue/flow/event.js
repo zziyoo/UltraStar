@@ -236,8 +236,9 @@ export function createEventFlow() {
 
 	/**
 	 * 技能熔炉：先失去选定的那一个技能，再按档位补奖励。
-	 * 经验走 applyEventCurrency（与事件结算同一份口径），换技能走 pickRandomSkillId
-	 * （与事件奖励「随机给技能」同一条排除规则），两处都不另起炉灶，免得数字漂移。
+	 * 失去走 penalty.loseSkill 的统一动作（背包删除 + 已装备的一并卸下 + 遗忘之石/贪食魔盒按件结算），
+	 * 换到手的新技能进**背包**（不自动装备，装备位满也照收）；经验走 applyEventCurrency
+	 * （与事件结算同一份口径），两处都不另起炉灶，免得数字漂移。
 	 */
 	function skillForgeFlow(action, choice, skillId, ctx, finishEvent) {
 		const lost = loseSkill(context.run, skillId, now());
@@ -246,11 +247,11 @@ export function createEventFlow() {
 			return;
 		}
 		let run = lost.run;
-		const lines = [`失去技能：${skillName(skillId)}`];
+		const lines = [`失去技能：${skillName(skillId)}`, ...lost.lines];
 		if (action.grant === "skill") {
 			const picked = pickRandomSkillId(run, ctx, Math.random);
 			if (picked) {
-				run = { ...run, skills: [...(run.skills ?? []), picked] };
+				run = { ...run, skillInventory: [...(run.skillInventory ?? []), picked] };
 				lines.push(`获得技能：${skillName(picked)}`);
 			} else {
 				lines.push("没有可学的技能，炉子只吞了不放。");

@@ -1,16 +1,15 @@
-// 商店流程：技能商店、只读技能页 / 奇物页、买技能、刷候选、升属性、买卖与升级奇物。
+// 商店流程：技能商店、技能管理页、奇物页、买技能、刷候选、升属性、买卖与升级奇物。
 // 纯数据判定在 shop.js / curioManager.js，这里只负责「算 → 落盘 → 原位刷新 UI」这条固定路线。
 // 跨模块回调（回营地、回存档页、离开模式）由 mode.js 通过 host 注入。
 
 import { lib } from "../../../../../noname.js";
 
-import { SKILL_SLOTS } from "../config.js";
-import { buySkill, checkStatUpgrade, refreshSkillOffers, rollSkillOffers, upgradeStat } from "../shop.js";
-import { buyCurio, upgradeCurio, getReplaceRewardGold, getReplaceRewardExp, toggleShopLock } from "../curioManager.js";
+import { buySkill, checkStatUpgrade, equipSkill, refreshSkillOffers, rollSkillOffers, unequipSkill, upgradeStat } from "../shop.js";
+import { buyCurio, upgradeCurio, toggleShopLock } from "../curioManager.js";
 import { getShopPool } from "../skillPool.js";
 import { commit, context, skillGate } from "../runtime.js";
 import { showNotice } from "../ui/common.js";
-import { refreshCurios, refreshShop, showReplace, showShop, showCurios, showSkills } from "../ui/hub.js";
+import { refreshCurios, refreshShop, refreshSkills, showShop, showCurios, showSkills } from "../ui/hub.js";
 
 /** 当前角色的原生技能（本体角色数据第 3 项）：商店随机时要排除，免得买到角色自带的技能 */
 export function characterSkillIds(characterId) {
@@ -38,7 +37,8 @@ export function createShopFlow(host) {
 			refreshSkills: refreshShopFlow,
 			toggleLock: toggleLockFlow,
 			openSkills,
-			openCurios,
+			// 显式钉住商店入口的返回键：奇物页的返回去处按入口记，别把营地进来的那条带过来
+			openCurios: () => openCurios(openShop),
 			buyCurio: buyCurioFlow,
 			backToHub: host.openHub,
 			backToSlots: host.openSlots,
@@ -46,20 +46,36 @@ export function createShopFlow(host) {
 		});
 	}
 
-	/** 只读的技能查看页（入口在商店顶部的「技能 n/3」资源块）：不买卖、不写存档 */
-	function openSkills() {
+	/**
+	 * 技能管理页（入口在商店顶部的「技能」资源块与营地）：装备 / 卸下已拥有的技能。
+	 * 与奇物管理页同一条路线：先改内存 run → 落盘 → 原位重绘；换装只改 run.skills，
+	 * 背包（skillInventory）不动，也绝不算「失去技能」（不触发遗忘之石/贪食魔盒）。
+	 * @param {Function} [back] 返回键的去处；商店进来回商店，营地进来回营地
+	 */
+	function openSkills(back) {
 		if (!context.run) {
 			host.openSlots();
 			return;
 		}
 		showSkills({
 			run: context.run,
-			back: openShop,
+			getRun: () => context.run,
+			setEquipped: setSkillEquippedFlow,
+			back: typeof back === "function" ? back : openShop,
 		});
 	}
 
-	/** 只读的奇物查看页（入口在商店顶部的「奇物 n」资源块）：不买卖、不写存档 */
-	function openCurios() {
+	/**
+	 * 奇物管理页（入口在商店顶部的「奇物 n」资源块与营地）：查看已拥有的奇物并花经验升品质。
+	 * 与技能管理页同一条路线：先改内存 run → 落盘 → 原位重绘；只看不点一个字节都不写。
+	 * @param {Function} [back] 返回键的去处；商店进来回商店，营地进来回营地。
+	 *   记住上一次的去处：升级后原位刷新失败要整页重绘时，仍回同一个地方
+	 */
+	let curioBack = openShop;
+	function openCurios(back) {
+		if (typeof back === "function") {
+			curioBack = back;
+		}
 		if (!context.run) {
 			host.openSlots();
 			return;
@@ -68,7 +84,7 @@ export function createShopFlow(host) {
 			run: context.run,
 			getRun: () => context.run,
 			upgradeCurio: upgradeCurioFlow,
-			back: openShop,
+			back: curioBack,
 		});
 	}
 
@@ -94,29 +110,35 @@ export function createShopFlow(host) {
 		}
 	}
 
-	function applyBuy(offerId, replaceId) {
+	/**
+	 * 装备 / 卸下：纯判定在 shop.js 的 equipSkill / unequipSkill，这里只负责落盘与原位刷新。
+	 * 失败只弹一句、零副作用；成功即 commit，然后优先原位重绘管理页（重开会把滚动位置甩回顶部）。
+	 */
+	function setSkillEquippedFlow(skillId, equipped) {
+		const result = equipped ? equipSkill(context.run, skillId) : unequipSkill(context.run, skillId);
+		if (!result.ok) {
+			showNotice([result.error]);
+			return;
+		}
+		context.run = result.run;
+		if (!commit()) {
+			return;
+		}
+		if (!refreshSkills(context.run)) {
+			openSkills();
+		}
+	}
+
+	function applyBuy(offerId) {
 		// skillGate 一起传下去：购买前做最终技能合法性校验，存档里的过期候选买不动
-		const result = buySkill(context.run, offerId, replaceId, skillGate);
+		const result = buySkill(context.run, offerId, skillGate);
 		if (!result.ok) {
 			showNotice([result.error], openShop);
 			return;
 		}
-		// 遗忘之石（金币）与贪食魔盒（经验）：只有**真的发生了替换**（槽满、老技能让位）才结账，
-		// 空槽直接买一分不给。被换掉的技能本身没有任何补偿——两件奇物吃的是「遗忘」这件事。
-		// 两笔都在扣款之后按同一份 run 现算（getBonus 看的是当前品质）
-		const stoneGold = result.removed ? getReplaceRewardGold(context.run) : 0;
-		const boxExp = result.removed ? getReplaceRewardExp(context.run) : 0;
+		// 购买只把技能放进背包（skillInventory），不自动装备、不替换任何旧技能，
+		// 因此也不再有「替换」这一下——遗忘之石/贪食魔盒只认真正失去（见 penalty.loseSkills）
 		context.run = result.run;
-		if (stoneGold > 0 || boxExp > 0) {
-			context.run = {
-				...context.run,
-				currency: {
-					...context.run.currency,
-					gold: (context.run.currency?.gold ?? 0) + stoneGold,
-					exp: (context.run.currency?.exp ?? 0) + boxExp,
-				},
-			};
-		}
 		if (!commit()) {
 			return;
 		}
@@ -124,28 +146,10 @@ export function createShopFlow(host) {
 		if (!refreshShop(context.run)) {
 			openShop();
 		}
-		const notices = [];
-		if (stoneGold > 0) {
-			notices.push(`遗忘之石把忘掉的那门技能折成了 ${stoneGold} 金币。`);
-		}
-		if (boxExp > 0) {
-			notices.push(`贪食魔盒吞下这次替换，吐回 ${boxExp} 点经验。`);
-		}
-		if (notices.length) {
-			showNotice(notices);
-		}
 	}
 
 	function buySkillFlow(offerId) {
-		if (context.run.skills.length >= SKILL_SLOTS) {
-			showReplace({
-				run: context.run,
-				confirmReplace: (id, removed) => applyBuy(id, removed),
-				backToShop: openShop,
-			}, offerId);
-			return;
-		}
-		applyBuy(offerId, null);
+		applyBuy(offerId);
 	}
 
 	function upgradeStatFlow(statId) {

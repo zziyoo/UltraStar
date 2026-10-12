@@ -307,7 +307,7 @@ export const events = {
 		image: "extension/奥特之星/assets/events/curio_forge.png",
 		choices: [
 			{
-				// 融合费 = 本层基准经验 ×3（config.FORGE_EXP_MULTIPLIER），构建期算成固定值
+				// 融合费 = 本层基准经验 ×5（config.FORGE_EXP_MULTIPLIER），构建期算成固定值
 				text: "把一件奇物投进炉子",
 				reward: {},
 				action: { kind: "curioForge" },

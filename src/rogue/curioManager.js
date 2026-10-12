@@ -32,7 +32,7 @@ export const CURIOSITY_EFFECT_KEYS = [
 	"dyingRecallChance",
 	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
 	"expRate", "goldRate", "goldRateSpread",
-	"extraShopRefresh", "extraCurioShopChance", "goldOfHeld", "goldOnReplace", "expOnReplace",
+	"extraShopRefresh", "extraCurioShopChance", "goldOfHeld", "goldOnSkillLoss", "expOnSkillLoss",
 	"lockSkillShop", "lockCurioShop",
 ];
 
@@ -204,8 +204,9 @@ const EFFECT_TEXT = {
 	extraCurioShopChance: value => `每次战斗胜利后，奇物商店的刷新概率提高 ${Math.round(Math.abs(value) * 100)}%`,
 	// 与 goldRate 分开写：那条乘的是本关基础奖励，这条乘的是你手上已有的总额，两者会叠乘
 	goldOfHeld: value => `战斗结束后额外获得当前持有金币的 ${Math.round(Math.abs(value) * 100)}%`,
-	goldOnReplace: value => `每次替换技能时获得本层胜利金币的 ${value} 倍`,
-	expOnReplace: value => `每次替换技能时获得本层胜利经验的 ${value} 倍`,
+	// v14：触发点从「替换技能」（购买不再替换）迁移到「真正失去技能」——卸下装备不算，按失去的个数逐件结算
+	goldOnSkillLoss: value => `每次失去技能时获得本层胜利金币的 ${value} 倍`,
+	expOnSkillLoss: value => `每次失去技能时获得本层胜利经验的 ${value} 倍`,
 	// 收藏家的橱窗：锁定是开关不是数值，合成一条——稀有档只锁技能商店，史诗档（lockCurioShop 在场）两店都能锁
 	lockSkillShop: (value, effects) => {
 		const both = (effects?.lockCurioShop ?? 0) > 0;
@@ -327,8 +328,8 @@ export function getMaxShopRefreshes() {
 }
 
 /**
- * 奇物品质升级价：CURIO_UPGRADE_PRICE_MULTIPLIER（5）× 本层胜利经验（floor(20×√当前关卡)），
- * 即「5 倍胜利经验」。等级越高越贵，且永远按**当前升级时**的关卡现算，
+ * 奇物品质升级价：CURIO_UPGRADE_PRICE_MULTIPLIER（10）× 本层胜利经验（floor(20×√当前关卡)），
+ * 即「10 倍胜利经验」。等级越高越贵，且永远按**当前升级时**的关卡现算，
  * 与当初买它花多少无关、与奇物基准价（那是售价口径）也无关。
  */
 export function getCurioUpgradePrice(run, id) {
@@ -609,12 +610,13 @@ export function grantCurioById(run, curioId, rng = Math.random) {
 }
 
 /**
- * 遗忘之石「替换技能时」该发的金币 = 本层胜利金币 × 效果值。
+ * 遗忘之石「失去技能时」的单件金币 = 本层胜利金币 × 效果值。
  * 关卡取 run.level，与商店给技能定价用的是同一个「当前关卡」口径（两处数字才对得上）。
- * 没有这块奇物（加成为 0）一律返回 0；调用方只在**真的发生了替换**（槽满让位）时才发这笔钱。
+ * 没有这块奇物（加成为 0）一律返回 0；调用方（penalty.loseSkills）只在**真的删掉了技能**时才发，
+ * 一次失去 N 个技能就按件累加 N 次——绝不乘 Boss 奖励倍率，也不重复套用金币加成。
  */
-export function getReplaceRewardGold(run) {
-	const mult = getBonus(run?.curios ?? [], "goldOnReplace", run?.curioQuality);
+export function getSkillLossRewardGold(run) {
+	const mult = getBonus(run?.curios ?? [], "goldOnSkillLoss", run?.curioQuality);
 	if (!(mult > 0)) {
 		return 0;
 	}
@@ -624,12 +626,12 @@ export function getReplaceRewardGold(run) {
 }
 
 /**
- * 贪食魔盒「替换技能时」该发的经验 = 本层胜利经验 × 效果值。
- * 与 getReplaceRewardGold 逐字同一条口径：关卡取 run.level（商店定价、遗石折钱都按这个数），
- * 没有这块奇物返回 0；调用方同样只在**真的发生了替换**（槽满让位）时才发。
+ * 贪食魔盒「失去技能时」的单件经验 = 本层胜利经验 × 效果值。
+ * 与 getSkillLossRewardGold 逐字同一条口径：关卡取 run.level，没有这块奇物返回 0；
+ * 调用方同样只在真的删掉了技能时才按件发。
  */
-export function getReplaceRewardExp(run) {
-	const mult = getBonus(run?.curios ?? [], "expOnReplace", run?.curioQuality);
+export function getSkillLossRewardExp(run) {
+	const mult = getBonus(run?.curios ?? [], "expOnSkillLoss", run?.curioQuality);
 	if (!(mult > 0)) {
 		return 0;
 	}

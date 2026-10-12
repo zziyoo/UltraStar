@@ -38,10 +38,18 @@ function moneyText(run) {
 	return money.length ? money.join("　") : "货币 0";
 }
 
+/** 存档卡与摘要共用的技能读数：装备栏（参加战斗的）与背包（拥有但没装备的）分开报——上限只约束装备，别把 n/3 当成总持有 */
+function skillTextOf(run) {
+	const equipped = Array.isArray(run.skills) ? run.skills : [];
+	const backpack = (Array.isArray(run.skillInventory) ? run.skillInventory : []).filter(id => !equipped.includes(id));
+	const names = equipped.length ? equipped.map(skillName).join("、") : "无";
+	return `技能（装备 ${equipped.length}/${SKILL_SLOTS} · 背包 ${backpack.length}）：${names}`;
+}
+
 function summaryLines(run) {
 	const lines = [`${RUN_MODE_LABEL[run.mode]}　${levelTextOf(run)}${run.cleared ? "（已通关）" : ""}`, translateCharacter(run.characterId)];
 	lines.push(moneyText(run));
-	lines.push(`技能（${run.skills.length}/${SKILL_SLOTS}）：${run.skills.length ? run.skills.map(skillName).join("、") : "无"}`);
+	lines.push(skillTextOf(run));
 	lines.push(STAT_IDS.map(id => `${stats[id].name} Lv.${run.stats[id] ?? 0}`).join("　"));
 	if (run.currentBattle) {
 		lines.push("有未完成战斗");
@@ -168,7 +176,7 @@ function buildSlotCard(api, index) {
 	ui.create.div(".wm-rogue-name", translateCharacter(run.characterId), body);
 	ui.create.div(".wm-rogue-time", formatTime(run.updatedAt || run.createdAt), body);
 	ui.create.div(".wm-rogue-meta", `${RUN_MODE_LABEL[run.mode]}　${levelTextOf(run)}${run.cleared ? "（已通关）" : ""}`, body);
-	ui.create.div(".wm-rogue-meta", `${moneyText(run)}　技能：${run.skills.length ? run.skills.map(skillName).join("、") : "无"}`, body);
+	ui.create.div(".wm-rogue-meta", `${moneyText(run)}　${skillTextOf(run)}`, body);
 	ui.create.div(".wm-rogue-meta", STAT_IDS.map(id => `${stats[id].name} Lv.${run.stats[id] ?? 0}`).join("　"), body);
 	if (run.currentBattle) {
 		ui.create.div(".wm-rogue-flag", "有未完成战斗", body);
