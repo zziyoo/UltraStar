@@ -2545,7 +2545,7 @@ await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的
 		await flush();
 	}
 	try {
-		// 随机钉在 0.5：既不低于事件线（0.33）也不低于奇物商店线（基础 0.15），两样都不触发，
+		// 随机钉在 0.5：既不低于事件线（0.4）也不低于奇物商店线（基础 0.15），两样都不触发，
 		// 于是每场的金币增量都恰好等于该关基准，能逐场精确对账；Boss 判定由两个 click 助手单独钉
 		Math.random = () => 0.5;
 		putRun(0, {
@@ -3499,7 +3499,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 		`换技能选项不该是「无奖励」：${skillForge.join(" / ")}`);
 	// 经验泉「再饮一口」：奖励与深渊债写同一行，并写明它是点了「饮用」之后才追问的那一句
 	const spring = openDetail("经验泉");
-	assert(spring.some(line => line.includes("获得 1 倍本层胜利经验") && line.includes(`每名敌人追加 ${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`)),
+	assert(spring.some(line => line.includes("获得 2 倍本层胜利经验") && line.includes(`每名敌人追加 ${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`)),
 		`再饮一口应连深渊债一起写：${spring.join(" / ")}`);
 	assert(spring.some(line => line.includes("再饮一口") && line.includes("点了「饮用」之后才会问这一句")),
 		`图鉴要写明第二口不是并列的按钮：${spring.join(" / ")}`);
@@ -4515,7 +4515,7 @@ await check("经验泉：事件页只有「饮用」，点完才追问「再饮�
 	assert(lib.storage.rogueSlots[0].pendingEvent, "没答应之前事件照旧挂着");
 	clickAskButton("再饮一口");
 	const drank = lib.storage.rogueSlots[0];
-	assertEqual(drank.currency.exp, 100, `两口相加（60 + 40）才落盘：${drank.currency.exp}`);
+	assertEqual(drank.currency.exp, 200, `两口相加（120 + 80）才落盘：${drank.currency.exp}`);
 	assertEqual(drank.abyssDebt, cfg.SPRING_DEBT_AFFIXES, "第二口的债记进存档");
 	assertEqual(drank.pendingEvent, null, "事件收掉");
 	click("确定");
@@ -4525,10 +4525,10 @@ await check("经验泉：事件页只有「饮用」，点完才追问「再饮�
 	click("饮用");
 	clickAskButton("不了");
 	const oneSip = lib.storage.rogueSlots[0];
-	assertEqual(oneSip.currency.exp, 60, "不喝第二口就只拿 150% 那一口");
+	assertEqual(oneSip.currency.exp, 120, "不喝第二口就只拿 300% 那一口");
 	assertEqual(oneSip.abyssDebt, 0, "拒绝了就不欠债");
 	click("确定");
-	return "两按钮 → 追问 → 两口 100 经验 + 债 / 拒了只落 60";
+	return "两按钮 → 追问 → 两口 200 经验 + 债 / 拒了只落 120";
 });
 
 await check("经验泉的债：下一场每名敌人追加词缀，开战即兑现并清零", async () => {

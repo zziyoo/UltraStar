@@ -1877,7 +1877,7 @@ check("奇物升级路线：图鉴读的就是奇物定义，每一档与实战�
 
 check("事件触发：概率判定用注入 rng，闯关绝不触发，已有事件绝不重掷", () => {
 	const endless = freshRun(cfg.RUN_MODE.endless);
-	assertEqual(cfg.EVENT_TRIGGER_RATE, 0.33, "事件触发率按规格 33%");
+	assertEqual(cfg.EVENT_TRIGGER_RATE, 0.4, "事件触发率按规格 40%");
 	assertEqual(eventManager.shouldTriggerEvent(() => cfg.EVENT_TRIGGER_RATE - 0.01), true, "低于概率触发");
 	assertEqual(eventManager.shouldTriggerEvent(() => cfg.EVENT_TRIGGER_RATE), false, "恰好等于不触发（严格小于）");
 	// 闯关：一律原样返回
@@ -3023,10 +3023,10 @@ check("经验泉：页面上只有「饮用」，点了才追问「再饮一口�
 	const spring = eventManager.buildPendingEvent("spring_of_wisdom", BASE_LEVEL, () => 0, NOW, { curios: [] });
 	assertEqual(spring.choices.length, 2, "事件页只给「饮用 / 离开」两个按钮");
 	assertEqual(spring.choices[0].text, "饮用", "第一个按钮就叫饮用");
-	assertEqual(JSON.stringify(spring.choices[0].reward), JSON.stringify({ exp: Math.round(BASE_EXP * 1.5) }), "饮用 = 150% 本层胜利经验");
+	assertEqual(JSON.stringify(spring.choices[0].reward), JSON.stringify({ exp: Math.round(BASE_EXP * 3) }), "饮用 = 300% 本层胜利经验");
 	const sip = spring.choices[0].followUp;
 	assert(sip, "「饮用」带一句追问");
-	assertEqual(JSON.stringify(sip.reward), JSON.stringify({ exp: BASE_EXP }), "再饮一口 = 在第一口之上再加 100%");
+	assertEqual(JSON.stringify(sip.reward), JSON.stringify({ exp: Math.round(BASE_EXP * 2) }), "再饮一口 = 在第一口之上再加 200%");
 	assertEqual(JSON.stringify(sip.action), JSON.stringify({ kind: "abyssDebt", perEnemy: cfg.SPRING_DEBT_AFFIXES }), "债的个数由配置注入");
 	assert(sip.text.includes(`每个敌人 +${cfg.SPRING_DEBT_AFFIXES} 个深渊强化`), `按钮上要写明代价：${sip.text}`);
 	assert(sip.question.includes("再饮一口"), `追问那句话随存档定死：${sip.question}`);
@@ -3042,18 +3042,18 @@ check("经验泉：页面上只有「饮用」，点了才追问「再饮一口�
 	// 答应：两口并成一次结算——经验相加、深渊债照记
 	const drank = eventManager.resolveEventChoice(run, 0, { followUpTaken: true }, () => 0);
 	assert(drank.ok && drank.action === null, "再饮一口在本层就结算完，不需要子页面");
-	assertEqual(drank.run.currency.exp, 5 + Math.round(BASE_EXP * 1.5) + BASE_EXP, "两口的经验一起到账");
+	assertEqual(drank.run.currency.exp, 5 + Math.round(BASE_EXP * 3) + Math.round(BASE_EXP * 2), "两口的经验一起到账");
 	assertEqual(drank.run.abyssDebt, cfg.SPRING_DEBT_AFFIXES, "债记进存档");
 	assertEqual(drank.run.pendingEvent, null, "事件收掉");
 	assert(drank.lines.some(line => line.includes("深渊强化")), `文案要写明欠了什么：${drank.lines.join(" / ")}`);
 	// 拒绝：只落第一口，一分不欠
 	const oneSip = eventManager.resolveEventChoice(run, 0, { followUpTaken: false }, () => 0);
-	assertEqual(oneSip.run.currency.exp, 5 + Math.round(BASE_EXP * 1.5), "不喝第二口就只拿第一口的经验");
+	assertEqual(oneSip.run.currency.exp, 5 + Math.round(BASE_EXP * 3), "不喝第二口就只拿第一口的经验");
 	assertEqual(oneSip.run.abyssDebt, 0, "拒绝追问就不欠债");
 	// 连着欠两次的债是累加的，不能被后一次抹掉
 	const twice = eventManager.resolveEventChoice({ ...drank.run, pendingEvent: spring }, 0, { followUpTaken: true }, () => 0);
 	assertEqual(twice.run.abyssDebt, cfg.SPRING_DEBT_AFFIXES * 2, "债累加不覆盖");
-	return `饮用 ${Math.round(BASE_EXP * 1.5)} + 再饮 ${BASE_EXP} 经验 / 追问一次 · 债 ${cfg.SPRING_DEBT_AFFIXES}`;
+	return `饮用 ${Math.round(BASE_EXP * 3)} + 再饮 ${Math.round(BASE_EXP * 2)} 经验 / 追问一次 · 债 ${cfg.SPRING_DEBT_AFFIXES}`;
 });
 
 check("属性训练场：按钮不标价，半层基准经验换随机属性，全满时只弹提示不扣钱", () => {

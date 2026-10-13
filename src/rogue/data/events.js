@@ -188,15 +188,15 @@ export const events = {
 		choices: [
 			{
 				text: "饮用",
-				reward: { expByWin: 1.5 },
+				reward: { expByWin: 3 },
 				// 页面上只有这一句「饮用」；点完才追问「再饮一口」。
-				// 第二口是在第一口之上**再加**一口（并成一次结算），倍率没有第一口划算（100% < 150%），
+				// 第二口是在第一口之上**再加**一口（并成一次结算），倍率没有第一口划算（200% < 300%），
 				// 代价是下一场每个敌人多一条深渊强化。追加几个词缀由 config.SPRING_DEBT_AFFIXES 定，
 				// 构建期注入，别在这里抄一份数字
 				followUp: {
 					text: "再饮一口",
 					question: "泉水的滋味还留在嘴里，脑袋却轻了几分。还要再饮一口吗？",
-					reward: { expByWin: 1 },
+					reward: { expByWin: 2 },
 					action: { kind: "abyssDebt" },
 				},
 			},

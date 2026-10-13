@@ -165,7 +165,7 @@ export const ENDLESS_STAT_UPGRADE_BASE = 20;
 // 以下参数只作用于无尽模式；闯关模式不触发事件、商店也没有奇物栏。
 
 /** 战斗胜利后触发事件的概率（Math.random() < EVENT_TRIGGER_RATE 即触发） */
-export const EVENT_TRIGGER_RATE = 0.33;
+export const EVENT_TRIGGER_RATE = 0.4;
 
 /**
  * 奇物定价：与技能同一条 √ 关曲线，基准价 floor 换 round（见 curioManager.getCurioBasePrice）。
