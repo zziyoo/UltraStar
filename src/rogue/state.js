@@ -617,18 +617,29 @@ export function normalizeRun(raw, options = {}) {
 	// 上限用「基础 + 全部刷新类奇物加成」，否则循环按钮给的额外次数读档后会被夹掉。
 	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, getMaxShopRefreshes(), SKILL_REFRESH_PER_LEVEL);
 
-	// v15：Boss 保底改记「上一次 Boss 战实际触发的关卡」（0 = 这一局还没出过 Boss）。
+	// v15：Boss 保底改记「上一次 Boss 战实际触发的关卡」（0 = 没有可信记录：新档，或连计数器都没有的旧档）。
 	// 判据是关卡差，所以虫洞跳关那几关照样计入保底进度；普通场一个字都不写。
-	// v14 及更早的存档只有「数场次」的 bossPityCount，按同一进度折算成关卡：旧计数记的是
-	// 「上次 Boss 之后已经打完几场普通战斗」，而当前这一关还没开打 → 那条记录等于 level-1-count
-	// （例：45 关 / 5 场 → 39：已攒 5 场，按新节奏再打 9 场、第 54 关保底到期；19 场则当场到期）。
-	// 清洗用**旧版自己的合法范围 0..19**（v14 的阈值是 20），绝不拿新阈值 BOSS_PITY_BATTLES-1 去夹：
-	// 15~19 是合法历史进度，压成 14 会把保底整体提前若干关。负数/缺失/非数字/NaN 旧版一律按 0。
-	const legacyPityCount = clampInt(raw.bossPityCount, 0, LEGACY_BOSS_PITY_COUNT_MAX, 0);
-	const savedBossPityLevel = toInt(raw.bossPityLevel, NaN);
-	// 已经有 bossPityLevel 的存档（v15 及以后，包括已经折算过一次的）以它为准，旧计数器不参与——
-	// 新档 level=1 记录 0 折出 0，与「第 15 关必出」的新口径逐字一致
-	const bossPityLevel = clampInt(Number.isFinite(savedBossPityLevel) ? savedBossPityLevel : level - 1 - legacyPityCount, 0, level, 0);
+	// 三层判定，顺序固定、互不越级（旧存档三种状态必须分得开：字段不存在 / 存在但非法 / 合法且为 0）：
+	//   ① 已经是 v15 形状：bossPityLevel 是**真的有限数字** → 夹到 [0, 本关] 后直接用。
+	//      旧计数器一概不参与，所以已经折算过的存档绝不会被二次迁移。
+	//   ② 只有 v14 的计数器：bossPityCount 是**真的有限数字**（旧存档里合法值只会是数字，
+	//      null / 字符串 / NaN / Infinity 都不算「有记录」）→ 按 v14 自己的合法范围 0..19 清洗
+	//      （负数归 0、超范围夹 19，沿用旧版清洗口径）→ 折算 level-1-count → 再夹到 [0, 本关]。
+	//      旧计数记的是「上次 Boss 之后已经打完几场普通战斗」；例：45 关 / 5 场 → 39（已攒 5 场，
+	//      按新节奏再打 9 场、第 54 关保底到期），19 场则当场到期。
+	//      上界必须用旧版的 0..19，不能拿新阈值 BOSS_PITY_BATTLES-1 去夹——那会把 15~19 压成 14。
+	//   ③ 两者都没有可信值（v13 及更早连字段都不存在；或是 null / 字符串 / NaN 这类脏值）→
+	//      按兼容约定补 0，**绝不拿「当前关卡很高」反推一条假记录**。
+	//      注意 0 只表示「没有记录」，不是「刚出过 Boss」：高关卡的无记录旧档读进来会很快（甚至当场）吃到保底。
+	// 旧计数器只认「确实是 v14 及更早的档」（15 = 引入 bossPityLevel 的那一版）：v15 及以后的档一律以
+	// bossPityLevel 为准，哪怕它缺失或非法也不回头吃旁边的旧字段——否则等于对已迁移的档再迁一次。
+	const savedBossPityLevel = typeof raw.bossPityLevel === "number" && Number.isFinite(raw.bossPityLevel) ? raw.bossPityLevel : NaN;
+	const savedVersion = toInt(raw.version, 0);
+	const legacyPityCount = savedVersion < 15 && typeof raw.bossPityCount === "number" && Number.isFinite(raw.bossPityCount)
+		? clampInt(raw.bossPityCount, 0, LEGACY_BOSS_PITY_COUNT_MAX, 0)
+		: null;
+	const migratedPityLevel = legacyPityCount === null ? 0 : level - 1 - legacyPityCount;
+	const bossPityLevel = clampInt(Number.isFinite(savedBossPityLevel) ? savedBossPityLevel : migratedPityLevel, 0, level, 0);
 
 	return {
 		version: RUN_VERSION,

@@ -2714,7 +2714,7 @@ await check("v11 旧档迁移：整局 bossRun 只折算进正在进行的这一
 	}
 });
 
-await check("10-06 实机旧档（存档 v9，无尽 45 关）：迁移后连续三场战斗逐场掷 Boss，中与不中各判各的", async () => {
+await check("10-06 实机旧档（存档 v9，无尽 45 关）：无保底记录按 0 起算 → 第一场直接吃保底，之后逐场各掷各的", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
@@ -2728,49 +2728,33 @@ await check("10-06 实机旧档（存档 v9，无尽 45 关）：迁移后连续
 		assertEqual(slot.version, 9, "读档这一刻存档还是原始 v9（尚未被任何写入覆盖）");
 		assertEqual(slot.bossRun, undefined, "v9 旧档本来就没有整局 bossRun 字段");
 		assert(screenText().includes("开始下一关"), `确认提示后应落在营地：${screenText()}`);
-		// ---- 第 1 场：这一掷不抽中 → 普通场，阵容按 45 关 3 人
-		clickNormalBattle();
+		// ---- 第 1 场：这份旧档两个保底字段都没有 → 折 0；45 关距「上次 Boss」早已超过 15 关，
+		// 判定前置于概率：把随机源钉成「永远掷不中」也照样吃保底（保底路径不消费随机源）
+		Math.random = () => 1;
+		click("开始下一关");
+		Math.random = () => 0.5;
 		await flush();
 		slot = lib.storage.rogueSlots[0];
 		assertEqual(slot.version, cfg.RUN_VERSION, "开战落盘后版本升到当前");
 		assertEqual(slot.bossRun, undefined, "新代码不再写整局字段，旧档也不会被补一个");
-		assertEqual(slot.currentBattle.isBossBattle, false, "旧档第 1 场照样逐场掷：这一掷没抽中");
-		assertEqual(slot.currentBattle.enemies.length, enemyModule.getEnemyCount(45, "endless"), "45 关 3 名敌人");
-		assert(slot.currentBattle.enemies.every(enemy => enemy.boss !== true), "普通场没有一个按 Boss 规则落地（缺省不写 boss 字段）");
-		for (const player of game.players.slice(1)) {
-			player.__alive = false;
-		}
-		lib.element.player.dieAfter.call(game.players[1]);
-		await flush();
-		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currentBattle, null, "第 1 场结算后战斗标记清空（Boss 身份随之消失）");
-		assertEqual(slot.level, 46, "关卡照常推进");
-		assertEqual(slot.curioOffers.length, 0, "奇物商店这一掷（0.5）未命中 → 旧批次清空");
-		assertEqual(slot.pendingEvent, null, "事件判定未命中");
-		click("返回营地");
-		session();
-		ensureAceInRoster();
-		// ---- 第 2 场：同一份旧档，这一掷抽中 → 单 Boss，金币 20 倍 / 经验 8 倍，奇物商店仍按概率
-		clickBossBattle();
-		await flush();
-		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currentBattle.isBossBattle, true, "第 2 场独立掷中 Boss（不继承第 1 场的 false）");
-		assertEqual(slot.currentBattle.enemies.length, 1, "抽中即换单 Boss 阵容");
+		assertEqual(slot.currentBattle.isBossBattle, true, "无记录旧档（0）第 1 场就是保底 Boss（不掷骰）");
+		assertEqual(slot.currentBattle.enemies.length, 1, "保底场即单 Boss 阵容");
 		assertEqual(slot.currentBattle.enemies[0].boss, true, "boss 标记随阵容落盘");
-		const goldBefore2 = slot.currency.gold;
-		const expBefore2 = slot.currency.exp;
+		assertEqual(slot.bossPityLevel, 45, "Boss 记录翻到第 45 关");
+		const goldBefore1 = slot.currency.gold;
+		const expBefore1 = slot.currency.exp;
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
 		}
 		lib.element.player.dieAfter.call(game.players[1]);
 		await flush();
 		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currency.gold - goldBefore2, rewardsData.getEndlessReward(46, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 = 20 倍基准");
-		assertEqual(slot.currency.exp - expBefore2, rewardsData.getEndlessReward(46, ["exp"]).exp * cfg.BOSS_EXP_MULTIPLIER, "Boss 场经验 = 8 倍基准");
+		assertEqual(slot.currency.gold - goldBefore1, rewardsData.getEndlessReward(45, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 = 20 倍基准");
+		assertEqual(slot.currency.exp - expBefore1, rewardsData.getEndlessReward(45, ["exp"]).exp * cfg.BOSS_EXP_MULTIPLIER, "Boss 场经验 = 8 倍基准");
 		assertEqual(slot.curioOffers.length, 0, "Boss 场胜利不再固定刷新奇物商店：rng=0.5 未命中");
 		assert(screenText().includes("BOSS 战的代价"), `旧档的 Boss 胜利也自动进惩罚页：${screenText().slice(0, 200)}`);
 		assertEqual(nodesWithClass("wm-rogue-res-num").map(node => textOf(node)).join(","),
-			`+${rewardsData.getEndlessReward(46, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER},+${rewardsData.getEndlessReward(46, ["exp"]).exp * cfg.BOSS_EXP_MULTIPLIER}`,
+			`+${rewardsData.getEndlessReward(45, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER},+${rewardsData.getEndlessReward(45, ["exp"]).exp * cfg.BOSS_EXP_MULTIPLIER}`,
 			"惩罚页顶上给出这一场的金币/经验");
 		assertEqual(JSON.stringify(slot.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: false, needCurio: true }), "技能已自动清算，欠项只剩奇物");
 		assertEqual(JSON.stringify(slot.skills), JSON.stringify([]), "旧档装备的三个技能当场全部失去");
@@ -2779,6 +2763,28 @@ await check("10-06 实机旧档（存档 v9，无尽 45 关）：迁移后连续
 		slot = lib.storage.rogueSlots[0];
 		assertEqual(slot.pendingBossPenalty, null, "惩罚照常可结清");
 		assert(!slot.skillInventory.includes("own_one"), "失去的技能不会再回来");
+		assertEqual(slot.level, 46, "关卡照常推进");
+		assertEqual(slot.pendingEvent, null, "事件判定未命中");
+		// 付清后按既有写法直接重载（惩罚页与结算页的出口在这里不用点按钮，重载后按存档继续）
+		session();
+		ensureAceInRoster();
+		// ---- 第 2 场：记录翻到 45，距保底还远（46-45=1）→ 回到逐场掷：这一掷（0.5）不抽中就是普通场
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, false, "第 2 场照样逐场掷：这一掷没抽中");
+		assertEqual(slot.currentBattle.enemies.length, enemyModule.getEnemyCount(46, "endless"), "46 关按普通关生成阵容");
+		assert(slot.currentBattle.enemies.every(enemy => enemy.boss !== true), "普通场没有一个按 Boss 规则落地（缺省不写 boss 字段）");
+		assertEqual(slot.bossPityLevel, 45, "普通场一个字都不写：记录仍是 45");
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle, null, "第 2 场结算后战斗标记清空（Boss 身份随之消失）");
+		assertEqual(slot.curioOffers.length, 0, "奇物商店这一掷（0.5）未命中 → 旧批次清空");
+		click("返回营地");
 		session();
 		ensureAceInRoster();
 		// ---- 第 3 场：再回到普通场，标记不跨场
@@ -2795,7 +2801,7 @@ await check("10-06 实机旧档（存档 v9，无尽 45 关）：迁移后连续
 		slot = lib.storage.rogueSlots[0];
 		assertEqual(slot.curioOffers.length, 0, "第 3 场同样按概率判定（rng=0.5 未命中）");
 		assertEqual(slot.level, 48, "三场结束关卡推进到 48");
-		return "普通(45)→Boss(46, 金20×/经验8×)→普通(47)，中与不中各判各的、商店一律按概率";
+		return "无记录旧档 → Boss(45, 保底·金20×/经验8×+惩罚页)→ 普通(46)→普通(47)，之后各判各的、商店一律按概率";
 	} finally {
 		Math.random = originalRandom;
 	}
@@ -4742,6 +4748,9 @@ await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「�
 		};
 		putLegacyRaw(0, realV9Run({
 			level: 15,
+			// 本用例只验商人链路：把保底记录摆在上一关（无记录旧档在第 15 关会当场吃保底，
+			// 那是「实机旧档」用例的断言范围），免得这一场的普通/ Boss 身份被保底抢走
+			bossPityLevel: 14,
 			pendingEvent: merchantEvent,
 			curioOffers: [
 				{ id: "breath_belt", price: 210 },

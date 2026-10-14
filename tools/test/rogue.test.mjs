@@ -3943,23 +3943,35 @@ check("Boss 保底：距上次 Boss 满 15 关必出、虫洞跳关计入进度�
 	assertEqual(legacyV14(14).bossPityLevel, 30, "45 关 / 旧计数 14 → 30");
 	assertEqual(legacyV14(15).bossPityLevel, 29, "45 关 / 旧计数 15 → 29（合法旧计数必须原样保留）");
 	assertEqual(legacyV14(19).bossPityLevel, 25, "45 关 / 旧计数 19 → 25（v14 的合法上界）");
-	// 旧版清洗规则：负数 / 非数字 / NaN 一律按 0 起算，绝不产出非法关卡记录
-	assertEqual(legacyV14(-5).bossPityLevel, 44, "负数按旧版规则归 0");
-	assertEqual(legacyV14("x").bossPityLevel, 44, "非数字按旧版规则归 0");
-	assertEqual(legacyV14(NaN).bossPityLevel, 44, "NaN 按旧版规则归 0");
-	const noCount = { ...freshRun(cfg.RUN_MODE.endless), version: 14, level: 45 };
-	delete noCount.bossPityLevel;
-	assertEqual(state.normalizeRun(noCount).bossPityLevel, 44, "计数器整个缺失也按 0 起算（结果仍是合法关卡记录）");
-	// 超出 v14 合法范围：夹到 19；折出的负数一律归 0（低关卡 + 满计数也不出现非法记录）
-	assertEqual(legacyV14(99).bossPityLevel, 25, "超范围夹到旧上界 19，不越界");
+	// 数字但越界：按 v14 自己的 0..19 清洗（负数归 0、超范围夹 19）后照常折算——它确实是一个旧计数器
+	assertEqual(legacyV14(-5).bossPityLevel, 44, "负数按旧版清洗归 0 后折算");
+	assertEqual(legacyV14(99).bossPityLevel, 25, "超范围夹到旧上界 19 后折算，不越界");
 	assertEqual(legacyV14(99, 10).bossPityLevel, 0, "第 10 关 + 满计数：折出负数归 0");
+	// 不是数字的脏值（null / 字符串 / NaN）不算「有记录」——不能拿默认值 0 冒充一个合法的旧计数
+	assertEqual(legacyV14(null).bossPityLevel, 0, "null 不是可信计数 → 视同没有记录");
+	assertEqual(legacyV14("x").bossPityLevel, 0, "非数字不是可信计数 → 视同没有记录");
+	assertEqual(legacyV14(NaN).bossPityLevel, 0, "NaN 不是可信计数 → 视同没有记录");
+	// 场景 A（本轮修复点）：v13 及更早的存档两个字段都不存在 → 补 0，绝不拿当前关卡反推历史记录
+	const rawV13 = { ...freshRun(cfg.RUN_MODE.endless), version: 13, level: 45 };
+	delete rawV13.bossPityLevel;
+	delete rawV13.bossPityCount;
+	assertEqual(state.normalizeRun(rawV13).bossPityLevel, 0, "第 45 关的 v13 旧档：没有记录就是 0（不是 44）");
+	// 场景 D：新版记录缺失或非法时同样不产出非法值（按「没有记录」补 0）
+	const missingLevel = { ...freshRun(cfg.RUN_MODE.endless), level: 45, bossPityLevel: null };
+	assertEqual(state.normalizeRun(missingLevel).bossPityLevel, 0, "bossPityLevel 为 null → 按没有记录补 0");
+	// 脏值全表扫一遍：无论输入什么，结果都只能是 [0, 本关] 的整数，绝不出现 NaN 或负数
+	for (const [label, count] of [["缺失", undefined], ["null", null], ["字符串", "x"], ["NaN", NaN], ["负数", -5], ["超范围", 99], ["合法 0", 0], ["合法 7", 7]]) {
+		const out = legacyV14(count).bossPityLevel;
+		assert(Number.isInteger(out) && out >= 0 && out <= 45, `${label}(${String(count)}) 必须是 [0, 45] 的整数，实际 ${out}`);
+	}
 	// 已经折算过一次的存档不再迁移：v15 的 bossPityLevel 说了算，旁边压着的旧计数器不参与
 	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 45, bossPityLevel: 25, bossPityCount: 0 }).bossPityLevel, 25, "v15 存档以关卡记录为准，旧计数器不参与");
 	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 45, bossPityLevel: 0, bossPityCount: 19 }).bossPityLevel, 0, "新记录哪怕是 0 也不被旧计数器翻案");
-	// 折算的可见后果：45 关 / 旧计数 19 的旧档读进来就是「保底已到期」，下一场直接是 Boss
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 45, bossPityLevel: null, bossPityCount: 19 }).bossPityLevel, 0, "v15 档的关卡记录非法时也不回头吃旧计数器（不得重复迁移）");
+	// 折算的可见后果：记录只看关卡差，所以「保底到期」的旧档下一场直接是 Boss
 	assertEqual(enemy.shouldBossBattle(45, legacyV14(19).bossPityLevel, () => 0.999), true, "旧计数 19 → 45-25=20 ≥ 15，保底已到期");
 	assertEqual(enemy.shouldBossBattle(45, legacyV14(0).bossPityLevel, () => 0.999), false, "旧计数 0 → 45-44=1，离保底还早，仍按概率");
-	assertEqual(state.normalizeRun({ ...freshRun(), version: 13 }).bossPityLevel, 0, "v13 及更早连计数器都没有，补 0");
+	assertEqual(enemy.shouldBossBattle(45, state.normalizeRun(rawV13).bossPityLevel, () => 0.999), true, "v13 无记录旧档（0）→ 45-0 ≥ 15，保底已到期（0 只表示没有记录，不是刚出过 Boss）");
 	assertEqual(state.normalizeRun({ ...freshRun(), bossPityLevel: -5 }).bossPityLevel, 0, "负值归零");
 	assertEqual(state.normalizeRun({ ...freshRun(), level: 9, bossPityLevel: 99 }).bossPityLevel, 9, "未来的关卡不认，夹到本关");
 	assertEqual(state.normalizeRun({ ...freshRun(), bossPityLevel: "x" }).bossPityLevel, 0, "非法值按「还没出过」处理");
@@ -4043,9 +4055,10 @@ check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对�
 	assertEqual(old.pendingEvent, null, "无待处理事件");
 	assertEqual(old.pendingBossPenalty, null, "无待处理惩罚");
 	assertEqual(old.abyssDebt, 0, "无深渊债");
-	// 这份旧档既没有 v14 的计数器也没有 v15 的关卡记录 → 按 45-1-0=44 折算：
-	// 与 v14 当时「补齐 count=0」的处理落在同一天（第 59 关保底），旧档的保底进度不因换口径而变
-	assertEqual(old.bossPityLevel, 44, "保底记录按「本关 -1 -计数」折算（旧档从没数过 Boss → 44）");
+	// 这份旧档既没有 v14 的计数器也没有 v15 的关卡记录 → 没有可信的历史记录，按兼容约定补 0，
+	// 绝不拿 45 关反推出一条假记录。注意 0 只表示「没有记录」而不是「刚出过 Boss」：
+	// 这一档的下一场就是保底到期（45-0 ≥ 15），这是本轮口径的直接后果
+	assertEqual(old.bossPityLevel, 0, "两个保底字段都没有 → 补 0（不按当前关卡反推）");
 	assertEqual(JSON.stringify(old.curioOfferQueue), "[]", "无压着的候选批次");
 	// ③ 进度照原样保留：等级/资源/奇物/品质/属性/刷新额度都不能被「迁移」洗掉
 	assertEqual(old.level, 45, "关卡保留");
