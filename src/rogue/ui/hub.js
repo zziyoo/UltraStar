@@ -118,11 +118,16 @@ function clearChildren(node) {
 	}
 }
 
-/** 技能管理页的一张技能卡：出处 + 名字 + 完整描述 + 一个动作按钮（装备 / 卸下 / 装备已满） */
+/** 技能管理页的一张技能卡：出处 + 名字 + 描述 + 一个动作按钮（装备 / 卸下 / 装备已满）。
+ * 与技能商店的卡片逐字同版式：描述同样限高约 5 行（`.wm-rogue-shop-desc` 自己那条），
+ * 长描述不再把卡片撑高；完整文本照商店的交互——点卡片弹层看（按钮的点击会阻止冒泡，不会连带打开） */
 function buildSkillManageCard(parent, id, action) {
 	const card = ui.create.div(".wm-rogue-shop-card", parent);
 	addSkillHead(card, id);
-	ui.create.div(".wm-rogue-shop-desc.wm-rogue-desc-full", skillInfo(id) || "（该技能没有描述）", card);
+	const intro = skillInfo(id);
+	const desc = ui.create.div(".wm-rogue-shop-desc", intro || "（该技能没有描述）", card);
+	desc.title = intro || "（该技能没有描述）";
+	bindOverlayTap(card, () => showNotice([skillName(id), intro || "（该技能没有描述）"]));
 	const foot = ui.create.div(".wm-rogue-shop-foot", card);
 	const button = addOverlayButton(action.label, foot, () => action.onClick(), "wm-rogue-skill-btn");
 	if (action.disabled) {

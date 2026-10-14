@@ -1711,7 +1711,7 @@ await check("满槽购买：直接进背包、绝不弹替换页，装备一个�
 	return "满槽购买进背包 + 资源块口径 + 参战集合";
 });
 
-await check("技能管理页：超长描述与 poptip 都不撑爆页面、不漏原始标签", async () => {
+await check("技能管理页：超长描述与 poptip 都不撑爆页面、不漏原始标签，卡片与技能商店同一条版式", async () => {
 	putRun(0, {
 		skills: ["own_long", "own_poptip", "own_one"],
 		skillInventory: ["own_long", "own_poptip", "own_one", "own_two"],
@@ -1728,13 +1728,23 @@ await check("技能管理页：超长描述与 poptip 都不撑爆页面、不�
 	const text = screenText();
 	assertEqual(nodesWithClass("wm-rogue-shop-card").length, 4, "三张装备卡 + 一张背包卡，长描述不会把别的卡片挤掉");
 	assert(!text.includes("<noname-poptip"), `不得泄漏原始标签：${text.slice(0, 200)}`);
-	assert(text.includes("很长很长的技能描述"), "长描述正常展示（限高滚动在 CSS 层）");
-	// 管理页的卡片一律显示完整描述（装备与背包两栏同一条口径）
-	assertEqual(nodesWithClass("wm-rogue-desc-full").length, 4, "每张卡都用完整描述版式");
+	assert(text.includes("很长很长的技能描述"), "长描述文本照常进 DOM（限高在 CSS 层）");
+	// 与技能商店同一条版式：描述走 .wm-rogue-shop-desc 自己的限高，不再有「完整描述」撑高卡片的版本
+	assertEqual(nodesWithClass("wm-rogue-shop-desc").length, 4, "四张卡的描述都是商店那一条 rule");
+	assertEqual(nodesWithClass("wm-rogue-desc-full").length, 0, "不再用不限高的完整描述版式");
+	// 完整文本照商店的交互看：点卡片弹层（装备/卸下的按钮点击阻止冒泡，不会连带打开）
+	clickNode(nodesWithClass("wm-rogue-shop-card")[0]);
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "点卡片应弹完整描述");
+	assert(screenText().includes("很长很长的技能描述"), "弹层里是完整描述");
+	nodesWithClass("wm-rogue-popup")[0].remove();
+	clickNode(nodesWithClass("wm-rogue-skill-btn")[0]);
+	await flush();
+	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "动作按钮不应连带打开描述");
+	assert(!lib.storage.rogueSlots[0].skills.includes("own_long"), "卸下照常生效，卡片级点开弹层没有挡住按钮动作");
 	click("返回");
 	await flush();
 	assert(screenText().includes("技能商店"), "返回应回到商店");
-	return "长描述 + poptip（管理页版式）";
+	return "长描述 + poptip（管理页与商店同版式）";
 });
 
 await check("属性卡：三项且防御把体力上限一起算，不得多出「体力」卡", async () => {
@@ -2356,7 +2366,7 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 		assertEqual(won.curioOffers.length, 0, "Boss 战胜利不再固定刷新奇物商城（rng=0.5 未命中，与普通场同一条概率）");
 		const text = screenText();
 		assert(text.includes("Boss 战 · 战斗胜利"), `结算页标题：${text}`);
-		assert(text.includes("当前没有装备技能可失去") && text.includes("当前没有奇物可失去"), `空列表的安全话术：${text}`);
+		assert(text.includes("当前没有装备技能可失去") && text.includes("也没有奇物可失去"), `空列表的安全话术（技能与奇物合并在一条里）：${text}`);
 		assertEqual(lib.storage.rogueSlots[0].pendingBossPenalty, null, "没东西可失去时不挂待处理惩罚，也不弹选择页");
 		// 再来一场：装备着技能、也带着奇物——技能惩罚**当场自动**执行（失去全部装备技能、从背包一并删除），
 		// 只剩奇物那一项由玩家自己挑（v14）。存档里已经没有 bossRun 了——本场是不是 Boss 战完全取决于创建它时的判定
@@ -2390,7 +2400,11 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 		// Boss 胜利直接落在惩罚页：中间那张结算页不再出现（奖励已随 settleVictory 落盘，这里只补一次跳转）
 		assert(!screenText().includes("Boss 战 · 战斗胜利"), `不该再有中间的胜利结算页：${screenText()}`);
 		const jumpText = screenText();
-		assert(jumpText.includes("BOSS 战的代价"), `胜利结算后自动打开惩罚选择页：${jumpText.slice(0, 160)}`);
+		// 顶部大标题与固定说明已删除：页面身份由合并后的代价句 + 「失去一件奇物」栏认；
+		// 两条旧提示合成一条，页面上只占一个提示位（件数按结算结果现写，不写死）
+		assert(jumpText.includes("Boss 战的代价：失去了全部 3 个装备技能，并需要从你的奇物中选择一件失去。"),
+			`胜利结算后自动打开惩罚选择页：${jumpText.slice(0, 160)}`);
+		assertEqual(jumpText.split("Boss 战的代价").length - 1, 1, "「Boss 战的代价」只剩一条提示，不再重复占位");
 		assert(jumpText.includes("已通关第 2 关"), `惩罚页要把刚打赢的关卡带上：${jumpText}`);
 		// 本场奖励用临时数据展示（第 2 关基准 70 金币 / 28 经验：×20 与 ×8）
 		assertEqual(nodesWithClass("wm-rogue-res-num").map(node => textOf(node)).join(","), "+1400,+224",
@@ -2399,6 +2413,12 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 		// 版式：Boss 专属浮层 + 只剩奇物一栏 + 每件一张可点卡片（技能自选栏已删除）
 		assertEqual(nodesWithClass("wm-rogue-boss-overlay").length, 1, "页面走自建浮层体系（不依赖本体全屏 Dialog）");
 		assertEqual(nodesWithClass("wm-rogue-boss").length, 1, "浮层里是居中面板");
+		// 顶部大标题/固定说明/分隔线已删除：奖励结算容器上移成面板第一块，原区域不留空白高度
+		const bossPanel = nodesWithClass("wm-rogue-boss")[0];
+		assertEqual(bossPanel.children[0].classList.contains("wm-rogue-boss-reward"), true, "奖励结算容器紧贴面板顶部（面板第一块）");
+		assertEqual(nodesWithClass("wm-rogue-boss-title").length, 0, "顶部大标题已删除");
+		assertEqual(nodesWithClass("wm-rogue-boss-subtitle").length, 0, "固定说明已删除");
+		assertEqual(nodesWithClass("wm-rogue-boss-divider").length, 0, "分隔线一并删除");
 		assertEqual(nodesWithClass("wm-rogue-boss-body").length, 1, "正文独立滚动区");
 		assertEqual(nodesWithClass("wm-rogue-boss-col").length, 1, "只剩奇物一栏（技能自动清算，不再列技能卡）");
 		assertEqual(nodesWithClass("wm-rogue-boss-col-title").map(node => textOf(node)).join(","), "失去一件奇物", "栏题");
@@ -2409,7 +2429,9 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 		// 临时奖励数据不在存档里，所以这一趟它必然缺失，页面要照常能用
 		session();
 		const pageText = screenText();
-		assert(pageText.includes("BOSS 战的代价"), `读档直接回到待处理惩罚页：${pageText.slice(0, 120)}`);
+		// 大标题删掉后按面板与奇物栏认页：恢复路径没有临时奖励数据，合并的代价句不出现，照常能付
+		assertEqual(nodesWithClass("wm-rogue-boss").length, 1, `读档直接回到待处理惩罚页：${pageText.slice(0, 120)}`);
+		assert(pageText.includes("失去一件奇物"), `惩罚页的奇物栏照常在：${pageText.slice(0, 160)}`);
 		assertEqual(nodesWithClass("wm-rogue-res-num").length, 0, "恢复的路径没有临时奖励数据，也只说明「已入账」");
 		assert(pageText.includes("奖励与关卡进度都已入账"), `缺失临时数据时的说法：${pageText.slice(0, 200)}`);
 		assert(pageText.includes("能量核心（稀有）"), `惩罚页要列出真实持有的奇物：${pageText}`);
@@ -2598,7 +2620,8 @@ await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的
 		assertEqual(JSON.stringify(slot.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: false, needCurio: true }), "结算只挂奇物那一项欠账");
 		// 奖励落盘之后直接进惩罚页：既没有中间结算页可点，也不能把奖励悄悄吞掉
 		assert(!screenText().includes("Boss 战 · 战斗胜利"), `有欠项时不再打开中间结算页：${screenText().slice(0, 200)}`);
-		assert(screenText().includes("BOSS 战的代价"), `Boss 胜利自动打开惩罚选择页：${screenText().slice(0, 200)}`);
+		assert(screenText().includes("Boss 战的代价：失去了全部 2 个装备技能，并需要从你的奇物中选择一件失去。"),
+			`Boss 胜利自动打开惩罚选择页（两条旧提示已合成一条）：${screenText().slice(0, 200)}`);
 		assertEqual(nodesWithClass("wm-rogue-res-num").map(node => textOf(node)).join(","),
 			`+${base.gold * cfg.BOSS_REWARD_MULTIPLIER},+${base.exp * cfg.BOSS_EXP_MULTIPLIER}`, "惩罚页顶上给出本场金币/经验");
 		// 结清这一场的惩罚（只剩奇物那一件），才能接着打第 3 场
@@ -2752,7 +2775,8 @@ await check("10-06 实机旧档（存档 v9，无尽 45 关）：无保底记录
 		assertEqual(slot.currency.gold - goldBefore1, rewardsData.getEndlessReward(45, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 = 20 倍基准");
 		assertEqual(slot.currency.exp - expBefore1, rewardsData.getEndlessReward(45, ["exp"]).exp * cfg.BOSS_EXP_MULTIPLIER, "Boss 场经验 = 8 倍基准");
 		assertEqual(slot.curioOffers.length, 0, "Boss 场胜利不再固定刷新奇物商店：rng=0.5 未命中");
-		assert(screenText().includes("BOSS 战的代价"), `旧档的 Boss 胜利也自动进惩罚页：${screenText().slice(0, 200)}`);
+		assert(screenText().includes("Boss 战的代价：失去了全部 3 个装备技能，并需要从你的奇物中选择一件失去。"),
+			`旧档的 Boss 胜利也自动进惩罚页（件数按实际清算的 3 个现写）：${screenText().slice(0, 200)}`);
 		assertEqual(nodesWithClass("wm-rogue-res-num").map(node => textOf(node)).join(","),
 			`+${rewardsData.getEndlessReward(45, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER},+${rewardsData.getEndlessReward(45, ["exp"]).exp * cfg.BOSS_EXP_MULTIPLIER}`,
 			"惩罚页顶上给出这一场的金币/经验");
@@ -3023,7 +3047,8 @@ await check("矛盾存档对齐：整场与敌人标记冲突时按规则归一�
 		assertEqual(slot.curios.length, 1, "奇物还没失去（等玩家挑）");
 		assertEqual(slot.pendingBossPenalty.needSkill, false, "技能已自动清算，欠项标记写 false");
 		assertEqual(slot.pendingBossPenalty.needCurio, true, "只欠奇物那一件");
-		assert(screenText().includes("BOSS 战的代价"), `补齐后的 Boss 胜利直接进惩罚页：${screenText().slice(0, 160)}`);
+		assert(screenText().includes("Boss 战的代价：失去了全部 2 个装备技能，并需要从你的奇物中选择一件失去。"),
+			`补齐后的 Boss 胜利直接进惩罚页：${screenText().slice(0, 160)}`);
 		assert(!screenText().includes("Boss 战 · 战斗胜利"), "有欠项的这一场不停在中间结算页");
 		payBossPenalty();
 		assertEqual(lib.storage.rogueSlots[0].skills.length, 0, "技能早已清算，奇物罚完不再动技能");
@@ -5027,15 +5052,17 @@ await check("Boss 惩罚：技能自动清算、奇物自选；没有对象就�
 		assertEqual(owed.pendingBossPenalty, null, "奇物没有对象 → 不挂欠项、不建惩罚页");
 		const page = screenText();
 		assert(page.includes("Boss 战 · 战斗胜利"), `没欠项就停在胜利结算页：${page.slice(0, 160)}`);
-		assert(page.includes("失去了全部 2 个装备技能"), `结算页写明技能已失去：${page.slice(0, 220)}`);
-		assert(page.includes("当前没有奇物可失去"), `奇物那一项按规则带过：${page.slice(0, 260)}`);
-		assert(!page.includes("BOSS 战的代价：接下来"), "没有奇物就不该再挂着自选流程");
+		// 技能与奇物合成一条代价提示：件数按结算现写、奇物没有对象照实说；同一句不得重复出现
+		assert(page.includes("Boss 战的代价：失去了全部 2 个装备技能，当前没有奇物可失去。"), `结算页写明技能已失去、奇物带过：${page.slice(0, 220)}`);
+		assertEqual(page.split("Boss 战的代价").length - 1, 1, "两条旧提示已合成一条");
+		assert(!page.includes("需要从你的奇物中选择一件失去"), "没有奇物就不该再挂着自选流程");
 		assertEqual(nodesWithClass("wm-rogue-boss-card").length, 0, "不建惩罚页：一张可点卡片都没有");
 		// ② 反过来：一件技能都没有、只有奇物——技能那半自动完成（没有对象、零话术），只剩奇物自选
 		putInventory([], ["energy_core", "lucky_stone"]);
 		await winBossBattle();
 		const curioOnly = screenText();
-		assert(curioOnly.includes("BOSS 战的代价"), `胜利后自动进惩罚页：${curioOnly.slice(0, 160)}`);
+		assert(curioOnly.includes("Boss 战的代价：当前没有装备技能可失去，需要从你的奇物中选择一件失去。"),
+			`胜利后自动进惩罚页（合并句里技能那半照实写「没有」）：${curioOnly.slice(0, 160)}`);
 		assert(curioOnly.includes("当前没有装备技能可失去"), `技能清算的账目依旧要交代：${curioOnly.slice(0, 260)}`);
 		assert(!curioOnly.includes("点击失去这个技能"), "技能栏整个不存在，不给卡片");
 		assertEqual(nodesWithClass("wm-rogue-boss-card").length, 2, "两张奇物卡");
@@ -5050,9 +5077,10 @@ await check("Boss 惩罚：技能自动清算、奇物自选；没有对象就�
 		await winBossBattle();
 		const noneText = screenText();
 		assertEqual(lib.storage.rogueSlots[0].pendingBossPenalty, null, "没东西可失去就不挂欠项");
-		assert(!noneText.includes("BOSS 战的代价"), `不该出现空的惩罚页：${noneText.slice(0, 160)}`);
+		assertEqual(nodesWithClass("wm-rogue-boss").length, 0, `不该出现空的惩罚页：${noneText.slice(0, 160)}`);
 		assert(noneText.includes("Boss 战 · 战斗胜利"), `这一场仍走原胜利结算页：${noneText.slice(0, 160)}`);
-		assert(noneText.includes("当前没有装备技能可失去") && noneText.includes("当前没有奇物可失去"), `结算页要写明原因：${noneText}`);
+		assert(noneText.includes("Boss 战的代价：当前没有装备技能可失去，也没有奇物可失去。"), `结算页要合并写明原因：${noneText}`);
+		assertEqual(noneText.split("Boss 战的代价").length - 1, 1, "两类都没有对象时也只剩一条代价提示");
 		// ④ v13 旧档 needSkill: false：旧版技能惩罚早已兑现，读档不得再追加一次全装备清除
 		putRun(0, {
 			mode: "endless",
@@ -5066,7 +5094,8 @@ await check("Boss 惩罚：技能自动清算、奇物自选；没有对象就�
 		session();
 		const legacyPage = screenText();
 		assert(!legacyPage.includes("失去了全部"), `不再有技能清算这一步：${legacyPage.slice(0, 240)}`);
-		assert(legacyPage.includes("BOSS 战的代价"), "直接停在奇物自选页");
+		// 顶部大标题已删：按面板与奇物栏认页——恢复路径没有临时奖励数据，代价句不出现
+		assert(legacyPage.includes("失去一件奇物") && nodesWithClass("wm-rogue-boss").length === 1, "直接停在奇物自选页");
 		click("能量核心");
 		click("确定");
 		const legacyDone = lib.storage.rogueSlots[0];
@@ -5193,7 +5222,7 @@ await check("Boss 惩罚与待处理事件的收尾顺序：先付清惩罚（�
 	assertEqual(JSON.stringify(mid.skillInventory), JSON.stringify([]), "背包里也不再持有");
 	assertEqual(JSON.stringify(mid.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: false, needCurio: true }), "只剩奇物那一项欠账");
 	assertEqual(mid.currency.gold, 200, "技能清算不涉及金币（没有遗忘之石）");
-	assert(screenText().includes("BOSS 战的代价"), `清算完停在奇物自选页：${screenText().slice(0, 160)}`);
+	assert(screenText().includes("失去一件奇物") && nodesWithClass("wm-rogue-boss").length === 1, `清算完停在奇物自选页：${screenText().slice(0, 160)}`);
 	payBossPenalty();
 	// 两项还清才轮到事件页
 	const eventText = screenText();

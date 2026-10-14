@@ -228,9 +228,11 @@ const CSS = `
 /* 营地的属性卡是只读的：去掉底部操作行后整体更矮 */
 .wm-rogue-stat-card.wm-rogue-stat-read { padding-bottom: 12px; }
 
-/* ---- 技能管理页：装备栏（上限 3）与技能背包（不限量）两栏，卡片复用商店卡 ----
+/* ---- 技能管理页：装备栏（上限 3）与技能背包（不限量）两栏，卡片与技能商店逐字同版式 ----
+   描述同样限高约 5 行（沿用 .wm-rogue-shop-desc，完整文本点卡片看），长描述不会再撑高卡片；
+   卡片脚没有价格一项，动作按钮靠 margin-left:auto 顶到右侧，与商店的「购买」同一位置。
    尺寸旋钮：标题字号在 .wm-rogue-title、卡片尺寸随 .wm-rogue-shop-card、状态签与按钮只调字号与内距 */
-.wm-rogue-btn.wm-rogue-skill-btn { flex: none; min-width: 92px; }
+.wm-rogue-btn.wm-rogue-skill-btn { flex: none; min-width: 92px; margin-left: auto; }
 /* 「已装备」状态签（技能熔炉的候选卡上）：金色小胶囊，与商店的出处行同一档字号 */
 .wm-rogue-skill-state { display: inline-flex; align-items: center; align-self: flex-start; margin-top: 5px;
 	padding: 1px 10px; border-radius: 10px; font-size: 13px; color: #ffd479;
@@ -238,8 +240,6 @@ const CSS = `
 .wm-rogue-skills { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
 .wm-rogue-skills-empty { margin: 34px 0 0; font-size: 20px; color: rgba(255,255,255,0.72); text-align: center; }
 .wm-rogue-skills-hint { margin-top: 10px; font-size: 15px; color: rgba(255,255,255,0.5); text-align: center; }
-/* 查看页显示完整描述，不再限 5 行 */
-.wm-rogue-shop-desc.wm-rogue-desc-full { max-height: none; }
 .wm-rogue-shop-card.wm-rogue-shop-card-read { cursor: default; }
 
 /* ---- 战斗结算页：大标题 + 奖励分行 ---- */
@@ -263,23 +263,17 @@ const CSS = `
 	background: linear-gradient(rgba(150,105,40,0.95), rgba(100,65,20,0.95)); }
 
 /* ---- Boss 战胜利惩罚选择页（自建浮层，不再走本体 Dialog）----
-   整屏一张面板：标题区与奖励区固定在顶上，中间「技能 / 奇物」两栏自己滚，底部说明钉底。
+   整屏一张面板：奖励结算区固定在顶上（它现在就是面板第一块——原来的大标题/固定说明/分隔线已删，
+   容器直接紧贴面板上边距，不留空区），中间「奇物」一栏自己滚，底部说明钉底。
    面板限高 = 视口减去 stage 的上下 padding（height:100% 先把 stage 定死，max-height:100% 才解析得出来，
    与 .wm-rogue-stat-panel 同一套做法）；正文条是唯一可伸缩项，min-height:0 让 overflow 真的出滚动条。
-   宽屏两栏并排（col 的 flex-basis 320px 决定几行放得下），窄屏自动换行成上下排列。
-   尺寸旋钮：面板 width/padding、标题字号、col 的 flex-basis、卡片 gap */
+   窄屏时 col 的 flex-basis 320px 让卡片自动换行。
+   尺寸旋钮：面板 width/padding、col 的 flex-basis、卡片 gap */
 #wm-rogue-overlay.wm-rogue-boss-overlay .wm-rogue-stage { padding: 20px 12px; height: 100%; }
 .wm-rogue-boss { display: flex; flex-direction: column; margin: auto; box-sizing: border-box;
 	width: min(1000px, calc(100% - 24px)); max-height: 100%; padding: 20px 22px 14px; border-radius: 10px;
 	background: linear-gradient(rgba(30,24,23,0.96), rgba(12,10,10,0.98));
 	border: 1px solid rgba(255,150,110,0.42); box-shadow: 0 6px 26px rgba(0,0,0,0.68); }
-.wm-rogue-boss-title { flex: none; margin-top: 2px; text-align: center; font-size: 32px; font-weight: bold;
-	color: #fff; letter-spacing: 6px; text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
-.wm-rogue-boss-subtitle { flex: none; margin-top: 6px; text-align: center; font-size: 15px;
-	color: rgba(255,255,255,0.66); letter-spacing: 1px; }
-/* 分隔线：两端淡出的金色渐变，比白色实线更贴「代价」这个语境 */
-.wm-rogue-boss-divider { flex: none; height: 1px; margin: 14px 0 12px;
-	background: linear-gradient(90deg, rgba(255,180,80,0), rgba(255,180,80,0.65), rgba(255,180,80,0)); }
 /* 奖励说明区：让「胜利已经入账」看得见，免得自动跳过结算页后玩家以为奖励没了 */
 .wm-rogue-boss-reward { flex: none; padding: 10px 12px; border-radius: 8px; text-align: center;
 	background: linear-gradient(rgba(255,180,80,0.13), rgba(255,120,60,0.05));
@@ -655,9 +649,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-mode-name,
 #wm-rogue-overlay .wm-rogue-mode-line,
 #wm-rogue-overlay .wm-rogue-mode-best,
-#wm-rogue-overlay .wm-rogue-boss-title,
-#wm-rogue-overlay .wm-rogue-boss-subtitle,
-#wm-rogue-overlay .wm-rogue-boss-divider,
 #wm-rogue-overlay .wm-rogue-boss-reward,
 #wm-rogue-overlay .wm-rogue-boss-reward-title,
 #wm-rogue-overlay .wm-rogue-boss-detail,
@@ -705,7 +696,6 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-index-desc,
 #wm-rogue-overlay .wm-rogue-result-line,
 #wm-rogue-overlay .wm-rogue-mode-line,
-#wm-rogue-overlay .wm-rogue-boss-subtitle,
 #wm-rogue-overlay .wm-rogue-boss-reward-title,
 #wm-rogue-overlay .wm-rogue-boss-col-title,
 #wm-rogue-overlay .wm-rogue-boss-card-action,

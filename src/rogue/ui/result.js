@@ -174,11 +174,10 @@ export function showPenaltyChoice(run, fallback, api) {
 export function showBossPenaltyChoice(run, reward, api) {
 	const stage = openOverlay("wm-rogue-boss-overlay");
 	const panel = ui.create.div(".wm-rogue-boss", stage);
-	ui.create.div(".wm-rogue-boss-title", "BOSS 战的代价", panel);
-	ui.create.div(".wm-rogue-boss-subtitle", "按规则，Boss 战胜利后你已失去当前装备的全部技能；再从你的奇物里失去一件", panel);
-	ui.create.div(".wm-rogue-boss-divider", panel);
 
-	// 奖励说明区：中间结算页省掉了，这一场「赢了多少」就只在这里给玩家看
+	// 奖励说明区（面板第一块，紧贴面板上边距）：中间结算页省掉了，这一场「赢了多少」就只在这里给玩家看。
+	// 顶部的大标题与固定说明、分隔线已删除——它们和这里的「Boss 战的代价」结算行说的是同一件事，
+	// 重复占位；页面的身份由本区与下面的「失去一件奇物」栏认
 	const rewardBox = ui.create.div(".wm-rogue-boss-reward", panel);
 	const gained = CURRENCIES.filter(key => Number.isFinite(reward?.gained?.[key]) && reward.gained[key] > 0);
 	if (gained.length) {

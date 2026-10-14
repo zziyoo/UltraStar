@@ -43,17 +43,25 @@ export function createResultFlow(host) {
 			const removal = loseSkills(run, equipped, now(), wonLevel);
 			if (removal.ok) {
 				run = removal.run;
-				penaltyLines.push(`Boss 战的代价：失去了全部 ${removal.removed.length} 个装备技能。`);
-				penaltyLines.push(...removal.lines);
-			} else {
-				penaltyLines.push("Boss 战的代价：当前没有装备技能可失去。");
 			}
 			const targets = getBossPenaltyTargets(run);
+			// 技能与奇物两半合成**一条**「Boss 战的代价」提示（旧版分两句、页面上重复占位）：
+			// 装备技能数量按刚结算出的件数现写，一件都没有时照实写「没有」、绝不虚报；
+			// 后半句表达「还要自己挑一件奇物失去」，奇物也没有时同样照实说
+			if (removal.ok && targets.curios.length > 0) {
+				penaltyLines.push(`Boss 战的代价：失去了全部 ${removal.removed.length} 个装备技能，并需要从你的奇物中选择一件失去。`);
+			} else if (removal.ok) {
+				penaltyLines.push(`Boss 战的代价：失去了全部 ${removal.removed.length} 个装备技能，当前没有奇物可失去。`);
+			} else if (targets.curios.length > 0) {
+				penaltyLines.push("Boss 战的代价：当前没有装备技能可失去，需要从你的奇物中选择一件失去。");
+			} else {
+				penaltyLines.push("Boss 战的代价：当前没有装备技能可失去，也没有奇物可失去。");
+			}
+			if (removal.ok) {
+				penaltyLines.push(...removal.lines);
+			}
 			if (targets.curios.length > 0) {
 				run = { ...run, pendingBossPenalty: { reason: "bossVictory", needSkill: false, needCurio: true } };
-				penaltyLines.push("Boss 战的代价：接下来由你自己挑出要失去的那件奇物。");
-			} else {
-				penaltyLines.push("Boss 战的代价：当前没有奇物可失去。");
 			}
 		}
 		if (run.mode === RUN_MODE.endless) {

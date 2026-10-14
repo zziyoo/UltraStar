@@ -5047,6 +5047,23 @@ check("事件页数字防溢出与锁图标微调：样式判据直读 styles.js
 	return "数字折行 + 两档降字号 + 不裁剪 + 锁图标 2px 下移";
 });
 
+check("Boss 代价面板删标题区 + 技能卡与商店同版式：样式判据直读 styles.js", () => {
+	// 冒烟夹具是 DOM 桩，没有排版引擎，只能把「删干净 / 限高还在」钉在样式源文本上：
+	// 顶部标题区三件套一旦回流就会重新占位、把奖励区挤下去；描述限高一旦被豁免，长描述又会撑高卡片
+	const css = fs.readFileSync(path.join(root, "src/rogue/ui/styles.js"), "utf8").replace(/\s+/g, " ");
+	assert(!css.includes("wm-rogue-boss-title"), "Boss 惩罚页顶部大标题样式已删除（不留占位高度）");
+	assert(!css.includes("wm-rogue-boss-subtitle"), "固定说明样式已删除");
+	assert(!css.includes("wm-rogue-boss-divider"), "分隔线样式已删除");
+	// 奖励区仍作为面板第一块展示：样式原样保留，间距全部交给面板自己的 padding
+	assert(/\.wm-rogue-boss-reward \{ flex: none; padding: 10px 12px; border-radius: 8px; text-align: center;/.test(css), "奖励结算容器样式原样保留");
+	// 技能卡：背包与管理页共用商店这一条限高；「完整描述」豁免规则必须已删除
+	assert(/\.wm-rogue-shop-desc \{ [^}]*max-height: 7\.5em; [^}]*overflow: hidden; [^}]*\}/.test(css), "描述限高 7.5em + overflow: hidden（商店与技能背包共用）");
+	assert(!css.includes("wm-rogue-desc-full"), "「不限高」的完整描述豁免规则已删除（长描述不再撑高卡片）");
+	assert(/\.wm-rogue-btn\.wm-rogue-skill-btn \{ flex: none; min-width: 92px; margin-left: auto; \}/.test(css),
+		"管理页动作按钮靠右，与商店的「购买」同一位置");
+	return "标题区三件套删净 + 描述限高保留 + 按钮靠右";
+});
+
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);
 
 if (failures.length) {
