@@ -174,7 +174,7 @@ export const curios = {
 	blood_rage_core: {
 		id: "blood_rage_core",
 		name: "血怒核心",
-		description: "失血越多，它跳得越响，响到没人敢接你的牌。",
+		description: "失血越多，跳得越响。",
 		image: "extension/奥特之星/assets/curios/blood_rage_core.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -187,7 +187,7 @@ export const curios = {
 	counter_amulet: {
 		id: "counter_amulet",
 		name: "反击护符",
-		description: "挨打的那一下它替你记着，下一次还回去。",
+		description: "越挨揍你的拳头越硬。",
 		image: "extension/奥特之星/assets/curios/counter_amulet.png",
 		rarity: "common",
 		priceMultiplier: 1,
