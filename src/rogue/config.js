@@ -86,9 +86,10 @@ export const COLLECTION_KEY = "rogueCollection";
  *      = **上一次 Boss 战实际触发的关卡**（0 = 这一局还没出过 Boss）。保底判据是
  *      `当前关卡 - bossPityLevel ≥ BOSS_PITY_BATTLES`，所以虫洞这类「一次跳过多关」的进度
  *      自动算进保底，不必再数打了几场。正常一关一场的推进下，两种口径给出的 Boss 关卡完全一致
- *      （新档第 15 场＝第 15 关，Boss 后第 15 关再必出）。v14 的存档按
- *      `bossPityLevel = level - 1 - bossPityCount` 折算（旧计数按 v14 自己的合法范围 0..19 清洗，
- *      见 LEGACY_BOSS_PITY_COUNT_MAX）；v13 及更早连计数器都没有 → 补 0，绝不拿当前关卡反推。
+ *      （新档第 15 场＝第 15 关，Boss 后第 15 关再必出）。旧档的迁移路径按**存档版本**选、不看字段在不在：
+ *      v14 的存档按 `bossPityLevel = level - 1 - bossPityCount` 折算（旧计数按 v14 自己的合法范围
+ *      0..19 清洗，见 LEGACY_BOSS_PITY_COUNT_MAX；档里混进 `bossPityLevel` 也不作数）；
+ *      v13 及更早两个字段都不属于它们 → 一律补 0，绝不拿当前关卡反推；版本号缺失/非法按当前版本处理。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
 export const RUN_VERSION = 15;
@@ -252,10 +253,11 @@ export const BOSS_PITY_BATTLES = 15;
 
 /**
  * v14 时代 `bossPityCount` 的合法上界：那一版的 `BOSS_PITY_BATTLES` 是 20（计数到 19 时下一场必出、
- * 随即归零），所以存档里最多只会出现 19。**只服务 state.js 的旧档折算**，绝不参与生产判定。
+ * 随即归零），所以存档里最多只会出现 19。**只服务 state.js 里 v14 档的折算**，绝不参与生产判定。
  * 清洗口径：只有「真的是有限数字」的旧计数才折算——数字越界按其旧范围夹（负数归 0、超范围取 19）；
- * 字段缺失（v13 及更早）与 null / 字符串 / NaN 这类脏值一律视同「没有记录」→ bossPityLevel 补 0，
- * 不拿关卡反推。折算时必须拿本值当上界，不能顺手用 `BOSS_PITY_BATTLES - 1`——那是新口径的场内节奏：
+ * null / 字符串 / NaN 这类脏值视同「没有记录」→ 补 0。字段缺失只可能出现在 v13 及更早的档里，
+ * 那些档连这个字段都不属于，一律走「补 0」那条路（见 state.js 的版本闸门）。
+ * 折算时必须拿本值当上界，不能顺手用 `BOSS_PITY_BATTLES - 1`——那是新口径的场内节奏：
  * 拿 14 去夹旧计数会把 15~19 这五档历史进度压成 14，旧档的保底被整体提前若干关。
  */
 export const LEGACY_BOSS_PITY_COUNT_MAX = 19;

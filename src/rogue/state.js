@@ -617,29 +617,38 @@ export function normalizeRun(raw, options = {}) {
 	// 上限用「基础 + 全部刷新类奇物加成」，否则循环按钮给的额外次数读档后会被夹掉。
 	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, getMaxShopRefreshes(), SKILL_REFRESH_PER_LEVEL);
 
-	// v15：Boss 保底改记「上一次 Boss 战实际触发的关卡」（0 = 没有可信记录：新档，或连计数器都没有的旧档）。
+	// v15：Boss 保底改记「上一次 Boss 战实际触发的关卡」（0 = 没有可信记录：新档，或没有计数器的旧档）。
 	// 判据是关卡差，所以虫洞跳关那几关照样计入保底进度；普通场一个字都不写。
-	// 三层判定，顺序固定、互不越级（旧存档三种状态必须分得开：字段不存在 / 存在但非法 / 合法且为 0）：
-	//   ① 已经是 v15 形状：bossPityLevel 是**真的有限数字** → 夹到 [0, 本关] 后直接用。
-	//      旧计数器一概不参与，所以已经折算过的存档绝不会被二次迁移。
-	//   ② 只有 v14 的计数器：bossPityCount 是**真的有限数字**（旧存档里合法值只会是数字，
-	//      null / 字符串 / NaN / Infinity 都不算「有记录」）→ 按 v14 自己的合法范围 0..19 清洗
-	//      （负数归 0、超范围夹 19，沿用旧版清洗口径）→ 折算 level-1-count → 再夹到 [0, 本关]。
-	//      旧计数记的是「上次 Boss 之后已经打完几场普通战斗」；例：45 关 / 5 场 → 39（已攒 5 场，
-	//      按新节奏再打 9 场、第 54 关保底到期），19 场则当场到期。
-	//      上界必须用旧版的 0..19，不能拿新阈值 BOSS_PITY_BATTLES-1 去夹——那会把 15~19 压成 14。
-	//   ③ 两者都没有可信值（v13 及更早连字段都不存在；或是 null / 字符串 / NaN 这类脏值）→
-	//      按兼容约定补 0，**绝不拿「当前关卡很高」反推一条假记录**。
-	//      注意 0 只表示「没有记录」，不是「刚出过 Boss」：高关卡的无记录旧档读进来会很快（甚至当场）吃到保底。
-	// 旧计数器只认「确实是 v14 及更早的档」（15 = 引入 bossPityLevel 的那一版）：v15 及以后的档一律以
-	// bossPityLevel 为准，哪怕它缺失或非法也不回头吃旁边的旧字段——否则等于对已迁移的档再迁一次。
+	//
+	// 迁移路径**由存档版本决定，不看字段在不在**——跨版本混进来的字段一律不作数：
+	//   · bossPityCount 是 v14 引入的（那版阈值 20 → 合法计数 0..19，计数到 19 必出并归零）；
+	//   · bossPityLevel 是 v15 引入的。
+	// ① v13 及更早：这两个字段都不属于这些版本 → 一律 0，**绝不拿「当前关卡很高」反推一条假记录**
+	//    （哪怕档里意外混进了 bossPityCount / bossPityLevel 也不当可信记录）。
+	// ② v14：只认旧计数器 → 按 v14 自己的 0..19 清洗（负数归 0、超范围夹 19）后折算
+	//    `level-1-count`，再夹到 [0, 本关]。旧计数记的是「上次 Boss 之后已经打完几场普通战斗」；
+	//    例：45 关 / 5 场 → 39（已攒 5 场，按新节奏再打 9 场、第 54 关保底到期），19 场则当场到期。
+	//    上界必须用旧版的 0..19，不能拿新阈值 BOSS_PITY_BATTLES-1 去夹——那会把 15~19 压成 14。
+	//    档里就算混进了 bossPityLevel 也不作数：该走 v14 的折算还是走 v14 的折算。
+	//    缺失 / 非数字的旧计数按「没有可信记录」补 0，不拿默认值 0 冒充历史进度。
+	// ③ v15 及以后：只认 bossPityLevel（真的有限数字，夹到 [0, 本关]）；缺失/非法一律补 0，
+	//    **不回退旧计数器**，所以已经折算过的存档绝不会被二次迁移。
+	//    注意 0 只表示「没有记录」，不是「刚出过 Boss」：高关卡的无记录旧档读进来会当场吃到保底。
+	// 版本号缺失/非法沿用 migrateSlots 的既有口径（`Number.isFinite(data.version) ? … : RUN_VERSION`）：
+	// 按**当前版本**处理——不擅自认定为 v14，也就不会回头吃旧计数器。
+	const savedVersion = Number.isFinite(raw.version) ? Math.floor(raw.version) : RUN_VERSION;
 	const savedBossPityLevel = typeof raw.bossPityLevel === "number" && Number.isFinite(raw.bossPityLevel) ? raw.bossPityLevel : NaN;
-	const savedVersion = toInt(raw.version, 0);
-	const legacyPityCount = savedVersion < 15 && typeof raw.bossPityCount === "number" && Number.isFinite(raw.bossPityCount)
-		? clampInt(raw.bossPityCount, 0, LEGACY_BOSS_PITY_COUNT_MAX, 0)
-		: null;
-	const migratedPityLevel = legacyPityCount === null ? 0 : level - 1 - legacyPityCount;
-	const bossPityLevel = clampInt(Number.isFinite(savedBossPityLevel) ? savedBossPityLevel : migratedPityLevel, 0, level, 0);
+	let bossPityLevel;
+	if (savedVersion >= 15) {
+		bossPityLevel = clampInt(Number.isFinite(savedBossPityLevel) ? savedBossPityLevel : 0, 0, level, 0);
+	} else if (savedVersion === 14) {
+		const legacyPityCount = typeof raw.bossPityCount === "number" && Number.isFinite(raw.bossPityCount)
+			? clampInt(raw.bossPityCount, 0, LEGACY_BOSS_PITY_COUNT_MAX, 0)
+			: null;
+		bossPityLevel = clampInt(legacyPityCount === null ? 0 : level - 1 - legacyPityCount, 0, level, 0);
+	} else {
+		bossPityLevel = 0;
+	}
 
 	return {
 		version: RUN_VERSION,

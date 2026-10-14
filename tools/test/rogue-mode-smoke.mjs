@@ -4747,10 +4747,9 @@ await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「�
 			createdAt: 1,
 		};
 		putLegacyRaw(0, realV9Run({
-			level: 15,
-			// 本用例只验商人链路：把保底记录摆在上一关（无记录旧档在第 15 关会当场吃保底，
-			// 那是「实机旧档」用例的断言范围），免得这一场的普通/ Boss 身份被保底抢走
-			bossPityLevel: 14,
+			// level 13：v13 及更早的无记录旧档补 0，保底线在第 15 关——本用例只验商人链路，
+			// 把这一局放在保底线以下，免得这一场（以及下一场）的普通/Boss 身份被保底抢走
+			level: 13,
 			pendingEvent: merchantEvent,
 			curioOffers: [
 				{ id: "breath_belt", price: 210 },
@@ -4799,7 +4798,7 @@ await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「�
 		await flush();
 		slot = lib.storage.rogueSlots[0];
 		assertEqual(slot.currentBattle.isBossBattle, true, "商人成交后，Boss 判定照常按这一场掷（抽中）");
-		assertEqual(slot.currentBattle.enemies.length, 1, "抽中即换单 Boss 阵容（15 关普通场本来是 2 人）");
+		assertEqual(slot.currentBattle.enemies.length, 1, "抽中即换单 Boss 阵容（14 关普通场本来是 2 人）");
 		const goldBefore = slot.currency.gold;
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -4807,7 +4806,7 @@ await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「�
 		lib.element.player.dieAfter.call(game.players[1]);
 		await flush();
 		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currency.gold - goldBefore, rewardsData.getEndlessReward(16, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 20 倍照发");
+		assertEqual(slot.currency.gold - goldBefore, rewardsData.getEndlessReward(14, ["gold"]).gold * cfg.BOSS_REWARD_MULTIPLIER, "Boss 场金币 20 倍照发");
 		assertEqual(slot.curioOffers.length, 0, "Boss 场不再有刷新特权：这一掷（0.5）未命中就清空");
 		assertEqual(JSON.stringify(slot.skills), JSON.stringify([]), "Boss 胜利当场失去全部装备技能（旧档技能也照此清算）");
 		payBossPenalty();
