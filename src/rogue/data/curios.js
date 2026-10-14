@@ -62,6 +62,9 @@
 //                     lockSkillShop    可以锁定技能商店：锁定后这一批候选不再换货——下次战斗结束不自动刷新，
 //                                        免费刷新按钮也用不了（商店，收藏家的橱窗）
 //                     lockCurioShop    可以锁定奇物商店：锁定后，下次战斗结束不刷新奇物商店的候选（商店，收藏家的橱窗史诗档）
+//                     eventExpRate     从**随机事件中获得的正数经验奖励**额外 +N（事件结算，记忆棱镜 0.25 = +25%）。
+//                                        只加成事件自己发的那笔经验：经验消耗、普通/Boss/裂隙战斗的胜利经验、
+//                                        虫洞跳关汇总的基础奖励都不吃它；存在追问句的事件在合并成一口之后再算一次
 //   effect          见上：界面文案一律由这些键自动生成（没有 effectText 这类手写字段），
 //                   同一个奇物各档之间、各奇物之间句式因此是统一的
 //
@@ -280,6 +283,18 @@ export const curios = {
 		effect: { lockSkillShop: 1 },
 		qualityEffects: {
 			epic: { lockSkillShop: 1, lockCurioShop: 1 },
+		},
+	},
+	memory_prism: {
+		id: "memory_prism",
+		name: "记忆棱镜",
+		description: "每一次经历都会被它铭记，化为下一次成长的养分。",
+		image: "extension/奥特之星/assets/curios/memory_prism.png",
+		rarity: "rare",
+		priceMultiplier: 1,
+		effect: { eventExpRate: 0.25 },
+		qualityEffects: {
+			epic: { eventExpRate: 0.5 },
 		},
 	},
 };

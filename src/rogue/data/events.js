@@ -14,10 +14,15 @@
 //     outcomes  随机奖励列表 [{ chance, reward }, ...]，chance 合计应为 1（第二种写法）；
 //               生成事件时就地预掷并把结果定死写进存档，读档恢复绝不重掷
 //     action    交互型选项（第三种写法）：本层不自己处理，交回 mode.js 编排子页面/子战斗
-//                 { kind: "abyssDebt", perEnemy }   下一场战斗每名敌人追加 N 个随机深渊强化
+//                 { kind: "abyssDebt", perEnemy? }  下一场战斗每名敌人追加 N 个随机深渊强化
 //                                        （落在 run.abyssDebt 上，开那一场时消费并清零）
-//                 { kind: "skillForge", grant }    先弹「选一个已有技能」页；grant:"exp" 只按 reward 发经验，
-//                                        grant:"skill" 在失去之后再随机补一个新技能
+//                                        perEnemy 不写就用 config.SPRING_DEBT_AFFIXES 的默认值
+//                                        （经验泉就是）；要换个数才显式写，别在文案里另抄一份
+//                 { kind: "skillForge", grant, subtitle?, pickLabel? }
+//                                        先弹「选一个已有技能」页；grant:"exp" 只按 reward 发经验，
+//                                        grant:"skill" 在失去之后再随机补一个新技能。
+//                                        子页标题恒为**事件名**；subtitle / pickLabel 只改页面上
+//                                        那两句话（不写就用技能熔炉的默认文案），失技的结算路径两处共用
 //                 { kind: "rift", tier }           深渊裂隙：按 config.RIFT_TIERS 立刻开一场**不算层数**的战斗，
 //                                        构建期就把敌人数与 gold/exp 定死写进存档
 //                 { kind: "merchant" }             流浪商人：构建期掷出那件奇物与恒定售价，弹单件奇物页
@@ -31,6 +36,10 @@
 //               因为作者要的就是那句提示，不是换个奖励。
 //     hideCost  写 true 的选项**不在按钮上标消耗金额**（属性训练场就只显示「接受训练」）。
 //               价钱照实写在图鉴的选项详情里——这一条只是给按钮文字做减法，不是把花费藏起来。
+//     clampLoss 写 true 的选项**永不因「钱不够」置灰**（事件页按钮与结算层两道都放行），结算时
+//               负值按「最多扣光手上持有的」收窄，绝不为负。只给**预掷赌局里的失手分支**用
+//               （记忆回廊的「深入记忆」）：负结果在生成期就掷定了，选项一置灰等于把结果提前漏给玩家，
+//               而负余额又必须堵住——两件事只能同时这样成立。不写它的选项，支付规则一个字不变。
 //     followUp  选了这一项之后**追问**的那一句（经验泉：页面上只有「饮用」，点完才问「再饮一口」）。
 //               形状就是一个选项 { text, question, reward, action }：question 是追问弹层上说的那句话
 //               （没写就用「还要＋按钮名吗？」兜底），text 是按钮名；构建期与主选项走同一条换算与文案路径，
@@ -69,7 +78,8 @@
 //     空对象 {} 表示无奖励
 //
 // 自检会查：id 与键名一致、name/description/image 齐备、choices 非空且 text 非空、
-// 每个选项恰有 reward 或 outcomes 之一、outcomes 的 chance 合计为 1、货币与效果键合法、图片文件存在。
+// 每个选项恰有 reward 或 outcomes 之一、outcomes 的 chance 合计为 1、货币与效果键合法、
+// clampLoss / abyssDebt.perEnemy / skillForge 文案参数形状合法、图片文件存在。
 //
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验上面的每一条约束，不用开游戏）
 
@@ -119,10 +129,12 @@ export const events = {
 		image: "extension/奥特之星/assets/events/lucky_coin.png",
 		choices: [
 			{
+				// 拾取：一半概率拿「双份金币 + 双份经验」（后期不再只是仨瓜俩枣），
+				// 一半概率只丢半份金币——两头都按本层胜利奖励重定，别再退回小额固定值
 				text: "拾取",
 				outcomes: [
-					{ chance: 0.5, reward: { goldByWin: 1 } },
-					{ chance: 0.5, reward: { goldByWin: -0.4 } },
+					{ chance: 0.5, reward: { goldByWin: 2, expByWin: 2 } },
+					{ chance: 0.5, reward: { goldByWin: -0.5 } },
 				],
 			},
 			{
@@ -216,9 +228,9 @@ export const events = {
 		image: "extension/奥特之星/assets/events/skill_forge.png",
 		choices: [
 			{
+				// 熔炉换经验的老定价是 2 倍本层胜利经验，与「真失去一个技能」的代价不成比例，抬到 6 倍
 				text: "失去一个技能换取大量经验",
-				// 基准数 ×2 的经验就是这里的 2 倍本层胜利经验（构建期换算成固定值）
-				reward: { expByWin: 2 },
+				reward: { expByWin: 6 },
 				action: { kind: "skillForge", grant: "exp" },
 				blockedText: "技能不足，炉子里没有可以熔炼的东西。",
 			},
@@ -360,13 +372,13 @@ export const events = {
 		image: "extension/奥特之星/assets/events/abandoned_supply.png",
 		choices: [
 			{
-				// 纯金币；仔细搜寻是「金币换经验」的五五开：1 倍金币 vs 0.5 金币 + 0.5 经验
+				// 两头都按本层胜利奖励换算：翻找偏金币、仔细搜寻偏经验，缺哪样挑哪样
 				text: "翻找补给箱",
-				reward: { goldByWin: 1 },
+				reward: { goldByWin: 1, expByWin: 1 },
 			},
 			{
 				text: "仔细搜寻",
-				reward: { goldByWin: 0.5, expByWin: 0.5 },
+				reward: { goldByWin: 0.5, expByWin: 2 },
 			},
 		],
 	},
@@ -377,13 +389,14 @@ export const events = {
 		image: "extension/奥特之星/assets/events/veteran_training.png",
 		choices: [
 			{
+				// 免费那档也按倍率给足：后期的「1 倍经验」几乎看不见，白拿改成 2 倍
 				text: "让他训练",
-				reward: { expByWin: 1 },
+				reward: { expByWin: 2 },
 			},
 			{
-				// 花一半基准金币换 2 倍基准经验：白拿的那档只有一半收益，这一档是拿金币买
+				// 花一半基准金币把经验翻倍到 4 倍：付费档必须明显高于白拿档，否则没人会掏钱
 				text: "花钱请教",
-				reward: { goldByWin: -0.5, expByWin: 2 },
+				reward: { goldByWin: -0.5, expByWin: 4 },
 			},
 		],
 	},
@@ -411,15 +424,15 @@ export const events = {
 		image: "extension/奥特之星/assets/events/exp_merchant.png",
 		choices: [
 			{
-				// 两个方向是同一个汇率（1 倍金币 <-> 2 倍经验），花哪种货币由玩家缺哪样决定；
+				// 两个方向是同一个汇率（1 倍金币 <-> 3 倍经验），花哪种货币由玩家缺哪样决定；
 				// 收益倍率不写进按钮文字（与既有事件同一套口径：按钮只写动作 + 自动追加的消耗，
 				// 具体给多少在图鉴的选项详情里照实列全）
 				text: "用金币换经验",
-				reward: { goldByWin: -1, expByWin: 2 },
+				reward: { goldByWin: -1, expByWin: 3 },
 			},
 			{
 				text: "用经验换金币",
-				reward: { expByWin: -2, goldByWin: 1 },
+				reward: { expByWin: -3, goldByWin: 1 },
 			},
 			{
 				text: "我不需要，谢谢",
@@ -440,6 +453,120 @@ export const events = {
 				// 跳过十关并拿走期间的全部金币与经验（基础口径，构建期求和定死；细节见文件头 skipLevels）
 				text: "进入",
 				reward: { skipLevels: 10 },
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	// ---------------------------------------------------------------- 本轮新增：无尽后期「金币多、经验荒」的四件调剂
+	// 一律追加在数组末尾：rollEventId 按下标抽事件，既有档位（rng=0 抽第一个）不能因为插队而漂移
+	lost_database: {
+		id: "lost_database",
+		name: "失落数据库",
+		description: "一座被遗弃的数据库仍保存着历代文明的知识，只是读取这些资料需要大量能源。",
+		image: "extension/奥特之星/assets/events/lost_database.png",
+		choices: [
+			{
+				text: "免费读取",
+				reward: { expByWin: 2 },
+			},
+			{
+				// 两倍本层金币换八倍本层经验：比免费档贵，但经验收益是四倍
+				text: "付费解锁",
+				reward: { goldByWin: -2, expByWin: 8 },
+			},
+			{
+				// 免费搏一把大学问：一半概率拿 12 倍经验，另一半什么也没有。结果生成期定死、读档不重掷；
+				// 无消耗，所以不存在「失手扣成负数」那条线
+				text: "强制破解",
+				outcomes: [
+					{ chance: 0.5, reward: { expByWin: 12 } },
+					{ chance: 0.5, reward: {} },
+				],
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	memory_corridor: {
+		id: "memory_corridor",
+		name: "记忆回廊",
+		description: "走廊中浮现出无数个过去的自己，有些记忆能够使你成长，有些则令人迷失。",
+		image: "extension/奥特之星/assets/events/memory_corridor.png",
+		choices: [
+			{
+				text: "回顾过去",
+				reward: { expByWin: 2 },
+			},
+			{
+				// 预掷：六成拿 7 倍经验，四成失手扣 2 倍——失手那一支**不能**按余额置灰（置灰等于剧透预掷结果），
+				// 所以写 clampLoss：选项永远可点，结算最多扣光手上持有的经验、绝不为负（见文件头 clampLoss）
+				text: "深入记忆",
+				outcomes: [
+					{ chance: 0.6, reward: { expByWin: 7 } },
+					{ chance: 0.4, reward: { expByWin: -2 } },
+				],
+				clampLoss: true,
+			},
+			{
+				// 自选一个已拥有的技能真正失去（走技能熔炉同一套选技页与 penalty.loseSkill 统一动作），换 12 倍经验。
+				// subtitle / pickLabel 只改子页面上那两句话；标题读事件名（记忆回廊），不再是「技能熔炉」
+				text: "遗忘过去",
+				reward: { expByWin: 12 },
+				action: { kind: "skillForge", grant: "exp", subtitle: "从你拥有的技能里挑一个忘掉，换回大量经验。", pickLabel: "遗忘此技能" },
+				blockedText: "你没有可以遗忘的技能。",
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	interstellar_exchange: {
+		id: "interstellar_exchange",
+		name: "星际兑换所",
+		description: "一家古老的星际银行，专门经营金币与知识的兑换业务。",
+		image: "extension/奥特之星/assets/events/interstellar_exchange.png",
+		choices: [
+			{
+				text: "小额兑换",
+				reward: { goldByWin: -1, expByWin: 3 },
+			},
+			{
+				text: "大额兑换",
+				reward: { goldByWin: -5, expByWin: 18 },
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	extreme_training: {
+		id: "extreme_training",
+		name: "极限模拟训练",
+		description: "一台战斗模拟器能够模拟远超当前实力的敌人，挑战者必须承受高强度训练。",
+		image: "extension/奥特之星/assets/events/extreme_training.png",
+		choices: [
+			{
+				text: "基础训练",
+				reward: { expByWin: 2 },
+			},
+			{
+				// 深渊债走经验泉同一套 abyssDebt 机制：perEnemy 1/2 在这里显式写死，
+				// 不写 perEnemy 的那条（经验泉）照旧吃 config.SPRING_DEBT_AFFIXES 默认值
+				text: "极限训练",
+				reward: { expByWin: 6 },
+				action: { kind: "abyssDebt", perEnemy: 1 },
+			},
+			{
+				text: "终极训练",
+				reward: { expByWin: 10 },
+				action: { kind: "abyssDebt", perEnemy: 2 },
 			},
 			{
 				text: "离开",

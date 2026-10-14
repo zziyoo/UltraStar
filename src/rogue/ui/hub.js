@@ -785,13 +785,18 @@ function paintMerchant(row, run, action) {
 }
 
 /**
- * 技能熔炉：从**完整背包**里挑一个技能投进炉子——装备中的与只躺在背包里的都能熔，
- * 装备中的熔掉会一并卸下（结算走 penalty.loseSkill 的统一动作）。
- * 模式层已经拦掉「一件都没有」的情况，这里的空列表只是兜底（比如子页停着的时候技能被别处扣光）。
+ * 选技页：从**完整背包**里挑一个技能投进去——装备中的与只躺在背包里的都能选，
+ * 装备中的失去时会一并卸下（结算走 penalty.loseSkill 的统一动作）。
+ * 两处事件共用这一页：技能熔炉（默认文案）与记忆回廊的「遗忘过去」（title / subtitle / pickLabel
+ * 由事件在 action 上自带，随存档定死）；模式层已经拦掉「一件都没有」的情况，
+ * 这里的空列表只是兜底（比如子页停着的时候技能被别处扣光）。
  */
 export function showSkillForge(api) {
 	const run = api.getRun();
-	const body = openEventSubPage(api, "wm-rogue-skill-forge-overlay", "技能熔炉", "炉子吃一个技能，吐一样东西回来。选一个投进去。");
+	const body = openEventSubPage(api, "wm-rogue-skill-forge-overlay",
+		api.title ?? "技能熔炉",
+		api.subtitle ?? "炉子吃一个技能，吐一样东西回来。选一个投进去。");
+	const pickLabel = api.pickLabel ?? "熔炼此技能";
 	const equipped = new Set(Array.isArray(run.skills) ? run.skills : []);
 	const inventory = Array.isArray(run.skillInventory) ? run.skillInventory : [];
 	if (!inventory.length) {
@@ -812,7 +817,7 @@ export function showSkillForge(api) {
 		// 与商店/替换页一致：点卡片看完整描述，按钮上的点击会阻止冒泡，不会连带打开
 		bindOverlayTap(card, () => showNotice([skillName(id), intro || "（该技能没有描述）"]));
 		const foot = ui.create.div(".wm-rogue-shop-foot", card);
-		addOverlayButton("熔炼此技能", foot, () => api.pick(id), "wm-rogue-replace-btn");
+		addOverlayButton(pickLabel, foot, () => api.pick(id), "wm-rogue-replace-btn");
 	}
 }
 

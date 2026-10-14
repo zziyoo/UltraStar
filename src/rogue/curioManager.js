@@ -33,6 +33,7 @@ export const CURIOSITY_EFFECT_KEYS = [
 	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
 	"expRate", "goldRate", "goldRateSpread",
 	"extraShopRefresh", "extraCurioShopChance", "goldOfHeld", "goldOnSkillLoss", "expOnSkillLoss",
+	"eventExpRate",
 	"lockSkillShop", "lockCurioShop",
 ];
 
@@ -207,6 +208,9 @@ const EFFECT_TEXT = {
 	// v14：触发点从「替换技能」（购买不再替换）迁移到「真正失去技能」——卸下装备不算，按失去的个数逐件结算
 	goldOnSkillLoss: value => `每次失去技能时获得本层胜利金币的 ${value} 倍`,
 	expOnSkillLoss: value => `每次失去技能时获得本层胜利经验的 ${value} 倍`,
+	// 记忆棱镜：只加成「随机事件自己发的那笔正数经验」——经验消耗、战斗/裂隙结算、虫洞跳关汇总都不吃它；
+	// 结算位置在 eventManager.boostEventExp，事件页的账目行与存档余额共用同一份加成后的数字
+	eventExpRate: value => `从随机事件中获得的经验奖励额外增加 ${Math.round(value * 100)}%`,
 	// 收藏家的橱窗：锁定是开关不是数值，合成一条——稀有档只锁技能商店，史诗档（lockCurioShop 在场）两店都能锁
 	lockSkillShop: (value, effects) => {
 		const both = (effects?.lockCurioShop ?? 0) > 0;

@@ -47,8 +47,10 @@ export function showEvent(api) {
 		// 弹作者那一句、一个钱都不扣（结算层也是先判 blocked 再看钱），所以不能因为钱不够就把提示
 		// 挡在置灰按钮后面。判据与结算层共用 getBlockedMessage 一份，现读存档
 		const blocked = !!getBlockedMessage(run, choice);
-		// 奇物已集齐时「随机给奇物」的选项不花钱（结算走跳过分支），不能按货币不足置灰
-		const usable = blocked || isChoiceAffordable(run, choice.reward);
+		// 奇物已集齐时「随机给奇物」的选项不花钱（结算走跳过分支），不能按货币不足置灰；
+		// 写了 clampLoss 的预掷赌局同样永不置灰——负结果是掷出来的，置灰、「货币不足」都等于剧透，
+		// 结算层按「最多扣光」收窄（见 events.js 的 clampLoss 与 eventManager.capLossToHeld）
+		const usable = blocked || choice.clampLoss === true || isChoiceAffordable(run, choice.reward);
 		// 余额不足：置灰并写明原因，点了没有任何反应——与商店的「金币不足」按钮同款（结算层
 		// 自身还会再验一次，见 resolveEventChoice），不做「点了再弹一句拒绝」的两步交互
 		const button = addOverlayButton(
@@ -56,7 +58,7 @@ export function showEvent(api) {
 			actions,
 			() => {
 				const current = api.getRun();
-				if (getBlockedMessage(current, choice) || isChoiceAffordable(current, choice.reward)) {
+				if (getBlockedMessage(current, choice) || choice.clampLoss === true || isChoiceAffordable(current, choice.reward)) {
 					api.choose(index);
 				}
 			},

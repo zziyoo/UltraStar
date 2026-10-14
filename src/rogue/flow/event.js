@@ -5,7 +5,7 @@
 import { BATTLE_STATUS } from "../config.js";
 import { getCurio, getNextCurioQuality, grantCurioById, upgradeCurio, CURIOSITY_RARITY } from "../curioManager.js";
 import { createEnemyConfigs } from "../enemy.js";
-import { applyEventCurrency, pickRandomSkillId, resolveEventChoice } from "../eventManager.js";
+import { applyEventCurrency, boostEventExp, getEvent, pickRandomSkillId, resolveEventChoice } from "../eventManager.js";
 import { loseSkill } from "../penalty.js";
 import { getShopPool } from "../skillPool.js";
 import { updateBest } from "../state.js";
@@ -156,8 +156,13 @@ export function createEventFlow() {
 				});
 				return;
 			case "skillForge":
+				// 选技页两处事件共用（技能熔炉 / 记忆回廊的「遗忘过去」）：标题恒为**事件名**，
+				// 页面那两句话由事件在 action 上自带（不写就回落熔炉默认文案），都随存档定死
 				showSkillForge({
 					getRun: () => context.run,
+					title: getEvent(context.run?.pendingEvent?.id)?.name,
+					subtitle: choice?.action?.subtitle,
+					pickLabel: choice?.action?.pickLabel,
 					pick: skillId => skillForgeFlow(action, choice, skillId, ctx, finishEvent),
 					leave: leaveEvent,
 				});
@@ -257,7 +262,9 @@ export function createEventFlow() {
 				lines.push("没有可学的技能，炉子只吞了不放。");
 			}
 		} else {
-			const credited = applyEventCurrency(run, choice?.reward ?? {}, true);
+			// 经验走 applyEventCurrency（与事件结算同一份口径），记忆棱镜的加成也在这里生效一次——
+			// 熔炉与「遗忘过去」共用这条；加成后的数字进余额、也进下面那行账目
+			const credited = applyEventCurrency(run, boostEventExp(run, choice?.reward ?? {}), true);
 			run = credited.run;
 			lines.push(...credited.lines);
 		}

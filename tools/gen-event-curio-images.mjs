@@ -1574,6 +1574,139 @@ const draw = {
 		cv.dot(c - s * 0.37, c * 0.24, s * 0.012, [1, 1, 1], 0.8);
 		cv.dot(c + s * 0.35, c * 1.76, s * 0.01, [1, 1, 1], 0.7);
 	},
+	lost_database(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 数据库圆柱：柱身 + 底沿 + 顶盖，缩到 64px 就靠这三段读成「库」
+		cv.inked(() => {
+			cv.roundBox(c, c * 1.08, s * 0.25, s * 0.3, s * 0.11, BODY);
+			cv.ellipse(c, c * 1.36, s * 0.25, s * 0.085, mix(hue, P.ink, 0.3));
+		});
+		cv.ellipse(c, c * 0.78, s * 0.25, s * 0.085, mix(hue, [1, 1, 1], 0.35));
+		// 两道深色环槽：数据库的「层」全靠它们，太浅会读成冰箱（试过）
+		for (const dy of [1.04, 1.22]) {
+			cv.ellipse(c, c * dy, s * 0.245, s * 0.06, mix(hue, P.ink, 0.72));
+			cv.ellipse(c, c * dy - s * 0.014, s * 0.245, s * 0.048, mix(hue, P.ink, 0.42), 0.9);
+		}
+		// 「失落」：柱身左侧一道折裂 + 崩离的一角悬在缺口上方
+		cv.segment(c - s * 0.12, c * 0.88, c - s * 0.05, c * 1.08, s * 0.014, P.ink, 0.85);
+		cv.segment(c - s * 0.05, c * 1.08, c - s * 0.14, c * 1.24, s * 0.014, P.ink, 0.85);
+		cv.inked(() => cv.polygon([
+			[c - s * 0.34, c * 0.56], [c - s * 0.26, c * 0.61], [c - s * 0.3, c * 0.71], [c - s * 0.39, c * 0.66],
+		], mix(hue, [1, 1, 1], 0.25)), 0.35);
+		// 还在往上飘的数据碎屑：两粒小方点
+		cv.roundBox(c + s * 0.2, c * 0.58, s * 0.026, s * 0.026, s * 0.008, P.warm, 0.95);
+		cv.roundBox(c + s * 0.29, c * 0.72, s * 0.016, s * 0.016, s * 0.006, P.pale, 0.85);
+		cv.dot(c, c * 0.78, s * 0.02, [1, 1, 1], 0.55);
+	},
+	memory_corridor(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 层叠门廊：三层由外向内的梯形围出纵深（外层压暗 → 中层主色 → 里层再压暗）。
+		// 上下宽度差要把透视拉足，平了就读成「一间房」而不是一条走廊
+		const arch = (hwTop, hwBottom, yTop, yBottom, color, alpha = 1) => cv.polygon([
+			[c - s * hwTop, c * yTop], [c + s * hwTop, c * yTop],
+			[c + s * hwBottom, c * yBottom], [c - s * hwBottom, c * yBottom],
+		], color, alpha);
+		arch(0.3, 0.47, 0.6, 1.44, mix(hue, P.ink, 0.78));
+		arch(0.2, 0.35, 0.7, 1.32, BODY);
+		arch(0.11, 0.2, 0.8, 1.2, mix(hue, P.ink, 0.92));
+		// 门楣亮线：一道一道的水平高光，走廊的节奏全在这三笔上
+		for (const [hw, y] of [[0.3, 0.6], [0.2, 0.7], [0.11, 0.8]]) {
+			cv.segment(c - s * hw, c * y, c + s * hw, c * y, s * 0.013, P.pale, 0.5);
+		}
+		// 最里层的「过去的自己」：头 + 肩，正当在走廊尽头
+		const fy = c * 1.14;
+		cv.dot(c, fy - s * 0.1, s * 0.034, P.warm);
+		cv.roundBox(c, fy - s * 0.008, s * 0.066, s * 0.062, s * 0.03, P.warm);
+		// 两粒记忆浮尘
+		cv.dot(c - s * 0.34, c * 0.9, s * 0.015, [1, 1, 1], 0.8);
+		cv.dot(c + s * 0.36, c * 1.24, s * 0.012, [1, 1, 1], 0.7);
+	},
+	interstellar_exchange(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 轨道：压暗的横椭圆垫底，星币「悬」在上面而不是摆在桌上
+		cv.ellipse(c, c * 1.04, s * 0.43, s * 0.15, mix(hue, P.ink, 0.68), 0.75);
+		// 星币：外圆 + 内环 + 四芒星——金币与星际各占一半
+		cv.inked(() => cv.dot(c, c * 0.98, s * 0.24, BODY));
+		cv.ring(c, c * 0.98, s * 0.185, s * 0.016, mix(hue, P.ink, 0.45), 0.9);
+		const star = (cx, cy, r) => {
+			const pts = [];
+			for (let i = 0; i < 8; i++) {
+				const rad = i % 2 === 0 ? r : r * 0.32;
+				const a = (Math.PI / 4) * i - Math.PI / 2;
+				pts.push([cx + Math.cos(a) * rad, cy + Math.sin(a) * rad]);
+			}
+			cv.polygon(pts, P.warm, 1);
+		};
+		star(c, c * 0.98, s * 0.115);
+		// 两侧对射的箭头：一进一出的兑换方向
+		cv.inked(() => {
+			cv.polygon([[c - s * 0.46, c * 0.98], [c - s * 0.345, c * 0.925], [c - s * 0.345, c * 1.035]], P.warm);
+			cv.polygon([[c + s * 0.46, c * 0.98], [c + s * 0.345, c * 0.925], [c + s * 0.345, c * 1.035]], P.warm);
+		}, 0.35);
+		// 轨道两端各一粒星屑
+		cv.dot(c - s * 0.4, c * 0.86, s * 0.014, [1, 1, 1], 0.85);
+		cv.dot(c + s * 0.38, c * 1.24, s * 0.012, [1, 1, 1], 0.75);
+	},
+	extreme_training(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 横杆 + 两端各一大一小两块配重：64px 上最稳的「训练」符号
+		cv.segment(c - s * 0.3, c * 1.02, c + s * 0.3, c * 1.02, s * 0.032, mix(hue, P.ink, 0.35));
+		cv.inked(() => {
+			cv.roundBox(c - s * 0.33, c * 1.02, s * 0.062, s * 0.2, s * 0.028, BODY);
+			cv.roundBox(c + s * 0.33, c * 1.02, s * 0.062, s * 0.2, s * 0.028, BODY);
+			cv.roundBox(c - s * 0.45, c * 1.02, s * 0.045, s * 0.135, s * 0.02, mix(hue, P.ink, 0.2));
+			cv.roundBox(c + s * 0.45, c * 1.02, s * 0.045, s * 0.135, s * 0.02, mix(hue, P.ink, 0.2));
+		});
+		// 配重上的竖亮线：让两块铁看起来是一层层的
+		for (const side of [-1, 1]) {
+			cv.segment(c + side * s * 0.4, c * 0.92, c + side * s * 0.4, c * 1.12, s * 0.012, P.pale, 0.4);
+		}
+		// 两道闪电：一上一下、别对称，「极限」靠这两笔
+		const bolt = (bx, by, h) => cv.inked(() => cv.polygon([
+			[bx, by], [bx + s * 0.07, by + h * 0.42], [bx + s * 0.028, by + h * 0.42],
+			[bx + s * 0.082, by + h], [bx - s * 0.02, by + h * 0.6], [bx + s * 0.026, by + h * 0.6],
+		], P.warm), 0.3);
+		bolt(c - s * 0.26, c * 0.52, s * 0.24);
+		bolt(c + s * 0.18, c * 1.34, s * 0.22);
+	},
+	memory_prism(cv, hue) {
+		const s = cv.w;
+		const c = s / 2;
+		const P = cv.p;
+		// 棱镜：等边三角形贴纸 + 一条内侧棱线，缩到 64px 仍读得出是块晶体
+		cv.inked(() => cv.polygon([[c, c * 0.6], [c + s * 0.3, c * 1.3], [c - s * 0.3, c * 1.3]], BODY));
+		cv.segment(c, c * 0.64, c + s * 0.02, c * 1.28, mix(hue, P.ink, 0.45), 0.55);
+		cv.segment(c, c * 0.64, c - s * 0.03, c * 1.28, mix(hue, [1, 1, 1], 0.35), 0.35);
+		// 入射光：从左边来的一束（左端宽、贴近棱镜处收窄）
+		cv.polygon([[c - s * 0.5, c * 0.9], [c - s * 0.3, c * 0.99], [c - s * 0.3, c * 1.07], [c - s * 0.5, c * 1.03]], [1, 1, 1], 0.72);
+		// 出射光：三束散开（上 / 正 / 下），照亮「下一次成长的养分」
+		const rays = [
+			[[c + s * 0.17, c * 1.01], [c + s * 0.5, c * 0.7], P.warm],
+			[[c + s * 0.17, c * 1.01], [c + s * 0.5, c * 1.01], [1, 1, 1]],
+			[[c + s * 0.17, c * 1.01], [c + s * 0.5, c * 1.32], P.pale],
+		];
+		for (const [[ax, ay], [bx, by], tint] of rays) {
+			const nx = -(by - ay);
+			const ny = bx - ax;
+			const len = Math.hypot(nx, ny) || 1;
+			const w = s * 0.02;
+			cv.polygon([
+				[ax, ay], [bx, by],
+				[bx + (nx / len) * w, by + (ny / len) * w],
+				[ax + (nx / len) * w, ay + (ny / len) * w],
+			], tint, 0.75);
+		}
+		// 顶点的一粒亮
+		cv.dot(c, c * 0.56, s * 0.016, [1, 1, 1], 0.9);
+	},
 };
 
 // ---------------------------------------------------------------- 生成
@@ -1617,6 +1750,12 @@ const IMAGES = [
 	["events", "gold_vein", "#e8a83c"],
 	["events", "exp_merchant", "#b06aff"],
 	["events", "wormhole", "#4fa8ff"],
+	// 本轮新增：无尽后期「金币多、经验荒」的四件调剂 + 记忆棱镜
+	["events", "lost_database", "#4a86ff"],
+	["events", "memory_corridor", "#9c74ff"],
+	["events", "interstellar_exchange", "#ffb02e"],
+	["events", "extreme_training", "#ff7048"],
+	["curios", "memory_prism", "#c8b8ff"],
 ];
 
 /** 盒式降采样：把 size×size 的 RGBA 收成 to×to。用来还原奇物在界面上的真实尺寸（64px） */
@@ -1646,14 +1785,19 @@ function shrink(pixels, size, to) {
 	return out;
 }
 
-// 自检用拼表：把所有条目的「真实 64px 样子」放大两倍排进一张 4×4 网格。
+// 自检用拼表：把所有条目的「真实 64px 样子」放大两倍排进一张网格。
 // 奇物界面里只有 64px，直接看 256px 原图会一路绿灯、进游戏全是糊的（踩过），所以必须看这张。
 const PREVIEW = process.argv.includes("--preview");
 const PREVIEW_TILE = 64;
 const PREVIEW_ZOOM = 2;
-// 6 列 × 6 行、每格放大两倍 → 768×768；全部条目（17 事件 + 18 奇物 = 35 张）一张放完
-const PREVIEW_COLS = 6;
+// 7 列 × 7 行、每格放大两倍 → 896×896；全部条目（21 事件 + 19 奇物 = 40 张）一张放完。
+// 条目数超过 49 时要同时抬 PREVIEW_COLS——下面有硬闸，塞不下直接报错而不是悄悄裁掉
+const PREVIEW_COLS = 7;
 const SHEET = PREVIEW_COLS * PREVIEW_TILE * PREVIEW_ZOOM;
+if (PREVIEW && IMAGES.length > PREVIEW_COLS * PREVIEW_COLS) {
+	console.error(`拼表容量不足：${IMAGES.length} 张 > ${PREVIEW_COLS}×${PREVIEW_COLS}，请增大 PREVIEW_COLS`);
+	process.exit(1);
+}
 const sheet = PREVIEW ? new Uint8Array(SHEET * SHEET * 4).fill(24) : null;
 
 let index = 0;

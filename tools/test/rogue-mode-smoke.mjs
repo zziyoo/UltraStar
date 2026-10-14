@@ -3155,9 +3155,9 @@ await check("新事件真机链路：经验商人的价钱写进按钮、置灰�
 	assert(text.includes("这是位很有信誉的商人"), `事件描述要展示：${text.slice(0, 240)}`);
 	const choices = nodesWithClass("wm-rogue-event-choice");
 	assertEqual(choices.length, 3, "商人三个选项");
-	// 消耗项把价钱写进按钮（-100 金币 / -80 经验），白走的出口不加后缀
+	// 消耗项把价钱写进按钮（-100 金币 / -120 经验），白走的出口不加后缀
 	assert(textOf(choices[0]).includes("-100 金币"), `金币换经验要看得见价钱：${textOf(choices[0])}`);
-	assert(textOf(choices[1]).includes("-80 经验"), `经验换金币要看得见价钱：${textOf(choices[1])}`);
+	assert(textOf(choices[1]).includes("-120 经验"), `经验换金币要看得见价钱：${textOf(choices[1])}`);
 	assert(!textOf(choices[2]).includes("（"), `出口项不加价钱后缀：${textOf(choices[2])}`);
 	// 手上一点经验都没有：第二项是「付不起」→ 置灰、点了毫无反应（与商店金币不足同款静默）
 	assert(choices[1].classList.contains("wm-rogue-disabled"), "经验不足的第二项应置灰");
@@ -3165,16 +3165,16 @@ await check("新事件真机链路：经验商人的价钱写进按钮、置灰�
 	clickNode(nodesWithClass("wm-rogue-event-choice")[1]);
 	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "置灰项点了不弹提示");
 	assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "置灰项点了不改存档");
-	// 金币够：点第一项 → 扣 100 金币、拿 80 经验、事件收掉
+	// 金币够：点第一项 → 扣 100 金币、拿 120 经验、事件收掉
 	clickNode(nodesWithClass("wm-rogue-event-choice")[0]);
 	assert(screenText().includes("金币 -100"), `结算文案要报账：${screenText().slice(0, 240)}`);
 	click("确定");
 	const saved = lib.storage.rogueSlots[0];
 	assertEqual(saved.currency.gold, 50, "扣掉一倍基准金币");
-	assertEqual(saved.currency.exp, 80, "拿到两倍基准经验");
+	assertEqual(saved.currency.exp, 120, "拿到三倍基准经验");
 	assertEqual(saved.pendingEvent, null, "事件收掉");
 	assertEqual(saved.level, 4, "事件不改关卡数（它只在胜利结算之后发生）");
-	return "第 4 关基准 100/40：扣 100 金币得 80 经验";
+	return "第 4 关基准 100/40：扣 100 金币得 120 经验";
 });
 
 await check("奇物商店：候选展示、购买落袋、整批售罄、重载保持", async () => {
@@ -3337,7 +3337,13 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 	// 详情只列选项与结果：名称/介绍卡片上已有，弹层里不再重复
 	assertEqual(
 		JSON.stringify(coin),
-		JSON.stringify(["「拾取」", "　50%：获得 1 倍本层胜利金币", "　50%：消耗 0.4 倍本层胜利金币", "「观察」", "　无奖励"]),
+		JSON.stringify([
+			"「拾取」",
+			"　50%：获得 2 倍本层胜利金币，获得 2 倍本层胜利经验",
+			"　50%：消耗 0.5 倍本层胜利金币",
+			"「观察」",
+			"　无奖励",
+		]),
 		`幸运硬币逐行版式：${coin.join(" / ")}`
 	);
 	const lab = openDetail("未知实验室");
@@ -3434,7 +3440,7 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 	freshWorld();
 	putRun(0, {
 		mode: "endless",
-		collection: { events: [], curios: ["energy_core", "cursed_coin", "broken_watch"] },
+		collection: { events: [], curios: ["energy_core", "cursed_coin", "broken_watch", "memory_prism"] },
 		curios: ["energy_core"],
 		// 玩家已把它升到史诗：图鉴仍要给全链路，而不是只显示史诗那一档
 		curioQuality: { energy_core: "epic" },
@@ -3474,6 +3480,14 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 	// 链尾起手只有一档：不伪造升级档
 	const watch = detailOf("破损怀表");
 	assertEqual(watch.names.length, 1, `史诗起手没有后续档位：${watch.names.join(" / ")}`);
+	// 记忆棱镜：稀有起步两档，事件经验加成幅度逐档给（文案一律由统一效果表生成）
+	const prism = detailOf("记忆棱镜");
+	assertEqual(JSON.stringify(prism.names), JSON.stringify(["【稀有】 初始", "【史诗】"]), `记忆棱镜档位：${prism.names.join(" / ")}`);
+	assertEqual(
+		JSON.stringify(prism.effects),
+		JSON.stringify(["从随机事件中获得的经验奖励额外增加 25%", "从随机事件中获得的经验奖励额外增加 50%"]),
+		`记忆棱镜各档数值：${prism.effects.join(" / ")}`,
+	);
 	// 连点不同奇物：不叠层、不串台
 	assertEqual(nodesWithClass("wm-rogue-detail-popup").length, 1, "任何时刻只有一个详情弹层");
 	assert(!watch.text.includes("诅咒金币"), `详情内容不串台：${watch.text}`);
@@ -3482,7 +3496,7 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 	assert(nodesWithClass("wm-rogue-index")[0], "关闭详情后图鉴还在原地");
 	click("返回");
 	assert(screenText().includes("开始下一关"), "返回应回到营地");
-	return "能量核心 3 档 / 诅咒金币 4 档（含负面）/ 怀表 1 档";
+	return "能量核心 3 档 / 诅咒金币 4 档（含负面）/ 怀表 1 档 / 记忆棱镜 2 档";
 });
 
 await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展示，交互选项不再写「无奖励」", async () => {
@@ -3490,7 +3504,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	putRun(0, {
 		mode: "endless",
 		collection: {
-			events: ["abyss_rift", "ancient_ruins", "wandering_merchant", "curio_forge", "skill_forge", "spring_of_wisdom", "stat_training_ground", "wormhole"],
+			events: ["abyss_rift", "ancient_ruins", "wandering_merchant", "curio_forge", "skill_forge", "spring_of_wisdom", "stat_training_ground", "wormhole", "memory_corridor", "extreme_training", "lost_database"],
 			curios: [],
 		},
 	});
@@ -3550,8 +3564,24 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	assert(wormhole.some(line => line.includes(`跳过 ${skipLevels} 关`) && line.includes("并获得期间的全部金币与经验")),
 		`虫洞应写明跳关与奖励口径：${wormhole.join(" / ")}`);
 	assert(!wormhole.includes("无奖励"), `虫洞不该显示无奖励：${wormhole.join(" / ")}`);
+	// 记忆回廊：深入记忆的两支概率照实写全（含失手），失手的「最多扣光」安全口径也要写进去；
+	// 遗忘过去要写明是「自选一个失去」（换经验的两个入口共用这一句）
+	const corridor = openDetail("记忆回廊");
+	assert(corridor.some(line => line.includes("60%：获得 7 倍本层胜利经验")), `深入记忆的命中支：${corridor.join(" / ")}`);
+	assert(corridor.some(line => line.includes("40%：消耗 2 倍本层胜利经验")), `深入记忆的失手支：${corridor.join(" / ")}`);
+	assert(corridor.some(line => line.includes("经验不足时最多扣光手上持有的经验")), `失手的安全口径照实写全：${corridor.join(" / ")}`);
+	assert(corridor.some(line => line.includes("从拥有的技能里自选一个失去")), `遗忘过去要写明是自选失去：${corridor.join(" / ")}`);
+	// 极限模拟训练：两档债数读事件自己的 perEnemy（1 / 2），不再全按经验泉的默认值
+	const extreme = openDetail("极限模拟训练");
+	assert(extreme.some(line => line.includes("每名敌人追加 1 个深渊强化")), `极限训练债数：${extreme.join(" / ")}`);
+	assert(extreme.some(line => line.includes("每名敌人追加 2 个深渊强化")), `终极训练债数：${extreme.join(" / ")}`);
+	// 失落数据库：免费 / 付费 / 搏一把三档，搏一把两支都写全
+	const database = openDetail("失落数据库");
+	assert(database.includes("「免费读取」") && database.includes("　获得 2 倍本层胜利经验"), `免费档：${database.join(" / ")}`);
+	assert(database.some(line => line.includes("消耗 2 倍本层胜利金币，获得 8 倍本层胜利经验")), `付费档：${database.join(" / ")}`);
+	assert(database.some(line => line.includes("50%：获得 12 倍本层胜利经验")), `搏一把命中支：${database.join(" / ")}`);
 	click("返回");
-	return "裂隙 3 档 + 遗迹 3 门 + 5 个交互选项全部有说明";
+	return "裂隙 3 档 + 遗迹 3 门 + 5 个交互选项 + 三件新事件的逐行说明";
 });
 
 await check("图鉴是公有的：别的存档解锁的内容这里也看得到，删档也不丢", async () => {
@@ -4512,6 +4542,220 @@ await check("技能熔炉与奇物融合炉：选定那一刻才扣、才发", a
 	return "熔炉两件：都是选定才扣";
 });
 
+await check("记忆回廊：遗忘过去走熔炉同一套选技页（标题=事件名），选谁失谁、经验与删除同一次提交、奇物联动照结算", async () => {
+	freshWorld();
+	const pendingEvent = eventManager.buildPendingEvent("memory_corridor", 4, () => 0, 1, { curios: [] });
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 5,
+		currency: { gold: 0, exp: 0 },
+		skills: ["own_one"],
+		skillInventory: ["own_one", "own_two"],
+		curios: ["oblivion_stone", "gluttonous_box"],
+		pendingEvent,
+	});
+	session();
+	const text = screenText();
+	assert(text.includes("记忆回廊") && text.includes("走廊中浮现出无数个过去的自己"), `事件页照常展示：${text.slice(0, 200)}`);
+	assertEqual(nodesWithClass("wm-rogue-event-choice").length, 4, "四个选项");
+	click("遗忘过去");
+	// 子页复用熔炉那一套卡片，但标题换成事件名、说明与按钮读的是事件自带的两句话
+	assertEqual(nodesWithClass("wm-rogue-skill-forge-overlay").length, 1, "进入选技子页");
+	const subText = screenText();
+	assert(subText.includes("记忆回廊") && subText.includes("从你拥有的技能里挑一个忘掉，换回大量经验。"), `子页标题与说明：${subText.slice(0, 240)}`);
+	assert(subText.includes("遗忘此技能"), `按钮读事件自带的 pickLabel：${subText.slice(0, 300)}`);
+	assertEqual(nodesWithClass("wm-rogue-replace-card").length, 2, "候选 = 完整背包（装备 1 + 背包 1）");
+	assert(subText.includes("已装备"), `装备中的技能带状态签：${subText.slice(0, 300)}`);
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 0, "开子页不进账");
+	// 选装备中的那一个：装备位与背包一起删，12 倍经验 + 遗石/魔盒按件结算都在同一次提交里
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[0]);
+	click("确定");
+	const lost = lib.storage.rogueSlots[0];
+	// 事件奖励按「刚打赢的第 4 关」在构建期定死；遗石/魔盒按熔炉结算时的当前关卡（第 5 关）算
+	const wonBase = rewardsData.getEndlessReward(4, ["gold", "exp"]);
+	const liveBase = rewardsData.getEndlessReward(5, ["gold", "exp"]);
+	assertEqual(JSON.stringify(lost.skills), JSON.stringify([]), "装备位一起腾空");
+	assertEqual(JSON.stringify(lost.skillInventory), JSON.stringify(["own_two"]), "背包只剩没选的那个");
+	assertEqual(lost.currency.exp, wonBase.exp * 12 + liveBase.exp * 10, "12 倍事件经验（构建期定死）+ 贪食魔盒按件经验");
+	assertEqual(lost.currency.gold, liveBase.gold * 10, "遗忘之石按件发钱");
+	assertEqual(lost.pendingEvent, null, "事件收掉");
+	return "自选失去（含装备中）+ 12 倍经验与删除同一次提交 + 奇物联动";
+});
+
+await check("记忆回廊：没技能可失去只弹提示不给经验；进子页后点返回＝放弃事件，技能经验一个不动", async () => {
+	freshWorld();
+	// ① 一件技能都没有：点「遗忘过去」弹作者那句话，一分经验不发、事件照常收掉
+	const pendingEvent = eventManager.buildPendingEvent("memory_corridor", 4, () => 0, 1, { curios: [] });
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 5,
+		currency: { gold: 0, exp: 0 },
+		skills: [],
+		skillInventory: [],
+		pendingEvent,
+	});
+	session();
+	click("遗忘过去");
+	assert(screenText().includes("你没有可以遗忘的技能。"), `没技能弹的是作者那句话：${screenText().slice(0, 240)}`);
+	assertEqual(lib.storage.rogueSlots[0].currency.exp, 0, "没有 12 倍经验");
+	assertEqual(lib.storage.rogueSlots[0].pendingEvent, null, "事件照样收掉（与熔炉同一条纪律）");
+	// ② 有技能、进子页后点返回：放弃事件，技能与经验一个不动，也不重复领
+	freshWorld();
+	const again = eventManager.buildPendingEvent("memory_corridor", 4, () => 0, 1, { curios: [] });
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 5,
+		currency: { gold: 0, exp: 0 },
+		skills: ["own_one"],
+		skillInventory: ["own_one"],
+		pendingEvent: again,
+	});
+	session();
+	click("遗忘过去");
+	assertEqual(nodesWithClass("wm-rogue-skill-forge-overlay").length, 1, "进入选技子页");
+	click("返回");
+	const abandoned = lib.storage.rogueSlots[0];
+	assertEqual(abandoned.pendingEvent, null, "返回＝放弃本次事件（与商人/熔炉同一条出口）");
+	assertEqual(JSON.stringify(abandoned.skills), JSON.stringify(["own_one"]), "技能一个不动");
+	assertEqual(abandoned.currency.exp, 0, "经验一分不发");
+	assert(screenText().includes("开始下一关"), `放弃后回到营地：${screenText().slice(0, 160)}`);
+	return "无技能弹提示 / 返回即放弃";
+});
+
+await check("极限模拟训练：终极训练债记 2，下一场每名敌人各追加 2 条深渊强化并清零，中途读档不丢不重", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		const pendingEvent = eventManager.buildPendingEvent("extreme_training", 4, () => 0, 1, { curios: [] });
+		putRun(0, {
+			mode: "endless",
+			characterId: "迪迦",
+			level: 5,
+			currency: { gold: 0, exp: 0 },
+			pendingEvent,
+		});
+		session();
+		click("终极训练");
+		click("确定");
+		let slot = lib.storage.rogueSlots[0];
+		const base = rewardsData.getEndlessReward(4, ["exp"]);
+		assertEqual(slot.currency.exp, base.exp * 10, "10 倍本层基准经验先入账");
+		assertEqual(slot.abyssDebt, 2, "债记进存档");
+		// 中途退出再读档：债原样保留，没丢也没被提前消费
+		session();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.abyssDebt, 2, "读档后债原样保留");
+		// 开下一场（第 5 关）：rng 钉 0.9——本关随机词缀只要 5% 概率、必然不命中，
+		// 所以每人身上的词缀就恰好是债给的 2 条（多一条少一条都说明债没接上）
+		Math.random = () => 0.9;
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.abyssDebt, 0, "开战即消费并清零");
+		assertEqual(slot.currentBattle.enemies.length, 1, "第 5 关单人敌人");
+		assertEqual(slot.currentBattle.enemies[0].abyss.length, 2, `债给的 2 条词缀随阵容落盘：${JSON.stringify(slot.currentBattle.enemies[0].abyss)}`);
+		return "债 2 记档 → 读档保留 → 下一场每人 +2 并清零";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("记忆棱镜：事件余额与账目行都吃加成、虫洞跳关不吃、子页发经验时才加成；商店购买与升级链路照常", async () => {
+	freshWorld();
+	// ① 事件页：免费读取 2 倍基准经验（第 4 关 40 → 80），稀有棱镜后 100——账目行报的就是 100
+	const db = eventManager.buildPendingEvent("lost_database", 4, () => 0, 1, { curios: [] });
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 5,
+		currency: { gold: 0, exp: 0 },
+		curios: ["memory_prism"],
+		pendingEvent: db,
+	});
+	session();
+	click("免费读取");
+	assert(screenText().includes("经验 +100"), `账目行与余额一致：${screenText().slice(0, 240)}`);
+	click("确定");
+	let slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.currency.exp, 100, "80 → 稀有棱镜后 100");
+	assertEqual(slot.pendingEvent, null, "事件收掉");
+	// ② 虫洞：跳关汇总的基础经验不吃棱镜（金额与存档里定死的那笔逐字相等）
+	const worm = eventManager.buildPendingEvent("wormhole", 4, () => 0, 1, { curios: [] });
+	const skipExp = worm.choices[0].reward.exp;
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 5,
+		currency: { gold: 0, exp: 500 },
+		curios: ["memory_prism"],
+		pendingEvent: worm,
+	});
+	session();
+	click("进入");
+	click("确定");
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.currency.exp, 500 + skipExp, "跳关汇总经验一分不多（不带棱镜加成）");
+	assertEqual(slot.level, 15, "照常跳过十关");
+	// ③ 子页：熔炉在真正发经验那一刻加成（手搭一个 80 经验的熔炉事件，10 + round(80×1.25)）
+	const forge = eventManager.buildPendingEvent("skill_forge", 4, () => 0, 1, { curios: [] });
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 5,
+		currency: { gold: 0, exp: 10 },
+		skills: ["own_one"],
+		skillInventory: ["own_one"],
+		curios: ["memory_prism"],
+		pendingEvent: {
+			id: "skill_forge",
+			choices: [
+				{ ...forge.choices[0], reward: { exp: 80 } },
+				forge.choices[2],
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	click("失去一个技能");
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[0]);
+	click("确定");
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.currency.exp, 10 + 100, "子页发经验时才加成：80 → 100");
+	// ④ 商店：棱镜能买、能升，升级后效果文案跟着换（统一效果表的 25% → 50%）。
+	// 进店时技能候选会被重掷，所以先给三张高价技能卡占位，买的那一格才是奇物
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 2,
+		currency: { gold: 100, exp: 999 },
+		shopOffers: [
+			{ id: "own_one", price: 999, sold: false },
+			{ id: "own_two", price: 999, sold: false },
+			{ id: "own_three", price: 999, sold: false },
+		],
+		curioOffers: [{ id: "memory_prism", price: 10, sold: false }],
+	});
+	session();
+	click("商店");
+	assert(screenText().includes("记忆棱镜") && screenText().includes("从随机事件中获得的经验奖励额外增加 25%"), `商店卡面走统一文案：${screenText().slice(0, 320)}`);
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[3]);
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.curios), JSON.stringify(["memory_prism"]), "购买入袋");
+	assertEqual(slot.currency.gold, 90, "扣款落盘");
+	clickNode(nodesWithClass("wm-rogue-res-curio")[0]);
+	assertEqual(nodesWithClass("wm-rogue-curio-up").length, 1, "管理页一张升级按钮");
+	clickNode(nodesWithClass("wm-rogue-curio-up")[0]);
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.curioQuality.memory_prism, "epic", "升到史诗");
+	assert(screenText().includes("额外增加 50%"), `升级后效果文案跟着变：${screenText().slice(0, 320)}`);
+	return "事件 100 / 虫洞不吃 / 子页 80→100 / 购买升级链路";
+});
+
 await check("深渊裂隙：先确认再进场，敌人数与词缀按事件参数生成，胜利只发定死的钱且不推进关卡", async () => {
 	freshWorld();
 	putRun(0, {
@@ -4522,6 +4766,8 @@ await check("深渊裂隙：先确认再进场，敌人数与词缀按事件参�
 		shopRefreshesRemaining: 0,
 		// 保底记录先摆一个值：裂隙战既不参与保底、也绝不许把它挪走（它本来就不改关卡）
 		bossPityLevel: 5,
+		// 揣着记忆棱镜打裂隙：下面的经验断言仍是事件里定死的 320——裂隙奖励不吃棱镜（与不刷商店同一条纪律）
+		curios: ["memory_prism"],
 		pendingEvent: {
 			id: "abyss_rift",
 			choices: [

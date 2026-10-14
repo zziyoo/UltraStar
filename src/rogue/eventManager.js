@@ -35,6 +35,7 @@ import { getCurio, CURIOSITY_RARITY } from "./data/curios.js";
 import { getEndlessReward, sumEndlessRewards } from "./data/rewards.js";
 import { stats } from "./data/stats.js";
 import {
+	getBonus,
 	getCurioQuality,
 	getMerchantPrice,
 	getUpgradableCurios,
@@ -82,8 +83,19 @@ export function normalizeEventAction(raw) {
 	switch (raw.kind) {
 		case "abyssDebt":
 			return { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
-		case "skillForge":
-			return { kind: "skillForge", grant: raw.grant === "skill" ? "skill" : "exp" };
+		case "skillForge": {
+			const built = { kind: "skillForge", grant: raw.grant === "skill" ? "skill" : "exp" };
+			// 子页那两句话随存档定死：读档回到事件页再点子页，显示的还是构建期那一份
+			const subtitle = typeof raw.subtitle === "string" ? raw.subtitle.trim() : "";
+			if (subtitle) {
+				built.subtitle = subtitle;
+			}
+			const pickLabel = typeof raw.pickLabel === "string" ? raw.pickLabel.trim() : "";
+			if (pickLabel) {
+				built.pickLabel = pickLabel;
+			}
+			return built;
+		}
 		case "rift": {
 			const tier = clampInt(raw.tier, 0, RIFT_TIERS.length - 1, 0);
 			const level = clampInt(raw.level, 1, Number.MAX_SAFE_INTEGER, 1);
@@ -216,9 +228,23 @@ function buildEventAction(raw, base, level, rng) {
 	}
 	switch (raw.kind) {
 		case "abyssDebt":
-			return { kind: "abyssDebt", perEnemy: SPRING_DEBT_AFFIXES };
-		case "skillForge":
-			return { kind: "skillForge", grant: raw.grant === "skill" ? "skill" : "exp" };
+			// perEnemy：事件可以显式指定每名敌人追加几个（极限模拟训练的 1 / 2）；
+			// 不写的（经验泉）照旧吃 config.SPRING_DEBT_AFFIXES 的默认值。清洗口径与 normalizeEventAction 一致
+			return { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
+		case "skillForge": {
+			const built = { kind: "skillForge", grant: raw.grant === "skill" ? "skill" : "exp" };
+			// 子页的两句话：标题恒为事件名（UI 侧现读），subtitle / pickLabel 作者写了才带上，
+			// 不写由 UI 回落到技能熔炉的默认文案——随存档定死，读档后子页面显示不变
+			const subtitle = typeof raw.subtitle === "string" ? raw.subtitle.trim() : "";
+			if (subtitle) {
+				built.subtitle = subtitle;
+			}
+			const pickLabel = typeof raw.pickLabel === "string" ? raw.pickLabel.trim() : "";
+			if (pickLabel) {
+				built.pickLabel = pickLabel;
+			}
+			return built;
+		}
 		case "rift": {
 			const tier = clampInt(raw.tier, 0, RIFT_TIERS.length - 1, 0);
 			const conf = RIFT_TIERS[tier];
@@ -367,6 +393,10 @@ function buildEventChoice(choice, env) {
 	}
 	const action = buildEventAction(choice.action, base, level, rng);
 	const built = { text: choice.text.trim(), reward: clean };
+	// 预掷赌局的「最多扣光」安全阀：随存档定死，事件页与结算层都按它放行/收窄（见文件头与 events.js）
+	if (choice.clampLoss === true) {
+		built.clampLoss = true;
+	}
 	if (action) {
 		built.action = action;
 	}
@@ -524,6 +554,7 @@ export function getBlockedMessage(run, choice) {
  * 否则选项会被置灰且点不动，事件永远关不掉。
  * 带 action 的选项在这里永远可选：它们的价钱不写在 reward 而记在 action 上，
  * 真正确定要付是子页面里点下那一件/那一级的时刻， affordability 由子页面自己判。
+ * 写了 clampLoss 的选项（预掷赌局）由调用方**跳过这道判定**——负结果是掷出来的，置灰等于剧透。
  */
 export function isChoiceAffordable(run, reward) {
 	if (!reward || typeof reward !== "object") {
@@ -543,6 +574,45 @@ export function isChoiceAffordable(run, reward) {
 		}
 	}
 	return true;
+}
+
+/**
+ * 预掷赌局的扣款安全阀（选项声明了 clampLoss）：选项永不因「钱不够」置灰（负结果是生成期掷定的，
+ * 置灰等于把结果提前漏给玩家），结算时把负值收窄到「最多扣光手上持有的」，绝不为负。
+ * 返回的可能是原对象（没裁到）或裁过的新对象——调用方拿它走 applyEventCurrency，
+ * 账目行与余额因此是同一份收窄后的数字。只对声明了 clampLoss 的选项生效，正常收费事件的支付规则一个字不动。
+ */
+function capLossToHeld(run, reward) {
+	let capped = null;
+	for (const key of ["gold", "exp"]) {
+		const value = reward?.[key];
+		const held = run?.currency?.[key] ?? 0;
+		if (Number.isFinite(value) && value < 0 && held < -value) {
+			(capped ??= { ...reward })[key] = -held;
+		}
+	}
+	return capped ?? reward;
+}
+
+/**
+ * 记忆棱镜：事件结算时对**正数经验奖励**按当前品质额外加成一次（稀有 +25% / 史诗 +50%）。
+ * 只在「事件真正入账」的两条路调用（resolveEventChoice 与技能熔炉子页的 skillForgeFlow），所以：
+ *   · 普通/Boss/裂隙战斗的胜利经验走 reward.js 的结算，碰不到这里；
+ *   · 经验消耗是负值、原样保留；没有这块奇物（加成为 0）返回原对象；
+ *   · 虫洞「跳过十关」的基础奖励汇总带 skipLevels——整批不吃加成，免得跳过十关被异常放大；
+ *   · 追问句（经验泉的「再饮一口」）在 mergeSips 并成一口之后才进这里，所以只算一次。
+ * 取整用 Math.round（与倍率换算同一口径）；加成结果只出现在这一次入账里，读档重开算不出第二个数。
+ */
+export function boostEventExp(run, reward) {
+	const rate = getBonus(run?.curios ?? [], "eventExpRate", run?.curioQuality);
+	const value = Number(reward?.exp);
+	if (!(rate > 0) || !(Number.isFinite(value) && value > 0)) {
+		return reward;
+	}
+	if (Number.isFinite(reward.skipLevels) && reward.skipLevels > 0) {
+		return reward;
+	}
+	return { ...reward, exp: Math.round(value * (1 + rate)) };
 }
 
 /**
@@ -676,11 +746,17 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		};
 		return { ok: true, error: null, run: skipped, lines: ["奇物图鉴已集齐，他没有可出售的东西，这次不收货币。"], skillId: null, curioId: null, action: null };
 	}
-	if (!isChoiceAffordable(run, reward)) {
+	// 预掷赌局的失手分支（clampLoss）不能用「钱不够」拒绝——负结果是预掷出来的，拒绝/置灰都等于剧透；
+	// 它照常放行，扣款在下面按「最多扣光」收窄（capLossToHeld）
+	const clampLoss = choice.clampLoss === true;
+	if (!clampLoss && !isChoiceAffordable(run, reward)) {
 		return { ok: false, error: "货币不足，无法选择该项", run };
 	}
 
-	const credited = applyEventCurrency(run, reward);
+	// 收窄只对 clampLoss 选项生效；记忆棱镜在这里给事件自己发的正数经验加成一次
+	// （另一条路是技能熔炉子页的 skillForgeFlow），账目行与余额吃的是同一份加成后的数字
+	const paid = clampLoss ? capLossToHeld(run, reward) : reward;
+	const credited = applyEventCurrency(run, boostEventExp(run, paid));
 	const next = {
 		...credited.run,
 		skills: (run.skills ?? []).slice(0),

@@ -113,10 +113,15 @@ function actionBrief(action) {
 			return `只卖一件奇物，标价 = 奇物基准价 ×${MERCHANT_PRICE_MULTIPLIER}；买下已拥有的那件会直接升一级品质`;
 		case "curioForge":
 			return `选一件奇物升一级品质，融合费 = 本层胜利经验 ×${FORGE_EXP_MULTIPLIER}`;
-		case "abyssDebt":
-			return SPRING_DEBT_AFFIXES > 0 ? `下一场战斗每名敌人追加 ${SPRING_DEBT_AFFIXES} 个深渊强化` : null;
+		case "abyssDebt": {
+			// 个数优先读事件自己写的 perEnemy（极限模拟训练的 1 / 2），不写的照旧吃 config 默认值（经验泉）
+			const perEnemy = Number.isFinite(action.perEnemy) ? action.perEnemy : SPRING_DEBT_AFFIXES;
+			return perEnemy > 0 ? `下一场战斗每名敌人追加 ${perEnemy} 个深渊强化` : null;
+		}
 		case "skillForge":
-			return action.grant === "skill" ? "失去一个技能，换一个随机新技能" : null;
+			// 换经验档的两个入口（技能熔炉 / 记忆回廊的「遗忘过去」）都写明是「自己选一个失去」；
+			// 选谁、以及装备中的技能也能选，都不许含糊
+			return action.grant === "skill" ? "失去一个技能，换一个随机新技能" : "从拥有的技能里自选一个失去";
 		default:
 			return null;
 	}
@@ -142,7 +147,12 @@ function isWagerMiss(reward) {
  */
 function choiceLines(choice, mark = "") {
 	const label = `「${choice.text}」${mark}`;
-	const note = actionBrief(choice.action);
+	// 预掷赌局的失手按「最多扣光」收窄（clampLoss）：这是一条真实规则，图鉴照实写全，
+	// 别让玩家以为真能扣成负数（事件页那边不写它是为了不剧透预掷结果）
+	const note = [
+		actionBrief(choice.action),
+		choice.clampLoss === true ? "经验不足时最多扣光手上持有的经验，不会扣成负数" : null,
+	].filter(Boolean).join("；");
 	const all = Array.isArray(choice.outcomes) ? choice.outcomes : null;
 	if (!all || !all.length) {
 		return [label, `　${joinBrief(rewardBrief(choice.reward, choice), note)}`];

@@ -703,12 +703,27 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 					problems.push(`${key} 第${index + 1}个选项: rift 的 tier ${action.tier} 超出 config.RIFT_TIERS（共 ${cfg.RIFT_TIERS.length} 档）`);
 				} else if (action.kind === "skillForge" && !["exp", "skill"].includes(action.grant)) {
 					problems.push(`${key} 第${index + 1}个选项: skillForge 的 grant 应为 exp 或 skill`);
-				} else if (action.kind === "abyssDebt" && action.perEnemy !== undefined) {
-					problems.push(`${key} 第${index + 1}个选项: abyssDebt 的个数由 config.SPRING_DEBT_AFFIXES 在构建期注入，别在数据里抄一份`);
+				} else if (action.kind === "abyssDebt" && action.perEnemy !== undefined
+					&& !(Number.isInteger(action.perEnemy) && action.perEnemy >= 1 && action.perEnemy <= 10)) {
+					// 不写 perEnemy 的（经验泉）由 config.SPRING_DEBT_AFFIXES 在构建期注入；
+					// 写了的（极限模拟训练的 1 / 2）必须是正整数，构建期与读档清洗都按 0..10 夹
+					problems.push(`${key} 第${index + 1}个选项: abyssDebt.perEnemy 应为 1~10 的整数（不写则用 config.SPRING_DEBT_AFFIXES）`);
+				}
+				// skillForge 的子页文案（可选）：写了就必须是非空字符串，读档清洗 trim 后随存档带回
+				if (action?.kind === "skillForge") {
+					for (const field of ["subtitle", "pickLabel"]) {
+						if (action[field] !== undefined && !(typeof action[field] === "string" && action[field].trim())) {
+							problems.push(`${key} 第${index + 1}个选项: skillForge.${field} 写了就必须是非空句子`);
+						}
+					}
 				}
 			}
 			if (choice?.blockedText !== undefined && !(typeof choice.blockedText === "string" && choice.blockedText.trim())) {
 				problems.push(`${key} 第${index + 1}个选项: 写了 blockedText 就必须是非空句子（它是「此刻没有对象可作用」时对玩家说的话）`);
+			}
+			// clampLoss 只认 true（预掷赌局的失手分支：选项永不置灰、扣款最多扣光手上那份）
+			if (choice?.clampLoss !== undefined && choice.clampLoss !== true) {
+				problems.push(`${key} 第${index + 1}个选项: clampLoss 只认 true（写了就不因钱不够置灰，扣款最多扣光）`);
 			}
 			// 追问句（经验泉的「再饮一口」）：形状就是一个选项，写坏了事件页点完主选项什么也不会问
 			const followUp = choice?.followUp;

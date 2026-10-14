@@ -342,6 +342,10 @@ function normalizeEventChoice(raw, nested = false) {
 	if (question) {
 		built.question = question;
 	}
+	// 预掷赌局的「最多扣光」安全阀随存档原样带回：构建期写上的，读档后事件页按钮与结算层都还要用它
+	if (raw.clampLoss === true) {
+		built.clampLoss = true;
+	}
 	if (!nested) {
 		const followUp = normalizeEventChoice(raw.followUp, true);
 		if (followUp) {

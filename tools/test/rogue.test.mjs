@@ -1922,11 +1922,11 @@ check("事件构建：倍率按胜利奖励换算、outcomes 当场预掷、读�
 	// 第 100 关：金币 floor(500)、经验 floor(200×5)=1000 → 倍率跟着放大
 	const late = eventManager.buildPendingEvent("lost_robot", 100, makeRng(1), NOW);
 	assertEqual(JSON.stringify(late.choices[0].reward), JSON.stringify({ gold: -500, exp: 1000 }), "高关卡按当关奖励缩放");
-	// 幸运硬币：rng=0 预掷第一段（+1 倍），rng→1 预掷第二段（-0.4 倍）
+	// 幸运硬币：rng=0 预掷第一段（+2 倍金币 +2 倍经验），rng→1 预掷第二段（-0.5 倍金币）
 	const heads = eventManager.buildPendingEvent("lucky_coin", 1, () => 0, NOW);
-	assertEqual(JSON.stringify(heads.choices[0].reward), JSON.stringify({ gold: 50 }), "rng=0 → +50");
+	assertEqual(JSON.stringify(heads.choices[0].reward), JSON.stringify({ gold: 100, exp: 40 }), "rng=0 → +100 金币 +40 经验");
 	const tails = eventManager.buildPendingEvent("lucky_coin", 1, () => 0.999, NOW);
-	assertEqual(JSON.stringify(tails.choices[0].reward), JSON.stringify({ gold: -20 }), "rng→1 → -20（round(50×-0.4)）");
+	assertEqual(JSON.stringify(tails.choices[0].reward), JSON.stringify({ gold: -25 }), "rng→1 → -25（round(50×-0.5)）");
 	// 赌局选项（outcomes）不把预掷金额写进按钮：写出正负等于剧透结果
 	assertEqual(heads.choices[0].text, "拾取", `正面不剧透：${heads.choices[0].text}`);
 	assertEqual(tails.choices[0].text, "拾取", `反面不剧透：${tails.choices[0].text}`);
@@ -3152,7 +3152,7 @@ check("虫洞：跳过十关，期间的基础金币与经验一次性入账", (
 
 check("技能熔炉：交回 mode.js 且一个钱都不扣，背包为空时才弹提示", () => {
 	const forge = eventManager.buildPendingEvent("skill_forge", BASE_LEVEL, () => 0, NOW, { curios: [] });
-	assertEqual(JSON.stringify(forge.choices[0].reward), JSON.stringify({ exp: BASE_EXP * 2 }), "熔炼换的 = 2 倍本层基准经验");
+	assertEqual(JSON.stringify(forge.choices[0].reward), JSON.stringify({ exp: BASE_EXP * 6 }), "熔炼换的 = 6 倍本层基准经验");
 	assertEqual(JSON.stringify(forge.choices[0].action), JSON.stringify({ kind: "skillForge", grant: "exp" }), "第一档：换经验");
 	assertEqual(JSON.stringify(forge.choices[1].action), JSON.stringify({ kind: "skillForge", grant: "skill" }), "第二档：换技能");
 	assertEqual(forge.choices[0].blockedText, forge.choices[1].blockedText, "两档说的是同一件事");
@@ -3802,34 +3802,34 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 
 check("新增四事件：倍率按刚打赢那关的基准换算成固定值，消耗写进文案", () => {
 	const build = id => eventManager.buildPendingEvent(id, BASE_LEVEL, () => 0, NOW, { curios: [] });
-	// 废弃补给站：翻找是纯金币，仔细搜寻是「金币换经验」的五五开
+	// 废弃补给站：两头都按本层胜利奖励换算——翻找金币经验各一倍，仔细搜寻少金币换多经验
 	const supply = build("abandoned_supply");
 	assertEqual(supply.id, "abandoned_supply", "待处理事件只存 id（名字由事件页现读定义）");
-	assertEqual(JSON.stringify(supply.choices[0].reward), JSON.stringify({ gold: BASE_GOLD }), "翻找补给箱 = 1 倍基准金币");
-	assertEqual(JSON.stringify(supply.choices[1].reward), JSON.stringify({ gold: BASE_GOLD / 2, exp: BASE_EXP / 2 }), "仔细搜寻 = 0.5 / 0.5");
+	assertEqual(JSON.stringify(supply.choices[0].reward), JSON.stringify({ gold: BASE_GOLD, exp: BASE_EXP }), "翻找补给箱 = 1 倍金币 + 1 倍经验");
+	assertEqual(JSON.stringify(supply.choices[1].reward), JSON.stringify({ gold: Math.round(BASE_GOLD / 2), exp: BASE_EXP * 2 }), "仔细搜寻 = 0.5 倍金币 + 2 倍经验");
 	assert(!supply.choices[0].text.includes("金币"), `白拿的选项不加价钱后缀：${supply.choices[0].text}`);
-	// 老兵的训练：让他训练 = 1 倍经验；花钱请教 = 扣半层金币换 2 倍经验
+	// 老兵的训练：让他训练 = 2 倍经验；花钱请教 = 扣半层金币换 4 倍经验
 	const veteran = build("veteran_training");
-	assertEqual(JSON.stringify(veteran.choices[0].reward), JSON.stringify({ exp: BASE_EXP }), "让他训练 = 1 倍基准经验");
-	assertEqual(JSON.stringify(veteran.choices[1].reward), JSON.stringify({ gold: -Math.round(BASE_GOLD / 2), exp: BASE_EXP * 2 }), "花钱请教 = -0.5 金币 / +2 经验");
+	assertEqual(JSON.stringify(veteran.choices[0].reward), JSON.stringify({ exp: BASE_EXP * 2 }), "让他训练 = 2 倍基准经验");
+	assertEqual(JSON.stringify(veteran.choices[1].reward), JSON.stringify({ gold: -Math.round(BASE_GOLD / 2), exp: BASE_EXP * 4 }), "花钱请教 = -0.5 金币 / +4 经验");
 	assert(veteran.choices[1].text.includes(`${-Math.round(BASE_GOLD / 2)} 金币`), `消耗要写进文案：${veteran.choices[1].text}`);
-	// 黄金矿脉：立即开采两头各 1 倍，仔细采集金币更多（1.5）经验更少（0.5）
+	// 黄金矿脉：立即开采两头各 1 倍，仔细采集金币更多（1.5）经验更少（0.5）；本轮未调值
 	const vein = build("gold_vein");
 	assertEqual(JSON.stringify(vein.choices[0].reward), JSON.stringify({ gold: BASE_GOLD, exp: BASE_EXP }), "立即开采 = 1 / 1");
 	assertEqual(JSON.stringify(vein.choices[1].reward), JSON.stringify({ gold: Math.round(BASE_GOLD * 1.5), exp: BASE_EXP / 2 }), "仔细采集 = 1.5 / 0.5");
-	// 经验商人：两个方向是同一个汇率的两头，第三项是白走的出口
+	// 经验商人：两个方向是同一个汇率的两头（1 倍金币 <-> 3 倍经验），第三项是白走的出口
 	const merchant = build("exp_merchant");
 	assertEqual(merchant.choices.length, 3, "商人三个选项");
-	assertEqual(JSON.stringify(merchant.choices[0].reward), JSON.stringify({ gold: -BASE_GOLD, exp: BASE_EXP * 2 }), "金币换经验");
-	assertEqual(JSON.stringify(merchant.choices[1].reward), JSON.stringify({ gold: BASE_GOLD, exp: -BASE_EXP * 2 }), "经验换金币");
+	assertEqual(JSON.stringify(merchant.choices[0].reward), JSON.stringify({ gold: -BASE_GOLD, exp: BASE_EXP * 3 }), "金币换经验（1 倍金币换 3 倍经验）");
+	assertEqual(JSON.stringify(merchant.choices[1].reward), JSON.stringify({ gold: BASE_GOLD, exp: -BASE_EXP * 3 }), "经验换金币（3 倍经验换 1 倍金币）");
 	assertEqual(JSON.stringify(merchant.choices[2].reward), JSON.stringify({}), "我不需要，谢谢 = 零变化");
-	assert(merchant.choices[1].text.includes(`${-BASE_EXP * 2} 经验`), `花经验也要写价钱：${merchant.choices[1].text}`);
+	assert(merchant.choices[1].text.includes(`${-BASE_EXP * 3} 经验`), `花经验也要写价钱：${merchant.choices[1].text}`);
 	// 结算：钱够才扣得动，不够整单拒绝且一个钱不动
 	const rich = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 500, exp: 500 }, pendingEvent: merchant };
 	const bought = eventManager.resolveEventChoice(rich, 0, {}, () => 0);
 	assert(bought.ok, bought.error ?? "金币换经验应成交");
 	assertEqual(bought.run.currency.gold, 500 - BASE_GOLD, "扣一倍基准金币");
-	assertEqual(bought.run.currency.exp, 500 + BASE_EXP * 2, "拿两倍基准经验");
+	assertEqual(bought.run.currency.exp, 500 + BASE_EXP * 3, "拿三倍基准经验");
 	assertEqual(bought.run.pendingEvent, null, "事件收掉");
 	const poor = { ...rich, currency: { gold: 10, exp: 500 } };
 	assert(!eventManager.isChoiceAffordable(poor, merchant.choices[0].reward), "金币不足应判付不起");
@@ -3844,6 +3844,122 @@ check("新增四事件：倍率按刚打赢那关的基准换算成固定值，�
 	const late = eventManager.buildPendingEvent("abandoned_supply", 9, () => 0, NOW, { curios: [] });
 	assertEqual(late.choices[0].reward.gold, rewardsData.getEndlessReward(9, ["gold"]).gold, "基准按「刚打赢那一关」现算");
 	return `第 ${BASE_LEVEL} 关基准 ${BASE_GOLD} 金币 / ${BASE_EXP} 经验；四事件共 ${supply.choices.length + veteran.choices.length + vein.choices.length + merchant.choices.length} 个选项`;
+});
+
+check("四件新事件：能从事件池抽到、构建器全部认，既有事件一个不少", () => {
+	const ids = ["lost_database", "memory_corridor", "interstellar_exchange", "extreme_training"];
+	for (const id of ids) {
+		assert(eventsData.eventIds.includes(id), `池子里要有 ${id}`);
+		const built = eventManager.buildPendingEvent(id, BASE_LEVEL, () => 0, NOW, { curios: [] });
+		assert(built && built.id === id, `${id} 能被构建器识别`);
+		assert(!built.choices.some(choice => !choice.text), `${id} 每个选项都有文案`);
+	}
+	assertEqual(eventsData.eventIds.length, 21, "21 个事件（17 原件 + 4 新增）；新条目一律追加在末尾");
+	assertEqual(eventsData.eventIds[0], "lost_robot", "第一个事件不变（rng=0 的既有夹具不漂移）");
+	// 抽签能覆盖到新增段：rng→1 落在最后一个（下标 = floor(rng × 21)）
+	assertEqual(eventManager.rollEventId(() => 0.999), "extreme_training", "rng→1 抽到最后一件（新增段可达）");
+	// 星际兑换所：两档消耗与收益按倍率换算，钱不够整单拒绝
+	const exchange = eventManager.buildPendingEvent("interstellar_exchange", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	assertEqual(JSON.stringify(exchange.choices[0].reward), JSON.stringify({ gold: -BASE_GOLD, exp: BASE_EXP * 3 }), "小额 = -1 倍金币 / +3 倍经验");
+	assertEqual(JSON.stringify(exchange.choices[1].reward), JSON.stringify({ gold: -BASE_GOLD * 5, exp: BASE_EXP * 18 }), "大额 = -5 倍金币 / +18 倍经验");
+	assert(exchange.choices[1].text.includes(`${-BASE_GOLD * 5} 金币`), `大额价钱写进按钮：${exchange.choices[1].text}`);
+	assert(!eventManager.isChoiceAffordable({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: BASE_GOLD * 5 - 1, exp: 0 } }, exchange.choices[1].reward), "差 1 金币也判付不起");
+	const bought = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: BASE_GOLD * 5, exp: 0 }, pendingEvent: exchange }, 1, {}, () => 0);
+	assert(bought.ok && bought.run.currency.gold === 0 && bought.run.currency.exp === BASE_EXP * 18, "恰好付得起就整单成交、余额不为负");
+	// 失落数据库：免费 / 付费 / 搏一把三档；搏一把的两支预掷都可复现、按钮不剧透
+	const db = eventManager.buildPendingEvent("lost_database", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	assertEqual(JSON.stringify(db.choices[0].reward), JSON.stringify({ exp: BASE_EXP * 2 }), "免费读取 = 2 倍本层经验");
+	assertEqual(JSON.stringify(db.choices[1].reward), JSON.stringify({ gold: -BASE_GOLD * 2, exp: BASE_EXP * 8 }), "付费解锁 = -2 倍金币 / +8 倍经验");
+	assertEqual(JSON.stringify(db.choices[2].reward), JSON.stringify({ exp: BASE_EXP * 12 }), "rng=0 搏中 12 倍");
+	const dbMiss = eventManager.buildPendingEvent("lost_database", BASE_LEVEL, () => 0.999, NOW, { curios: [] });
+	assertEqual(JSON.stringify(dbMiss.choices[2].reward), JSON.stringify({}), "rng→1 搏空、什么也没有");
+	assertEqual(db.choices[2].text, dbMiss.choices[2].text, "搏一把的按钮不写预掷结果");
+	return "21 事件 / 新增段可达 / 兑换所与数据库逐档核对";
+});
+
+check("记忆回廊：深入记忆的失手分支不置灰、不剧透，扣款最多扣光、绝不为负", () => {
+	// 预掷：rng=0 → +7 倍；rng→1 → -2 倍。两支都在构建期定死，读档不重掷
+	const win = eventManager.buildPendingEvent("memory_corridor", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	assertEqual(win.choices.length, 4, "回顾过去 / 深入记忆 / 遗忘过去 / 离开");
+	assertEqual(JSON.stringify(win.choices[1].reward), JSON.stringify({ exp: BASE_EXP * 7 }), "rng=0 预掷到 +7 倍那一支");
+	assertEqual(win.choices[1].clampLoss, true, "深入记忆带「最多扣光」安全阀");
+	const lose = eventManager.buildPendingEvent("memory_corridor", BASE_LEVEL, () => 0.999, NOW, { curios: [] });
+	assertEqual(JSON.stringify(lose.choices[1].reward), JSON.stringify({ exp: -BASE_EXP * 2 }), "rng→1 预掷到 -2 倍那一支");
+	assertEqual(win.choices[1].text, lose.choices[1].text, "预掷结果不进按钮文案（不剧透）");
+	// 不置灰：失手档在 0 经验时也照常可点——置灰等于把预掷结果漏给玩家，所以结算层要直接放行
+	const broke = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 } };
+	assert(!eventManager.isChoiceAffordable(broke, lose.choices[1].reward), "底层判定确实认为买不起（这正是要绕开的那道）");
+	assert(eventManager.resolveEventChoice({ ...broke, pendingEvent: lose }, 1, {}, () => 0).ok, "clampLoss 选项结算层直接放行，不看余额");
+	// 最多扣光：手里 30 点、失手扣 80 → 只扣 30、余额为 0，账目行报的是真扣的数
+	const poor = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 30 }, pendingEvent: lose };
+	const paid = eventManager.resolveEventChoice(poor, 1, {}, () => 0);
+	assertEqual(paid.run.currency.exp, 0, "扣到 0 为止（绝不为负）");
+	assert(paid.lines.some(line => line === "经验 -30"), `账目行与余额一致：${paid.lines.join(" / ")}`);
+	assertEqual(paid.run.pendingEvent, null, "事件照常收掉");
+	// 手里 0 点：一分不扣，也不报一行假账
+	const nothing = eventManager.resolveEventChoice({ ...broke, pendingEvent: lose }, 1, {}, () => 0);
+	assertEqual(nothing.run.currency.exp, 0, "没得扣就不扣");
+	assert(!nothing.lines.some(line => line.includes("经验")), `没有经验账目行：${nothing.lines.join(" / ")}`);
+	// 读档往返：失手金额与安全阀原样回来
+	const revived = state.normalizeRun({ ...poor, pendingEvent: lose });
+	assertEqual(JSON.stringify(revived.pendingEvent.choices[1].reward), JSON.stringify({ exp: -BASE_EXP * 2 }), "失手金额读档不重算");
+	assertEqual(revived.pendingEvent.choices[1].clampLoss, true, "clampLoss 随存档带回");
+	// 正常收费事件不受影响：经验商人余额不足照旧被结算层整单拒绝
+	const merchant = eventManager.buildPendingEvent("exp_merchant", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const denied = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 10, exp: 0 }, pendingEvent: merchant }, 0, {}, () => 0);
+	assert(!denied.ok && denied.error.includes("不足"), "没有 clampLoss 的事件支付规则一个字不动");
+	return "预掷不剧透 / 不置灰 / 最多扣光 / 老事件不受影响";
+});
+
+check("极限模拟训练：极限与终极两档的深渊债按 1 / 2 记档，经验照发；经验泉默认值不受影响", () => {
+	const built = eventManager.buildPendingEvent("extreme_training", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	assertEqual(built.choices.length, 4, "基础 / 极限 / 终极 / 离开");
+	assertEqual(JSON.stringify(built.choices[0].reward), JSON.stringify({ exp: BASE_EXP * 2 }), "基础训练 = 2 倍本层基准经验");
+	assertEqual(JSON.stringify(built.choices[1].action), JSON.stringify({ kind: "abyssDebt", perEnemy: 1 }), "极限训练 = 每名敌人 +1");
+	assertEqual(JSON.stringify(built.choices[2].action), JSON.stringify({ kind: "abyssDebt", perEnemy: 2 }), "终极训练 = 每名敌人 +2");
+	assert(built.choices[2].text.includes("每个敌人 +2 个深渊强化"), `债数写进按钮：${built.choices[2].text}`);
+	const run = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 }, pendingEvent: built };
+	const trained = eventManager.resolveEventChoice(run, 2, {}, () => 0);
+	assertEqual(trained.run.currency.exp, BASE_EXP * 10, "终极训练 = 10 倍本层基准经验");
+	assertEqual(trained.run.abyssDebt, 2, "债记 2");
+	assert(trained.lines.some(line => line.includes("深渊强化")), `文案写明欠了什么：${trained.lines.join(" / ")}`);
+	// 债累加不覆盖：再吃一次极限训练的 +1 → 3（与经验泉同一条纪律）
+	const again = eventManager.resolveEventChoice({ ...trained.run, pendingEvent: built }, 1, {}, () => 0);
+	assertEqual(again.run.abyssDebt, 3, "连着欠的债累加");
+	assertEqual(again.run.currency.exp, BASE_EXP * 10 + BASE_EXP * 6, "两次经验照发");
+	// 读档往返：perEnemy 随存档定死
+	const revived = state.normalizeRun({ ...run, pendingEvent: built });
+	assertEqual(JSON.stringify(revived.pendingEvent.choices[2].action), JSON.stringify({ kind: "abyssDebt", perEnemy: 2 }), "perEnemy 读档不重掷");
+	assertEqual(cfg.SPRING_DEBT_AFFIXES, 1, "经验泉的默认债数保持 1（不写 perEnemy 的照旧吃配置）");
+	return "1 / 2 记档 + 累加 + 读档 + 泉的默认值";
+});
+
+check("记忆棱镜：只加成事件自己发的正数经验（稀有 +25% / 史诗 +50%），消耗与战斗结算都不吃", () => {
+	const bare = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 } };
+	assertEqual(eventManager.boostEventExp(bare, { exp: 80 }).exp, 80, "没有棱镜原样返回");
+	const rare = { ...bare, curios: ["memory_prism"] };
+	assertEqual(eventManager.boostEventExp(rare, { exp: 80 }).exp, 100, "稀有：80 → 100（round(80×1.25)）");
+	const epic = { ...rare, curioQuality: { memory_prism: "epic" } };
+	assertEqual(eventManager.boostEventExp(epic, { exp: 80 }).exp, 120, "史诗：80 → 120（品质现读 curioQuality）");
+	assertEqual(JSON.stringify(eventManager.boostEventExp(rare, { exp: -80 })), JSON.stringify({ exp: -80 }), "经验消耗不加成");
+	assertEqual(JSON.stringify(eventManager.boostEventExp(rare, { gold: 50, exp: 80 })), JSON.stringify({ gold: 50, exp: 100 }), "只动 exp，别的键原样");
+	assertEqual(eventManager.boostEventExp(rare, { exp: 0 }).exp, 0, "0 不变");
+	assertEqual(eventManager.boostEventExp(rare, { skipLevels: 10, exp: 630 }).exp, 630, "虫洞跳关汇总的经验不加成");
+	// 端到端：事件结算的余额与账目行吃的是同一份加成后的数字
+	const built = eventManager.buildPendingEvent("lost_database", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const paid = eventManager.resolveEventChoice({ ...rare, pendingEvent: built }, 0, {}, () => 0);
+	assertEqual(paid.run.currency.exp, 100, "免费读取 80 → 稀有棱镜后 100");
+	assert(paid.lines.some(line => line === "经验 +100"), `账目行与余额一致：${paid.lines.join(" / ")}`);
+	// 追问句合并成一口之后只算一次
+	const spring = eventManager.buildPendingEvent("spring_of_wisdom", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const drank = eventManager.resolveEventChoice({ ...rare, pendingEvent: spring }, 0, { followUpTaken: true }, () => 0);
+	assertEqual(drank.run.currency.exp, Math.round((BASE_EXP * 3 + BASE_EXP * 2) * 1.25), "两口合并后只加成一次");
+	assertEqual(drank.run.abyssDebt, 1, "债照旧记（棱镜不碰它）");
+	// 战斗胜利结算（reward.js）不经过事件这条链：拿同一份存档对比，经验分毫不动
+	const plainBattle = reward.settleVictory({ ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 0, exp: 0 } }, NOW, () => 0.999).run.currency.exp;
+	const prismBattle = reward.settleVictory({ ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 0, exp: 0 }, curios: ["memory_prism"] }, NOW, () => 0.999).run.currency.exp;
+	assertEqual(prismBattle, plainBattle, "普通战斗胜利的结算经验不吃棱镜");
+	return "稀有 / 史诗 / 消耗 / 虫洞 / 兼容追问与战斗结算";
 });
 
 check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBattle 往返且读档不重掷", () => {
@@ -5003,7 +5119,13 @@ check("玩家可见事件文案：指代胜利奖励的一律「本层胜利金�
 	for (const def of Object.values(eventsData.events)) {
 		visible.push(["事件名", def.id, def.name], ["事件描述", def.id, def.description]);
 		for (const choice of def.choices ?? []) {
-			visible.push(["选项文案", def.id, choice.text], ["选项提示", def.id, choice.blockedText ?? ""]);
+			visible.push(
+				["选项文案", def.id, choice.text],
+				["选项提示", def.id, choice.blockedText ?? ""],
+				// 子页文案（skillForge 的 subtitle / pickLabel）同样是玩家看到的字
+				["子页文案", def.id, choice.action?.subtitle ?? ""],
+				["子页按钮", def.id, choice.action?.pickLabel ?? ""],
+			);
 			for (const item of choice.outcomes ?? []) {
 				visible.push(["随机结果说明", def.id, item.text ?? ""]);
 			}
