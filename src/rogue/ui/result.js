@@ -16,6 +16,7 @@ import {
 	bindOverlayTap,
 	openOverlay,
 	openScreen,
+	paintResNum,
 	skillName,
 	translateCharacter,
 } from "./common.js";
@@ -185,7 +186,7 @@ export function showBossPenaltyChoice(run, reward, api) {
 			Number.isFinite(reward.level) ? `Boss 战胜利 · 已通关第 ${reward.level} 关` : "Boss 战胜利 · 本场奖励", rewardBox);
 		const res = ui.create.div(".wm-rogue-res", rewardBox);
 		for (const key of gained) {
-			addResCell(res, CURRENCY_LABEL[key] ?? key).innerHTML = `+${reward.gained[key]}`;
+			paintResNum(addResCell(res, CURRENCY_LABEL[key] ?? key), `+${reward.gained[key]}`);
 		}
 	} else {
 		ui.create.div(".wm-rogue-boss-reward-title", "本场 Boss 战已胜利，奖励与关卡进度都已入账", rewardBox);

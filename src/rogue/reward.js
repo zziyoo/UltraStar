@@ -59,7 +59,8 @@ export function settleVictory(run, now, rng = Math.random) {
 		// 照旧显示「已购买」**（用户定稿：下次刷新时那个技能仍要保留，和正常购买一样显示已购买）。
 		// 但留货不能连购买额度一起留：新的一局等于新的一次进店，所以本关买掉的那些打上 carried，
 		// 由 shop.js 的 getPurchasedCount 排除在「本局购买数」之外，别把整排货架锁死
-		// （规格原话：免费的刷新次数要刷新，只是三个技能不刷新）。
+		// （旧规格原话：免费的刷新次数要刷新，只是三个技能不刷新。v15 起这条只对「解锁」状态成立：
+		//  技能商店锁着时连免费刷新也用不了，见 shop.refreshSkillOffers 的第一道门槛）。
 		// 没锁 / 锁着但候选本来就是空的，一律照旧清空（下次进店现摇），与原来逐字一致
 		shopOffers: isShopLocked(run, "skill") && (run.shopOffers ?? []).length
 			? run.shopOffers.map(offer => ({ ...offer, carried: offer.sold === true }))

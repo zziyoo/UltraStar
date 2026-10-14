@@ -617,6 +617,15 @@ export function normalizeRun(raw, options = {}) {
 	// 上限用「基础 + 全部刷新类奇物加成」，否则循环按钮给的额外次数读档后会被夹掉。
 	const shopRefreshesRemaining = clampInt(raw.shopRefreshesRemaining, 0, getMaxShopRefreshes(), SKILL_REFRESH_PER_LEVEL);
 
+	// v15：Boss 保底改记「上一次 Boss 战实际触发的关卡」（0 = 这一局还没出过 Boss）。
+	// 判据是关卡差，所以虫洞跳关那几关照样计入保底进度；普通场一个字都不写。
+	// v14 及更早的存档只有「数场次」的 bossPityCount，按同一进度折算成关卡：
+	// 手上还有 count 场普通战斗就到线、而当前这一关还没开打 → 那条记录等于 level-1-count。
+	// （新档 level=1 count=0 折出 0，与「第 BOSS_PITY_BATTLES 关必出」的 v14 口径逐字一致。）
+	const legacyPityCount = clampInt(raw.bossPityCount, 0, Math.max(0, BOSS_PITY_BATTLES - 1), 0);
+	const savedBossPityLevel = toInt(raw.bossPityLevel, NaN);
+	const bossPityLevel = clampInt(Number.isFinite(savedBossPityLevel) ? savedBossPityLevel : level - 1 - legacyPityCount, 0, level, 0);
+
 	return {
 		version: RUN_VERSION,
 		mode,
@@ -626,9 +635,9 @@ export function normalizeRun(raw, options = {}) {
 		// v12 起整局的 bossRun 字段已删除：Boss 判定改为「每场新战斗独立掷一次」，
 		// 结果只存在 currentBattle.isBossBattle 上，随那一场战斗一起落盘、一起结算、一起清掉。
 		// 旧档里残留的 bossRun 只在上文参与「正在进行的这一场」的迁移，这里不再输出该字段。
-		// v14：bossPityCount 是 Boss 保底的唯一计数器（自上一次 Boss 以来成功创建的普通常规战斗数）。
-		// 它只跟着每个存档槽走，旧档缺字段补齐 0；上界就是保底线（到线必定出 Boss，多余的计数没有意义）。
-		bossPityCount: clampInt(raw.bossPityCount, 0, Math.max(0, BOSS_PITY_BATTLES - 1), 0),
+		// v15：bossPityLevel 是 Boss 保底的唯一记录（上一次 Boss 战实际触发的关卡，0 = 还没出过）。
+		// 它只跟着每个存档槽走；上界夹到本关（未来的关卡不认），v14 及更早的 bossPityCount 在上文折算。
+		bossPityLevel,
 		// v8：闯关前 10 关的敌方配置抽取结果（challenge 模式专用；由 enemy.ensureChallengeStages 生成，本层只清洗）
 		challengeStages: normalizeChallengeStages(raw.challengeStages),
 		// v10：闯关第 11~30 关的双人组合抽取结果（同上由 enemy.ensureChallengeComboStages 生成；旧档按空数组补齐）

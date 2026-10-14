@@ -17,6 +17,7 @@ import {
 	STAT_IDS,
 } from "./config.js";
 import { getStatPrice, stats } from "./data/stats.js";
+import { isShopLocked } from "./curioManager.js";
 
 const SKILL_CURRENCY_NAME = CURRENCY_LABEL[SKILL_CURRENCY] ?? SKILL_CURRENCY;
 const STAT_CURRENCY_NAME = CURRENCY_LABEL[STAT_CURRENCY] ?? STAT_CURRENCY;
@@ -136,9 +137,12 @@ export function getRefreshesRemaining(run) {
 /**
  * 花一次免费刷新，把本局商店的候选重掷：技能 id 与售价都重新随机（走同一个 rollSkillOffers，
  * 于是「当前角色原生技能 + 当前持有技能」的排除规则原样生效）。
- * 两条门槛：
- *   1. 还有剩余次数；
- *   2. 本次商店还没买过技能——重掷出来的候选 sold 全是 false，已买过还让刷就等于绕过
+ * 三条门槛：
+ *   1. 技能商店没被收藏家的橱窗锁着——🔒 就是「这一批候选不许再换」，手动刷新与战斗结束的自动
+ *      刷新走的是同一条禁令（按钮同时置灰，见 ui/hub.js 的 paintRefresh；判据只有这一处，
+ *      所以任何 UI 入口都绕不过去）；
+ *   2. 还有剩余次数；
+ *   3. 本次商店还没买过技能——重掷出来的候选 sold 全是 false，已买过还让刷就等于绕过
  *      SKILL_PURCHASE_COUNT 的一局购买上限。
  * 旧候选优先排除（刷完不该原样看到同三个）；池子不够 SKILL_OFFER_COUNT 条时退回完整池子，
  * 允许旧候选重新出现——不死循环、不报错、不塞进原生/持有技能。
@@ -149,6 +153,9 @@ export function getRefreshesRemaining(run) {
  * @returns {{ ok: boolean, error: string|null, run?: object, offers?: object[] }} 失败时不返回改过的 run
  */
 export function refreshSkillOffers(run, rng = Math.random, characterSkills = [], candidates = []) {
+	if (isShopLocked(run, "skill")) {
+		return { ok: false, error: "技能商店已被收藏家的橱窗锁定，锁定期间不能刷新候选" };
+	}
 	const remaining = getRefreshesRemaining(run);
 	if (remaining <= 0) {
 		return { ok: false, error: "本局免费刷新次数已经用完" };

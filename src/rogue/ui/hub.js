@@ -27,6 +27,7 @@ import {
 	bindOverlayTap,
 	currentScreenNode,
 	openOverlay,
+	paintResNum,
 	showNotice,
 	skillInfo,
 	skillName,
@@ -77,7 +78,7 @@ export function showHub(api) {
 
 	const res = ui.create.div(".wm-rogue-res", body);
 	for (const key of CURRENCIES) {
-		addResCell(res, moneyName(key)).innerHTML = `${run.currency[key] ?? 0}`;
+		paintResNum(addResCell(res, moneyName(key)), run.currency[key] ?? 0);
 	}
 
 	ui.create.div(".wm-rogue-hub-section-title", "当前成长", body);
@@ -421,7 +422,7 @@ export function showShop(api) {
 		syncOffers(current);
 		syncCurios(current);
 		for (const cell of resCells) {
-			cell.node.innerHTML = `${cell.read(current)}`;
+			paintResNum(cell.node, cell.read(current));
 		}
 		const soldOut = isSoldOut(current);
 		for (const row of offerCards) {
@@ -454,11 +455,18 @@ export function showShop(api) {
 	paint(run);
 }
 
-/** 刷新按钮的文字与可用性：本局购买额度用光就彻底锁死——重掷会把 sold 换成 false，放行等于绕过一局购买上限 */
+/**
+ * 刷新按钮的文字与可用性：
+ *   · 本局购买额度用光就彻底锁死——重掷会把 sold 换成 false，放行等于绕过一局购买上限；
+ *   · 技能商店被收藏家的橱窗 🔒 锁着时同样置灰（真正的拒绝在 shop.js 的 refreshSkillOffers，
+ *     判据只在那一处，按钮样式只是把它说给玩家看）；
+ *   · 免费次数用完也置灰。
+ * 置灰的按钮照旧可点，点下去由逻辑层弹一句原因、候选与次数一个都不动（与「次数用完」同一套做法）。
+ */
 function paintRefresh(node, run, soldOut) {
 	const remaining = getRefreshesRemaining(run);
 	node.innerHTML = soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
-	node.classList[soldOut || remaining <= 0 ? "add" : "remove"]("wm-rogue-disabled");
+	node.classList[soldOut || remaining <= 0 || isShopLocked(run, "skill") ? "add" : "remove"]("wm-rogue-disabled");
 }
 
 /**
@@ -471,7 +479,10 @@ function buildShopLock(parent, run, kind, label, onToggle) {
 		return null;
 	}
 	const node = addOverlayButton("🔓", parent, onToggle, "wm-rogue-shop-lock");
-	node.title = `锁定${label}：锁定后，下一场战斗结束时不刷新${label}的候选`;
+	// 技能商店那一枚多说一句「连免费刷新也用不了」：奇物商店没有手动刷新按钮，说多了反而绕
+	node.title = kind === "skill"
+		? `锁定${label}：锁定后这一批候选不再换货——战斗结束时不自动刷新，免费刷新也用不了；再点一下解锁`
+		: `锁定${label}：锁定后，下一场战斗结束时不刷新${label}的候选`;
 	return node;
 }
 

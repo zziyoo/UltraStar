@@ -7,7 +7,6 @@ import { game } from "../../../../../noname.js";
 import { BATTLE_STATUS, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE } from "../config.js";
 import {
 	CHALLENGE_STAGE_STATE,
-	advanceBossPity,
 	createBossEnemyConfig,
 	createChallengeComboConfigs,
 	createEnemyConfigs,
@@ -35,13 +34,13 @@ export function createBattleFlow(host) {
 		}
 		// 每一场新战斗独立判定（enemy.shouldBossBattle）——能走到这里说明 run.currentBattle 是空的
 		// （有未完成战斗在上面已分流去恢复，绝不重掷），所以这一次判定只属于即将创建的这一场。
-		// 判定两条路：保底（bossPityCount ≥ BOSS_PITY_BATTLES-1 → 必出、且不掷骰）在前，
+		// 判定两条路：保底（当前关卡 - bossPityLevel ≥ BOSS_PITY_BATTLES → 必出、且不掷骰）在前，
 		// 未到保底才按 BOSS_RUN_RATE 掷一次（严格小于）。结果写进 currentBattle.isBossBattle、
-		// 与敌方阵容和**更新后的保底计数**同一次落盘：无尽每推进一关、闯关每一关都是各判各的。
-		// 计数只随「成功创建并落盘的新常规战斗」更新：下面的失败分支（阵容生成/校验不过）直接 return，
-		// 一个字段都不写，保底绝不提前消耗。
-		const pityCount = Math.max(0, Math.floor(Number(run.bossPityCount) || 0));
-		const isBossBattle = shouldBossBattle(pityCount, Math.random);
+		// 与敌方阵容同一次落盘：无尽每推进一关、闯关每一关都是各判各的。
+		// 保底只认「上一次 Boss 落在哪一关」这一条关卡记录，所以虫洞跳过的关照样计入进度；
+		// 下面的失败分支（阵容生成/校验不过）直接 return，一个字段都不写，保底绝不提前消耗。
+		const lastBossLevel = Math.max(0, Math.floor(Number(run.bossPityLevel) || 0));
+		const isBossBattle = shouldBossBattle(run.level, lastBossLevel, Math.random);
 		// 抽中 Boss：本关替换为单 Boss 阵容，不走关卡配置池 / 双人组合池
 		// （那些表在这一场里用不上，也不必因配置不足拦住 Boss 战）。
 		// 阵容在开战前定死并随 currentBattle 落盘，中途刷新/崩溃后恢复、失败后重战都原样重打，绝不重掷
@@ -66,8 +65,8 @@ export function createBattleFlow(host) {
 				...run,
 				currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null, isBossBattle: true },
 				abyssDebt: 0,
-				// Boss 出现即把保底计数归零：从这一场之后重新数
-				bossPityCount: advanceBossPity(pityCount, true),
+				// Boss 出现就把本关记成保底的起点：距这一场再满 BOSS_PITY_BATTLES 关才又必出
+				bossPityLevel: bossLevel,
 			};
 			if (!commit()) {
 				return;
@@ -175,11 +174,11 @@ export function createBattleFlow(host) {
 		}
 		context.run = {
 			...run,
-			// 普通战斗也显式记下「本场不是 Boss 战」，绝不沿用上一场的状态
+			// 普通战斗也显式记下「本场不是 Boss 战」，绝不沿用上一场的状态。
+			// bossPityLevel 这里一个字都不写：保底只认「上一次 Boss 落在哪一关」，
+			// 普通场不推进关卡（推进的是胜利结算），所以既不加也不清零。
 			currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null, isBossBattle: false },
 			abyssDebt: 0,
-			// 普通战斗成功创建并落盘 → 距离保底又近一场（到线时下一场必定是 Boss）
-			bossPityCount: advanceBossPity(pityCount, false),
 		};
 		if (!commit()) {
 			return;

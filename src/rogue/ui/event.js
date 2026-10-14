@@ -1,5 +1,6 @@
 // 无尽模式事件页：战斗胜利后（或读档恢复时）展示待处理事件，玩家点选项结算。
-// 与商店/营地同一套自建浮层视觉语言：事件大图 + 名称 + 描述 + 金币经验条 + 选项按钮。
+// 与商店/营地同一套自建浮层视觉语言：事件大图 + 名称 + 描述 + 金币经验条（作者标 hideBalance 的
+// 事件不画）+ 选项按钮。
 // 纯 UI：一切数据变更走 api.choose(选项下标) 交给 mode.js，选项可用性按存档现算。
 //
 // 两种「用不了」在这一页长得不一样，不要混（判据都在 eventManager 里现读存档）：
@@ -33,8 +34,12 @@ export function showEvent(api) {
 	ui.create.div(".wm-rogue-event-name", event.name, panel);
 	ui.create.div(".wm-rogue-event-desc", event.description, panel);
 	// 手上有多少金币经验就写在选项正上方：这一页好几个选项要花钱（训练场、商人、融合炉），
-	// 玩家得先看得见余额，才知道置灰的那一项是「付不起」而不是「坏了」
-	addResBar(panel, run);
+	// 玩家得先看得见余额，才知道置灰的那一项是「付不起」而不是「坏了」。
+	// 作者标了 hideBalance 的事件（虫洞）不画这一条——整条都不创建，不留空容器和那段下边距，
+	// 只不动余额本身（结算与存档一个字都不改）
+	if (!event.hideBalance) {
+		addResBar(panel, run);
+	}
 
 	const actions = ui.create.div(".wm-rogue-event-actions", panel);
 	for (const [index, choice] of pendingEvent.choices.entries()) {

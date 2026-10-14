@@ -214,29 +214,22 @@ export function createEnemyConfigs(level, mode, rng = Math.random, options = {})
 /**
  * 这一场新建的常规战斗要不要判成 Boss 战（纯函数，rng 与概率都可注入，方便测试）。
  * 两条互相独立的路径：
- *   1. 保底：bossPityCount ≥ BOSS_PITY_BATTLES-1（默认 19）→ 必定 Boss，**不消费随机源**
- *      ——概率掷了多少次没命中都不会影响它，第 20 场一定出；
+ *   1. 保底：当前关卡 - 上一次 Boss 触发的关卡 ≥ BOSS_PITY_BATTLES → 必定 Boss，**不消费随机源**
+ *      ——概率掷了多少次没命中都不会影响它，第 15 关一定出；判据是关卡而不是场次，
+ *      所以虫洞这类一次跳过多关的推进照样计入保底；
  *   2. 概率：Math.random() < BOSS_RUN_RATE（严格小于，与逐场判定的原口径一致）。
- * @param {number} pityCount run.bossPityCount（自上一次 Boss 以来成功创建的普通常规战斗数）
+ * @param {number} level 即将开打的这一场所在的关卡（run.level）
+ * @param {number} lastBossLevel run.bossPityLevel：上一次 Boss 战实际触发的关卡，0 = 还没出过
  * @param {() => number} [rng] 随机源；只有未到保底时才会被调用一次
- * @param {number} [rate] 判定概率；生产走 BOSS_RUN_RATE，测试注入 0.05 验证「未命中」路径
+ * @param {number} [rate] 判定概率；生产走 BOSS_RUN_RATE，测试可注入其它概率验证「未命中」路径
  */
-export function shouldBossBattle(pityCount, rng = Math.random, rate = BOSS_RUN_RATE) {
-	const count = Math.max(0, Math.floor(Number(pityCount) || 0));
-	if (count >= BOSS_PITY_BATTLES - 1) {
+export function shouldBossBattle(level, lastBossLevel, rng = Math.random, rate = BOSS_RUN_RATE) {
+	const current = Math.max(1, Math.floor(Number(level) || 0));
+	const since = Math.max(0, Math.floor(Number(lastBossLevel) || 0));
+	if (current - since >= BOSS_PITY_BATTLES) {
 		return true;
 	}
 	return rng() < rate;
-}
-
-/**
- * 成功创建并落盘一场新常规战斗之后，保底计数怎么变：普通场 +1，Boss 场归零。
- * 只由 flow/battle.js 在「创建成功、随战斗一起 commit」的那一次调用；
- * 阵容生成/校验失败（战斗根本没建出来）一律不调用，保底绝不提前消耗。
- */
-export function advanceBossPity(pityCount, wasBossBattle) {
-	const count = Math.max(0, Math.floor(Number(pityCount) || 0));
-	return wasBossBattle ? 0 : count + 1;
 }
 
 /**

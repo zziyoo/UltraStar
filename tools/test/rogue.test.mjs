@@ -2,6 +2,7 @@
 // 逐条覆盖规格书第三十五节的清单。data/skills.js 会拉起分包技能链，
 // 因此与 rogue-data.test.mjs 一样用桩顶掉 noname.js。
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { registerHooks } from "node:module";
 
@@ -3343,9 +3344,9 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("hungry_box").length, 2, "饥饿之匣两行（一扣一加）");
 	assertEqual(lines("hungry_box", "epic").length, 1, "史诗档只剩经验一行");
 	assertEqual(lines("hungry_box", "epic")[0], "经验获取 +20%", "史诗档经验 +20%");
-	assertEqual(lines("collector_showcase").join(" / "), "你可以锁定技能商店，锁定后下一场战斗不再刷新技能商店的候选", "橱窗稀有档只锁技能商店");
+	assertEqual(lines("collector_showcase").join(" / "), "你可以锁定技能商店，锁定后不再刷新它的候选（连免费刷新也用不了）", "橱窗稀有档只锁技能商店");
 	assertEqual(lines("collector_showcase", "epic").length, 1, "橱窗史诗档合成一条");
-	assertEqual(lines("collector_showcase", "epic")[0], "你可以锁定技能或奇物商店，锁定后下一场战斗不再刷新技能或奇物商店的候选", "橱窗史诗档两店都能锁");
+	assertEqual(lines("collector_showcase", "epic")[0], "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选（技能商店锁着时连免费刷新也用不了）", "橱窗史诗档两店都能锁");
 	return "十一件文案齐备 + 配套键不出行";
 });
 
@@ -3784,7 +3785,19 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	assertEqual(noneCleaned.skillShopLocked, false, "没橱窗时技能锁清零");
 	assertEqual(noneCleaned.curioShopLocked, false, "没橱窗时奇物锁清零");
 	assertEqual(freshRun(cfg.RUN_MODE.endless).skillShopLocked, false, "旧档（缺字段）默认未锁定");
-	return "能力闸门 / 切换不变异 / 两类商店的结算保留（买过的留货并显示已购买） / 清洗按能力闸门";
+	// v15：🔒 期间免费刷新在逻辑层被拒（按钮同时置灰，冒烟用例点真实按钮验），🔓 才放行；
+	// 奇物锁管不到技能刷新这一条入口
+	const refreshBase = { ...rare, level: BASE_LEVEL, currency: { gold: 9999, exp: 0 } };
+	const refreshRun = { ...refreshBase, shopOffers: shop.rollSkillOffers(refreshBase, makeRng(21), [], skillsData.pool) };
+	const lockedRun = { ...refreshRun, skillShopLocked: true };
+	const denied = shop.refreshSkillOffers(lockedRun, makeRng(22), [], skillsData.pool);
+	assert(!denied.ok && denied.error.includes("锁定"), `锁着技能商店时刷新被拒：${denied.error}`);
+	assertEqual(denied.run, undefined, "被拒时不返回改过的 run");
+	assertEqual(denied.offers, undefined, "被拒时不返回新候选（重掷会把 sold 清成 false，那是绕过购买上限的口子）");
+	assertEqual(shop.getRefreshesRemaining(lockedRun), cfg.SKILL_REFRESH_PER_LEVEL, "锁着时被拒，次数一次都没少");
+	assertEqual(shop.getRefreshesRemaining(shop.refreshSkillOffers(refreshRun, makeRng(23), [], skillsData.pool).run), cfg.SKILL_REFRESH_PER_LEVEL - 1, "解锁状态才放行，并扣掉一次");
+	assert(shop.refreshSkillOffers({ ...refreshRun, curioShopLocked: true }, makeRng(24), [], skillsData.pool).ok, "只锁奇物商店不该拦住技能刷新");
+	return "能力闸门 / 切换不变异 / 两类商店的结算保留（买过的留货并显示已购买） / 清洗按能力闸门 / 🔒 期间刷新被逻辑层拒绝";
 });
 
 check("新增四事件：倍率按刚打赢那关的基准换算成固定值，消耗写进文案", () => {
@@ -3834,9 +3847,10 @@ check("新增四事件：倍率按刚打赢那关的基准换算成固定值，�
 });
 
 check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBattle 往返且读档不重掷", () => {
-	// Boss 判定是逐场独立的 5%，保底是独立的第二道保证（不吃这个概率），两条线各测各的
-	assertEqual(cfg.BOSS_PITY_BATTLES, 20, "保底场数与规格一致（计数 19 → 第 20 场必出）");
-	assertEqual(cfg.RUN_VERSION, 14, "存档版本抬到 v14（新增 bossPityCount 与 skillInventory）");
+	// Boss 判定是逐场独立的 6.666%，保底是独立的第二道保证（不吃这个概率），两条线各测各的
+	assertEqual(cfg.BOSS_RUN_RATE, 0.06666, "单次判定概率与规格一致");
+	assertEqual(cfg.BOSS_PITY_BATTLES, 15, "保底场数与规格一致（计数 14 → 第 15 场必出）");
+	assertEqual(cfg.RUN_VERSION, 15, "存档版本抬到 v15（bossPityCount 退役、改记关卡 bossPityLevel）");
 	// 新档不再带整局的 bossRun：这个字段一旦还能被读到，就可能继续影响后面的关卡
 	const fresh = freshRun(cfg.RUN_MODE.endless);
 	assertEqual(fresh.bossRun, undefined, "新档没有整局 bossRun");
@@ -3886,44 +3900,83 @@ check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBa
 	return "字段移除 / true·false 原样往返 / v11 三态迁移 / v10 补齐";
 });
 
-check("Boss 保底：计数 19 → 第 20 场必出、提前命中归零、受保底时不掷骰、越界夹住", () => {
-	assertEqual(cfg.BOSS_PITY_BATTLES, 20, "保底场数按规格定为 20");
-	// 未到保底：仍按概率正常判定（严格小于），概率注入保持测试可跑在 0.05 口径上
-	assertEqual(enemy.shouldBossBattle(0, () => 0.999, 0.05), false, "0.999 未命中");
-	assertEqual(enemy.shouldBossBattle(0, () => 0.049, 0.05), true, "低于判定线命中");
-	assertEqual(enemy.shouldBossBattle(18, () => 0.999, 0.05), false, "计数 18（第 19 场）仍按概率");
-	// 计数 19：下一场（第 20 场）必定 Boss，且**不消费随机源**——传一个会抛的 rng 证明没掷骰
+check("Boss 保底：距上次 Boss 满 15 关必出、虫洞跳关计入进度、受保底时不掷骰、记录越界夹住", () => {
+	assertEqual(cfg.BOSS_PITY_BATTLES, 15, "保底关卡差按规格定为 15");
+	// 未到保底：仍按生产概率正常判定（严格小于），判定线一律读 BOSS_RUN_RATE，改旋钮不用改用例
+	assertEqual(enemy.shouldBossBattle(1, 0, () => 0.999), false, "0.999 未命中");
+	assertEqual(enemy.shouldBossBattle(1, 0, () => cfg.BOSS_RUN_RATE - 1e-9), true, "低于判定线命中");
+	assertEqual(enemy.shouldBossBattle(1, 0, () => cfg.BOSS_RUN_RATE), false, "正好等于判定线不中（严格小于）");
+	assertEqual(enemy.shouldBossBattle(14, 0, () => 0.999), false, "第 14 关（距上次 Boss 才 13 关）仍按概率");
+	assertEqual(enemy.shouldBossBattle(14, 4, () => 0.999), false, "刚出过 Boss 的第 4 关附近更不可能保底");
+	// 距上一次 Boss 满 15 关：必定 Boss，且**不消费随机源**——传一个会抛的 rng 证明没掷骰
 	const boom = () => {
 		throw new Error("受保底保护时不应掷骰");
 	};
-	assertEqual(enemy.shouldBossBattle(19, boom, 0.05), true, "计数 19 → 下一场必定 Boss（不掷骰）");
-	assertEqual(enemy.shouldBossBattle(999, boom, 0.05), true, "计数超了也必出，绝不拖到第 21 场");
-	// 计数推进：普通 +1、Boss 归零、脏数据安全
-	assertEqual(enemy.advanceBossPity(0, false), 1, "普通战斗成功创建 → +1");
-	assertEqual(enemy.advanceBossPity(18, false), 19, "第 19 场普通 → 计数 19");
-	assertEqual(enemy.advanceBossPity(19, true), 0, "Boss 出现即归零");
-	assertEqual(enemy.advanceBossPity(-3, false), 1, "脏计数按 0 起算");
-	// 全流程模拟：第 5 场提前命中 → 归零重数，第 25 场（其后第 20 场）保底
-	let count = 0;
+	assertEqual(enemy.shouldBossBattle(15, 0, boom), true, "新档第 15 关必定 Boss（不掷骰）");
+	assertEqual(enemy.shouldBossBattle(20, 5, boom), true, "第 5 关出过 Boss → 其后第 20 关保底");
+	assertEqual(enemy.shouldBossBattle(999, 0, boom), true, "关卡涨到哪儿都算得出来，绝不漏保底");
+	// 虫洞一次跳十关：跳过的关照样计入保底——第 4 关胜后进洞落到第 15 关，一开打就该保底
+	assertEqual(enemy.shouldBossBattle(15, 0, boom), true, "跳关后的关卡差直接决定保底（判据只有关卡，不数场次）");
+	// 全流程模拟：第 5 关提前命中 → 记下 5，其后第 20 关保底
+	let lastBoss = 0;
 	const bossAt = [];
-	for (let i = 1; i <= 25; i++) {
-		const isBoss = enemy.shouldBossBattle(count, () => (i === 5 ? 0 : 0.999), 0.05);
+	for (let level = 1; level <= 21; level++) {
+		const isBoss = enemy.shouldBossBattle(level, lastBoss, () => (level === 5 ? 0 : 0.999));
 		if (isBoss) {
-			bossAt.push(i);
+			bossAt.push(level);
+			lastBoss = level;
 		}
-		count = enemy.advanceBossPity(count, isBoss);
 	}
-	assertEqual(JSON.stringify(bossAt), JSON.stringify([5, 25]), "第 5 场提前命中后重新计数，第 25 场保底");
-	// 存档往返：新档 0、旧档补齐 0、越界夹到保底线、合法值幂等
-	assertEqual(freshRun(cfg.RUN_MODE.endless).bossPityCount, 0, "新档计数从 0 开始");
-	assertEqual(state.normalizeRun({ ...freshRun(), version: 13 }).bossPityCount, 0, "v13 旧档补齐 0");
-	assertEqual(state.normalizeRun({ ...freshRun(), bossPityCount: -5 }).bossPityCount, 0, "负值归零");
-	assertEqual(state.normalizeRun({ ...freshRun(), bossPityCount: 999 }).bossPityCount, cfg.BOSS_PITY_BATTLES - 1, "越界夹到保底线");
-	assertEqual(state.normalizeRun({ ...freshRun(), bossPityCount: "x" }).bossPityCount, 0, "非法值归零");
-	const round = state.normalizeRun({ ...freshRun(), bossPityCount: 7 });
-	assertEqual(round.bossPityCount, 7, "合法值原样往返");
-	assertEqual(state.normalizeRun(round).bossPityCount, 7, "二次读档幂等");
-	return "19→20 边界 / 提前命中重数 / 不消费随机 / 往返";
+	assertEqual(JSON.stringify(bossAt), JSON.stringify([5, 20]), "第 5 关提前命中后重新记关卡，第 20 关保底");
+	// 存档往返：新档 0、v14 的计数器折算成关卡、越界夹住、合法值幂等
+	assertEqual(freshRun(cfg.RUN_MODE.endless).bossPityLevel, 0, "新档记录从 0 开始（第 15 关必出）");
+	// v14 旧档只有计数器：折算用例先摘掉 v15 的字段，模拟真实旧档形状（无尽档，关卡不受 30 关上界夹）
+	const legacyV14 = { ...freshRun(cfg.RUN_MODE.endless), version: 14, level: 45, bossPityCount: 6 };
+	delete legacyV14.bossPityLevel;
+	assertEqual(
+		state.normalizeRun(legacyV14).bossPityLevel,
+		38,
+		"v14 计数器折算：45-1-6=38，此后第 53 关保底（与原口径同一天触底，进度的账不丢也不白送）"
+	);
+	const legacyZero = { ...freshRun(cfg.RUN_MODE.endless), version: 14, bossPityCount: 0 };
+	delete legacyZero.bossPityLevel;
+	assertEqual(state.normalizeRun(legacyZero).bossPityLevel, 0, "v14 计数 0 折出 0");
+	assertEqual(state.normalizeRun({ ...freshRun(), version: 13 }).bossPityLevel, 0, "v13 及更早连计数器都没有，补 0");
+	assertEqual(state.normalizeRun({ ...freshRun(), bossPityLevel: -5 }).bossPityLevel, 0, "负值归零");
+	assertEqual(state.normalizeRun({ ...freshRun(), level: 9, bossPityLevel: 99 }).bossPityLevel, 9, "未来的关卡不认，夹到本关");
+	assertEqual(state.normalizeRun({ ...freshRun(), bossPityLevel: "x" }).bossPityLevel, 0, "非法值按「还没出过」处理");
+	const round = state.normalizeRun({ ...freshRun(), level: 30, bossPityLevel: 7 });
+	assertEqual(round.bossPityLevel, 7, "合法值原样往返");
+	assertEqual(state.normalizeRun(round).bossPityLevel, 7, "二次读档幂等");
+	assertEqual(freshRun(cfg.RUN_MODE.endless).bossPityCount, undefined, "v15 起不再产出旧计数器字段");
+	return "15 关差边界 / 跳关计入 / 提前命中重记 / v14 折算 / 往返";
+});
+
+check("虫洞跳关计入 Boss 保底：跳过的关也推进关卡差，落点开打即走保底判定", () => {
+	const from = BASE_LEVEL + 1;
+	const boom = () => {
+		throw new Error("受保底保护时不应掷骰");
+	};
+	const run = { ...freshRun(cfg.RUN_MODE.endless), level: from, bossPityLevel: 0, currency: { gold: 0, exp: 0 }, curios: [] };
+	// 进洞前：第 5 关距上一次 Boss 才 5 关，掷不中就是普通场（数场次的老口径在这里也一样）
+	assertEqual(enemy.shouldBossBattle(from, run.bossPityLevel, () => 0.999), false, `第 ${from} 关仍按概率`);
+	const pending = eventManager.buildPendingEvent("wormhole", BASE_LEVEL, () => 0, NOW, { level: run.level, statLevels: run.stats, curios: run.curios, run });
+	const settled = eventManager.resolveEventChoice({ ...run, pendingEvent: pending }, 0, {}, () => 0).run;
+	assertEqual(settled.level, 15, "进洞把关卡推到第 15 关");
+	assertEqual(settled.bossPityLevel, 0, "跳关本身不改保底记录（记录只在 Boss 真的触发时才写）");
+	// 关卡差到线：落点一开打就是保底、不掷骰——数场次的老口径会漏掉跳过的这 10 关（用户报的问题）
+	assertEqual(enemy.shouldBossBattle(settled.level, settled.bossPityLevel, boom), true, "跳到的第 15 关必定 Boss");
+	// Boss 触发后记录翻到这一关：下一次保底在 15+15=30 关
+	const afterBoss = {
+		...settled,
+		currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", boss: true }], rift: null, isBossBattle: true },
+		bossPityLevel: settled.level,
+	};
+	assertEqual(enemy.shouldBossBattle(29, afterBoss.bossPityLevel, () => 0.999), false, "第 29 关距这次 Boss 才 14 关，仍按概率");
+	assertEqual(enemy.shouldBossBattle(30, afterBoss.bossPityLevel, boom), true, "第 30 关回到保底");
+	assertEqual(state.cloneRun(afterBoss).bossPityLevel, 15, "cloneRun 原样带回记录");
+	assertEqual(state.normalizeRun(afterBoss).bossPityLevel, 15, "读档仍认这一关（恢复存档不丢保底进度）");
+	return "进洞前按概率 / 跳关后第 15 关保底 / Boss 后记录翻新 → 第 30 关再保底";
 });
 
 check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对比：字段集合一致、判定字段全中性、进度原样保留、再读幂等", () => {
@@ -3972,7 +4025,9 @@ check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对�
 	assertEqual(old.pendingEvent, null, "无待处理事件");
 	assertEqual(old.pendingBossPenalty, null, "无待处理惩罚");
 	assertEqual(old.abyssDebt, 0, "无深渊债");
-	assertEqual(old.bossPityCount, 0, "保底计数补齐 0（旧档从没数过 Boss）");
+	// 这份旧档既没有 v14 的计数器也没有 v15 的关卡记录 → 按 45-1-0=44 折算：
+	// 与 v14 当时「补齐 count=0」的处理落在同一天（第 59 关保底），旧档的保底进度不因换口径而变
+	assertEqual(old.bossPityLevel, 44, "保底记录按「本关 -1 -计数」折算（旧档从没数过 Boss → 44）");
 	assertEqual(JSON.stringify(old.curioOfferQueue), "[]", "无压着的候选批次");
 	// ③ 进度照原样保留：等级/资源/奇物/品质/属性/刷新额度都不能被「迁移」洗掉
 	assertEqual(old.level, 45, "关卡保留");
@@ -4925,6 +4980,21 @@ check("玩家可见事件文案：指代胜利奖励的一律「本层胜利金�
 		assert(line.includes("本层胜利"), `${id} 的效果文案要用统一命名：${line}`);
 	}
 	return `扫描 ${visible.length} 条玩家可见文案，零残留`;
+});
+
+check("事件页数字防溢出与锁图标微调：样式判据直读 styles.js", () => {
+	// 冒烟夹具是 DOM 桩，没有排版引擎，量不出「顶到边框」——这两条只能在样式层钉死：
+	// 数字允不允许折行、按位数降到哪几档、锁图标挪了多少，改了样式这里立刻红
+	const css = fs.readFileSync(path.join(root, "src/rogue/ui/styles.js"), "utf8").replace(/\s+/g, " ");
+	assert(/\.wm-rogue-res-num \{ [^}]*font-size: 26px; [^}]*overflow-wrap: anywhere; [^}]*\}/.test(css), "数字默认字号不变，且允许逐位折行（大额金额只换行、不裁剪）");
+	assert(/\.wm-rogue-res-num \{ [^}]*color: #ffd479; [^}]*\}/.test(css), "字体配色原样保留");
+	assert(/\.wm-rogue-res-num\.wm-rogue-res-long \{ font-size: 21px; \}/.test(css), "六位数起降一档字号（21px）");
+	assert(/\.wm-rogue-res-num\.wm-rogue-res-xlong \{ font-size: 17px; \}/.test(css), "九位数起再降一档（17px）");
+	assert(!/\.wm-rogue-res-num[^{]*\{[^}]*overflow: hidden/.test(css), "不许用 overflow: hidden 裁掉溢出的数字");
+	assert(!/\.wm-rogue-res-num[^{]*\{[^}]*text-overflow/.test(css), "也不许用省略号藏起来");
+	assert(/#wm-rogue-overlay \.wm-rogue-shop-lock \{ [^}]*transform: translateY\(2px\) !important; [^}]*\}/.test(css), "锁图标整体下移 2px");
+	assert(/#wm-rogue-overlay \.wm-rogue-shop-lock \{ [^}]*width: 46px !important; [^}]*height: 40px !important; [^}]*\}/.test(css), "锁图标的尺寸与横向位置不动");
+	return "数字折行 + 两档降字号 + 不裁剪 + 锁图标 2px 下移";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

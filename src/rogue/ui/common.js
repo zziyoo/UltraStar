@@ -423,11 +423,25 @@ export function addResCell(parent, label) {
 	return num;
 }
 
+/**
+ * 往资源格里写数字：按位数降一档字号（六位数起 .wm-rogue-res-long、九位数起 -xlong，
+ * 样式在 styles.js 里），金币涨到六七位、或价钱带负号时就不会顶到格子边框。
+ * 所有资源格的数字都从这里写，别在页面上各写一遍 innerHTML。
+ */
+export function paintResNum(node, value) {
+	const text = `${value}`;
+	node.innerHTML = text;
+	const xlong = text.length >= 9;
+	node.classList[xlong ? "add" : "remove"]("wm-rogue-res-xlong");
+	node.classList[!xlong && text.length >= 6 ? "add" : "remove"]("wm-rogue-res-long");
+	return node;
+}
+
 /** 一排货币资源（金币/经验）。新增货币只看 config 的 CURRENCIES，这里不点名 */
 export function addResBar(parent, run) {
 	const res = ui.create.div(".wm-rogue-res", parent);
 	for (const key of CURRENCIES) {
-		addResCell(res, CURRENCY_LABEL[key] ?? key).innerHTML = `${run?.currency?.[key] ?? 0}`;
+		paintResNum(addResCell(res, CURRENCY_LABEL[key] ?? key), run?.currency?.[key] ?? 0);
 	}
 	return res;
 }

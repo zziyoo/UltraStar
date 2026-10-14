@@ -211,8 +211,8 @@ const EFFECT_TEXT = {
 	lockSkillShop: (value, effects) => {
 		const both = (effects?.lockCurioShop ?? 0) > 0;
 		return both
-			? "你可以锁定技能或奇物商店，锁定后下一场战斗不再刷新技能或奇物商店的候选"
-			: "你可以锁定技能商店，锁定后下一场战斗不再刷新技能商店的候选";
+			? "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选（技能商店锁着时连免费刷新也用不了）"
+			: "你可以锁定技能商店，锁定后不再刷新它的候选（连免费刷新也用不了）";
 	},
 };
 
@@ -662,7 +662,8 @@ export function isShopLocked(run, kind) {
 /**
  * 切换某个商店的锁定（纯函数，绝不修改传入的 run）。
  * 没持有对应奇物时 ok:false 且零副作用；切换结果 write 进 run.skillShopLocked / run.curioShopLocked，
- * 由调用方落盘。锁只挡「战斗结束时的自动刷新」，不挡玩家的手动升级/购买与免费刷新。
+ * 由调用方落盘。锁挡住的是「这一批候选不再换货」：战斗结束时的自动刷新与玩家的免费刷新都不放行
+ * （手动刷新在 shop.js 的 refreshSkillOffers 里拒绝，按钮同时置灰），但手动升级/购买照旧。
  */
 export function toggleShopLock(run, kind) {
 	const field = kind === "curio" ? "curioShopLocked" : "skillShopLocked";

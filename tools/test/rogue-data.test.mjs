@@ -623,6 +623,10 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 		if (!event.image || !event.image.startsWith(`extension/${cfg.EXTENSION_NAME}/assets/events/`)) {
 			problems.push(`${key}: image 应指向 extension/${cfg.EXTENSION_NAME}/assets/events/ 下的文件`);
 		}
+		// hideBalance 只认 true（写了才不画余额条）：写成别的值等于没写，事件页会照旧显示余额
+		if (event.hideBalance !== undefined && event.hideBalance !== true) {
+			problems.push(`${key}: hideBalance 只认 true（写了才不在事件页显示金币/经验余额条）`);
+		}
 		if (!Array.isArray(event.choices) || !event.choices.length) {
 			problems.push(`${key}: choices 不能为空`);
 			continue;
@@ -737,6 +741,8 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 		}
 	}
 	assert(!problems.length, problems.join("；"));
+	// 虫洞页不摆金币/经验余额条（hideBalance）：事件页按这个标记整条不画，标丢了就会退回「显示余额」
+	assert(eventsData.events.wormhole?.hideBalance === true, "虫洞事件必须带 hideBalance: true（事件页据此不画余额条）");
 	return `${ids.length} 个事件、${ids.reduce((sum, id) => sum + eventsData.events[id].choices.length, 0)} 个选项`;
 });
 

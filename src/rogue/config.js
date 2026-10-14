@@ -82,9 +82,15 @@ export const COLLECTION_KEY = "rogueCollection";
  *      普通战斗落盘后 +1、Boss 落盘后归零，深渊裂隙与恢复存档不参与。旧档缺字段补齐 0。
  *      同一版把 pendingBossPenalty 的 needSkill 收掉（Boss 胜利当场自动失去全部装备技能），
  *      旧档里 needSkill: true 由流程层做一次性自动清算（commit 原子化，绝不重复发奖）。
+ * v15 把 Boss 保底从「数场次」换成「数关卡」：bossPityCount 退役，改记 bossPityLevel
+ *      = **上一次 Boss 战实际触发的关卡**（0 = 这一局还没出过 Boss）。保底判据是
+ *      `当前关卡 - bossPityLevel ≥ BOSS_PITY_BATTLES`，所以虫洞这类「一次跳过多关」的进度
+ *      自动算进保底，不必再数打了几场。正常一关一场的推进下，两种口径给出的 Boss 关卡完全一致
+ *      （新档第 15 场＝第 15 关，Boss 后第 15 关再必出）。v14 及更早的存档按
+ *      `bossPityLevel = level - 1 - bossPityCount` 折算，保底进度不丢也不白送。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
-export const RUN_VERSION = 14;
+export const RUN_VERSION = 15;
 export const SLOT_COUNT = 6;
 
 /**
@@ -215,7 +221,7 @@ export const FORGE_EXP_MULTIPLIER = 5;
 // ---------------------------------------------------------------- Boss 战
 // 以下参数作用于两种模式：每场新战斗创建时独立掷一次概率，抽中就把**那一场**替换为 Boss 战。
 // 判定不看整局、也不看上一场的结果，所以既不连续锁定、也不因之前没抽中而抬高单次概率；
-// 连续没命中只由下面的 BOSS_PITY_BATTLES 兜底（第 20 场必定是 Boss 战）。
+// 连续没命中只由下面的 BOSS_PITY_BATTLES 兜底（距上一次 Boss 满 15 关必定是 Boss 战）。
 
 /**
  * Boss 战替换概率：即将创建一场新的常规关卡战斗时 Math.random() < BOSS_RUN_RATE 即本场为 Boss 战。
@@ -225,21 +231,23 @@ export const FORGE_EXP_MULTIPLIER = 5;
  * 战斗状态清掉后标记随之消失，下一场重新独立判定。
  * 深渊裂隙那一场不走这里（它有独立结算，创建时显式记为普通战斗）。
  */
-export const BOSS_RUN_RATE = 0.05;
+export const BOSS_RUN_RATE = 0.06666;
 
 /**
- * Boss 战保底：连续 BOSS_PITY_BATTLES 场「成功创建并落盘的常规非 Boss 战斗」之后，
+ * Boss 战保底：距「上一次 Boss 战实际触发的关卡」满 BOSS_PITY_BATTLES 关之后，
  * 下一场新建的常规战斗必定是 Boss 战——与 BOSS_RUN_RATE 相互独立的第二道保证：
- * 概率 0.05 连着掷不中也好、第 20 场一定出。
- * 计数口径（run.bossPityCount，自上一次 Boss 出现以来成功创建的普通常规战斗数）：
- *   · 新档与旧档都从 0 开始；创建新战斗时计数 ≥ 本值-1（即 19）→ 判定为 Boss 战、**不掷骰**，
+ * 概率 0.06666 连着掷不中也好，第 15 关一定出。
+ * 口径（run.bossPityLevel = 上一次 Boss 战实际触发的关卡；0 = 这一局还没出过 Boss）：
+ *   · 创建新战斗时 `run.level - bossPityLevel ≥ 本值` → 判定为 Boss 战、**不掷骰**，
  *     并且不消费随机源（保底路径与概率路径互不干扰）；
- *   · 普通战斗落盘后 +1、Boss 战斗落盘后归零——都算在创建那一次 commit 里；
- *   · 创建失败（阵容生成/校验不过）不写任何计数，保底留到下次；
- *   · 深渊裂隙战、恢复未完成的战斗、失败后重打已保存的同一场战斗一律不参与计数。
- * 例如：第 5 场提前命中 Boss → 从该场重新计数，其后的第 20 场（第 25 场）保底触发。
+ *   · 判据只读关卡，所以**任何推进关卡的途径都算保底进度**——虫洞一次跳十关，
+ *     那十关照样计入（v14 及更早数「打了几场普通战斗」的口径会把跳过的关全漏掉）；
+ *   · Boss 战创建成功时把这一场的关卡写进 bossPityLevel，随战斗同一次 commit 落盘；
+ *   · 创建失败（阵容生成/校验不过）一个字节都不写，保底留到下次；
+ *   · 深渊裂隙战与恢复未完成的战斗都不改关卡，天然不参与保底；失败后重打同一关同样不推进。
+ * 例如：第 5 关提前命中 Boss → 记下 5，之后一路没抽中就在第 20 关保底触发。
  */
-export const BOSS_PITY_BATTLES = 20;
+export const BOSS_PITY_BATTLES = 15;
 
 /**
  * Boss 战胜利奖励：本关胜利金币基准（getEndlessReward / getChallengeReward）的倍数。

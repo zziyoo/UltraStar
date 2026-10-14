@@ -114,8 +114,13 @@ const CSS = `
 .wm-rogue-res-cell { flex: 1 1 0; min-width: 0; padding: 8px 12px 6px; border-radius: 6px; text-align: center;
 	background: linear-gradient(rgba(255,255,255,0.15), rgba(255,255,255,0.05));
 	border: 1px solid rgba(255,255,255,0.16); }
+/* 数字不许溢出到边框外：金币涨到六位、或负价带符号时，先按位数降一档字号（.wm-rogue-res-long /
+   -xlong，由 ui/common.js 的 paintResNum 现写现判），窄屏与高缩放倍数下再靠 overflow-wrap 逐位折行。
+   两条都只改「怎么放下」，不裁剪、不隐藏、不动字体与配色 */
 .wm-rogue-res-num { font-size: 26px; line-height: 1.15; font-weight: bold; color: #ffd479;
-	text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+	text-shadow: 0 1px 3px rgba(0,0,0,0.9); overflow-wrap: anywhere; word-break: normal; }
+.wm-rogue-res-num.wm-rogue-res-long { font-size: 21px; }
+.wm-rogue-res-num.wm-rogue-res-xlong { font-size: 17px; }
 .wm-rogue-res-label { font-size: 13px; color: rgba(255,255,255,0.62); letter-spacing: 2px; }
 .wm-rogue-shop-section-title { margin: 14px 0 5px; font-size: 24px; font-weight: bold; color: #fff;
 	letter-spacing: 4px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
@@ -533,7 +538,9 @@ const CSS = `
 	min-height: 0 !important;
 	text-align: center !important;
 }
-/* 商店锁图标：与返回键同一套「写死成固定盒子」的加固——emoji 的字面宽高随字体变，不给死尺寸会被标题行挤变形 */
+/* 商店锁图标：与返回键同一套「写死成固定盒子」的加固——emoji 的字面宽高随字体变，不给死尺寸会被标题行挤变形。
+   整枚图标往下挪 2px：emoji 的墨迹坐在 26.4px 行盒的基线上、下方还有 ~4px 下沉，
+   居中之后看着就是「贴着上面的技能分区」——只挪这一处，尺寸与横向位置都不动 */
 #wm-rogue-overlay .wm-rogue-shop-lock {
 	box-sizing: border-box !important;
 	width: 46px !important;
@@ -543,6 +550,7 @@ const CSS = `
 	margin: 0 !important;
 	min-width: 0 !important;
 	min-height: 0 !important;
+	transform: translateY(2px) !important;
 }
 #wm-rogue-overlay.wm-rogue-shop-overlay { overflow: hidden !important; }
 #wm-rogue-overlay .wm-rogue-shop,
