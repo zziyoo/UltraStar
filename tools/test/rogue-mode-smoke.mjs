@@ -4953,6 +4953,39 @@ await check("Boss 保底：建编失败不消耗、失败重战不推关卡、�
 	}
 });
 
+await check("v14 旧档的保底折算：旧计数器按 0..19 清洗，落盘后 bossPityLevel 与折表一致且保底后果正确", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		// 原始 v14 档（无尽 45 关、旧计数 19）：createRun 现在会带上 v15 的字段，必须摘掉才是真实旧档形状
+		const raw = { ...stateModule.createRun("endless", "迪迦", 1), version: 14, level: 45, bossPityCount: 19 };
+		delete raw.bossPityLevel;
+		putLegacyRaw(0, raw);
+		session();
+		// 抬过版本号：先弹一条「已从版本14迁移到当前版本」的提示，确认后回营地
+		click("确定");
+		assert(screenText().includes("第 45"), `旧档应落到营地：${screenText().slice(0, 200)}`);
+		// 读档那一刻还没落盘：进一次商店（候选为空时现摇）就会 commit，折算结果届时写进存档。
+		// 这里要验的是**迁移算出来的值**，所以先走一条不改保底记录的落盘路径
+		Math.random = () => 0.5;
+		click("商店");
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.bossPityLevel, 25, "45 关 / 旧计数 19 → 25（v14 的 0..19 上界原样保留，没被新阈值 14 夹掉）");
+		assertEqual(slot.bossPityCount, undefined, "折算完成后旧计数器不再写进存档");
+		// 折算的可见后果：距上次 Boss 已满 20 关 → 下一场直接吃保底（不掷骰），记录随即翻到本关
+		click("返回");
+		click("开始下一关");
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "这一场直接吃保底（45-25=20 ≥ 15）");
+		assertEqual(slot.bossPityLevel, 45, "Boss 落在第 45 关，保底记录翻到 45");
+		return "v14 原始档 → 迁移提示 → 落盘 bossPityLevel 25 → 保底当场生效并翻到 45";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
 await check("Boss 惩罚：技能自动清算、奇物自选；没有对象就一句带过，绝不凑数也不建空页", async () => {
 	freshWorld();
 	const originalRandom = Math.random;

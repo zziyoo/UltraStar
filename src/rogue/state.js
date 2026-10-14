@@ -3,13 +3,13 @@
 
 import {
 	BATTLE_STATUS,
-	BOSS_PITY_BATTLES,
 	CHALLENGE_COMBO_LEVELS,
 	CHALLENGE_STAGE_LEVELS,
 	CHALLENGE_TOTAL_LEVELS,
 	CURRENCIES,
 	ENDLESS_STAT_UPGRADE_BASE,
 	INITIAL_CURRENCY,
+	LEGACY_BOSS_PITY_COUNT_MAX,
 	RUN_MODE,
 	RUN_VERSION,
 	SKILL_REFRESH_PER_LEVEL,
@@ -619,11 +619,15 @@ export function normalizeRun(raw, options = {}) {
 
 	// v15：Boss 保底改记「上一次 Boss 战实际触发的关卡」（0 = 这一局还没出过 Boss）。
 	// 判据是关卡差，所以虫洞跳关那几关照样计入保底进度；普通场一个字都不写。
-	// v14 及更早的存档只有「数场次」的 bossPityCount，按同一进度折算成关卡：
-	// 手上还有 count 场普通战斗就到线、而当前这一关还没开打 → 那条记录等于 level-1-count。
-	// （新档 level=1 count=0 折出 0，与「第 BOSS_PITY_BATTLES 关必出」的 v14 口径逐字一致。）
-	const legacyPityCount = clampInt(raw.bossPityCount, 0, Math.max(0, BOSS_PITY_BATTLES - 1), 0);
+	// v14 及更早的存档只有「数场次」的 bossPityCount，按同一进度折算成关卡：旧计数记的是
+	// 「上次 Boss 之后已经打完几场普通战斗」，而当前这一关还没开打 → 那条记录等于 level-1-count
+	// （例：45 关 / 5 场 → 39：已攒 5 场，按新节奏再打 9 场、第 54 关保底到期；19 场则当场到期）。
+	// 清洗用**旧版自己的合法范围 0..19**（v14 的阈值是 20），绝不拿新阈值 BOSS_PITY_BATTLES-1 去夹：
+	// 15~19 是合法历史进度，压成 14 会把保底整体提前若干关。负数/缺失/非数字/NaN 旧版一律按 0。
+	const legacyPityCount = clampInt(raw.bossPityCount, 0, LEGACY_BOSS_PITY_COUNT_MAX, 0);
 	const savedBossPityLevel = toInt(raw.bossPityLevel, NaN);
+	// 已经有 bossPityLevel 的存档（v15 及以后，包括已经折算过一次的）以它为准，旧计数器不参与——
+	// 新档 level=1 记录 0 折出 0，与「第 15 关必出」的新口径逐字一致
 	const bossPityLevel = clampInt(Number.isFinite(savedBossPityLevel) ? savedBossPityLevel : level - 1 - legacyPityCount, 0, level, 0);
 
 	return {

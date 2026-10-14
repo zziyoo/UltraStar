@@ -3900,7 +3900,7 @@ check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBa
 	return "字段移除 / true·false 原样往返 / v11 三态迁移 / v10 补齐";
 });
 
-check("Boss 保底：距上次 Boss 满 15 关必出、虫洞跳关计入进度、受保底时不掷骰、记录越界夹住", () => {
+check("Boss 保底：距上次 Boss 满 15 关必出、虫洞跳关计入进度、受保底时不掷骰、v14 旧档折算与越界夹住", () => {
 	assertEqual(cfg.BOSS_PITY_BATTLES, 15, "保底关卡差按规格定为 15");
 	// 未到保底：仍按生产概率正常判定（严格小于），判定线一律读 BOSS_RUN_RATE，改旋钮不用改用例
 	assertEqual(enemy.shouldBossBattle(1, 0, () => 0.999), false, "0.999 未命中");
@@ -3928,28 +3928,46 @@ check("Boss 保底：距上次 Boss 满 15 关必出、虫洞跳关计入进度�
 		}
 	}
 	assertEqual(JSON.stringify(bossAt), JSON.stringify([5, 20]), "第 5 关提前命中后重新记关卡，第 20 关保底");
-	// 存档往返：新档 0、v14 的计数器折算成关卡、越界夹住、合法值幂等
+	// 存档往返：新档 0、v14 的计数器折算成关卡、旧范围清洗、越界夹住、合法值幂等
 	assertEqual(freshRun(cfg.RUN_MODE.endless).bossPityLevel, 0, "新档记录从 0 开始（第 15 关必出）");
-	// v14 旧档只有计数器：折算用例先摘掉 v15 的字段，模拟真实旧档形状（无尽档，关卡不受 30 关上界夹）
-	const legacyV14 = { ...freshRun(cfg.RUN_MODE.endless), version: 14, level: 45, bossPityCount: 6 };
-	delete legacyV14.bossPityLevel;
-	assertEqual(
-		state.normalizeRun(legacyV14).bossPityLevel,
-		38,
-		"v14 计数器折算：45-1-6=38，此后第 53 关保底（与原口径同一天触底，进度的账不丢也不白送）"
-	);
-	const legacyZero = { ...freshRun(cfg.RUN_MODE.endless), version: 14, bossPityCount: 0 };
-	delete legacyZero.bossPityLevel;
-	assertEqual(state.normalizeRun(legacyZero).bossPityLevel, 0, "v14 计数 0 折出 0");
+	// v14 旧档只有计数器（那版阈值是 20 → 合法计数 0..19）。折算用例先摘掉 v15 的字段，
+	// 模拟真实旧档形状（无尽档，关卡不受闯关 30 关上界夹）
+	const legacyV14 = (count, level = 45) => {
+		const raw = { ...freshRun(cfg.RUN_MODE.endless), version: 14, level, bossPityCount: count };
+		delete raw.bossPityLevel;
+		return state.normalizeRun(raw);
+	};
+	// 折表：bossPityLevel = 本关 − 1 − 旧计数（已打完的普通场次原样保留，距下次保底按新 15 关节奏重算）。
+	// 上界必须用 v14 自己的 0..19：拿新阈值 14 去夹会把 15..19 压成 14，保底被整体提前若干关
+	assertEqual(legacyV14(0).bossPityLevel, 44, "45 关 / 旧计数 0 → 44");
+	assertEqual(legacyV14(14).bossPityLevel, 30, "45 关 / 旧计数 14 → 30");
+	assertEqual(legacyV14(15).bossPityLevel, 29, "45 关 / 旧计数 15 → 29（合法旧计数必须原样保留）");
+	assertEqual(legacyV14(19).bossPityLevel, 25, "45 关 / 旧计数 19 → 25（v14 的合法上界）");
+	// 旧版清洗规则：负数 / 非数字 / NaN 一律按 0 起算，绝不产出非法关卡记录
+	assertEqual(legacyV14(-5).bossPityLevel, 44, "负数按旧版规则归 0");
+	assertEqual(legacyV14("x").bossPityLevel, 44, "非数字按旧版规则归 0");
+	assertEqual(legacyV14(NaN).bossPityLevel, 44, "NaN 按旧版规则归 0");
+	const noCount = { ...freshRun(cfg.RUN_MODE.endless), version: 14, level: 45 };
+	delete noCount.bossPityLevel;
+	assertEqual(state.normalizeRun(noCount).bossPityLevel, 44, "计数器整个缺失也按 0 起算（结果仍是合法关卡记录）");
+	// 超出 v14 合法范围：夹到 19；折出的负数一律归 0（低关卡 + 满计数也不出现非法记录）
+	assertEqual(legacyV14(99).bossPityLevel, 25, "超范围夹到旧上界 19，不越界");
+	assertEqual(legacyV14(99, 10).bossPityLevel, 0, "第 10 关 + 满计数：折出负数归 0");
+	// 已经折算过一次的存档不再迁移：v15 的 bossPityLevel 说了算，旁边压着的旧计数器不参与
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 45, bossPityLevel: 25, bossPityCount: 0 }).bossPityLevel, 25, "v15 存档以关卡记录为准，旧计数器不参与");
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: 45, bossPityLevel: 0, bossPityCount: 19 }).bossPityLevel, 0, "新记录哪怕是 0 也不被旧计数器翻案");
+	// 折算的可见后果：45 关 / 旧计数 19 的旧档读进来就是「保底已到期」，下一场直接是 Boss
+	assertEqual(enemy.shouldBossBattle(45, legacyV14(19).bossPityLevel, () => 0.999), true, "旧计数 19 → 45-25=20 ≥ 15，保底已到期");
+	assertEqual(enemy.shouldBossBattle(45, legacyV14(0).bossPityLevel, () => 0.999), false, "旧计数 0 → 45-44=1，离保底还早，仍按概率");
 	assertEqual(state.normalizeRun({ ...freshRun(), version: 13 }).bossPityLevel, 0, "v13 及更早连计数器都没有，补 0");
 	assertEqual(state.normalizeRun({ ...freshRun(), bossPityLevel: -5 }).bossPityLevel, 0, "负值归零");
 	assertEqual(state.normalizeRun({ ...freshRun(), level: 9, bossPityLevel: 99 }).bossPityLevel, 9, "未来的关卡不认，夹到本关");
 	assertEqual(state.normalizeRun({ ...freshRun(), bossPityLevel: "x" }).bossPityLevel, 0, "非法值按「还没出过」处理");
 	const round = state.normalizeRun({ ...freshRun(), level: 30, bossPityLevel: 7 });
 	assertEqual(round.bossPityLevel, 7, "合法值原样往返");
-	assertEqual(state.normalizeRun(round).bossPityLevel, 7, "二次读档幂等");
+	assertEqual(state.normalizeRun(round).bossPityLevel, 7, "二次读档幂等（不会二次折算）");
 	assertEqual(freshRun(cfg.RUN_MODE.endless).bossPityCount, undefined, "v15 起不再产出旧计数器字段");
-	return "15 关差边界 / 跳关计入 / 提前命中重记 / v14 折算 / 往返";
+	return "15 关差边界 / 跳关计入 / 提前命中重记 / 旧计数折表 0·14·15·19 / 往返";
 });
 
 check("虫洞跳关计入 Boss 保底：跳过的关也推进关卡差，落点开打即走保底判定", () => {

@@ -87,7 +87,8 @@ export const COLLECTION_KEY = "rogueCollection";
  *      `当前关卡 - bossPityLevel ≥ BOSS_PITY_BATTLES`，所以虫洞这类「一次跳过多关」的进度
  *      自动算进保底，不必再数打了几场。正常一关一场的推进下，两种口径给出的 Boss 关卡完全一致
  *      （新档第 15 场＝第 15 关，Boss 后第 15 关再必出）。v14 及更早的存档按
- *      `bossPityLevel = level - 1 - bossPityCount` 折算，保底进度不丢也不白送。
+ *      `bossPityLevel = level - 1 - bossPityCount` 折算（旧计数按 v14 自己的合法范围 0..19 清洗，
+ *      见 LEGACY_BOSS_PITY_COUNT_MAX），保底进度不丢也不白送。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
 export const RUN_VERSION = 15;
@@ -248,6 +249,15 @@ export const BOSS_RUN_RATE = 0.06666;
  * 例如：第 5 关提前命中 Boss → 记下 5，之后一路没抽中就在第 20 关保底触发。
  */
 export const BOSS_PITY_BATTLES = 15;
+
+/**
+ * v14 时代 `bossPityCount` 的合法上界：那一版的 `BOSS_PITY_BATTLES` 是 20（计数到 19 时下一场必出、
+ * 随即归零），所以存档里最多只会出现 19，负数与脏值在旧版清洗里一律归 0。
+ * **只服务 state.js 的旧档折算**，绝不参与生产判定。
+ * 折算时必须拿它当上界，不能顺手用 `BOSS_PITY_BATTLES - 1`——那是新口径的场内节奏：
+ * 拿 14 去夹旧计数会把 15~19 这五档历史进度压成 14，旧档的保底被整体提前若干关。
+ */
+export const LEGACY_BOSS_PITY_COUNT_MAX = 19;
 
 /**
  * Boss 战胜利奖励：本关胜利金币基准（getEndlessReward / getChallengeReward）的倍数。
