@@ -21,6 +21,7 @@
 import { lib } from "../../../../noname.js";
 
 import { packages } from "../core/loader.js";
+import { perfCount, perfMark } from "./perf.js";
 import { appendAbyssAffixes, isAbyssStage, rollAbyssAffixes } from "./endless/abyss.js";
 import { BOSS_AFFIX_TAG } from "./endless/abyssConfig.js";
 import { BOSS_EXTRA_AFFIXES, BOSS_PITY_BATTLES, BOSS_RUN_RATE, BOSS_SKILL_DONOR_COUNT, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
@@ -250,34 +251,99 @@ function isBossSkillDonorBlocked(id, info, banned) {
 }
 
 /**
- * 「别的角色」候选：除 Boss 本人外的全部可用来源——**禁将角色不供能**（禁将名单与商店同一份
- * `getBannedCharacterIds`，任一模式禁过就算禁将），每人带一份可用技能表：禁将只看**来源武将本身**
- * （`isBossSkillDonorBlocked` 已经拦下禁将来源，所以这里不再逐条查技能属于不属于别的禁将角色——
- * 那是商店的口径，共享技能会因为「别人也拥有」被连带误杀）；
- * 每条技能还要过兼容性校验（`isRogueSkillAllowed`，与商城同一道安全闸）；
- * 一条可用技能都没有的角色当不了来源。
+ * 「别的角色」资格池：除 Boss 本人外的全部可用来源——**禁将角色不供能**（禁将名单与商店同一份
+ * `getBannedCharacterIds`，任一模式禁过就算禁将）。
+ * 这里**只看身份类闸门，不碰技能表**：技能兼容性校验（`isRogueSkillAllowed`）是全链最贵的一步
+ * （要扫技能定义的源码），留到随机顺序定下来之后、只对真正会被抽中的前几名按需做——见
+ * `pickBossSkillDonors`。禁将只看**来源武将本身**（`isBossSkillDonorBlocked` 已经拦下禁将来源，
+ * 所以这里不再逐条查技能属于不属于别的禁将角色——那是商店的口径，共享技能会因为「别人也拥有」被连带误杀）。
  */
-export function getBossSkillDonorCandidates(bossId) {
+export function getBossSkillDonorIdPool(bossId) {
 	const banned = getBannedCharacterIds();
-	const candidates = [];
+	const pool = [];
 	for (const [id, info] of Object.entries(lib.character ?? {})) {
 		if (id === bossId || isBossSkillDonorBlocked(id, info, banned)) {
 			continue;
 		}
-		const skills = [];
-		for (const skill of skillsOf(info)) {
-			if (typeof skill !== "string" || !skill || skills.includes(skill)) {
-				continue;
-			}
-			if (isRogueSkillAllowed(skill)) {
-				skills.push(skill);
-			}
+		pool.push(id);
+	}
+	return pool;
+}
+
+/**
+ * 单个来源角色的可用技能表：每条技能都要过兼容性校验（`isRogueSkillAllowed`，与商城同一道安全闸），
+ * 一条可用技能都没有的角色当不了来源。stats 传入时顺带累计「真查过多少条技能」供性能日志用。
+ */
+function usableDonorSkills(id, stats = null) {
+	const skills = [];
+	for (const skill of skillsOf(lib.character?.[id])) {
+		if (typeof skill !== "string" || !skill || skills.includes(skill)) {
+			continue;
 		}
+		if (stats) {
+			stats.checked++;
+		}
+		if (isRogueSkillAllowed(skill)) {
+			skills.push(skill);
+		}
+	}
+	return skills;
+}
+
+/**
+ * 完整候选列表：资格池里每位带一份可用技能表（一条可用技能都没有的角色当不了来源）。
+ * 会为**每一个**资格角色做技能兼容性校验——保留给测试/自检的穷举口径；
+ * 实战开局走 `pickBossSkillDonors` 的按需抽取，不在这里全量扫。
+ */
+export function getBossSkillDonorCandidates(bossId) {
+	const candidates = [];
+	for (const id of getBossSkillDonorIdPool(bossId)) {
+		const skills = usableDonorSkills(id);
 		if (skills.length) {
 			candidates.push({ id, skills });
 		}
 	}
 	return candidates;
+}
+
+/**
+ * Boss 技能来源的按需抽取：先对资格池做一次无偏随机排列（Fisher-Yates；与旧实现同一套洗牌，
+ * 只是旧实现先穷举全部合法来源再洗牌，这里对更大的资格池洗牌），然后**按随机顺序逐个**
+ * 做技能兼容性校验，凑够 count 名拥有合法技能的不同来源就立即停手，不再往后扫。
+ *
+ * 公平性：均匀随机排列里「前 count 名拥有合法技能的来源」这一子序列，恰好是从全部合法来源里
+ * 无放回均匀抽样——每个合法来源出现在任何名次的概率相同，所以来源组合与旧实现分布一致；
+ * 来源顺序也一致（按在排列里的先后依次供能，同名技能先到先得）。
+ *
+ * 合法来源不足 count 时继续检查完剩余候选，最终用上全部合法来源——不凑数、不重复（与旧实现相同）。
+ * 技能定义与禁将名单都现读，不引用任何历史判定结果。
+ */
+export function pickBossSkillDonors(bossId, rng = Math.random, count = BOSS_SKILL_DONOR_COUNT) {
+	const pool = getBossSkillDonorIdPool(bossId);
+	for (let i = pool.length - 1; i > 0; i--) {
+		const j = Math.floor(rng() * (i + 1));
+		[pool[i], pool[j]] = [pool[j], pool[i]];
+	}
+	const wanted = Math.max(0, Math.floor(Number(count) || 0));
+	if (!wanted) {
+		return [];
+	}
+	const donors = [];
+	const stats = { checked: 0, scanned: 0 };
+	for (const id of pool) {
+		if (donors.length >= wanted) {
+			break;
+		}
+		stats.scanned++;
+		const skills = usableDonorSkills(id, stats);
+		if (skills.length) {
+			donors.push({ id, skills });
+		}
+	}
+	perfCount("来源候选池", pool.length);
+	perfCount("实际扫描人数", stats.scanned);
+	perfCount("兼容性检查技能条数", stats.checked);
+	return donors;
 }
 
 /**
@@ -299,16 +365,16 @@ export function createBossEnemyConfig(level, mode, rng = Math.random, options = 
 	// （getChallengeEnemyPool 刻意不拦禁将——那是闯关固定配置「照打」的口径，Boss 不适用）
 	const banned = getBannedCharacterIds();
 	const pool = getEnemyPool(mode).filter(id => !banned.has(id));
+	perfMark("Boss 敌方池构建");
 	if (!pool.length) {
 		return [];
 	}
 	const characterId = pool[Math.floor(rng() * pool.length) % pool.length];
-	// 三个不同来源：先洗牌再取前三个（不足三个就用现有全部，不凑数、不重复）
-	const candidates = getBossSkillDonorCandidates(characterId);
-	for (let i = candidates.length - 1; i > 0; i--) {
-		const j = Math.floor(rng() * (i + 1));
-		[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-	}
+	perfMark("Boss 角色抽取");
+	// 三个不同来源：对资格池无偏随机排列后按序现查技能，凑够 BOSS_SKILL_DONOR_COUNT 名立即停
+	// （不足三个就用现有全部，不凑数、不重复）——不再为了抽三个来源而扫全库技能
+	const candidates = pickBossSkillDonors(characterId, rng);
+	perfMark("来源角色筛选（含兼容性检测）");
 	// 本体直接已有的技能不再重复列进复制技能：只按角色的**直接技能表**比对，
 	// 不自己展开 group / derivation——展开是本体 grantSkills 的事，这里展开会误删本体技的合法伙伴。
 	const native = new Set(skillsOf(lib.character?.[characterId] ?? [])
@@ -326,6 +392,7 @@ export function createBossEnemyConfig(level, mode, rng = Math.random, options = 
 			skillSources[skill] = donor.id;
 		}
 	}
+	perfMark("复制技能整理去重");
 	const points = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(level) || 0)));
 	const extra = Math.floor(Number(options?.extraAffixes));
 	// 常规随机（含经验泉的债）照走正常关卡口径，**不带** boss 标签：带上它 Boss 就只能从专属强化里挑，
@@ -333,9 +400,13 @@ export function createBossEnemyConfig(level, mode, rng = Math.random, options = 
 	const abyssStage = isAbyssStage(level, mode);
 	let abyss = rollEnemyAffixes(level, mode, abyssStage, extra, rng);
 	abyss = appendAbyssAffixes(abyss, BOSS_EXTRA_AFFIXES, rng, { mode, tags: [BOSS_AFFIX_TAG] });
+	perfMark("深渊强化结算");
+	// 属性分配与深渊强化是同一条 rng 序列上的先后两步（先词缀后属性，顺序不能换）
+	const stats = allocateEnemyStats(points, rng);
+	perfMark("属性分配");
 	return [{
 		characterId,
-		stats: allocateEnemyStats(points, rng),
+		stats,
 		abyss,
 		skills,
 		skillSources,

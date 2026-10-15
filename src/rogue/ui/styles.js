@@ -115,12 +115,14 @@ const CSS = `
 	background: linear-gradient(rgba(255,255,255,0.15), rgba(255,255,255,0.05));
 	border: 1px solid rgba(255,255,255,0.16); }
 /* 数字不许溢出到边框外：金币涨到六位、或负价带符号时，先按位数降一档字号（.wm-rogue-res-long /
-   -xlong，由 ui/common.js 的 paintResNum 现写现判），窄屏与高缩放倍数下再靠 overflow-wrap 逐位折行。
-   两条都只改「怎么放下」，不裁剪、不隐藏、不动字体与配色 */
+   -xlong / -xxlong，由 ui/common.js 的 paintResNum 现写现判、并按容器实宽再收敛），
+   事件页（与三个事件子页面）另有 nowrap 保证金额单行；其余页面沿用逐位折行兜底。
+   几条都只改「怎么放下」，不裁剪、不隐藏、不动字体与配色 */
 .wm-rogue-res-num { font-size: 26px; line-height: 1.15; font-weight: bold; color: #ffd479;
 	text-shadow: 0 1px 3px rgba(0,0,0,0.9); overflow-wrap: anywhere; word-break: normal; }
 .wm-rogue-res-num.wm-rogue-res-long { font-size: 21px; }
 .wm-rogue-res-num.wm-rogue-res-xlong { font-size: 17px; }
+.wm-rogue-res-num.wm-rogue-res-xxlong { font-size: 14px; }
 .wm-rogue-res-label { font-size: 13px; color: rgba(255,255,255,0.62); letter-spacing: 2px; }
 .wm-rogue-shop-section-title { margin: 14px 0 5px; font-size: 24px; font-weight: bold; color: #fff;
 	letter-spacing: 4px; text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
@@ -356,6 +358,23 @@ const CSS = `
 	text-align: center; box-sizing: border-box;
 	background: linear-gradient(rgba(24,24,24,0.92), rgba(8,8,8,0.95));
 	border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 6px 26px rgba(0,0,0,0.65); }
+/* 事件页的资源条必须撑满面板宽度——面板是 align-items:center 的 flex 列（事件大图靠它居中），
+   资源条作为 flex 项会被收缩到内容宽：两格挤在面板中间一小块，数字一长就被 overflow-wrap
+   逐位折行（22300 折成 2230 / 0，卡片也跟着变成两行高）。
+   align-self:stretch 只把这一条拉开，不影响其余元素居中；两格各拿一半宽度、数字单行。
+   注意只能挂在事件页作用域：商店/营地/结算的资源条本来就是全宽容器里的 flex 项，
+   不需要也不该动。 */
+#wm-rogue-overlay .wm-rogue-event .wm-rogue-res {
+	width: 100% !important;
+	align-self: stretch !important;
+}
+/* 数字单行：超长由 ui/common.js 的 paintResNum 降档字号解决（位数分档 + 按容器实宽收敛）。
+   事件页与三个事件子页面（流浪商人 / 技能熔炉 / 奇物融合炉）共用——它们的资源条同样是两格半宽，
+   同样不许把金额拆成两行 */
+#wm-rogue-overlay .wm-rogue-event .wm-rogue-res-num,
+#wm-rogue-overlay .wm-rogue-replace .wm-rogue-res-num { white-space: nowrap !important; }
+/* 资源格纵向收一收：只去多余的上下留白，字号、颜色与间距一个不动 */
+#wm-rogue-overlay .wm-rogue-event .wm-rogue-res-cell { padding: 7px 14px 5px !important; }
 /* 事件图是满幅的不透明方图（深色星空底），所以用 cover + 圆角描边 */
 .wm-rogue-event-art { width: 200px; height: 200px; border-radius: 10px; margin-bottom: 16px;
 	background-size: cover; background-position: center;

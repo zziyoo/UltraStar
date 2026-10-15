@@ -71,6 +71,7 @@ const eventManager = await load("src/rogue/eventManager.js");
 const abyss = await load("src/rogue/endless/abyss.js");
 const abyssConfig = await load("src/rogue/endless/abyssConfig.js");
 const abyssAffixes = await load("src/rogue/endless/abyssAffixes.js");
+const perf = await load("src/rogue/perf.js");
 /** 桩里的 lib：与各模块拿到的是同一个对象，用来临时塞 lib.poptip 之类的桩数据 */
 const { lib, game: mockGame, get: mockGet } = await import(MOCK_URL);
 
@@ -4408,11 +4409,27 @@ check("Boss 战阵容：单敌、非禁将抽取、复制三个其他非禁将�
 		const boss = enemies[0];
 		assertEqual(boss.boss, true, "boss 标记随阵容落盘");
 		assertEqual(boss.characterId, challengePool[0], "Boss 从当前模式敌方池抽取（闯关 = 扩展角色池）");
-		// 四个候选来源（甲/乙/丙/丁）里 rng=0 洗牌后取前三：乙、丙、丁，第一个甲落选——
-		// 「取三个」而不是「取全部」就是这条可观察的判据
-		assertEqual(JSON.stringify(boss.skills), JSON.stringify(["donor_b1", "donor_c1", "donor_d1"]),
-			`复制三个来源角色的全部技能，且第四名来源不许沾：${boss.skills.join(",")}`);
-		assertEqual(boss.skills.length, 3, "三个来源各一条可用技能 → 恰好三条");
+		// 来源抽取改成「对资格池无偏洗牌 + 按随机顺序现查技能、凑够三个即停」之后，rng=0 的
+		// 可观察结果 = 洗牌后从前往后第一个、第二个、第三个**合法**来源。资格池里还有不带
+		// 合法技能的残留角色（如上面的 本体测试将），它们只占洗牌位、不供能——所以直接断言
+		// 「恰好三名夹具来源供能、第四名一个技能都不沾、每人贡献自己的全部合法技能」，
+		// 不把结果钉死在具体人名上（对前序用例残留的 lib.character 数据免疫）
+		const fixtureSkills = {
+			测试甲: ["donor_a1", "donor_a2"],
+			测试乙: ["donor_b1"],
+			测试丙: ["donor_c1"],
+			测试丁: ["donor_d1"],
+		};
+		const contributing = Object.entries(fixtureSkills)
+			.filter(([, list]) => list.some(id => boss.skills.includes(id)));
+		assertEqual(contributing.length, cfg.BOSS_SKILL_DONOR_COUNT,
+			`恰好 ${cfg.BOSS_SKILL_DONOR_COUNT} 名来源供能（第四名不许沾）：实际 ${contributing.map(([id]) => id).join(",") || "无"}`);
+		for (const [donor, list] of contributing) {
+			assertEqual(JSON.stringify(list.filter(id => boss.skills.includes(id))), JSON.stringify(list),
+				`来源「${donor}」应贡献自己的全部合法技能`);
+		}
+		assertEqual(boss.skills.length, contributing.reduce((n, [, list]) => n + list.length, 0),
+			`复制列表只由这几名来源的技能组成：${boss.skills.join(",")}`);
 		assertEqual([...new Set(Object.values(boss.skillSources))].length, cfg.BOSS_SKILL_DONOR_COUNT,
 			"来源角色记在 skillSources 里随阵容落盘，且是三个不同的人");
 		// 技能来源角色必须是非禁将的：来源可以是本扩展角色，也可以是别种来源，但禁将一律不供能
@@ -4433,13 +4450,19 @@ check("Boss 战阵容：单敌、非禁将抽取、复制三个其他非禁将�
 		lib.config.identity_banned = challengePool.slice(1);
 		const forced = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0);
 		assertEqual(forced[0].characterId, challengePool[0], "被禁用的角色不能当 Boss");
-		assertEqual(JSON.stringify(forced[0].skills), JSON.stringify(["donor_b1", "donor_c1", "donor_d1"]),
-			"担当 Boss 的禁将过滤不影响来源抽取（来源只看禁将名单本身）");
+		// 被禁掉的池成员同时也会退出来源资格池（它们不是夹具来源，本来就不供能），
+		// 三名合法夹具来源照常各供各的全量技能——禁将过滤只认「来源武将本身」
+		const forcedContributing = Object.entries(fixtureSkills)
+			.filter(([, list]) => list.some(id => forced[0].skills.includes(id)));
+		assertEqual(forcedContributing.length, cfg.BOSS_SKILL_DONOR_COUNT,
+			`担当 Boss 的禁将过滤不影响来源抽取（来源只看禁将名单本身）：${forced[0].skills.join(",")}`);
 		// 把来源角色也禁掉：禁将角色一律不再供能，剩下的来源不足三个就全用（不凑数、不重复）
 		lib.config.identity_banned = [...challengePool.slice(1), "测试乙", "测试丁"];
 		const bannedDonors = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0);
-		assertEqual(JSON.stringify(bannedDonors[0].skills), JSON.stringify(["donor_c1", "donor_a1", "donor_a2"]),
+		assertEqual(JSON.stringify(bannedDonors[0].skills), JSON.stringify(["donor_a1", "donor_a2", "donor_c1"]),
 			`禁将角色不得当技能来源，剩下的两个来源全用：${bannedDonors[0].skills.join(",")}`);
+		assertEqual([...new Set(Object.values(bannedDonors[0].skillSources))].sort().join(","), "测试丙,测试甲",
+			"被禁的乙/丁一个都不在来源映射里");
 		// 全员禁用：返回空阵容交给上层提示，而不是报错
 		lib.config.identity_banned = challengePool;
 		assertEqual(enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0).length, 0, "可用池为空返回空阵容");
@@ -4449,7 +4472,7 @@ check("Boss 战阵容：单敌、非禁将抽取、复制三个其他非禁将�
 		const stored = state.normalizeRun({ ...freshRun(), currentBattle: { status: "battle", enemies: forced, rift: null, isBossBattle: true } });
 		assertEqual(stored.currentBattle.enemies[0].boss, true, "boss 标记读档保留");
 		assertEqual(stored.currentBattle.isBossBattle, true, "本场 Boss 身份与阵容一起落盘、一起读回");
-		assertEqual(JSON.stringify(stored.currentBattle.enemies[0].skills), JSON.stringify(["donor_b1", "donor_c1", "donor_d1"]), "复制来的技能读档保留");
+		assertEqual(JSON.stringify(stored.currentBattle.enemies[0].skills), JSON.stringify(forced[0].skills), "复制来的技能读档保留");
 		return "单敌 / 禁将拦 Boss / 三来源全技能 / 禁将不供能 / 自带 1 强化 / 空池兜底";
 	} finally {
 		for (const id of ["测试甲", "测试乙", "测试丙", "测试丁", "本体测试将"]) {
@@ -4541,12 +4564,13 @@ check("Boss 复制技能只看来源武将禁不禁：与禁将共有的技能�
 			"未禁将来源的两条合法技能都要供能，主公技照样剔掉");
 		assert(!found.map(item => item.id).includes("禁将同有"), "禁将角色本身仍不得当技能来源");
 
-		// rng=0 洗牌后取前三：候选只有两个合法来源，全部用上，shared_b 由先来的那个供能并只留一份
+		// 候选只有两个合法来源，全部用上（不足三个不凑数）：洗牌后 甲 在先，shared_b 由先到的甲供能、
+		// 乙那边只留 shared_c；每条技能在列表里恰好出现一次
 		const boss = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0)[0];
-		assertEqual(JSON.stringify(boss.skills), JSON.stringify(["shared_b", "shared_c", "shared_a"]),
+		assertEqual(JSON.stringify(boss.skills), JSON.stringify(["shared_a", "shared_b", "shared_c"]),
 			`候选不足三个就全用，同名技能去重：${boss.skills.join(",")}`);
 		assertEqual(new Set(boss.skills).size, boss.skills.length, "复制列表不得出现重复技能");
-		assertEqual(boss.skillSources.shared_b, "共享来源乙", "同名技能的来源记先到先得那一个");
+		assertEqual(boss.skillSources.shared_b, "共享来源甲", "同名技能的来源记先到先得那一个");
 		assert(!boss.skills.includes("banned_only"), "禁将角色独有的技能仍然不得复制");
 		assert(!boss.skills.includes("shared_zhu"), "不兼容技能仍然不得复制");
 
@@ -4565,6 +4589,186 @@ check("Boss 复制技能只看来源武将禁不禁：与禁将共有的技能�
 		delete lib.config.all;
 	}
 	return "未禁来源完整复制 / 禁将不当来源 / 不兼容仍拦 / 跨来源去重 / 商店复查不变";
+});
+
+check("Boss 来源按需抽取：凑够三个来源就停手，不再对全库技能做深度扫描", () => {
+	// 尺子选「技能表被真实遍历的次数」：skillsOf 会读角色的直接技能表，每扫一名角色就 +1。
+	// 库的形状照真机来铺——绝大多数角色都是合法来源（真机 2618 人里 2506 个合法），
+	// 噪声角色技能表用 getter 计数；再量同环境下「全量扫描 vs 按需抽取」各走了多少人
+	const prevCharacter = {};
+	const prevSkill = lib.skill.noise_shared;
+	const prevName = lib.translate.noise_shared;
+	const prevInfo = lib.translate.noise_shared_info;
+	const fixtures = {};
+	let walked = 0;
+	lib.skill.noise_shared = {};
+	lib.translate.noise_shared = "噪声技";
+	lib.translate.noise_shared_info = "描述";
+	for (let i = 0; i < 120; i++) {
+		const id = `按需噪声${i}`;
+		prevCharacter[id] = lib.character[id];
+		fixtures[id] = {
+			hp: 4,
+			get skills() {
+				walked++;
+				return ["noise_shared"];
+			},
+		};
+	}
+	lib.character = { ...lib.character, ...fixtures };
+	try {
+		const mark = walked;
+		enemy.getBossSkillDonorCandidates("占位Boss");
+		const fullScan = walked - mark;
+		assert(fullScan >= 120, `前提：全量扫描确实走遍了全部角色（实际 ${fullScan}）`);
+		const mark2 = walked;
+		const donors = enemy.pickBossSkillDonors("占位Boss", makeRng(20261015));
+		const lazyScan = walked - mark2;
+		assertEqual(donors.length, cfg.BOSS_SKILL_DONOR_COUNT, "按需抽取照常凑够三名来源");
+		assert(lazyScan * 10 < fullScan,
+			`按需抽取只走了 ${lazyScan} 名角色，应远小于全量扫描的 ${fullScan} 名`);
+		assert(lazyScan <= 20,
+			`按需抽取的扫描人数应贴着「凑够三名」这个量级：${lazyScan}`);
+	} finally {
+		for (const id of Object.keys(fixtures)) {
+			if (prevCharacter[id] === undefined) {
+				delete lib.character[id];
+			} else {
+				lib.character[id] = prevCharacter[id];
+			}
+		}
+		if (prevSkill === undefined) {
+			delete lib.skill.noise_shared;
+		} else {
+			lib.skill.noise_shared = prevSkill;
+		}
+		if (prevName === undefined) {
+			delete lib.translate.noise_shared;
+		} else {
+			lib.translate.noise_shared = prevName;
+		}
+		if (prevInfo === undefined) {
+			delete lib.translate.noise_shared_info;
+		} else {
+			lib.translate.noise_shared_info = prevInfo;
+		}
+	}
+	return "凑够即停：扫描人数远小于全量";
+});
+
+check("Boss 来源抽取的公平性：资格池均匀排列，各合法来源中签概率一致", () => {
+	// 受控资格池：12 个合法来源 + 4 个没有合法技能的角色。均匀随机排列 + 按序取前三，
+	// 等价于从 12 个合法来源里无放回均匀抽样——每个来源当「第一名」的次数应接近 3000/12=250
+	const backup = lib.character;
+	const fixtures = {};
+	const skillBackup = {};
+	const translateBackup = {};
+	const validIds = [];
+	for (let i = 0; i < 12; i++) {
+		const id = `公平来源${i}`;
+		fixtures[id] = [4, "male", "ao", [`fair_skill_${i}`], 1];
+		skillBackup[`fair_skill_${i}`] = lib.skill[`fair_skill_${i}`];
+		lib.skill[`fair_skill_${i}`] = {};
+		translateBackup[`fair_skill_${i}`] = lib.translate[`fair_skill_${i}`];
+		translateBackup[`fair_skill_${i}_info`] = lib.translate[`fair_skill_${i}_info`];
+		lib.translate[`fair_skill_${i}`] = `公平技${i}`;
+		lib.translate[`fair_skill_${i}_info`] = "描述";
+		validIds.push(id);
+	}
+	for (let i = 0; i < 4; i++) {
+		fixtures[`无技能${i}`] = [4, "male", "ao", [`unregistered_fair_${i}`], 1];
+	}
+	try {
+		lib.character = fixtures;
+		const rng = makeRng(4242);
+		const firsts = new Map(validIds.map(id => [id, 0]));
+		const seen = new Set();
+		for (let i = 0; i < 3000; i++) {
+			const donors = enemy.pickBossSkillDonors("占位Boss", rng, cfg.BOSS_SKILL_DONOR_COUNT);
+			assertEqual(donors.length, cfg.BOSS_SKILL_DONOR_COUNT, "每轮都恰好三名来源");
+			assertEqual(new Set(donors.map(donor => donor.id)).size, cfg.BOSS_SKILL_DONOR_COUNT, "同一轮来源不重复");
+			assert(donors.every(donor => validIds.includes(donor.id)), "没有合法技能的合格角色绝不当来源");
+			firsts.set(donors[0].id, firsts.get(donors[0].id) + 1);
+			for (const donor of donors) {
+				seen.add(donor.id);
+			}
+		}
+		const values = [...firsts.values()];
+		assertEqual(values.reduce((sum, value) => sum + value, 0), 3000, "每一轮的第一名都落在 12 个合法来源里");
+		assertEqual(seen.size, 12, "3000 轮里全部合法来源都被抽到过");
+		assert(Math.min(...values) > 190 && Math.max(...values) < 310,
+			`第一名分布应接近均匀（期望 250）：${JSON.stringify(Object.fromEntries(firsts))}`);
+	} finally {
+		lib.character = backup;
+		for (const [id, value] of Object.entries(skillBackup)) {
+			if (value === undefined) {
+				delete lib.skill[id];
+			} else {
+				lib.skill[id] = value;
+			}
+		}
+		for (const [id, value] of Object.entries(translateBackup)) {
+			if (value === undefined) {
+				delete lib.translate[id];
+			} else {
+				lib.translate[id] = value;
+			}
+		}
+	}
+	return "3000 轮统计：第一名分布均匀、来源不重复、无技能角色零供能";
+});
+
+check("兼容性缓存不掺禁将：技能定义换掉立即重判，禁将名单变化立刻反映到来源候选", () => {
+	const skillBackup = lib.skill.cache_probe;
+	const nameBackup = lib.translate.cache_probe;
+	const infoBackup = lib.translate.cache_probe_info;
+	const characterBackup = lib.character["禁将来源探针"];
+	const prevAll = lib.config.all;
+	try {
+		lib.translate.cache_probe = "缓存探针";
+		lib.translate.cache_probe_info = "描述";
+		lib.skill.cache_probe = { content: async () => {} };
+		assertEqual(skillPool.isRogueSkillAllowed("cache_probe"), true, "干净定义先判为可上架");
+		// ① 定义被换成另一个对象：缓存必须按新对象重判，不能沿用旧结论
+		lib.skill.cache_probe = { content: async () => {}, zhuSkill: true };
+		assertEqual(skillPool.isRogueSkillAllowed("cache_probe"), false, "换成主公技定义后立即重判为不可上架");
+		lib.skill.cache_probe = { content: async () => {} };
+		assertEqual(skillPool.isRogueSkillAllowed("cache_probe"), true, "再换回来立即重新放行");
+		// ② 兼容性缓存只依赖技能定义，禁将信息每次现读：同一会话里禁将名单变化，来源立刻跟着变
+		lib.character["禁将来源探针"] = [4, "male", "ao", ["cache_probe"], 1];
+		assert(enemy.getBossSkillDonorIdPool("占位Boss").includes("禁将来源探针"), "前提：未禁将时它在来源资格池里");
+		lib.config.all = { mode: ["identity"] };
+		lib.config.identity_banned = ["禁将来源探针"];
+		assert(!enemy.getBossSkillDonorIdPool("占位Boss").includes("禁将来源探针"), "禁将后立刻退出资格池（不读历史判断）");
+		assert(!enemy.getBossSkillDonorCandidates("占位Boss").some(item => item.id === "禁将来源探针"),
+			"完整候选列表同样现读禁将名单");
+	} finally {
+		lib.config.identity_banned = undefined;
+		delete lib.config.identity_banned;
+		if (prevAll === undefined) {
+			delete lib.config.all;
+		} else {
+			lib.config.all = prevAll;
+		}
+		if (characterBackup === undefined) {
+			delete lib.character["禁将来源探针"];
+		} else {
+			lib.character["禁将来源探针"] = characterBackup;
+		}
+		if (skillBackup === undefined) {
+			delete lib.skill.cache_probe;
+		} else {
+			lib.skill.cache_probe = skillBackup;
+		}
+		for (const [id, value] of [["cache_probe", nameBackup], ["cache_probe_info", infoBackup]]) {
+			if (value === undefined) {
+				delete lib.translate[id];
+			} else {
+				lib.translate[id] = value;
+			}
+		}
+	}
+	return "定义换掉即重判 / 禁将现读现算 / 两处口径同步";
 });
 
 check("Boss 技能来源不排除本扩展角色：注册过、技能过了兼容闸就能供能", () => {
@@ -5210,11 +5414,101 @@ check("事件页数字防溢出与锁图标微调：样式判据直读 styles.js
 	assert(/\.wm-rogue-res-num \{ [^}]*color: #ffd479; [^}]*\}/.test(css), "字体配色原样保留");
 	assert(/\.wm-rogue-res-num\.wm-rogue-res-long \{ font-size: 21px; \}/.test(css), "六位数起降一档字号（21px）");
 	assert(/\.wm-rogue-res-num\.wm-rogue-res-xlong \{ font-size: 17px; \}/.test(css), "九位数起再降一档（17px）");
+	assert(/\.wm-rogue-res-num\.wm-rogue-res-xxlong \{ font-size: 14px; \}/.test(css), "十二位数起再降一档（14px）");
 	assert(!/\.wm-rogue-res-num[^{]*\{[^}]*overflow: hidden/.test(css), "不许用 overflow: hidden 裁掉溢出的数字");
 	assert(!/\.wm-rogue-res-num[^{]*\{[^}]*text-overflow/.test(css), "也不许用省略号藏起来");
 	assert(/#wm-rogue-overlay \.wm-rogue-shop-lock \{ [^}]*transform: translateY\(2px\) !important; [^}]*\}/.test(css), "锁图标整体下移 2px");
 	assert(/#wm-rogue-overlay \.wm-rogue-shop-lock \{ [^}]*width: 46px !important; [^}]*height: 40px !important; [^}]*\}/.test(css), "锁图标的尺寸与横向位置不动");
-	return "数字折行 + 两档降字号 + 不裁剪 + 锁图标 2px 下移";
+	return "数字折行 + 三档降字号 + 不裁剪 + 锁图标 2px 下移";
+});
+
+check("事件页资源条撑满面板 + 金额单行：样式判据直读 styles.js（只挂事件页作用域）", () => {
+	// 根因在样式层，DOM 桩量不出：事件面板是 align-items:center 的 flex 列，
+	// 资源条作为 flex 项收缩到内容宽 → 两格挤在中间、数字逐位折行。这里把「撑满 + 单行 + 只改事件页」
+	// 三条钉在样式源文本上，改了立刻红
+	const css = fs.readFileSync(path.join(root, "src/rogue/ui/styles.js"), "utf8").replace(/\s+/g, " ");
+	assert(/#wm-rogue-overlay \.wm-rogue-event \.wm-rogue-res \{ [^}]*width: 100% !important; [^}]*align-self: stretch !important; [^}]*\}/.test(css),
+		"事件页资源条必须占满面板宽度（width:100% + align-self:stretch）");
+	assert(/#wm-rogue-overlay \.wm-rogue-event \.wm-rogue-res-num, #wm-rogue-overlay \.wm-rogue-replace \.wm-rogue-res-num \{ white-space: nowrap !important; \}/.test(css),
+		"事件页与三个事件子页面的金额一律单行（nowrap），超长交给字号降档");
+	assert(/#wm-rogue-overlay \.wm-rogue-event \.wm-rogue-res-cell \{ padding: 7px 14px 5px !important; \}/.test(css),
+		"事件页资源格纵向收一收（去多余留白，不动字号与颜色）");
+	// 只准挂事件页作用域：裸 .wm-rogue-res 一旦被拉宽/禁止折行，商店、营地、结算的资源条会跟着变。
+	// 先把两条允许的带作用域选择器从 CSS 文本里剔掉，再看还有没有别的 .wm-rogue-res 规则带这两个属性
+	const stripped = css
+		.split("#wm-rogue-overlay .wm-rogue-event .wm-rogue-res").join("")
+		.split("#wm-rogue-overlay .wm-rogue-replace .wm-rogue-res").join("");
+	assert(!/\.wm-rogue-res \{ [^}]*width: 100%/.test(stripped), "不得把 width:100% 写进通用的 .wm-rogue-res");
+	assert(!/\.wm-rogue-res \{ [^}]*align-self/.test(stripped), "不得把 align-self 写进通用的 .wm-rogue-res");
+	assert(!/\.wm-rogue-res-num[^{]*\{[^}]*white-space: nowrap/.test(stripped), "通用规则里不得出现 nowrap（只有事件页作用域可以）");
+	// 面板本身的宽度与居中语义不许动（大图靠 align-items:center 居中）
+	assert(/\.wm-rogue-event \{ [^}]*align-items: center; [^}]*width: min\(560px, calc\(100% - 24px\)\); [^}]*\}/.test(css),
+		"事件面板宽度与 align-items:center 原样保留（不改面板尺寸来掩盖问题）");
+	return "撑满 + 单行 + 纵向收紧 + 事件页作用域 + 面板尺寸不动";
+});
+
+check("性能日志：默认关闭零输出；打开后打印一条分阶段摘要并同步 roguePerfLast", () => {
+	const logs = [];
+	const originalLog = console.log;
+	console.log = (...args) => {
+		logs.push(args.join(" "));
+	};
+	try {
+		perf.perfStart("测试场");
+		perf.perfMark("第一段");
+		perf.perfEnd("收尾");
+		assertEqual(logs.length, 0, "开关关闭时一条日志都不打（计时入口全为空操作）");
+		globalThis.roguePerfLog = true;
+		perf.perfStart("测试场");
+		perf.perfCount("扫过人数", 3);
+		perf.perfMark("第一段");
+		perf.perfEnd("收尾");
+		assertEqual(logs.length, 1, "打开后恰好打一条摘要");
+		assert(logs[0].startsWith("[rogue/perf] 测试场 总耗时 "), `摘要格式：${logs[0]}`);
+		assert(logs[0].includes("第一段") && logs[0].includes("扫过人数=3") && logs[0].includes("收尾"),
+			`摘要要含阶段名、计数与收尾备注：${logs[0]}`);
+		assertEqual(globalThis.roguePerfLast, logs[0], "摘要同时挂到 roguePerfLast（真机/探针读取用）");
+		// 收尾后计时关闭：再 mark 不应往旧摘要里写
+		perf.perfMark("收尾之后的标记");
+		assertEqual(logs.length, 1, "结束后不再有任何输出");
+	} finally {
+		console.log = originalLog;
+		delete globalThis.roguePerfLog;
+		delete globalThis.roguePerfLast;
+	}
+	return "关闭静默 / 打开一条摘要 + 计数 + roguePerfLast";
+});
+
+check("资源数字自适应降档：量得出宽度的容器放不下时逐档降字号，放得下不回弹", () => {
+	const fakeClassList = () => {
+		const set = new Set();
+		return { add: cls => set.add(cls), remove: cls => set.delete(cls), contains: cls => set.has(cls) };
+	};
+	// 五位数在 100px 容器里放不下 → 一路降到最小档；数字原样保留，不裁剪不省略
+	const tight = { innerHTML: "", classList: fakeClassList(), isConnected: true, clientWidth: 100, scrollWidth: 300 };
+	common.paintResNum(tight, 22300);
+	assertEqual(tight.innerHTML, "22300", "数字原样写入，不裁剪不改写");
+	assert(tight.classList.contains("wm-rogue-res-xxlong"), "放不下一路降到最小档（14px）");
+	// 容器够宽：保持基础档
+	const roomy = { innerHTML: "", classList: fakeClassList(), isConnected: true, clientWidth: 200, scrollWidth: 200 };
+	common.paintResNum(roomy, 22300);
+	assert(!roomy.classList.contains("wm-rogue-res-long")
+		&& !roomy.classList.contains("wm-rogue-res-xlong")
+		&& !roomy.classList.contains("wm-rogue-res-xxlong"), "放得下就保持基础档（26px）");
+	// 位数先定起手档：六位数即使量出宽度够也不回弹到 26px
+	const six = { innerHTML: "", classList: fakeClassList(), isConnected: true, clientWidth: 400, scrollWidth: 400 };
+	common.paintResNum(six, 123456);
+	assert(six.classList.contains("wm-rogue-res-long") && !six.classList.contains("wm-rogue-res-xxlong"),
+		"六位数起手降一档，且不与更小档同时挂");
+	// 量不出宽度（测试桩、离屏构建）时不做测量，只按位数分档——与旧行为一致
+	const detached = { innerHTML: "", classList: fakeClassList() };
+	common.paintResNum(detached, 12345);
+	assert(!detached.classList.contains("wm-rogue-res-long"), "量不出宽度时不做自适应，只按位数分档");
+	// 十二位数直接进最小档
+	const twelve = { innerHTML: "", classList: fakeClassList() };
+	common.paintResNum(twelve, 123456789012);
+	assert(twelve.classList.contains("wm-rogue-res-xxlong"), "十二位数起手就挂最小档");
+	return "逐档降字号 + 不裁剪 + 位数起手档不回弹 + 无法测量时退化";
 });
 
 check("Boss 代价面板删标题区 + 技能卡与商店同版式：样式判据直读 styles.js", () => {

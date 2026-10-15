@@ -423,17 +423,46 @@ export function addResCell(parent, label) {
 	return num;
 }
 
+/** 数字降档序列（从大到小）：索引 0 = 基础档，其余对应 styles.js 里同名类的字号 */
+const RES_NUM_TIERS = ["", "wm-rogue-res-long", "wm-rogue-res-xlong", "wm-rogue-res-xxlong"];
+
+/** 按档位挂类：一次只挂一个（各档字号互斥，测试也按互斥断言） */
+function applyResTier(node, tier) {
+	RES_NUM_TIERS.forEach((cls, index) => {
+		if (cls) {
+			node.classList[index === tier ? "add" : "remove"](cls);
+		}
+	});
+}
+
 /**
- * 往资源格里写数字：按位数降一档字号（六位数起 .wm-rogue-res-long、九位数起 -xlong，
- * 样式在 styles.js 里），金币涨到六七位、或价钱带负号时就不会顶到格子边框。
+ * 容器放不下就再降一档：只有节点真的挂进文档、且量得出宽度时才做（测试桩与未挂载节点直接跳过）。
+ * 事件页的金额一律单行（styles.js 里 nowrap），放不下只能靠字号——逐档试到最小档为止，
+ * 之后仍放不下就不是字号的问题了（位数已超出真实数值范围）。
+ */
+function fitResNum(node, startTier) {
+	let tier = startTier;
+	while (tier < RES_NUM_TIERS.length - 1) {
+		if (!node.isConnected || !node.clientWidth || node.scrollWidth <= node.clientWidth) {
+			return;
+		}
+		tier++;
+		applyResTier(node, tier);
+	}
+}
+
+/**
+ * 往资源格里写数字：按位数降一档字号（六位数起 .wm-rogue-res-long、九位数起 -xlong、
+ * 十二位数起 -xxlong，样式在 styles.js 里），再按容器实际可用宽度收敛一档——
+ * 金币涨到六七位、或价钱带负号、或窄屏高缩放下，都不会顶到格子边框。
  * 所有资源格的数字都从这里写，别在页面上各写一遍 innerHTML。
  */
 export function paintResNum(node, value) {
 	const text = `${value}`;
 	node.innerHTML = text;
-	const xlong = text.length >= 9;
-	node.classList[xlong ? "add" : "remove"]("wm-rogue-res-xlong");
-	node.classList[!xlong && text.length >= 6 ? "add" : "remove"]("wm-rogue-res-long");
+	const tier = text.length >= 12 ? 3 : text.length >= 9 ? 2 : text.length >= 6 ? 1 : 0;
+	applyResTier(node, tier);
+	fitResNum(node, tier);
 	return node;
 }
 

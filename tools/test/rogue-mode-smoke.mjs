@@ -4264,6 +4264,51 @@ await check("事件页资源条与「没对象可作用」：余额看得见，�
 	return "资源条两块 + 满级弹提示不扣钱 + 大额数字按位数降档";
 });
 
+await check("事件页资源条：金币 22300 / 经验 2366 原样单节点进 DOM，事件页与商人子页都不拆数字", async () => {
+	// 用户截图里的那组数：金币 22300 曾显示成 2230/0（面板 align-items:center 把资源条缩到内容宽，
+	// 数字被逐位折行）。DOM 桩没有排版引擎，量不出折行——这里钉「数字原样、单节点、两格齐全」，
+	// 折行的根因由 rogue.test.mjs 的样式判据（撑满 + nowrap + 事件页作用域）钉死
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 22300, exp: 2366 },
+		pendingEvent: {
+			id: "wandering_merchant",
+			choices: [
+				{
+					text: "和商人交易（一件货 · 标价 400 金币）",
+					reward: {},
+					action: { kind: "merchant", curioId: "energy_core", price: 400 },
+					blockedText: "他已经把最好的一件卖给你了，这一笔做不成。",
+				},
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	// 事件主页面：两格、两个数字节点，各自完整
+	const eventPanel = nodesWithClass("wm-rogue-event")[0];
+	assert(!!eventPanel, "前提：事件面板在");
+	const eventNums = collect(node => node.classList?.contains("wm-rogue-res-num"), eventPanel);
+	assertEqual(eventNums.length, 2, "事件面板里恰好两个数字节点（金币/经验）");
+	assertEqual(eventNums.map(node => textOf(node)).join(","), "22300,2366", "两个数字都原样写入，不拆行不省略");
+	assertEqual(nodesWithClass("wm-rogue-res-cell").length, 2, "两格资源卡，不多不少");
+	assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验", "标签仍是金币/经验");
+	// 金币 22300 是五位数：不该挂任何降档类（宽度够就不缩字号）
+	assert(!eventNums[0].classList.contains("wm-rogue-res-long")
+		&& !eventNums[0].classList.contains("wm-rogue-res-xlong")
+		&& !eventNums[0].classList.contains("wm-rogue-res-xxlong"), "五位数在事件页维持 26px 基础档");
+	// 进商人子页：同一套资源条同样两格、数字完整
+	click("和商人交易");
+	assertEqual(nodesWithClass("wm-rogue-merchant-overlay").length, 1, "进入商人子页");
+	const subNums = nodesWithClass("wm-rogue-res-num");
+	assertEqual(subNums.map(node => textOf(node)).join(","), "22300,2366", "子页数字同样原样完整");
+	return "22300/2366 原样进 DOM + 两格 + 子页一致";
+});
+
 await check("事件页置灰仍按「付不起」：经验不够时选项置灰且点了毫无反应", async () => {
 	freshWorld();
 	putRun(0, {
@@ -5167,6 +5212,57 @@ await check("Boss 判定边界与保底：严格小于、距上次 Boss 满 15 �
 	} finally {
 		Math.random = originalRandom;
 	}
+});
+
+await check("Boss 开局性能日志：默认关闭零输出，打开后按阶段打一条摘要（统一开关，不影响玩法）", async () => {
+	const originalLog = console.log;
+	const logs = [];
+	const capture = () => {
+		logs.length = 0;
+		console.log = (...args) => {
+			logs.push(args.join(" "));
+		};
+	};
+	// 用保底路径造一场 Boss 战（不消费随机源），随机钉成 0.5 让其余抽取可复现
+	const startBossBattle = async () => {
+		freshWorld();
+		lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
+		putRun(0, { mode: "endless", characterId: "迪迦", level: 15, currency: { gold: 0, exp: 0 }, bossPityLevel: 0 });
+		session();
+		click("开始下一关");
+		await flush();
+	};
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.5;
+		// ① 开关关闭（默认）：整场开局一条 [rogue/perf] 都不许有
+		capture();
+		await startBossBattle();
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.isBossBattle, true, "前提：确实打的是 Boss 战");
+		assertEqual(logs.filter(line => line.includes("[rogue/perf]")).length, 0, "默认关闭时零输出");
+		// ② 打开运行时常量开关：同一条链路应打出一条含各阶段名的摘要
+		globalThis.roguePerfLog = true;
+		capture();
+		await startBossBattle();
+		assertEqual(lib.storage.rogueSlots[0].currentBattle.isBossBattle, true, "前提：确实打的是 Boss 战");
+		const summary = logs.filter(line => line.includes("[rogue/perf]"));
+		assertEqual(summary.length, 1, `打开后恰好一条摘要：${JSON.stringify(logs.slice(0, 6))}`);
+		for (const phase of ["Boss 判定/保底", "Boss 敌方池构建", "Boss 角色抽取", "来源角色筛选（含兼容性检测）",
+			"复制技能整理去重", "阵容校验 resolveBattle", "存档落盘 commit", "prepareArena 建局",
+			"敌方初始化与技能挂载（Boss 含复制技能）", "触发 gameStart", "起手发牌 gameDraw", "已进入回合循环"]) {
+			assert(summary[0].includes(phase), `摘要应含阶段「${phase}」：${summary[0].slice(0, 400)}`);
+		}
+		assert(summary[0].includes("本场类型=Boss 战"), "摘要要标出本场类型");
+		assert(summary[0].includes("来源候选池=") && summary[0].includes("实际扫描人数=") && summary[0].includes("兼容性检查技能条数="),
+			"摘要要带来源筛选的三个计数（候选池 / 实际扫描人数 / 检查条数）");
+		assertEqual(globalThis.roguePerfLast, summary[0], "摘要同时挂到 roguePerfLast");
+	} finally {
+		Math.random = originalRandom;
+		console.log = originalLog;
+		delete globalThis.roguePerfLog;
+		delete globalThis.roguePerfLast;
+	}
+	return "关闭零输出 / 打开含全链阶段名的一条摘要";
 });
 
 await check("Boss 保底：建编失败不消耗、失败重战不推关卡、不同存档槽互不影响", async () => {

@@ -8,6 +8,7 @@ import { sumStatEffects } from "./data/stats.js";
 import { sumCurioEffects, CURIOSITY_BATTLE_KEYS, CURIOSITY_STORAGE_KEYS } from "./curioManager.js";
 import { abyssContextForEnemy, normalizeAbyssIds } from "./endless/abyss.js";
 import { isEnemyUsable } from "./enemy.js";
+import { perfEnd, perfMark } from "./perf.js";
 import { skillsOf } from "./skillPool.js";
 import { showBattleCurios, showBattleStats, showEnemyAbyss, showEnemyCopySkills, showEnemyEnhance } from "./ui/common.js";
 
@@ -128,8 +129,9 @@ export function grantSkills(player, skillIds, missingLabel) {
 	return list;
 }
 
-/** 把属性表算出的效果施加到具体 Player 上 */
-function applyEffects(player, effects, showStatEntry = false) {
+/** 把属性表算出的效果施加到具体 Player 上。deferUpdate=true 时把末尾的 player.update() 交给调用方，
+ *  避免同一段初始化里连续刷新两次（调用方必须保证之后真的刷新一次） */
+function applyEffects(player, effects, showStatEntry = false, deferUpdate = false) {
 	if (effects.maxHp) {
 		player.maxHp += effects.maxHp;
 		if (effects.maxHp > 0) {
@@ -160,7 +162,9 @@ function applyEffects(player, effects, showStatEntry = false) {
 			console.warn(`[rogue] 属性强化技能未注册：${STAT_BUFF_SKILL}`);
 		}
 	}
-	player.update();
+	if (!deferUpdate) {
+		player.update();
+	}
 }
 
 /**
@@ -225,7 +229,9 @@ function applyEnemyModifiers(player, entry) {
 	// 只看它们的话，「只有防御」的敌人就没有「强化」徽记，属性面板也就点不开了。
 	// 所以这里按「面板上确实有东西可看」来决定要不要这个入口
 	const hasAnyStat = STAT_BUFF_KEYS.some(key => (effects[key] ?? 0) > 0) || (effects.armor ?? 0) > 0 || (effects.maxHp ?? 0) > 0;
-	applyEffects(player, effects, hasAnyStat);
+	// 敌人在这一段里要挂好几批技能（属性效果 / 复制技能 / 徽记 / 深渊词缀），全程只刷新一次：
+	// 中间那次 update 不改任何游戏状态，只是重复的 DOM 刷新
+	applyEffects(player, effects, hasAnyStat, true);
 
 	const deltaMaxHp = Number.isFinite(entry.maxHp) ? Math.floor(entry.maxHp) : 0;
 	if (deltaMaxHp) {
@@ -309,6 +315,7 @@ export function resolveBattle(run, enemies, options = {}) {
  */
 export async function beginBattle(event, run, enemies) {
 	game.prepareArena(1 + enemies.length);
+	perfMark("prepareArena 建局");
 
 	// prepareArena 走的 ui.create.players 不会分配 playerid，而本体 addSkill 里
 	// 只有 playerid 存在才会把技能写进 lib.hook / lib.hookmap（player.js:11088），
@@ -326,6 +333,7 @@ export async function beginBattle(event, run, enemies) {
 	bindMarkTap(game.me.marks?.[CURIO_SKILL], () => game.me.rogueCurioRun.openPanel());
 	game.zhu = game.me;
 	markSides(game.me, game.players.slice(1));
+	perfMark("玩家初始化与技能挂载");
 
 	for (let i = 0; i < enemies.length; i++) {
 		const player = game.players[i + 1];
@@ -340,14 +348,18 @@ export async function beginBattle(event, run, enemies) {
 		bindMarkTap(player.marks?.[ABYSS_MARK_SKILL], () => showEnemyAbyss(player));
 		bindMarkTap(player.marks?.[COPY_MARK_SKILL], () => showEnemyCopySkills(player));
 	}
+	perfMark("敌方初始化与技能挂载（Boss 含复制技能）");
 	rogueBattleEnemies = game.players.slice(1, 1 + enemies.length).filter(Boolean);
 	game.me.update();
 
 	const startHand = BASE_START_HAND + bonuses.startHand;
 	// 与身份模式一致：先 gameStart，再起手牌，最后进回合循环
 	await event.trigger("gameStart");
+	perfMark("触发 gameStart");
 	game.gameDraw(game.me, player => (player === game.me ? startHand : BASE_START_HAND));
+	perfMark("起手发牌 gameDraw");
 	game.phaseLoop(game.me);
+	perfEnd("已进入回合循环");
 	return { enemies: enemies.length };
 }
 

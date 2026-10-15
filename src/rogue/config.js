@@ -302,6 +302,20 @@ export const CHARACTER_PICKER_PAGE_SIZE = 24;
 /** 传给 game.addMode 第三参的 mode.config：死亡时本体要读它，必须至少是对象 */
 export const MODE_SETTINGS = {};
 
+/**
+ * 性能日志统一开关（正式发布保持 false）。
+ * 打开后，从点下「开始下一关」到正式开局的分阶段耗时会在控制台打印一条
+ * `[rogue/perf]` 摘要（同时把最后一条挂到 window.roguePerfLast，方便真机/探针读取）；
+ * 关闭时所有计时入口都是空操作，不跑 performance.now()、也不打日志。
+ * 打开方式三选一：
+ *   ① 把本常量改成 true（改完记得改回，提交前保持 false）；
+ *   ② 控制台执行 localStorage.setItem("roguePerfLog", "1") 后重载（真机排查用，改回同理）；
+ *   ③ 控制台执行 globalThis.roguePerfLog = true（当次会话有效，刷新即失效）。
+ * 只加日志，不碰任何随机、判定与游戏数据。
+ */
+export const PERF_LOG = false;
+
+
 export const LIBRARY_TEXT = {
 	newRun: "新建",
 	remove: "删除",

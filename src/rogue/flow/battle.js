@@ -18,6 +18,7 @@ import {
 import { getChallengeStageConfig } from "../data/challengeStages.js";
 import { getChallengeComboConfig } from "../data/challengeCombos.js";
 import { beginBattle, resolveBattle } from "../battle.js";
+import { perfCount, perfEnd, perfMark, perfStart } from "../perf.js";
 import { commit, context } from "../runtime.js";
 import { playBattleBgm, stopBattleBgm, stopLobbyBgm } from "../bgm.js";
 import { closeScreen, showNotice } from "../ui/common.js";
@@ -32,6 +33,9 @@ export function createBattleFlow(host) {
 			startFromSavedBattle(run.currentBattle.enemies);
 			return;
 		}
+		// 分阶段性能计时（统一开关见 config.PERF_LOG，关着时全部是空操作）：
+		// 从本行到 beginBattle 收尾是一条日志，普通战斗与 Boss 战走同一套标记，便于逐段对比
+		perfStart("战斗开局");
 		// 每一场新战斗独立判定（enemy.shouldBossBattle）——能走到这里说明 run.currentBattle 是空的
 		// （有未完成战斗在上面已分流去恢复，绝不重掷），所以这一次判定只属于即将创建的这一场。
 		// 判定两条路：保底（当前关卡 - bossPityLevel ≥ BOSS_PITY_BATTLES → 必出、且不掷骰）在前，
@@ -41,6 +45,8 @@ export function createBattleFlow(host) {
 		// 下面的失败分支（阵容生成/校验不过）直接 return，一个字段都不写，保底绝不提前消耗。
 		const lastBossLevel = Math.max(0, Math.floor(Number(run.bossPityLevel) || 0));
 		const isBossBattle = shouldBossBattle(run.level, lastBossLevel, Math.random);
+		perfCount("本场类型", isBossBattle ? "Boss 战" : "普通战斗");
+		perfMark("Boss 判定/保底");
 		// 抽中 Boss：本关替换为单 Boss 阵容，不走关卡配置池 / 双人组合池
 		// （那些表在这一场里用不上，也不必因配置不足拦住 Boss 战）。
 		// 阵容在开战前定死并随 currentBattle 落盘，中途刷新/崩溃后恢复、失败后重战都原样重打，绝不重掷
@@ -48,8 +54,10 @@ export function createBattleFlow(host) {
 			const bossLevel = Math.max(1, Math.floor(Number(run.level) || 0));
 			// 经验泉「再饮一口」欠的债照常兑现，随后清零（与普通关同一条纪律）
 			const debt = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
+			// 这一段内部还有更细的标记（敌方池 / 抽取 / 来源筛选 / 去重 / 深渊），见 enemy.js
 			const enemies = createBossEnemyConfig(bossLevel, run.mode, Math.random, { extraAffixes: debt });
 			if (!enemies.length) {
+				perfEnd("角色池为空");
 				showNotice([run.mode === RUN_MODE.endless
 					? "本体角色池为空：请检查游戏角色数据与禁将配置。"
 					: "扩展角色池为空：请检查扩展角色包是否正常注册。"]);
@@ -57,7 +65,9 @@ export function createBattleFlow(host) {
 			}
 			// Boss 从非禁将池抽出，走 isEnemyUsable 口径（不传 allowBanned）
 			const resolvedBoss = resolveBattle(run, enemies);
+			perfMark("阵容校验 resolveBattle");
 			if (!resolvedBoss.ok) {
+				perfEnd("阵容校验失败");
 				showNotice([resolvedBoss.error]);
 				return;
 			}
@@ -69,8 +79,10 @@ export function createBattleFlow(host) {
 				bossPityLevel: bossLevel,
 			};
 			if (!commit()) {
+				perfEnd("存档写入失败");
 				return;
 			}
+			perfMark("存档落盘 commit");
 			launch(resolvedBoss);
 			return;
 		}
@@ -79,9 +91,11 @@ export function createBattleFlow(host) {
 		// 之后读档/重进/失败重战都沿用，绝不因重新进入关卡而重新随机；
 		// 无尽模式此调用原样返回，不生成任何东西。
 		const ensured = ensureChallengeStages(run, Math.random);
+		perfMark("关卡配置确保 ensureChallengeStages");
 		run = ensured.run;
 		if (ensured.status === CHALLENGE_STAGE_STATE.insufficient) {
 			// 配置池可用条目不足 10 个：明确说清楚差几条，而不是循环补齐后让第 N 关和第 M 关撞成同一个人
+			perfEnd("关卡配置不足");
 			showNotice([
 				`闯关前 ${CHALLENGE_STAGE_LEVELS} 关的敌方配置不足：当前只有 ${ensured.available} 条可用配置，需要 ${CHALLENGE_STAGE_LEVELS} 条。`,
 				"请在 data/challengeStages.js 里补齐配置（或确认配置里的角色 id 都还存在）后再开始本关。",
@@ -98,8 +112,10 @@ export function createBattleFlow(host) {
 		// 抽出 10 个组合并立刻落盘；第 11~20 关按位使用，第 21~30 关复用同一结果加随机第三人。
 		// 旧档已进入 11~30 关但缺字段的，在这里补抽一次，之后绝不重掷。
 		const ensuredCombos = ensureChallengeComboStages(run, Math.random);
+		perfMark("双人组合确保 ensureChallengeComboStages");
 		run = ensuredCombos.run;
 		if (ensuredCombos.status === CHALLENGE_STAGE_STATE.insufficient) {
+			perfEnd("双人组合不足");
 			showNotice([
 				`闯关第 ${CHALLENGE_STAGE_LEVELS + 1}~${CHALLENGE_STAGE_LEVELS + CHALLENGE_COMBO_LEVELS} 关的敌方组合不足：当前只有 ${ensuredCombos.available} 条可用组合，需要 ${CHALLENGE_COMBO_LEVELS} 条。`,
 				"请在 data/challengeCombos.js 里补齐组合（或确认组合里的角色 id 都还存在）后再开始本关。",
@@ -119,6 +135,7 @@ export function createBattleFlow(host) {
 			: null;
 		if (run.mode === RUN_MODE.challenge && level <= CHALLENGE_STAGE_LEVELS && !stageConfig) {
 			// 抽取结果里出现了配置池中不存在的 id（配置被改/删过）：明确报错，绝不悄悄换人
+			perfEnd("关卡配置缺失");
 			showNotice([`第 ${level} 关的敌方配置「${run.challengeStages[level - 1] ?? "缺失"}」在配置池里已不存在，无法开始本关。请核对 data/challengeStages.js 后再试。`]);
 			return;
 		}
@@ -128,6 +145,7 @@ export function createBattleFlow(host) {
 			? getChallengeComboConfig(run.challengeComboStages[(level - 1 - CHALLENGE_STAGE_LEVELS) % CHALLENGE_COMBO_LEVELS])
 			: null;
 		if (run.mode === RUN_MODE.challenge && level > CHALLENGE_STAGE_LEVELS && level <= CHALLENGE_TOTAL_LEVELS && !comboConfig) {
+			perfEnd("双人组合缺失");
 			showNotice([`第 ${level} 关的敌方组合「${run.challengeComboStages[(level - 1 - CHALLENGE_STAGE_LEVELS) % CHALLENGE_COMBO_LEVELS] ?? "缺失"}」在组合池里已不存在，无法开始本关。请核对 data/challengeCombos.js 后再试。`]);
 			return;
 		}
@@ -145,6 +163,7 @@ export function createBattleFlow(host) {
 				const built = createChallengeComboConfigs(comboConfig, level, Math.random, { extraAffixes: debt });
 				if (!built.ok) {
 					// 没有合法第三人：明确阻止本关开始，而不是偷偷复制固定角色凑数
+					perfEnd("第三人生成失败");
 					showNotice([`第 ${level} 关无法生成第三人：${built.error}`]);
 					return;
 				}
@@ -155,7 +174,9 @@ export function createBattleFlow(host) {
 		} else {
 			enemies = createEnemyConfigs(level, run.mode, Math.random, { extraAffixes: debt });
 		}
+		perfMark("敌方阵容生成");
 		if (!enemies.length) {
+			perfEnd("敌方阵容为空");
 			showNotice([stageConfig
 				? `关卡配置「${stageConfig.id}」没有可用的成员角色，请检查 data/challengeStages.js。`
 				: comboConfig
@@ -168,7 +189,9 @@ export function createBattleFlow(host) {
 		// 固定关卡配置（前 10 关与 11~30 关组合）按定稿放行禁将角色（只要角色存在就照打）；
 		// 其余战斗维持 isEnemyUsable 口径
 		const resolved = resolveBattle(run, enemies, stageConfig || comboConfig ? { allowBanned: true } : undefined);
+		perfMark("阵容校验 resolveBattle");
 		if (!resolved.ok) {
+			perfEnd("阵容校验失败");
 			showNotice([resolved.error]);
 			return;
 		}
@@ -181,8 +204,10 @@ export function createBattleFlow(host) {
 			abyssDebt: 0,
 		};
 		if (!commit()) {
+			perfEnd("存档写入失败");
 			return;
 		}
+		perfMark("存档落盘 commit");
 		launch(resolved);
 	}
 
@@ -190,10 +215,13 @@ export function createBattleFlow(host) {
 		// 恢复战斗沿用存档里已保存的敌方阵容：闭包直取 currentBattle.enemies，绝不重掷。
 		// 闯关全程（前 10 关卡配置 + 11~30 关固定组合）都与开战同一条口径（禁将也照打）；
 		// 其余战斗维持 isEnemyUsable 判定
+		perfStart("恢复战斗开局");
 		const run = context.run;
 		const fixedLevel = run.mode === RUN_MODE.challenge && run.level <= CHALLENGE_TOTAL_LEVELS;
 		const resolved = resolveBattle(run, enemies, { allowBanned: fixedLevel });
+		perfMark("阵容校验 resolveBattle");
 		if (!resolved.ok) {
+			perfEnd("阵容校验失败");
 			context.run = { ...context.run, currentBattle: null };
 			commit();
 			showNotice([resolved.error, "已清除该存档的进行中战斗，可重新开始本关。"], host.openHub);
@@ -205,6 +233,7 @@ export function createBattleFlow(host) {
 	/** 建局必须跑在一个活的事件上：gameStart、gameDraw、phaseLoop 都要挂它的子事件 */
 	function launch(resolved) {
 		if (context.battleLive) {
+			perfEnd("已有进行中的战斗");
 			return;
 		}
 		stopLobbyBgm();
