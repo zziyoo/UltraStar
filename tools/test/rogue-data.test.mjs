@@ -313,10 +313,10 @@ check("闯关关卡配置池：角色 id 在当前游戏环境中存在（找不
 		: `扫描 ${scanned} 个文件，${characters.size} 个角色 id 全部已确认`;
 });
 
-check("闯关双人组合池：结构合法、id 唯一、恰好 31 个组合且均为两名成员", () => {
+check("闯关双人组合池：结构合法、id 唯一、恰好 33 个组合且均为两名成员", () => {
 	const pool = combosData.challengeComboPool;
 	assert(Array.isArray(pool), "challengeComboPool 应为数组");
-	assertEqual(pool.length, 31, "双人组合池应有 31 个组合");
+	assertEqual(pool.length, 33, "双人组合池应有 33 个组合");
 	const problems = [];
 	const seen = new Set();
 	for (const [index, config] of pool.entries()) {
@@ -353,7 +353,7 @@ check("闯关双人组合池：结构合法、id 唯一、恰好 31 个组合且
 		assert(combosData.getChallengeComboConfig(config.id) === config, `${config.id}: getChallengeComboConfig 应能按 id 取回`);
 	}
 	assert(combosData.getChallengeComboConfig("不存在的组合") === null, "未知 id 应返回 null");
-	return `31 个组合、62 个成员位全部合法`;
+	return `33 个组合、66 个成员位全部合法`;
 });
 
 check("闯关双人组合池：角色 id 在当前游戏环境中存在（找不到的只提醒不拦截）", () => {
@@ -421,7 +421,7 @@ check("闯关双人组合池：角色 id 在当前游戏环境中存在（找不
 		: `扫描 ${scanned} 个文件，${characters.size} 个角色 id 全部已确认`;
 });
 
-check("闯关双人组合池抽取：31 选 10、互不重复、同一 rng 可复现、不足时明确返回不足", () => {
+check("闯关双人组合池抽取：33 选 10、互不重复、同一 rng 可复现、不足时明确返回不足", () => {
 	const poolIds = new Set(combosData.challengeComboPool.map(config => config.id));
 	const drawn = combosData.drawChallengeComboIds(makeRng2(42), () => true);
 	assertEqual(drawn.length, cfg.CHALLENGE_COMBO_LEVELS, "应恰好抽出 10 个组合（对应第 11~20 关）");

@@ -20,6 +20,10 @@
 //   界系 → refresh 包 xin_/re_ 前缀；标曹丕 → shenhua 包裸 id caopi（标准曹丕，显示名「曹丕」）；
 //   星周不疑 / 星王朗 → newjiang 包 yj_zhoubuyi / yj_wanglang（显示名「☆周不疑」「☆王朗」，
 //   前缀是 ☆ 符号而非「星」字，2026-10-06 用户确认）。
+//   2026-10-15 用户点名补充的 id 核对：界徐盛走 mobile 包 re_xusheng（显示名「手杀界徐盛」，
+//   refresh 包只有 xin_xusheng）；秦宓 → yijiang 包 qinmi（全库唯一）；
+//   曹昂 → sp 包裸 id caoang（技能就是 kaikang「慷忾」；dc_sb_caoang/yj_caoang/tw_caoang
+//   是新杀谋/用间/TW 变体，都不带慷忾）。
 //   29~31 号组合的角色全部来自本扩展（中文即 id）：曼波/哈基米 → uma-musume 包，
 //   盖亚/阿古茹/迪迦/戴拿 → ultraman 包 eternal-torch 分包。
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验结构与 id 唯一，并对角色 id 做存在性提醒）。
@@ -52,9 +56,11 @@ export const challengeComboPool = [
 	{ id: "乐蔡邕×乐蔡文姬", type: "group", players: [{ character: "yue_caiyong" }, { character: "yue_caiwenji" }] },
 	{ id: "乐小乔×乐大乔", type: "group", players: [{ character: "yue_xiaoqiao" }, { character: "yue_daqiao" }] },
 	{ id: "星周不疑×标曹丕", type: "group", players: [{ character: "yj_zhoubuyi" }, { character: "caopi" }] },
-	{ id: "神甘宁×界徐盛", type: "group", players: [{ character: "shen_ganning" }, { character: "xin_xusheng" }] },
+	{ id: "神甘宁×界徐盛", type: "group", players: [{ character: "shen_ganning" }, { character: "re_xusheng" }] },
 	{ id: "势于吉×势辛宪英", type: "group", players: [{ character: "pot_yuji" }, { character: "pot_xinxianying" }] },
 	{ id: "界周妃×星王朗", type: "group", players: [{ character: "re_zhoufei" }, { character: "yj_wanglang" }] },
+	{ id: "秦宓×☆王朗", type: "group", players: [{ character: "qinmi" }, { character: "yj_wanglang" }] },
+	{ id: "秦宓×曹昂", type: "group", players: [{ character: "qinmi" }, { character: "caoang" }] },
 	// ---- 用户 2026-10-06 点名追加：本扩展自己的角色（中文即 id，与包注册一致）----
 	{ id: "曼波×哈基米", type: "group", players: [{ character: "曼波" }, { character: "哈基米" }] },
 	{ id: "盖亚×阿古茹", type: "group", players: [{ character: "盖亚" }, { character: "阿古茹" }] },
