@@ -26,7 +26,7 @@ import { BOSS_AFFIX_TAG } from "./endless/abyssConfig.js";
 import { BOSS_EXTRA_AFFIXES, BOSS_PITY_BATTLES, BOSS_RUN_RATE, BOSS_SKILL_DONOR_COUNT, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
 import { drawChallengeStageIds } from "./data/challengeStages.js";
 import { drawChallengeComboIds } from "./data/challengeCombos.js";
-import { getBannedCharacterIds, isRogueSkillAllowed, isSkillBlockedByBan, skillsOf } from "./skillPool.js";
+import { getBannedCharacterIds, isRogueSkillAllowed, skillsOf } from "./skillPool.js";
 
 /** 单项属性上限，与 data/stats.js 各属性的 maxLevel 一致 */
 export const ENEMY_STAT_MAX = 10;
@@ -251,9 +251,10 @@ function isBossSkillDonorBlocked(id, info, banned) {
 
 /**
  * 「别的角色」候选：除 Boss 本人外的全部可用来源——**禁将角色不供能**（禁将名单与商店同一份
- * `getBannedCharacterIds`，任一模式禁过就算禁将），每人带一份可用技能表：每条技能要同时过
- * 兼容性校验（`isRogueSkillAllowed`，与商城同一道安全闸）和禁将复查（`isSkillBlockedByBan`，
- * 硬否决：这条技能哪怕由未禁将的角色供能，只要它属于某个禁将角色就不抄）；
+ * `getBannedCharacterIds`，任一模式禁过就算禁将），每人带一份可用技能表：禁将只看**来源武将本身**
+ * （`isBossSkillDonorBlocked` 已经拦下禁将来源，所以这里不再逐条查技能属于不属于别的禁将角色——
+ * 那是商店的口径，共享技能会因为「别人也拥有」被连带误杀）；
+ * 每条技能还要过兼容性校验（`isRogueSkillAllowed`，与商城同一道安全闸）；
  * 一条可用技能都没有的角色当不了来源。
  */
 export function getBossSkillDonorCandidates(bossId) {
@@ -268,7 +269,7 @@ export function getBossSkillDonorCandidates(bossId) {
 			if (typeof skill !== "string" || !skill || skills.includes(skill)) {
 				continue;
 			}
-			if (isRogueSkillAllowed(skill) && !isSkillBlockedByBan(skill)) {
+			if (isRogueSkillAllowed(skill)) {
 				skills.push(skill);
 			}
 		}
@@ -286,7 +287,7 @@ export function getBossSkillDonorCandidates(bossId) {
  *   · 额外获得另外三个不同角色（不与 Boss 本体重复）的全部技能，全部随阵容落盘、
  *     由 battle.js 的 grantSkills 真正挂到 Player 上（不是 UI 摆设）；
  *     （来源角色的两道闸：forbidai / isAiForbidden 的角色不当来源（Boss 由 AI 操控），
- *      禁将角色同样不当来源；每条技能还要过 isRogueSkillAllowed 与禁将复查）
+ *      禁将角色同样不当来源；每条技能还要过 isRogueSkillAllowed——禁将只卡来源武将本身）
  *   · 深渊强化 = 当前关卡正常计算的那一份 + Boss 固定追加的 BOSS_EXTRA_AFFIXES 个
  *     （appendAbyssAffixes 不放回，追加的永远是新的强化，也不占正常计算的数量）；
  *   · 体力 ×2 不在这里做：存档只记 boss 标记，battle.js 建局初始化该 Player 时翻倍一次。

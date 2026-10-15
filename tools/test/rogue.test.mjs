@@ -4463,21 +4463,21 @@ check("Boss 战阵容：单敌、非禁将抽取、复制三个其他非禁将�
 	}
 });
 
-check("Boss 技能来源候选：禁将角色与 AI 不可操控的角色都不供能（共享技能同样硬否决）", () => {
+check("Boss 技能来源候选：禁将角色与 AI 不可操控的角色都不供能（技能只看来源武将）", () => {
 	const prevForbidai = lib.config.forbidai;
 	const prevAll = lib.config.all;
 	const prevBanned = lib.config.identity_banned;
 	Object.assign(lib.character, {
 		来源禁AI: [4, "male", "ao", ["donor_forbidai"], 1],
 		来源AI字段: [4, "male", "ao", ["donor_aifield"], 1],
-		来源禁将: [4, "male", "ao", ["donor_banned"], 1],
+		来源禁将: [4, "male", "ao", ["donor_banned", "donor_banned_only"], 1],
 		来源混合: [4, "male", "ao", ["donor_mixed_ok", "donor_zhu"], 1],
 		来源共有: [4, "male", "ao", ["donor_banned", "donor_shared_ok"], 1],
 		本体测试将: [4, "male", "qun", [], 1],
 	});
 	// 注册后的角色条目是数组，本体把 isAiForbidden 挂在数组对象上，这里照同一形状写
 	lib.character["来源AI字段"].isAiForbidden = true;
-	for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok", "donor_shared_ok"]) {
+	for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_banned_only", "donor_mixed_ok", "donor_shared_ok"]) {
 		lib.skill[id] = {};
 	}
 	lib.skill.donor_zhu = { zhuSkill: true };
@@ -4493,30 +4493,78 @@ check("Boss 技能来源候选：禁将角色与 AI 不可操控的角色都不�
 		// 角色过闸 ≠ 技能全过闸：同一条技能表里不兼容的那条照样被剔掉
 		const mixed = found.find(item => item.id === "来源混合");
 		assertEqual(JSON.stringify(mixed.skills), JSON.stringify(["donor_mixed_ok"]), "逐技能兼容性校验必须保留");
-		// 共享技能硬否决：donor_banned 同时挂在一个没被禁的角色身上也照样不抄（与商店同一口径）
+		// 禁将只看来源武将：donor_banned 挂在禁将角色身上，但这条供能来源本身没被禁 → 照样复制
 		const shared = found.find(item => item.id === "来源共有");
-		assertEqual(JSON.stringify(shared.skills), JSON.stringify(["donor_shared_ok"]),
-			"属于禁将角色的技能即使由未禁角色供能也不复制");
-		// 端到端也拦得住：无论抽到哪三个来源，被禁 AI 与被禁将角色的技能都不许出现
+		assertEqual(JSON.stringify(shared.skills), JSON.stringify(["donor_banned", "donor_shared_ok"]),
+			"来源武将未被禁用时，与禁将角色共有的技能不得被连带过滤");
+		// 端到端也拦得住：无论抽到哪三个来源，被禁 AI 与被禁将角色**独有**的技能都不许出现
 		const challengePool = enemy.getChallengeEnemyPool();
 		const boss = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0)[0];
 		assert(!boss.skills.includes("donor_forbidai") && !boss.skills.includes("donor_aifield"),
 			`Boss 不得复制到 AI 不可操控角色的技能：${boss.skills.join(",")}`);
-		assert(!boss.skills.includes("donor_banned"),
-			`Boss 不得复制到禁将角色的技能：${boss.skills.join(",")}`);
+		assert(!boss.skills.includes("donor_banned_only"),
+			`Boss 不得复制到禁将角色独有的技能：${boss.skills.join(",")}`);
 		assertEqual(boss.characterId, challengePool[0], "Boss 本体抽取口径不变");
 	} finally {
 		for (const id of ["来源禁AI", "来源AI字段", "来源禁将", "来源混合", "来源共有", "本体测试将"]) {
 			delete lib.character[id];
 		}
-		for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_mixed_ok", "donor_shared_ok", "donor_zhu"]) {
+		for (const id of ["donor_forbidai", "donor_aifield", "donor_banned", "donor_banned_only", "donor_mixed_ok", "donor_shared_ok", "donor_zhu"]) {
 			delete lib.skill[id];
 		}
 		if (prevForbidai === undefined) { delete lib.config.forbidai; } else { lib.config.forbidai = prevForbidai; }
 		if (prevAll === undefined) { delete lib.config.all; } else { lib.config.all = prevAll; }
 		if (prevBanned === undefined) { delete lib.config.identity_banned; } else { lib.config.identity_banned = prevBanned; }
 	}
-	return "forbidai/isAiForbidden 拦来源 + 禁将不供能 + 共享技能硬否决 + 逐技能校验仍在";
+	return "forbidai/isAiForbidden 拦来源 + 禁将不供能 + 共享技能按来源判定 + 逐技能校验仍在";
+});
+
+check("Boss 复制技能只看来源武将禁不禁：与禁将共有的技能完整复制，商店那道硬否决不变", () => {
+	Object.assign(lib.character, {
+		// 两个来源都没被禁将；shared_b 同时挂在禁将角色身上，且两个来源共有（验去重与来源记录）
+		共享来源甲: [4, "male", "ao", ["shared_a", "shared_b", "shared_zhu"], 1],
+		共享来源乙: [4, "male", "ao", ["shared_b", "shared_c"], 1],
+		禁将同有: [4, "male", "ao", ["shared_b", "banned_only"], 1],
+		本体测试将: [4, "male", "qun", [], 1],
+	});
+	Object.assign(lib.skill, {
+		shared_a: {}, shared_b: {}, shared_c: {},
+		shared_zhu: { zhuSkill: true },
+		banned_only: {},
+	});
+	lib.config.all = { mode: ["identity"] };
+	lib.config.identity_banned = ["禁将同有"];
+	try {
+		const found = enemy.getBossSkillDonorCandidates("本体测试将");
+		const donor = found.find(item => item.id === "共享来源甲");
+		assertEqual(JSON.stringify(donor.skills), JSON.stringify(["shared_a", "shared_b"]),
+			"未禁将来源的两条合法技能都要供能，主公技照样剔掉");
+		assert(!found.map(item => item.id).includes("禁将同有"), "禁将角色本身仍不得当技能来源");
+
+		// rng=0 洗牌后取前三：候选只有两个合法来源，全部用上，shared_b 由先来的那个供能并只留一份
+		const boss = enemy.createBossEnemyConfig(3, cfg.RUN_MODE.challenge, () => 0)[0];
+		assertEqual(JSON.stringify(boss.skills), JSON.stringify(["shared_b", "shared_c", "shared_a"]),
+			`候选不足三个就全用，同名技能去重：${boss.skills.join(",")}`);
+		assertEqual(new Set(boss.skills).size, boss.skills.length, "复制列表不得出现重复技能");
+		assertEqual(boss.skillSources.shared_b, "共享来源乙", "同名技能的来源记先到先得那一个");
+		assert(!boss.skills.includes("banned_only"), "禁将角色独有的技能仍然不得复制");
+		assert(!boss.skills.includes("shared_zhu"), "不兼容技能仍然不得复制");
+
+		// 商店口径一个字都不动：这条共享技能在商城那道禁将复查里照旧是硬否决
+		assertEqual(skillPool.isSkillBlockedByBan("shared_b"), true, "禁将复查（商店口径）不得放宽");
+		assertEqual(skillPool.isSkillBlockedByBan("banned_only"), true, "禁将独有的技能照旧拦");
+		assertEqual(skillPool.isSkillBlockedByBan("shared_a"), false, "与禁将无关的技能照旧放行");
+	} finally {
+		for (const id of ["共享来源甲", "共享来源乙", "禁将同有", "本体测试将"]) {
+			delete lib.character[id];
+		}
+		for (const id of ["shared_a", "shared_b", "shared_c", "shared_zhu", "banned_only"]) {
+			delete lib.skill[id];
+		}
+		delete lib.config.identity_banned;
+		delete lib.config.all;
+	}
+	return "未禁来源完整复制 / 禁将不当来源 / 不兼容仍拦 / 跨来源去重 / 商店复查不变";
 });
 
 check("Boss 技能来源不排除本扩展角色：注册过、技能过了兼容闸就能供能", () => {
