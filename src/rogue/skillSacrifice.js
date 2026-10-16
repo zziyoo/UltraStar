@@ -16,6 +16,7 @@ import { lib, game, get } from "../../../../noname.js";
 
 import { COPY_MARK_SKILL } from "./data/skills.js";
 import { ABYSS_MARK_SKILL, hasAffixHolder, releaseWuranLocks, releaseXuwuBlocks } from "./endless/abyssAffixes.js";
+import { closeScreen } from "./ui/common.js";
 import { showSkillSacrifice } from "./ui/skillSacrifice.js";
 
 /** 污染 / 虚无：作用落在别的角色身上的两条词缀，失去后要按「还有没有人带着」决定放不放开 */
@@ -155,18 +156,88 @@ export function listChoosableSkills(player) {
 
 /**
  * 摘掉一个上层技能，以及**该跟着走的**那些跟随件。
- * 跟随件被别的已拥有技能依赖时原地留下（共享伙伴：两个主技能声明同一个 group 成员）——
- * 少清一件共享件只是留点残留，误摘却会把别人还在用的那半边一起打掉。
+ * 跟随件被别的已拥有技能依赖时原地留下（共享伙伴：两个主技能声明同一个 group 成员），
+ * 并在 `restoreSharedPartners` 里把被本体连带摘掉的触发器补回来。
  */
 function removeWithDependents(player, id) {
 	const dependents = [...dependentsOf(player, [id])].filter(dependent => dependent !== id);
 	player.removeSkill(id, true);
+	restoreSharedPartners(player, id);
 	for (const dependent of dependents) {
-		if (!playerSkillIds(player).includes(dependent) || isStillNeeded(player, dependent)) {
+		if (!playerSkillIds(player).includes(dependent)) {
+			continue;
+		}
+		// 还被别的已拥有技能依赖的共享伙伴：上面那一步已经把它被连带摘掉的触发器补回来了
+		if (isStillNeeded(player, dependent)) {
 			continue;
 		}
 		player.removeSkill(dependent, true);
 	}
+}
+
+/**
+ * 共享伙伴的触发器补注册（本体语义，读 `player.js` 的 `removeSkill`/`removeSkillTrigger` 得到）：
+ * `removeSkillTrigger` 会先 `game.expandSkills` 把被摘技能的 `group` 原地展开，再对展开后的**每一项**
+ * 摘钩子（`lib.hook[playerid_role_evt]`）并从 `initedSkills` 里删名——于是「A 与 B 的 group 都含 C」时，
+ * 失去 A 会把还活着的 C 的触发器一并注销，B 的效果跟着哑掉；C 的 `initedSkills` 登记也丢了，
+ * 等它将来真的该被摘时 `removeSkillTrigger` 会连钩子都不再摘，残留留在注册表里。
+ * 这里把**确实被连带摘到、又确实还要留着**的那些补一次 `addSkillTrigger`：钩子走 `Array.add` 去重、
+ * `init` 由 `initedSkills` 把关不会重跑，所以补注册幂等；没被连带摘到的（`subSkill` 子技能不参与
+ * `expandSkills`）一个字节都不动。
+ */
+function restoreSharedPartners(player, removedId) {
+	const collateral = new Set(game.expandSkills([removedId]).filter(skill => skill !== removedId));
+	for (const partner of collateral) {
+		if (!playerSkillIds(player).includes(partner) || !isStillNeeded(player, partner)) {
+			continue;
+		}
+		player.addSkillTrigger(partner);
+	}
+}
+
+/** 本体把触发钩子记在 `lib.hook[playerid_role_evt]` 这个技能 id 数组里，另有 `_hookTrigger` 一份 */
+function hasResidualTrigger(player, id) {
+	const hooks = lib.hook ?? {};
+	const prefix = `${player?.playerid}_`;
+	for (const key of Object.keys(hooks)) {
+		if (key.startsWith(prefix) && Array.isArray(hooks[key]) && hooks[key].includes(id)) {
+			return true;
+		}
+	}
+	return Array.isArray(player?._hookTrigger) && player._hookTrigger.includes(id);
+}
+
+/**
+ * 收尾补全：本体 `removeSkill` 的语句顺序是「先摘技能表 → 再调 `onremove` → 最后才
+ * `removeSkillTrigger` / `removeAdditionalSkills` / 钩子通知」，所以 `onremove` 一抛错就会停在中途，
+ * 触发器与附加技能残留（`getSkills()` 里看不出问题，注册表里却有）。
+ * 这里**按实际状态**决定补哪几步，不无条件重放：
+ *   · 技能还在身上 → 连技能表都没摘，当作没失去，一手都不动；
+ *   · 已经摘掉了 → 只补「确实残留着」的触发器，再补附加技能、awake 与钩子通知。
+ * @returns {boolean} 技能此刻是否真的已经不在身上
+ */
+function completeSkillRemoval(player, id) {
+	if (playerSkillIds(player).includes(id)) {
+		return false;
+	}
+	try {
+		const info = lib.skill[id];
+		if (info) {
+			if (hasResidualTrigger(player, id)) {
+				player.removeSkillTrigger(id);
+				// 这一步会连带摘掉 group 成员，把还要留着的共享伙伴再补回来
+				restoreSharedPartners(player, id);
+			}
+			if (!info.keepSkill) {
+				player.removeAdditionalSkills(id);
+			}
+			player.enableSkill(`${id}_awake`);
+			game.callHook("removeSkillCheck", [id, player]);
+		}
+	} catch (error) {
+		console.error(`[rogue] 失去技能（${id}）的收尾补全失败：`, error);
+	}
+	return true;
 }
 
 /**
@@ -236,9 +307,10 @@ export function loseSkillsForBattle(player, ids) {
 			removed.push(id);
 		} catch (error) {
 			console.error(`[rogue] 失去技能失败（${id}），继续结算其余技能：`, error);
-			// 本体的 removeSkill 是「先从技能表摘掉、再走触发清理与 onremove」，所以抛错也可能是
-			// 「已经摘掉了、只是收尾没跑完」：按技能表此刻的真实情况记账，两边的数量才对得上
-			if (!playerSkillIds(player).includes(id)) {
+			// 本体 removeSkill 是「先摘技能表、再走 onremove、最后摘触发器」，抛错也可能是
+			// 「已经摘掉了、只是收尾没跑完」：按此刻的真实状态补全残留并如实记账，
+			// 两边的数量才对得上，触发器也不会留在注册表里
+			if (completeSkillRemoval(player, id)) {
 				removed.push(id);
 			}
 		}
@@ -264,33 +336,51 @@ export function releaseLostAffixEffects() {
 }
 
 /**
+ * 动手之前核验选中的每一条此刻是否「还在身上、还属于可失去的上层技能」。
+ * 界面是上一刻拿同一份枚举构造的，正常路径下这里永远是空的；一旦不空就说明有东西
+ * 在这中间动过技能，此时**一条都不能删**（半单执行会让两边数量对不上）。
+ * @returns {{player: object, id: string}[]} 失效的条目
+ */
+function staleSelections(me, mine, picks) {
+	const stale = [];
+	const check = (player, ids) => {
+		for (const id of Array.isArray(ids) ? ids : []) {
+			if (!playerSkillIds(player).includes(id) || !isChoosableSkill(id)) {
+				stale.push({ player, id });
+			}
+		}
+	};
+	check(me, mine);
+	for (const pick of picks) {
+		check(pick.player, pick.ids);
+	}
+	return stale;
+}
+
+/**
  * 结算：把界面上谈好的这一笔账落到双方身上，**与界面分开导出**（不需要 DOM，可以单测）。
- * 数量纪律：敌方的总失去数按**己方实际失去数**发放（`quota`）——
- * 玩家选中的技能若在这一刻已经不在了（被别处先摘掉），就用那名角色**此刻还能失去的**技能按名单顺序顶替，
- * 尽量让两边真失去的数量相等；绝不反过来动玩家没选的技能。
+ * 三条纪律：
+ *   1. **只删玩家指定过的技能**：绝不自动顶替、绝不随机补位（那等于替玩家做了选择，
+ *      而且会出现「玩家失去 3 个、敌方只失去 2 个」这种正常完成态）；
+ *   2. 先核验再动手（`staleSelections`）：任何一条选中项失效就整单不做，
+ *      把 `invalid` 交回流程层去重选或取消，**一个技能都不损失**；
+ *   3. 单件 `onremove` 抛错只影响那一件（`loseSkillsForBattle` 逐件兜底并补全残留），
+ *      绝不因此继续去删别的技能。
  * @param {object} me 玩家 Player
  * @param {{mine: string[], theirs: {player: object, ids: string[]}[]}} choice 界面给出的选择（两侧数量已相等）
- * @returns {{mine: string[], theirs: {player: object, removed: string[]}[]}} 双方**实际**失去的技能
+ * @returns {{mine: string[], theirs: {player: object, removed: string[]}[], invalid?: {player: object, id: string}[]}}
+ *          带 `invalid` 时双方**一个技能都没失去**，调用方应重选或取消
  */
 export function settleSkillSacrifice(me, choice) {
-	const mine = loseSkillsForBattle(me, choice?.mine);
-	let quota = mine.length;
+	const picks = (Array.isArray(choice?.theirs) ? choice.theirs : []).filter(pick => Array.isArray(pick?.ids) && pick.ids.length);
+	const invalid = staleSelections(me, choice?.mine, picks);
+	if (invalid.length) {
+		return { invalid, mine: [], theirs: [] };
+	}
+	const mine = loseSkillsForBattle(me, choice.mine);
 	const theirs = [];
-	for (const pick of Array.isArray(choice?.theirs) ? choice.theirs : []) {
-		if (quota <= 0) {
-			break;
-		}
-		const picked = pick.ids.slice(0, quota);
-		const removed = loseSkillsForBattle(pick.player, picked);
-		quota -= removed.length;
-		const short = picked.length - removed.length;
-		if (short > 0) {
-			// 顶替只从「这名角色还剩的筹码」里挑，不碰它已经没被选中的那些
-			const backups = listChoosableSkills(pick.player).filter(id => !removed.includes(id)).slice(0, short);
-			const extra = loseSkillsForBattle(pick.player, backups);
-			removed.push(...extra);
-			quota -= extra.length;
-		}
+	for (const pick of picks) {
+		const removed = loseSkillsForBattle(pick.player, pick.ids);
 		if (removed.length) {
 			theirs.push({ player: pick.player, removed });
 		}
@@ -301,45 +391,77 @@ export function settleSkillSacrifice(me, choice) {
 /**
  * 开局流程：先看两边有没有可失去的技能，再开选择界面，最后统一结算。
  * 任何一侧没有可选的技能就整件事跳过（不开界面、不报错），绝不拦住这一场战斗。
- * **界面与结算的错误分开处理**：选完之后的结算里玩家可能已经失去了技能，
- * 那时绝不能因为后面出意外就报成「未发动」——实际失去什么就报什么。
+ *
+ * 异常纪律（三段分开兜）：
+ *   · 枚举阶段出错 → 还没动过任何 Player，按「未发动」继续；
+ *   · 界面阶段出错（创建失败或 Promise 被拒）→ 清掉可能残留的浮层、按「未发动」继续，
+ *     绝不让 Promise 悬着把这一场卡在开局；
+ *   · 结算阶段出错 → 已经动过手了，**如实回报实际失去的技能**，绝不回退成「未发动」；
+ *     另有 `invalid`（选择在结算前失效）则重选一次，仍失效就取消，一个技能都不损失。
  * @param {object} me 玩家 Player
  * @param {object[]} enemies 敌方 Player 列表
- * @returns {Promise<{skipped?: string, cancelled?: boolean, mine?: string[], theirs?: {player: object, removed: string[]}[]}>}
+ * @returns {Promise<{skipped?: string, cancelled?: boolean, error?: string, mine?: string[], theirs?: {player: object, removed: string[]}[]}>}
  */
 export async function runSkillSacrifice(me, enemies) {
-	let mine;
-	let targets;
-	try {
-		mine = listChoosableSkills(me);
-		if (!mine.length) {
-			return { skipped: "no-player-skills" };
+	// 选择失效时允许重选一次；第二次仍失效就整件事取消（不损失任何技能）
+	for (let attempt = 0; attempt < 2; attempt++) {
+		let mine;
+		let targets;
+		try {
+			mine = listChoosableSkills(me);
+			if (!mine.length) {
+				return { skipped: "no-player-skills" };
+			}
+			targets = (Array.isArray(enemies) ? enemies : [])
+				.filter(Boolean)
+				.map(player => ({ player, skills: listChoosableSkills(player) }))
+				.filter(target => target.skills.length);
+			if (!targets.length) {
+				return { skipped: "no-enemy-skills" };
+			}
+		} catch (error) {
+			// 还没有动过任何 Player：报错就是没发动，这一场照常开打
+			console.error("[rogue] 故人的心：枚举可失去技能失败，按未发动继续：", error);
+			return { error: `${error?.message ?? error}` };
 		}
-		targets = (Array.isArray(enemies) ? enemies : [])
-			.filter(Boolean)
-			.map(player => ({ player, skills: listChoosableSkills(player) }))
-			.filter(target => target.skills.length);
-		if (!targets.length) {
-			return { skipped: "no-enemy-skills" };
+		let choice;
+		try {
+			choice = await showSkillSacrifice({ me, mine, targets });
+		} catch (error) {
+			// 界面自己炸了：清掉可能已经建好的浮层，按「未发动」继续（此时一个技能都还没动过）
+			console.error("[rogue] 故人的心：选择界面异常，按未发动继续：", error);
+			closeScreen();
+			return { cancelled: true, error: `${error?.message ?? error}` };
 		}
-	} catch (error) {
-		// 还没有动过任何 Player：报错就是没发动，这一场照常开打
-		console.error("[rogue] 故人的心：枚举可失去技能失败，按未发动继续：", error);
-		return { error: `${error?.message ?? error}` };
+		if (!choice || choice.cancelled) {
+			return { cancelled: true };
+		}
+		// 界面之后才开始动 Player；从这里起无论出什么意外都要如实回报实际失去的技能
+		let result;
+		try {
+			result = settleSkillSacrifice(me, choice);
+		} catch (error) {
+			console.error("[rogue] 故人的心：结算异常：", error);
+			const lost = (Array.isArray(choice.mine) ? choice.mine : []).filter(id => !playerSkillIds(me).includes(id));
+			if (!lost.length) {
+				closeScreen();
+				return { cancelled: true, error: `${error?.message ?? error}` };
+			}
+			return { mine: lost, theirs: [], error: `${error?.message ?? error}` };
+		}
+		if (!result.invalid) {
+			try {
+				releaseLostAffixEffects();
+				logLosses(me, result);
+			} catch (error) {
+				console.error("[rogue] 故人的心：失去技能之后的收尾失败（技能已失去）：", error);
+			}
+			return result;
+		}
+		// 选择在结算前失效：整单没执行，重选一次（下一轮会用最新的枚举重建界面）
+		console.warn("[rogue] 故人的心：选择的技能此刻已失效，请重新选择：", result.invalid.map(item => item.id).join("、"));
 	}
-	const choice = await showSkillSacrifice({ me, mine, targets });
-	if (!choice || choice.cancelled) {
-		return { cancelled: true };
-	}
-	// 界面之后才开始动 Player；从这里起无论出什么意外都要如实回报实际失去的技能
-	const result = settleSkillSacrifice(me, choice);
-	try {
-		releaseLostAffixEffects();
-		logLosses(me, result);
-	} catch (error) {
-		console.error("[rogue] 故人的心：失去技能之后的收尾失败（技能已失去）：", error);
-	}
-	return result;
+	return { cancelled: true };
 }
 
 /** 战斗日志：失去了哪些技能（本体 removeSkill 自己不写日志，谁在用谁负责说清楚） */

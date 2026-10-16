@@ -43,6 +43,7 @@ const common = await load("src/rogue/ui/common.js");
 const bgmSystem = await load("src/systems/bgm.js");
 const rogueBgm = await load("src/rogue/bgm.js");
 const packSkills = await load("src/rogue/data/skills.js");
+const sacrificeModule = await load("src/rogue/skillSacrifice.js");
 
 /**
  * 当前最上层页面：优先取本体对话框栈顶（提示框/确认框都走这条路），
@@ -5737,6 +5738,175 @@ await check("故人的心：己方没有可失去的技能（只剩肉鸽载体�
 	assertEqual(game.me.hasSkill("rogue_stat"), true, "载体还在身上（说明只是被挡在候选之外）");
 	assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常开始，不卡在开局");
 	return "筹码为空 → 静默跳过";
+});
+
+// ---------------------------------------------------------------- 故人的心：共享 group 伙伴 / 界面异常 / 选择失效
+
+/** 某玩家此刻在某个时机上的钩子注册情况（对齐本体 `lib.hook[playerid_role_evt]` 是技能 id 数组） */
+const playerHooks = (player, evt, role = "player") => lib.hook[`${player?.playerid}_${role}_${evt}`] ?? [];
+
+/** A、B 都 group 到 C：三个技能各带一个触发时机，好从注册表里读出「谁还在听」 */
+function registerShareProbeSkills() {
+	lib.skill.sac_a = { trigger: { player: "phaseEnd" }, group: ["sac_c"] };
+	lib.skill.sac_b = { trigger: { player: "damageEnd" }, group: ["sac_c"] };
+	lib.skill.sac_c = { trigger: { player: "damageBegin1" } };
+	lib.skill.sac_e1 = {};
+	lib.skill.sac_e2 = {};
+	for (const id of ["sac_a", "sac_b", "sac_c", "sac_e1", "sac_e2"]) {
+		lib.translate[id] = id;
+		lib.translate[`${id}_info`] = "冒烟测试用技能。";
+	}
+}
+
+/** 故人的心用例共用的开局夹具：玩家带 A、B、C 三个技能，敌人带 sac_e1 / sac_e2 两个技能 */
+function putShareProbeRun() {
+	return putRun(0, {
+		mode: "endless",
+		curios: ["old_friend_heart"],
+		characterId: "迪迦",
+		skills: [],
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: ["sac_e1", "sac_e2"], maxHp: 0, hp: 0 }],
+		},
+	});
+}
+
+await check("故人的心：A、B 共享 group 伙伴 C —— 失去 A 后 C 连触发器一起活着，失去 B 后 C 彻底移除", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_a", "sac_b", "sac_c"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putShareProbeRun();
+	session();
+	registerShareProbeSkills();
+	click("重新挑战这一关");
+	assert(common.currentScreenNode()?.classList?.contains("wm-rogue-heart-overlay"), "应弹出选择页");
+	assert(playerHooks(game.me, "phaseEnd").includes("sac_a"), "开战前 A 的触发器已登记");
+	assert(playerHooks(game.me, "damageEnd").includes("sac_b"), "开战前 B 的触发器已登记");
+	assert(playerHooks(game.me, "damageBegin1").includes("sac_c"), "开战前 C 的触发器已登记");
+
+	click("sac_a");
+	click("下一步");
+	click("sac_e1");
+	click("确认");
+	await flush();
+
+	assertEqual(game.me.hasSkill("sac_c"), true, "共享伙伴 C 留在身上");
+	assert(playerHooks(game.me, "damageBegin1").includes("sac_c"), "C 的触发器也补了回来（本体摘 A 时会连带摘掉它）");
+	assertEqual(game.me.initedSkills.includes("sac_c"), true, "C 的 initedSkills 登记补回来了");
+	assertEqual(playerHooks(game.me, "phaseEnd").includes("sac_a"), false, "A 自己的触发器摘干净了（同一条链上还有肉鸽自己的载体，不能只数条数）");
+	assertEqual(playerHooks(game.me, "damageEnd").includes("sac_b"), true, "B 的触发器不受影响");
+
+	// 第二场：重新载入页面再打一遍（技能从角色定义重新挂回），这次把 A、B 一起失去 →
+	// 没人再依赖 C，它连同触发器彻底移除
+	session();
+	registerShareProbeSkills();
+	click("重新挑战这一关");
+	assertEqual(game.me.hasSkill("sac_a"), true, "新一场里 A 又回来了（战斗内的失去不进存档）");
+	click("sac_a");
+	click("sac_b");
+	click("下一步");
+	click("sac_e1");
+	click("sac_e2");
+	click("确认");
+	await flush();
+	assertEqual(game.me.hasSkill("sac_c"), false, "两个依赖者都失去后 → C 跟着失去");
+	assertEqual(playerHooks(game.me, "damageBegin1").includes("sac_c"), false, "C 的触发器摘干净了");
+	assertEqual(game.me.initedSkills.includes("sac_c"), false, "C 的 initedSkills 也清掉了");
+	assertEqual(game.me.hasSkill("sac_a") || game.me.hasSkill("sac_b"), false, "A、B 都真失去");
+	assertEqual(game.players[1].hasSkill("sac_e1"), false, "敌方指定的两件都真失去");
+	assertEqual(game.players[1].hasSkill("sac_e2"), false, "敌方指定的两件都真失去（第二件）");
+	return "共享伙伴触发器被连带摘掉后补回；最后一个依赖者失去时 C 彻底移除；跨场次零残留";
+});
+
+await check("故人的心：选择界面建到一半炸了也能照常开局（清浮层、零损失）", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_a"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putShareProbeRun();
+	session();
+	registerShareProbeSkills();
+	// 让「建技能条目」这一步炸掉：此时浮层与面板已经建好，正好检验异常路径会不会留下残页
+	const realDiv = ui.create.div;
+	ui.create.div = (...args) => {
+		if (String(args[0] ?? "").includes("wm-rogue-pick-row")) {
+			throw new Error("模拟建卡失败");
+		}
+		return realDiv(...args);
+	};
+	const savedError = console.error;
+	console.error = () => {};
+	try {
+		click("重新挑战这一关");
+	} finally {
+		ui.create.div = realDiv;
+		console.error = savedError;
+	}
+	await flush();
+	assertEqual(document.body.querySelectorAll(".wm-rogue-overlay").length, 0, "半建的选择页被清掉，不留浮层");
+	assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常进入 gameStart，没被卡住");
+	assert(log.some(item => item.type === "gameDraw"), "起手照常发牌");
+	assertEqual(game.me.hasSkill("sac_a"), true, "一个技能都没失去");
+	assertEqual(game.players[1].hasSkill("sac_e1"), true, "敌方也是");
+	return "界面异常 → 清浮层 + 按未发动 + 照常开局";
+});
+
+await check("故人的心：选择失效时一个技能都不删（不拿没指定的技能顶替）", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_a", "sac_b", "sac_c"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putShareProbeRun();
+	session();
+	registerShareProbeSkills();
+	click("重新挑战这一关");
+	click("不发动");   // 先让这一场正常开起来
+	await flush();
+	assertEqual(game.me.hasSkill("sac_a"), true, "不发动 = 零变化");
+
+	// 直接调结算层：把「选中的技能已经不在身上」摆出来 —— 期望整单不做
+	const result = sacrificeModule.settleSkillSacrifice(game.me, {
+		mine: ["sac_a", "sac_b"],
+		theirs: [{ player: game.players[1], ids: ["sac_e1", "sac_ghost"] }],
+	});
+	assertEqual(result.invalid.length, 1, "失效的条目被报回流程层");
+	assertEqual(result.invalid[0].id, "sac_ghost", "失效的是哪一条");
+	assertEqual(JSON.stringify(result.mine), "[]", "己方一个都没失去");
+	assertEqual(JSON.stringify(result.theirs), "[]", "敌方也一个都没失去");
+	assertEqual(game.me.hasSkill("sac_a") && game.me.hasSkill("sac_b"), true, "己方技能表原样");
+	assertEqual(game.players[1].hasSkill("sac_e1"), true, "敌方技能表原样——没被指定的技能一个都不许动");
+	return "选择失效 → 整单不做，零损失、零顶替";
+});
+
+await check("故人的心：onremove 抛错时不残留触发器，战斗照常继续", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_boom", "sac_a"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putShareProbeRun();
+	session();
+	registerShareProbeSkills();
+	lib.skill.sac_boom = { trigger: { player: "phaseZhunbei" }, onremove() { throw new Error("boom"); } };
+	lib.translate.sac_boom = "sac_boom";
+	lib.translate.sac_boom_info = "冒烟测试用技能。";
+	const savedError = console.error;
+	console.error = () => {};   // 这一条故意让它抛错，日志不进测试输出
+	try {
+		click("重新挑战这一关");
+		assert(playerHooks(game.me, "phaseZhunbei").includes("sac_boom"), "抛错之前触发器是登记着的");
+		click("sac_boom");
+		click("下一步");
+		click("sac_e1");
+		click("确认");
+		await flush();
+	} finally {
+		console.error = savedError;
+	}
+	assertEqual(game.me.hasSkill("sac_boom"), false, "技能确实失去了（技能表里已经不在了）");
+	assertEqual(playerHooks(game.me, "phaseZhunbei").includes("sac_boom"), false, "半摘状态的触发器被补全摘掉，不留残余钩子");
+	assertEqual(game.me.initedSkills.includes("sac_boom"), false, "initedSkills 登记也清掉了");
+	assertEqual(game.me.hasSkill("sac_a"), true, "同一批里没选的技能不受影响");
+	assertEqual(game.players[1].hasSkill("sac_e1"), false, "敌方指定的一件照常失去（两侧数量相等）");
+	assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常开始");
+	return "onremove 抛错 → 照实记账 + 触发器/登记补全 + 开局照常";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

@@ -17,12 +17,34 @@ export const lib = {
 	characterSubstitute: {}, characterReplace: {},
 	namePrefix: null,
 	element: {}, config: {}, rank: {}, assetURL: "",
+	hook: {}, hookmap: {}, relatedTrigger: {},
 	filter: new Proxy({}, { get: (t, k) => { if (!(k in t)) t[k] = anyFn; return t[k]; } }),
 };
 export const game = {
 	addGroup: () => {}, addCharacterPack: () => {},
 	saveExtensionConfig: () => {}, getExtensionConfig: () => null,
 	playAudio: () => {}, log: () => {},
+	callHook: () => {},
+	// 对齐本体 game.expandSkills：把每个技能声明的 group 伙伴原地去重追加进同一个数组并返回；
+	// 只展开一层，group 写字符串或数组都吃（subSkill 要第二参 true，这里用不到）
+	expandSkills(skills, subSkill = false) {
+		const adds = [];
+		for (const id of skills) {
+			const info = lib.skill[id];
+			if (!info) continue;
+			if (info.group) {
+				const list = Array.isArray(info.group) ? info.group : [info.group];
+				adds.push(...list.filter(item => lib.skill[item]));
+			}
+			if (subSkill && info.subSkill) {
+				adds.push(...Object.keys(info.subSkill).map(key => id + "_" + key).filter(item => lib.skill[item]));
+			}
+		}
+		for (const id of adds) {
+			if (!skills.includes(id)) skills.push(id);
+		}
+		return skills;
+	},
 };
 export const ui = { window: null, create: {} };
 export const get = { poptip: s => s, translation: id => id };
@@ -5562,25 +5584,96 @@ function registerSacrificeSkills(defs) {
 	}
 }
 
-/** 只实现 skillSacrifice.js 真正碰到的那几个成员，语义对齐本体（fixed 拦截、onremove 清理） */
+let fakePlayerSeq = 0;
+
+/** 某个玩家此刻在某个时机上的钩子注册情况（对齐本体 `lib.hook[playerid_role_evt]` 是技能 id 数组） */
+const hooksOf = (player, evt, role = "player") => lib.hook[`${player.playerid}_${role}_${evt}`] ?? [];
+
+/**
+ * 只实现 skillSacrifice.js 真正碰到的那几个成员，语义对齐本体：
+ * fixed 拦截、onremove 清理**顺序**（先摘技能表 → onremove → 最后摘触发器），以及**触发器注册表**
+ * （`lib.hook[playerid_role_evt]` 技能 id 数组 + `hookmap` + `initedSkills`）。
+ * 有了注册表才测得出「共享伙伴的触发器被连带摘掉」「onremove 抛错留下半摘状态」这类问题——
+ * 只比技能数组是不够的。
+ */
 function makeFakeSkillPlayer(skills = [], options = {}) {
 	const node = {
 		name: options.name ?? "测试角色",
+		playerid: options.playerid ?? `sac_player_${++fakePlayerSeq}`,
 		skills: skills.slice(0),
+		initedSkills: [],
 		storage: { ...(options.storage ?? {}) },
 		updates: 0,
 		getSkills: () => node.skills.slice(0),
 		hasSkill: id => node.skills.includes(id),
+		/** 对齐本体 addSkillTrigger：展开 group 后逐个登记钩子与 initedSkills（init 只跑一次） */
+		addSkillTrigger(ids) {
+			for (const skill of mockGame.expandSkills(Array.isArray(ids) ? ids : [ids])) {
+				if (!lib.skill[skill]) {
+					continue;
+				}
+				if (!node.initedSkills.includes(skill)) {
+					node.initedSkills.push(skill);
+				}
+				node.registerHooks(skill);
+			}
+			return node;
+		},
+		/** 对齐本体 removeSkillTrigger：**展开 group** 后对每一项摘钩子、从 initedSkills 除名 */
+		removeSkillTrigger(ids) {
+			for (const skill of mockGame.expandSkills(Array.isArray(ids) ? ids : [ids])) {
+				if (!lib.skill[skill] || !node.initedSkills.includes(skill)) {
+					continue;
+				}
+				node.initedSkills = node.initedSkills.filter(item => item !== skill);
+				node.unregisterHooks(skill);
+			}
+			return node;
+		},
+		registerHooks(skill) {
+			const trigger = lib.skill[skill]?.trigger;
+			if (!trigger) {
+				return;
+			}
+			for (const role of Object.keys(trigger)) {
+				const events = Array.isArray(trigger[role]) ? trigger[role] : [trigger[role]];
+				for (const evt of events) {
+					const key = `${node.playerid}_${role}_${evt}`;
+					lib.hook[key] ??= [];
+					if (!lib.hook[key].includes(skill)) {
+						lib.hook[key].push(skill);
+					}
+					lib.hookmap[evt] = true;
+				}
+			}
+		},
+		unregisterHooks(skill) {
+			for (const key of Object.keys(lib.hook)) {
+				if (!key.startsWith(`${node.playerid}_`)) {
+					continue;
+				}
+				lib.hook[key] = lib.hook[key].filter(item => item !== skill);
+				if (!lib.hook[key].length) {
+					delete lib.hook[key];
+				}
+			}
+		},
+		removeAdditionalSkills: () => node,
+		enableSkill: () => node,
 		removeSkill(id, force) {
 			const info = lib.skill[id];
 			if (info?.fixed && force !== true) {
 				return id;
 			}
+			// 对齐本体语句顺序：先摘技能表 → onremove → 最后摘触发器（onremove 抛错就会停在中途）
 			node.skills = node.skills.filter(item => item !== id);
 			if (info?.onremove === true) {
 				delete node.storage[id];
 			} else if (typeof info?.onremove === "function") {
 				info.onremove(node, id);
+			}
+			if (info) {
+				node.removeSkillTrigger(id);
 			}
 			return id;
 		},
@@ -5591,6 +5684,10 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 	};
 	if (options.enhance) {
 		node.rogueEnhanceInfo = options.enhance;
+	}
+	// 初始就挂在身上的技能：按本体 init 的口径把触发器登记好
+	for (const skill of node.skills) {
+		node.addSkillTrigger(skill);
 	}
 	return node;
 }
@@ -5635,11 +5732,11 @@ check("故人的心：可失去技能的枚举口径（本体「失去已有技�
 
 check("故人的心：真失去（跟随件跟随、共享伙伴留下）并把两条徽记按实际持有同步", () => {
 	registerSacrificeSkills({
-		sac_native: {},
-		sac_main: { group: ["sac_part", "sac_shared"] },
-		sac_part: {},
-		sac_shared: {},
-		sac_shared_main: { group: ["sac_shared"] },   // 另一个主技能也声明这个伙伴
+		sac_native: { trigger: { player: "phaseDrawBegin2" } },
+		sac_main: { group: ["sac_part", "sac_shared"], trigger: { player: "phaseEnd" } },
+		sac_part: { trigger: { player: "phaseZhunbei" } },
+		sac_shared: { trigger: { player: "damageBegin1" } },
+		sac_shared_main: { group: ["sac_shared"], trigger: { player: "damageEnd" } },   // 另一个主技能也声明这个伙伴
 		sac_parent: {},
 		sac_child: { sub: true, sourceSkill: "sac_parent" },
 		sac_abyss: { persevereSkill: true, onremove: player => { delete player.storage.sac_abyss_count; } },
@@ -5661,6 +5758,21 @@ check("故人的心：真失去（跟随件跟随、共享伙伴留下）并把�
 	assertEqual(enemy.hasSkill("sac_native"), true, "没选的技能一个都不动");
 	assertEqual(enemy.updates, 1, "失去之后只刷新一次");
 
+	// 触发器注册表（不只技能数组）：本体 removeSkillTrigger 展开 group 时会**连带摘掉**共享伙伴的钩子与
+	// initedSkills 登记，只保证「技能还在列表里」是不够的——B 的效果会跟着哑掉
+	assertEqual(hooksOf(enemy, "damageBegin1").join(","), "sac_shared", "共享伙伴的钩子被连带摘掉后又补了回来");
+	assertEqual(enemy.initedSkills.includes("sac_shared"), true, "它的 initedSkills 登记也补回来了");
+	assertEqual(hooksOf(enemy, "phaseZhunbei").length, 0, "跟着走的伙伴钩子已摘干净");
+	assertEqual(hooksOf(enemy, "phaseEnd").length, 0, "被摘主技能的钩子已摘干净");
+	assertEqual(hooksOf(enemy, "damageEnd").join(","), "sac_shared_main", "别的技能的钩子不受影响");
+	assertEqual(hooksOf(enemy, "phaseDrawBegin2").join(","), "sac_native", "没选的技能钩子也不受影响");
+
+	// 失去最后一个依赖它的主技能：共享伙伴自己也跟着走，钩子一并摘干净
+	assertEqual(sacrifice.loseSkillsForBattle(enemy, ["sac_shared_main"]).join(","), "sac_shared_main", "另一个主技能也能单独失去");
+	assertEqual(enemy.hasSkill("sac_shared"), false, "没有主技能再依赖它 → 共享伙伴跟着失去");
+	assertEqual(hooksOf(enemy, "damageBegin1").length, 0, "它的钩子摘干净了");
+	assertEqual(enemy.initedSkills.includes("sac_shared"), false, "initedSkills 也清掉了");
+
 	assertEqual(sacrifice.loseSkillsForBattle(enemy, ["sac_parent"]).join(","), "sac_parent", "普通技能也能单独选中");
 	assertEqual(enemy.hasSkill("sac_child"), false, "subSkill 子技能跟着父技能一起失去（本体不会自动摘，得自己收）");
 
@@ -5674,7 +5786,7 @@ check("故人的心：真失去（跟随件跟随、共享伙伴留下）并把�
 	return "跟随件跟随 + 共享伙伴留下 + onremove 收尾 + 徽记列表/面板按实际持有同步";
 });
 
-check("故人的心：结算的数量纪律（按己方实际失去发放、缺口用敌方剩余名单顶替、单件抛错不连累其余）", () => {
+check("故人的心：结算只删玩家指定过的技能（选择失效 → 整单不做，绝不自动顶替）", () => {
 	registerSacrificeSkills({ sac_a: {}, sac_b: {}, sac_e1: {}, sac_e2: {}, sac_e3: {} });
 	// 正常路径：两侧各 1，各归各的
 	const me = makeFakeSkillPlayer(["sac_a", "sac_b"]);
@@ -5682,25 +5794,30 @@ check("故人的心：结算的数量纪律（按己方实际失去发放、缺�
 	let result = sacrifice.settleSkillSacrifice(me, { mine: ["sac_a"], theirs: [{ player: enemy, ids: ["sac_e1"] }] });
 	assertEqual(result.mine.join(","), "sac_a", "己方实际失去");
 	assertEqual(result.theirs[0].removed.join(","), "sac_e1", "敌方实际失去");
-	assertEqual(result.mine.length, result.theirs[0].removed.length, "两侧数量相等");
+	assertEqual(result.mine.length, result.theirs[0].removed.length, "正常情况下两侧数量完全一致");
 
-	// 玩家选中的技能里有一件在结算前已经不在了（这里用没上身的 id 模拟）：缺口从这名敌人**还剩的**筹码里顶替
+	// 选中项里有一件此刻已不在身上（这里用没上身的 id 模拟）：整单不做，
+	// **绝不**拿别的技能顶替——那等于替玩家做了选择，还会出现「己方 3 个、敌方 2 个」这种正常完成态
 	const me2 = makeFakeSkillPlayer(["sac_a", "sac_b"]);
 	const enemy2 = makeFakeSkillPlayer(["sac_e1", "sac_e2", "sac_e3"]);
 	result = sacrifice.settleSkillSacrifice(me2, {
 		mine: ["sac_a", "sac_b"],
 		theirs: [{ player: enemy2, ids: ["sac_e1", "sac_ghost"] }],
 	});
-	assertEqual(result.mine.join(","), "sac_a,sac_b", "己方两件都失去");
-	assertEqual(result.theirs[0].removed.join(","), "sac_e1,sac_e2", "选中的那一件照付，缺的那一件用剩余名单顶上");
-	assertEqual(result.mine.length, result.theirs[0].removed.length, "顶替之后两侧数量仍然相等");
+	assertEqual(result.invalid.length, 1, "失效的条目被报回流程层");
+	assertEqual(result.invalid[0].id, "sac_ghost", "失效的是哪一条");
+	assertEqual(JSON.stringify(result.mine), "[]", "己方一个都没失去");
+	assertEqual(JSON.stringify(result.theirs), "[]", "敌方也一个都没失去");
+	assertEqual(me2.skills.join(","), "sac_a,sac_b", "己方技能表原样");
+	assertEqual(enemy2.skills.join(","), "sac_e1,sac_e2,sac_e3", "敌方技能表原样——没被指定的技能一个都不许动");
 
-	// 单件失败（技能自己的 onremove 抛错）：不连累这一批其余技能，且「已经摘掉、只是收尾没跑完」照实记账
-	registerSacrificeSkills({ sac_boom: { onremove() { throw new Error("boom"); } } });
+	// 单件 onremove 抛错：技能表里确实已经不在了（照实记账）、半摘状态的触发器被补全摘掉、其余照常结算
+	registerSacrificeSkills({ sac_boom: { trigger: { player: "phaseDrawBegin2" }, onremove() { throw new Error("boom"); } } });
 	const savedError = console.error;
 	console.error = () => {};   // 这一条故意让它抛错，日志不进测试输出
 	try {
 		const boomMe = makeFakeSkillPlayer(["sac_boom", "sac_a"]);
+		assertEqual(hooksOf(boomMe, "phaseDrawBegin2").join(","), "sac_boom", "抛错之前触发器是登记着的");
 		const boomEnemy = makeFakeSkillPlayer(["sac_e1", "sac_e2"]);
 		const boom = sacrifice.settleSkillSacrifice(boomMe, {
 			mine: ["sac_boom", "sac_a"],
@@ -5708,9 +5825,28 @@ check("故人的心：结算的数量纪律（按己方实际失去发放、缺�
 		});
 		assertEqual(boom.mine.join(","), "sac_boom,sac_a", "抛错的那一件照实记账（技能表里确实已经不在了）");
 		assertEqual(boomMe.hasSkill("sac_a"), false, "抛错不连累同一批后面的技能");
+		assertEqual(hooksOf(boomMe, "phaseDrawBegin2").length, 0, "半摘状态的触发器被补全摘掉，不留残余钩子");
+		assertEqual(boomMe.initedSkills.includes("sac_boom"), false, "initedSkills 登记也清掉了");
 		assertEqual(boom.theirs[0].removed.join(","), "sac_e1,sac_e2", "敌方该失去的两件一个不少");
 		assertEqual(boom.mine.length, boom.theirs[0].removed.length, "两侧数量相等");
-		return "quota 按己方实际发放 + 缺口顶替 + 单件异常照实记账且不连累其余";
+		return "指定才删 + 失效整单不做 + 单件异常补全残留且不连累其余";
+	} finally {
+		console.error = savedError;
+	}
+});
+
+await checkAsync("故人的心：选择界面创建失败时按未发动继续（不抛错、不损失任何技能）", async () => {
+	registerSacrificeSkills({ sac_ok: {} });
+	const me = makeFakeSkillPlayer(["sac_ok"]);
+	const enemy = makeFakeSkillPlayer(["sac_ok"]);
+	const savedError = console.error;
+	console.error = () => {};   // 这一条故意让界面建不起来，日志不进测试输出
+	try {
+		// 单测环境没有 DOM：选择页的构建会失败，流程层必须安全退出并照常开局
+		const result = await sacrifice.runSkillSacrifice(me, [enemy]);
+		assertEqual(result.cancelled, true, "界面建不起来 → 按未发动交回");
+		assertEqual(me.hasSkill("sac_ok"), true, "己方一个技能都没失去");
+		assertEqual(enemy.hasSkill("sac_ok"), true, "敌方也是");
 	} finally {
 		console.error = savedError;
 	}

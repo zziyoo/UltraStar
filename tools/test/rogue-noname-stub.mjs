@@ -325,6 +325,8 @@ function makePlayer() {
 	const node = createDiv(".player");
 	node.__char = null;
 	node.__skills = [];
+	// 对齐本体：init 的 initedSkills 登记表（既防重复初始化，也决定摘钩子时要不要继续）
+	node.initedSkills = [];
 	node.__alive = true;
 	node.hp = 0;
 	node.maxHp = 0;
@@ -342,7 +344,11 @@ function makePlayer() {
 		}
 		node.hp = info.hp;
 		node.maxHp = info.maxHp;
-		node.__skills = info.skills.slice(0);
+		// 对齐本体 init：先清空（连触发器一起注销）再逐个 addSkill（addSkill 自己会登记触发钩子）
+		node.clearSkills();
+		for (const skill of info.skills ?? []) {
+			node.addSkill(skill);
+		}
 		node.__inited = true;
 	};
 	node.getId = () => {
@@ -352,12 +358,115 @@ function makePlayer() {
 		}
 		return node;
 	};
-	node.addSkill = id => {
-		// 对齐本体：技能表是去重的（本体 player.skills 走 Array.add，自带 includes 判断），
-		// 存档里的装备技能与角色原生技能重名时不会挂出两份
-		if (!node.__skills.includes(id)) {
-			node.__skills.push(id);
+	/**
+	 * 对齐本体 addSkillTrigger（player.js:11073）：先 `game.expandSkills` 展开 group，再逐个登记：
+	 *   · `lib.hook[playerid_role_evt]` 是**技能 id 数组**（本体走 `Array.add` 去重，这里等价地 includes 判断）；
+	 *   · `lib.hookmap[evt] = true` 只标「这个时机有人听」；
+	 *   · `initedSkills` 记录 init 跑过没有——本体靠它既防重复初始化，又决定摘钩子时要不要继续往下走。
+	 */
+	node.addSkillTrigger = (skills, hidden, triggeronly) => {
+		if (typeof skills === "string") {
+			skills = [skills];
 		}
+		game.expandSkills(skills);
+		for (const skill of skills) {
+			const info = lib.skill[skill];
+			if (!info) {
+				console.error(`[stub] Cannot find ${skill} in lib.skill`);
+				continue;
+			}
+			if (!triggeronly) {
+				if (info.global) {
+					// 本体的全局技登记；桩里没有全局技体系，这里只在有人实现时转交
+					const globals = Array.isArray(info.global) ? info.global : [info.global];
+					for (const name of globals) {
+						game.addGlobalSkill?.(name, node);
+					}
+				}
+				if (node.initedSkills.includes(skill)) {
+					continue;
+				}
+				node.initedSkills.push(skill);
+			}
+			if (info.trigger && node.playerid) {
+				for (const role of Object.keys(info.trigger)) {
+					const events = Array.isArray(info.trigger[role]) ? info.trigger[role] : [info.trigger[role]];
+					for (const event of events) {
+						const key = `${node.playerid}_${role}_${event}`;
+						lib.hook[key] ??= [];
+						if (!lib.hook[key].includes(skill)) {
+							lib.hook[key].push(skill);
+						}
+						lib.hookmap[event] = true;
+					}
+				}
+			}
+			if (info.hookTrigger) {
+				node._hookTrigger ??= [];
+				if (!node._hookTrigger.includes(skill)) {
+					node._hookTrigger.push(skill);
+				}
+			}
+			_status.event?.clearStepCache?.();
+		}
+		return node;
+	};
+	/**
+	 * 对齐本体 removeSkillTrigger（player.js:11751）：同样先 `game.expandSkills` 展开 group，
+	 * 再对展开后的**每一项**摘钩子、从 `initedSkills` 除名——「失去 A 会连带摘掉共享伙伴 C 的触发器」
+	 * 就是这一步造成的（真机语义，桩必须照搬，否则测不出这个坑）。
+	 */
+	node.removeSkillTrigger = (skills, triggeronly) => {
+		if (typeof skills === "string") {
+			skills = [skills];
+		}
+		game.expandSkills(skills);
+		for (const skill of skills) {
+			const info = lib.skill[skill];
+			if (!info) {
+				continue;
+			}
+			if (!triggeronly) {
+				if (!node.initedSkills.includes(skill)) {
+					continue;
+				}
+				node.initedSkills = node.initedSkills.filter(item => item !== skill);
+			}
+			if (info.trigger && node.playerid) {
+				for (const role of Object.keys(info.trigger)) {
+					const events = Array.isArray(info.trigger[role]) ? info.trigger[role] : [info.trigger[role]];
+					for (const event of events) {
+						const key = `${node.playerid}_${role}_${event}`;
+						if (!lib.hook[key]) {
+							continue;
+						}
+						lib.hook[key] = lib.hook[key].filter(item => item !== skill);
+						if (!lib.hook[key].length) {
+							delete lib.hook[key];
+						}
+					}
+				}
+			}
+			if (info.hookTrigger && node._hookTrigger) {
+				node._hookTrigger = node._hookTrigger.filter(item => item !== skill);
+				if (!node._hookTrigger.length) {
+					delete node._hookTrigger;
+				}
+			}
+			_status.event?.clearStepCache?.();
+		}
+		return node;
+	};
+	// 桩里没有附加技能体系：本体摘技能时会顺手清的那一组，这里给两个空实现保持接口形状
+	node.removeAdditionalSkills = () => node;
+	node.enableSkill = () => node;
+	node.addSkill = id => {
+		// 对齐本体 addSkill（player.js:11255）：已经在技能表里、或没有定义的技能**直接 return**。
+		// 这一条很关键——对共享伙伴重新 addSkill 是补不回触发器的，必须走 addSkillTrigger
+		if (node.__skills.includes(id) || !lib.skill[id]) {
+			return;
+		}
+		node.__skills.push(id);
 		const info = lib.skill[id];
 		// 对齐本体 addSkill 的标记分支：mark:true 才建徽记，marktext 走 id_bg 翻译
 		if (info?.mark && !node.marks[id]) {
@@ -367,36 +476,42 @@ function makePlayer() {
 			node.appendChild(mark);
 			node.marks[id] = mark;
 		}
-		// 对齐 player.js:11088：只有 playerid 存在时才登记触发钩子
-		if (info?.trigger && node.playerid) {
-			for (const role of Object.keys(info.trigger)) {
-				const events = Array.isArray(info.trigger[role]) ? info.trigger[role] : [info.trigger[role]];
-				for (const event of events) {
-					lib.hookmap[event] = true;
-				}
-			}
-		}
+		node.addSkillTrigger(id);
 	};
 	node.hasSkill = id => node.__skills.includes(id);
 	// 对齐本体 getSkills：(skillMode, includeEquipSkills, applySkillFilter)——桩里没有装备区，
 	// 也没有屏蔽/禁用体系，所以三个参数都不改变结果，原样给出技能表
 	node.getSkills = () => node.__skills.slice(0);
+	node.clearSkills = () => {
+		for (const skill of node.__skills.slice(0)) {
+			node.removeSkill(skill, true);
+		}
+	};
 	node.removeSkill = (id, force) => {
 		const info = lib.skill[id];
 		// 对齐本体：没传第二参 true 时固定技（fixed）摘不掉
 		if (info?.fixed && force !== true) {
 			return id;
 		}
+		// 对齐本体语句顺序（player.js:11820）：**先**摘技能表与徽记 → 再走 onremove → **最后**才摘触发器。
+		// onremove 抛错就会停在中途，留下「技能表里没了、触发器还在」的半摘状态——
+		// 真机语义如此，桩必须照搬，不然测不出「残留触发器」这类问题
 		node.__skills = node.__skills.filter(item => item !== id);
 		if (node.marks[id]) {
 			node.marks[id].remove();
 			delete node.marks[id];
 		}
-		// 对齐本体 onremove 的两种语义：true → 清同名 storage；函数 → 交给技能自己收尾
 		if (info?.onremove === true) {
 			delete node.storage[id];
 		} else if (typeof info?.onremove === "function") {
 			info.onremove(node, id);
+		}
+		if (info) {
+			node.removeSkillTrigger(id);
+			if (!info.keepSkill) {
+				node.removeAdditionalSkills(id);
+			}
+			node.enableSkill(`${id}_awake`);
 		}
 		return id;
 	};
@@ -510,6 +625,10 @@ export const game = {
 			async trigger(triggerName) {
 				log({ type: `trigger:${triggerName}` });
 			},
+			// 本体 GameEvent 的触发器缓存接口（arrangeTrigger 链上用）；桩里不跑真触发链，给同形状的空实现
+			addTrigger: () => event,
+			removeTrigger: () => event,
+			clearStepCache: () => event,
 			forResult: () => Promise.resolve({}),
 		};
 		log({ type: "createEvent", name });
@@ -583,6 +702,8 @@ export const game = {
 		}
 	},
 	log: (...args) => log({ type: "game.log", args: args.map(String) }),
+	// 对齐本体：技能被摘掉时会走一次 removeSkillCheck 钩子（「故人的心」的收尾补全会调它）
+	callHook: hookName => log({ type: "callHook", name: hookName }),
 	playAudio: () => {},
 	getPlayer: () => null,
 	giveup: () => {},
