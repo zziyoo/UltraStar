@@ -309,6 +309,58 @@ const CSS = `
 .wm-rogue-boss-foot { flex: none; margin-top: 14px; padding-top: 10px; text-align: center; font-size: 15px;
 	line-height: 1.6; color: #ffb347; border-top: 1px solid rgba(255,255,255,0.14); }
 
+/* ---- 故人的心：开局「以技易技」的两阶段选择页 ----
+   骨架与属性/奇物面板同一套：标题、副标题、分隔线、中间可滚动的正文、钉底按钮。
+   技能可能几十条，正文条是唯一的可伸缩项（min-height:0 才滚得动）；条目整行可点，
+   选中只换描边与勾，未选中留位以免文字左右跳动。尺寸旋钮：面板 width、条目 padding、按钮行 gap */
+#wm-rogue-overlay.wm-rogue-heart-overlay .wm-rogue-stage { padding: 20px 12px; height: 100%; }
+#wm-rogue-overlay.wm-rogue-heart-overlay .wm-rogue-heart-panel {
+	width: min(560px, calc(100% - 24px)); max-height: 100%; display: flex; flex-direction: column;
+	padding: 20px; border-radius: 8px;
+	background: linear-gradient(rgba(26,24,30,0.97), rgba(12,11,14,0.98));
+	border: 1px solid rgba(216,166,255,0.42); box-shadow: 0 6px 24px rgba(0,0,0,0.62); }
+#wm-rogue-overlay.wm-rogue-heart-overlay .wm-rogue-stat-title { display: block !important; flex: none; margin: 0;
+	text-align: center; font-size: 26px; line-height: 1.3; font-weight: bold; letter-spacing: 5px;
+	color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.85); }
+#wm-rogue-overlay.wm-rogue-heart-overlay .wm-rogue-stat-subtitle { display: block !important; flex: none;
+	margin-top: 5px; text-align: center; font-size: 15px; letter-spacing: 1px; color: rgba(255,255,255,0.66); }
+#wm-rogue-overlay.wm-rogue-heart-overlay .wm-rogue-stat-divider { display: block !important; flex: none;
+	height: 1px; margin: 14px 0 4px; background: rgba(255,255,255,0.22); }
+#wm-rogue-overlay.wm-rogue-heart-overlay .wm-rogue-stat-section-title { display: block !important;
+	margin: 14px 0 2px; font-size: 20px; font-weight: bold; color: #d8a6ff; letter-spacing: 2px;
+	text-shadow: 0 2px 4px rgba(0,0,0,0.9); }
+#wm-rogue-overlay .wm-rogue-heart-body { display: block !important; position: static !important;
+	flex: 1 1 auto; min-height: 0; margin-top: 12px; padding: 0 2px;
+	overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+#wm-rogue-overlay .wm-rogue-heart-pane { display: block !important; padding-bottom: 6px; }
+#wm-rogue-overlay .wm-rogue-pick-hint { display: block !important; margin: 6px 0 4px; font-size: 14px;
+	line-height: 1.6; color: rgba(255,255,255,0.62); }
+#wm-rogue-overlay .wm-rogue-pick-row { display: block !important; position: static !important;
+	margin-top: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer;
+	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
+	border: 1px solid rgba(255,255,255,0.14);
+	transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease; }
+#wm-rogue-overlay .wm-rogue-pick-row:hover { border-color: rgba(216,166,255,0.7); }
+#wm-rogue-overlay .wm-rogue-pick-row:active { opacity: 0.88; }
+#wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-picked { border-color: rgba(216,166,255,0.95);
+	background: linear-gradient(rgba(62,42,84,0.88), rgba(28,18,40,0.92));
+	box-shadow: 0 0 14px rgba(180,120,255,0.28); }
+#wm-rogue-overlay .wm-rogue-pick-head { display: flex !important; align-items: center !important;
+	justify-content: space-between !important; gap: 10px; }
+#wm-rogue-overlay .wm-rogue-pick-name { display: block !important; font-size: 20px; font-weight: bold;
+	color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+#wm-rogue-overlay .wm-rogue-pick-desc { display: block !important; margin-top: 6px; font-size: 16px;
+	line-height: 1.55; color: rgba(255,255,255,0.84); }
+#wm-rogue-overlay .wm-rogue-pick-check { display: block !important; flex: none; font-size: 19px;
+	font-weight: bold; color: #d8a6ff; visibility: hidden; }
+#wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-picked .wm-rogue-pick-check { visibility: visible; }
+#wm-rogue-overlay .wm-rogue-heart-target { display: block !important; }
+#wm-rogue-overlay .wm-rogue-heart-actions { display: flex !important; flex-wrap: wrap !important;
+	align-items: center !important; justify-content: flex-end !important; gap: 10px; flex: none;
+	margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.14); }
+.wm-rogue-btn.wm-rogue-heart-confirm { border-color: rgba(216,166,255,0.75);
+	background: linear-gradient(rgba(122,80,170,0.95), rgba(70,45,110,0.95)); }
+
 /* ---- 事件子页面（流浪商人 / 技能熔炉 / 奇物融合炉）共用的版式骨架 ----
    同一视觉语言，标题字号在下面按各 overlay 一并列上，免得为三个页面新写一遍 id 级加固 ---- */
 .wm-rogue-replace { display: flex; flex-direction: column; margin: auto; width: min(1100px, calc(100% - 24px)); }
@@ -720,7 +772,9 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-boss-card-action,
 #wm-rogue-overlay .wm-rogue-boss-note,
 #wm-rogue-overlay .wm-rogue-boss-foot,
-#wm-rogue-overlay .wm-rogue-mode-best { white-space: normal !important; overflow-wrap: break-word !important; }
+#wm-rogue-overlay .wm-rogue-mode-best,
+#wm-rogue-overlay .wm-rogue-pick-desc,
+#wm-rogue-overlay .wm-rogue-pick-hint { white-space: normal !important; overflow-wrap: break-word !important; }
 #wm-rogue-overlay .wm-rogue-name { white-space: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-no { white-space: nowrap !important; }
 #wm-rogue-overlay .wm-rogue-resume-enemy-name { white-space: nowrap !important; }

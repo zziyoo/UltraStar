@@ -128,6 +128,9 @@ function copySkillLines(ids) {
 	return list.map(id => copySkillText(id).name);
 }
 
+/** Boss「复制技能」徽记的载体技能 id（battle.js 挂技能、故人的心摘技能后同步徽记都按它读写 storage） */
+export const COPY_MARK_SKILL = "rogue_copy";
+
 export const helpers = {
 	// Boss「复制技能」标记载体：**纯展示**，没有 trigger / mod / content，一条效果都不带。
 	// 复制来的技能由 battle.js 的 grantSkills 挂好，这里只负责在 Boss 身边多一枚可点的徽记；

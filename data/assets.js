@@ -139,6 +139,7 @@ export default [
 	"assets/events/interstellar_exchange.png",
 	"assets/events/extreme_training.png",
 	"assets/curios/memory_prism.png",
+	"assets/curios/old_friend_heart.png",
 	"assets/audio/mks.mp3",
 	"assets/events/mystery_merchant.png",
 	"assets/events/lucky_coin.png",

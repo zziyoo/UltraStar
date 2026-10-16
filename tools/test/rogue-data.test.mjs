@@ -874,6 +874,8 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		triggerNames.push(...list);
 	}
 	const need = {
+		// 故人的心的 skillSacrifice 特意不在表里：它是开关键，时序在建局的 skillSacrifice.js
+		// （battle.js 在 gameStart 之前调一次），rogue_curio 只借 storage 把它显示在徽记上
 		extraPhase: "phaseBegin",
 		extraDraw: "phaseDrawBegin2",
 		dyingSave: "dying",

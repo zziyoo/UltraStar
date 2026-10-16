@@ -62,6 +62,9 @@
 //                     lockSkillShop    可以锁定技能商店：锁定后这一批候选不再换货——下次战斗结束不自动刷新，
 //                                        免费刷新按钮也用不了（商店，收藏家的橱窗）
 //                     lockCurioShop    可以锁定奇物商店：锁定后，下次战斗结束不刷新奇物商店的候选（商店，收藏家的橱窗史诗档）
+//                     skillSacrifice   游戏开始时可以把技能当筹码：失去自己任意个技能，令敌方失去等量个技能
+//                                      （战斗内，故人的心。**只作用在这一场战斗的 Player 上**：存档、背包、
+//                                      装备位一个字都不动，所以不会触发遗忘之石 / 贪食魔盒那两条「真正失去」的奖励）
 //                     eventExpRate     从**随机事件中获得的正数经验奖励**额外 +N（事件结算，记忆棱镜 0.25 = +25%）。
 //                                        只加成事件自己发的那笔经验：经验消耗、普通/Boss/裂隙战斗的胜利经验、
 //                                        虫洞跳关汇总的基础奖励都不吃它；存在追问句的事件在合并成一口之后再算一次
@@ -77,7 +80,7 @@ export const curios = {
 	broken_watch: {
 		id: "broken_watch",
 		name: "破损怀表",
-		description: "时间似乎在它附近变慢。",
+		description: "浮生若梦，岁月如梭。纵能留住一瞬光阴，终难挽回旧日容颜。",
 		image: "extension/奥特之星/assets/curios/broken_watch.png",
 		rarity: "epic",
 		priceMultiplier: 1,
@@ -86,7 +89,7 @@ export const curios = {
 	lucky_stone: {
 		id: "lucky_stone",
 		name: "幸运石",
-		description: "握在手里就感觉好运将至。",
+		description: "天命无常，吉凶难测。一石藏三分气运，半生求一线天机。",
 		image: "extension/奥特之星/assets/curios/lucky_stone.png",
 		rarity: "rare",
 		priceMultiplier: 1,
@@ -98,7 +101,7 @@ export const curios = {
 	breath_belt: {
 		id: "breath_belt",
 		name: "气息腰带",
-		description: "系上它，濒死的边缘总能喘过一口气。",
+		description: "气若游丝，志不可夺。绝境之中，尚存一线生机。",
 		image: "extension/奥特之星/assets/curios/breath_belt.png",
 		rarity: "rare",
 		priceMultiplier: 1,
@@ -110,7 +113,7 @@ export const curios = {
 	energy_core: {
 		id: "energy_core",
 		name: "能量核心",
-		description: "微微发烫的核心仍在输出能量。",
+		description: "星核不熄，其力自生。取之于内，用之不竭。",
 		image: "extension/奥特之星/assets/curios/energy_core.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -123,7 +126,7 @@ export const curios = {
 	leftover_rice: {
 		id: "leftover_rice",
 		name: "剩饭",
-		description: "闻起来平平无奇，吃下去却元气满满。",
+		description: "粗粝一餐，胜过灵丹。腹中有粮，方能久战。",
 		image: "extension/奥特之星/assets/curios/leftover_rice.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -136,7 +139,7 @@ export const curios = {
 	loop_button: {
 		id: "loop_button",
 		name: "循环按钮",
-		description: "被按下去的那一下，总会再回来一次。",
+		description: "轮回一按，往复不休。昨日之事，明日重来。",
 		image: "extension/奥特之星/assets/curios/loop_button.png",
 		rarity: "rare",
 		priceMultiplier: 1,
@@ -148,7 +151,7 @@ export const curios = {
 	cursed_coin: {
 		id: "cursed_coin",
 		name: "诅咒金币",
-		description: "沉甸甸的金币上刻着陌生的纹路，握久了指尖发凉。",
+		description: "金铸之资，皆带血痕。取之愈多，失之愈多。",
 		image: "extension/奥特之星/assets/curios/cursed_coin.png",
 		rarity: "negative",
 		priceMultiplier: 1,
@@ -162,7 +165,7 @@ export const curios = {
 	berserker_badge: {
 		id: "berserker_badge",
 		name: "狂战徽章",
-		description: "越打越停不下来。",
+		description: "血染征袍，战意不休。纵使千军当前，亦敢独往。",
 		image: "extension/奥特之星/assets/curios/berserker_badge.png",
 		rarity: "rare",
 		priceMultiplier: 1,
@@ -174,7 +177,7 @@ export const curios = {
 	blood_rage_core: {
 		id: "blood_rage_core",
 		name: "血怒核心",
-		description: "失血越多，跳得越响。",
+		description: "血未尽，怒不止。锋刃既出，无人可挡。",
 		image: "extension/奥特之星/assets/curios/blood_rage_core.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -187,7 +190,7 @@ export const curios = {
 	counter_amulet: {
 		id: "counter_amulet",
 		name: "反击护符",
-		description: "越挨揍你的拳头越硬。",
+		description: "受人之刃，还人之刃。伤痕愈深，锋芒愈利。",
 		image: "extension/奥特之星/assets/curios/counter_amulet.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -200,7 +203,7 @@ export const curios = {
 	golden_compass: {
 		id: "golden_compass",
 		name: "黄金罗盘",
-		description: "指针从不指向北，只指向有货的地方。",
+		description: "天地有尽，欲念无边。纵寻遍四海珍宝，难填人心一隅。",
 		image: "extension/奥特之星/assets/curios/golden_compass.png",
 		rarity: "epic",
 		priceMultiplier: 1,
@@ -209,7 +212,7 @@ export const curios = {
 	piggy_bank: {
 		id: "piggy_bank",
 		name: "储蓄罐",
-		description: "看着是空的，摇一摇又像满的。",
+		description: "积少成多，藏富于器。今日一钱，明日千金。",
 		image: "extension/奥特之星/assets/curios/piggy_bank.png",
 		rarity: "epic",
 		priceMultiplier: 1,
@@ -218,7 +221,7 @@ export const curios = {
 	oblivion_stone: {
 		id: "oblivion_stone",
 		name: "遗忘之石",
-		description: "被它抹掉的技能，连名字都不会留下，倒是留下点别的。",
+		description: "忘川水冷，前尘如烟。舍得一身旧忆，方换半世浮华。",
 		image: "extension/奥特之星/assets/curios/oblivion_stone.png",
 		rarity: "epic",
 		priceMultiplier: 1,
@@ -227,7 +230,7 @@ export const curios = {
 	echo_bell: {
 		id: "echo_bell",
 		name: "回响之铃",
-		description: "摇响它，这一路打出去的牌都会循声回来。",
+		description: "铃响三声，去者复还。凡你所掷，终归掌中。",
 		image: "extension/奥特之星/assets/curios/echo_bell.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -240,7 +243,7 @@ export const curios = {
 	broken_crown: {
 		id: "broken_crown",
 		name: "破碎王冠",
-		description: "倒下的人越多，戴它的人越壮。",
+		description: "昔日万众朝拜，今朝荒冢独眠。纵有王权千载，终归黄土一抔。",
 		image: "extension/奥特之星/assets/curios/broken_crown.png",
 		rarity: "common",
 		priceMultiplier: 1,
@@ -253,7 +256,7 @@ export const curios = {
 	gluttonous_box: {
 		id: "gluttonous_box",
 		name: "贪食魔盒",
-		description: "它不挑食，喂进去的越多，吐回来的越多。",
+		description: "舍技以饲，其腹如渊。所吞愈多，所偿愈厚。",
 		image: "extension/奥特之星/assets/curios/gluttonous_box.png",
 		rarity: "epic",
 		priceMultiplier: 1,
@@ -262,7 +265,7 @@ export const curios = {
 	hungry_box: {
 		id: "hungry_box",
 		name: "饥饿之匣",
-		description: "它簌簌地啃钱。",
+		description: "匣腹如壑，终日吞金。所失者财货，所得者进境。",
 		image: "extension/奥特之星/assets/curios/hungry_box.png",
 		rarity: "negative",
 		priceMultiplier: 1,
@@ -276,7 +279,7 @@ export const curios = {
 	collector_showcase: {
 		id: "collector_showcase",
 		name: "收藏家的橱窗",
-		description: "上了锁的橱窗，没人能趁你不在时换走那批货。",
+		description: "旧藏列橱，皆归我有。一锁既落，无人可换。",
 		image: "extension/奥特之星/assets/curios/collector_showcase.png",
 		rarity: "rare",
 		priceMultiplier: 1,
@@ -288,7 +291,7 @@ export const curios = {
 	memory_prism: {
 		id: "memory_prism",
 		name: "记忆棱镜",
-		description: "每一次经历都会被它铭记，化为下一次成长的养分。",
+		description: "以昔为鉴，照我来路。所铭之事，皆化他日之资。",
 		image: "extension/奥特之星/assets/curios/memory_prism.png",
 		rarity: "rare",
 		priceMultiplier: 1,
@@ -296,6 +299,15 @@ export const curios = {
 		qualityEffects: {
 			epic: { eventExpRate: 0.5 },
 		},
+	},
+	old_friend_heart: {
+		id: "old_friend_heart",
+		name: "故人的心",
+		description: "故人已去，余温犹存。若以往昔换取今朝，纵使万般不舍，又有何妨？",
+		image: "extension/奥特之星/assets/curios/old_friend_heart.png",
+		rarity: "epic",
+		priceMultiplier: 1,
+		effect: { skillSacrifice: 1 },
 	},
 };
 

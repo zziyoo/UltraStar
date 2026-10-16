@@ -5,10 +5,13 @@
 import { lib, game, _status } from "../../../../noname.js";
 import { ROSTER_WHITE_LIST } from "./config.js";
 import { sumStatEffects } from "./data/stats.js";
+import { COPY_MARK_SKILL } from "./data/skills.js";
 import { sumCurioEffects, CURIOSITY_BATTLE_KEYS, CURIOSITY_STORAGE_KEYS } from "./curioManager.js";
 import { abyssContextForEnemy, normalizeAbyssIds } from "./endless/abyss.js";
+import { ABYSS_MARK_SKILL } from "./endless/abyssAffixes.js";
 import { isEnemyUsable } from "./enemy.js";
 import { perfEnd, perfMark } from "./perf.js";
+import { runSkillSacrifice } from "./skillSacrifice.js";
 import { skillsOf } from "./skillPool.js";
 import { showBattleCurios, showBattleStats, showEnemyAbyss, showEnemyCopySkills, showEnemyEnhance } from "./ui/common.js";
 
@@ -67,10 +70,6 @@ export function getRoster() {
  */
 const STAT_BUFF_SKILL = "rogue_stat";
 const STAT_BUFF_KEYS = ["extraDraw", "handLimit", "damageChance", "shaLimit"];
-/** 深渊词缀的标记载体技能 id（词缀本体技能另由 endless/abyssAffixes.js 提供） */
-const ABYSS_MARK_SKILL = "abyss_affix";
-/** Boss「复制技能」只读徽记的载体技能 id（纯展示，一条效果都不带） */
-const COPY_MARK_SKILL = "rogue_copy";
 /** 奇物的战斗内效果载体技能 id（同名 storage 由 data/skills.js 的机制技读） */
 const CURIO_SKILL = "rogue_curio";
 
@@ -351,6 +350,14 @@ export async function beginBattle(event, run, enemies) {
 	perfMark("敌方初始化与技能挂载（Boss 含复制技能）");
 	rogueBattleEnemies = game.players.slice(1, 1 + enemies.length).filter(Boolean);
 	game.me.update();
+
+	// 「故人的心」：双方技能都挂完之后、正式开打之前，让玩家把技能当筹码换一次。
+	// 取的是**这一场已经算好的效果总表**，与 applyCurioEffects 同一份数据；没有这件奇物时一次判断就过。
+	// 结算只作用在战斗里的 Player 上（见 skillSacrifice.js 顶部三条纪律），存档与背包一个字都不动。
+	if ((sumCurioEffects(run.curios, run.curioQuality).skillSacrifice ?? 0) > 0) {
+		await runSkillSacrifice(game.me, rogueBattleEnemies);
+		perfMark("故人的心：开局技能筹码");
+	}
 
 	const startHand = BASE_START_HAND + bonuses.startHand;
 	// 与身份模式一致：先 gameStart，再起手牌，最后进回合循环

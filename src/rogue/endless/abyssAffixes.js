@@ -52,6 +52,9 @@ import { ABYSS_MARK_TEXT } from "./abyssConfig.js";
 /** 玩家一方：battle.js 的 markSides 把阵营记在 Player.rogueSide 上（0=玩家 1=敌人） */
 const SIDE_PLAYER = 0;
 
+/** 深渊徽记的载体技能 id（battle.js 与「故人的心」摘词缀后同步徽记都按它读写 storage） */
+export const ABYSS_MARK_SKILL = "abyss_affix";
+
 /** 深渊·虚无的封印载体 id：只被 addSkillBlocker 按名字引用，永远不会 addSkill 到任何角色身上 */
 const XUWU_BLOCKER_SKILL = "abyss_xuwu_blocker";
 
@@ -138,6 +141,10 @@ export const affix = {
 		persevereSkill: true,
 		popup: false,
 		nopop: true,
+		// 词缀被真正摘掉时把用掉的次数一并清掉：留着这份标量只会让「还回过几次血」跟着角色跑
+		onremove(player) {
+			delete player.storage.abyss_buqu_used;
+		},
 		filter(event, player) {
 			return (player.storage.abyss_buqu_used ?? 0) < player.maxHp;
 		},
@@ -174,6 +181,10 @@ export const affix = {
 		persevereSkill: true,
 		popup: false,
 		nopop: true,
+		// 同 abyss_buqu：记账用的轮次标量随词缀一起走
+		onremove(player) {
+			delete player.storage.abyss_kuangre_round;
+		},
 		filter(event, player) {
 			return player.isAlive() && player.storage.abyss_kuangre_round !== game.roundNumber;
 		},
@@ -329,6 +340,10 @@ export const affix = {
 		persevereSkill: true,
 		popup: false,
 		nopop: true,
+		// 同 abyss_buqu：恨意是随词缀走的，摘掉就别留着旧层数
+		onremove(player) {
+			delete player.storage.abyss_fuchou;
+		},
 		filter(event, player, triggername) {
 			if (triggername === "damageEnd") {
 				return event.num > 0;
@@ -345,6 +360,58 @@ export const affix = {
 		},
 	},
 };
+
+// ---------------------------------------------------------------- 词缀被夺走后的收尾
+//
+// 「故人的心」能在战斗开始时把词缀从敌人身上真正摘掉（removeSkill）。绝大多数词缀的作用随技能本身消失，
+// 但这三条的落点**不在持有者身上**，摘掉之后必须手动放开，否则会出现「技能没了、它的效果还挂着」：
+//   · 污染把封牌载体与牌面引用记在**玩家**身上（mod 只有挂在持牌者身上才生效）；
+//   · 虚无把技能屏蔽器与「到期解除」宿主挂在**被封印的玩家**身上；
+//   · 另外两条靠 storage 里的标量记账，已在各自的 onremove 里清掉。
+// 两个函数都只在「场上已经没有任何人带着这条词缀」时由调用方触发——还有别的持有者时那两个状态是活的。
+
+/** 谁还带着这条词缀（深渊词缀是普通技能，去掉就查不到了） */
+export function hasAffixHolder(id) {
+	for (const player of game.players ?? []) {
+		if (player && typeof player.getSkills === "function" && player.getSkills().includes(id)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/** 污染被全部摘掉后：解开所有玩家身上的封牌引用、牌面标签与载体技能 */
+export function releaseWuranLocks() {
+	for (const player of game.players ?? []) {
+		if (!player) {
+			continue;
+		}
+		for (const card of Array.isArray(player.abyssWuranLocked) ? player.abyssWuranLocked : []) {
+			if (typeof card?.hasGaintag === "function" && card.hasGaintag(WURAN_GAINTAG)) {
+				card.removeGaintag(WURAN_GAINTAG);
+			}
+		}
+		player.abyssWuranLocked = [];
+		if (typeof player.getSkills === "function" && player.getSkills().includes(WURAN_LOCK_SKILL)) {
+			player.removeSkill(WURAN_LOCK_SKILL, true);
+		}
+	}
+}
+
+/** 虚无被全部摘掉后：放掉所有玩家身上的屏蔽器与解除宿主（屏蔽器一层一层加，就得一层一层解） */
+export function releaseXuwuBlocks() {
+	for (const player of game.players ?? []) {
+		if (!player) {
+			continue;
+		}
+		while ((player.storage?.skill_blocker ?? []).includes(XUWU_BLOCKER_SKILL)) {
+			player.removeSkillBlocker(XUWU_BLOCKER_SKILL);
+		}
+		if (typeof player.getSkills === "function" && player.getSkills().includes(XUWU_RELEASE_SKILL)) {
+			player.removeSkill(XUWU_RELEASE_SKILL, true);
+		}
+	}
+}
 
 // ---------------------------------------------------------------- 载体技能（都不进随机池）
 

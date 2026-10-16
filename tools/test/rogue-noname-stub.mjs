@@ -353,7 +353,11 @@ function makePlayer() {
 		return node;
 	};
 	node.addSkill = id => {
-		node.__skills.push(id);
+		// 对齐本体：技能表是去重的（本体 player.skills 走 Array.add，自带 includes 判断），
+		// 存档里的装备技能与角色原生技能重名时不会挂出两份
+		if (!node.__skills.includes(id)) {
+			node.__skills.push(id);
+		}
 		const info = lib.skill[id];
 		// 对齐本体 addSkill 的标记分支：mark:true 才建徽记，marktext 走 id_bg 翻译
 		if (info?.mark && !node.marks[id]) {
@@ -374,12 +378,27 @@ function makePlayer() {
 		}
 	};
 	node.hasSkill = id => node.__skills.includes(id);
-	node.removeSkill = id => {
+	// 对齐本体 getSkills：(skillMode, includeEquipSkills, applySkillFilter)——桩里没有装备区，
+	// 也没有屏蔽/禁用体系，所以三个参数都不改变结果，原样给出技能表
+	node.getSkills = () => node.__skills.slice(0);
+	node.removeSkill = (id, force) => {
+		const info = lib.skill[id];
+		// 对齐本体：没传第二参 true 时固定技（fixed）摘不掉
+		if (info?.fixed && force !== true) {
+			return id;
+		}
 		node.__skills = node.__skills.filter(item => item !== id);
 		if (node.marks[id]) {
 			node.marks[id].remove();
 			delete node.marks[id];
 		}
+		// 对齐本体 onremove 的两种语义：true → 清同名 storage；函数 → 交给技能自己收尾
+		if (info?.onremove === true) {
+			delete node.storage[id];
+		} else if (typeof info?.onremove === "function") {
+			info.onremove(node, id);
+		}
+		return id;
 	};
 	node.update = () => node;
 	node.addTempClass = () => node;

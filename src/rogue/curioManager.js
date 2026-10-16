@@ -35,6 +35,7 @@ export const CURIOSITY_EFFECT_KEYS = [
 	"extraShopRefresh", "extraCurioShopChance", "goldOfHeld", "goldOnSkillLoss", "expOnSkillLoss",
 	"eventExpRate",
 	"lockSkillShop", "lockCurioShop",
+	"skillSacrifice",
 ];
 
 /**
@@ -49,6 +50,7 @@ export const CURIOSITY_BATTLE_KEYS = [
 	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
 	"dyingRecallChance",
 	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
+	"skillSacrifice",
 ];
 
 /**
@@ -215,9 +217,11 @@ const EFFECT_TEXT = {
 	lockSkillShop: (value, effects) => {
 		const both = (effects?.lockCurioShop ?? 0) > 0;
 		return both
-			? "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选（技能商店锁着时连免费刷新也用不了）"
-			: "你可以锁定技能商店，锁定后不再刷新它的候选（连免费刷新也用不了）";
+			? "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选"
+			: "你可以锁定技能商店，锁定后不再刷新它的候选";
 	},
+	// 故人的心：开关式效果，同样合成一条（数值只表示「有这件奇物」，不写进句子）
+	skillSacrifice: () => "游戏开始时，你可以失去任意个技能，令任意名其他角色失去等量个技能",
 };
 
 /**

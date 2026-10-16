@@ -3677,8 +3677,9 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 			killHealToMax: 1,
 			killDrawToMaxHp: 0,
 			killDrawMaxHp: 1,
+			skillSacrifice: 0,
 		}),
-		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；回响之铃的概率键要保留小数 0.5；史诗破碎王冠走「回复至上限 + 摸上限张」；幸运石是结算类不进 storage）"
+		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；回响之铃的概率键要保留小数 0.5；史诗破碎王冠走「回复至上限 + 摸上限张」；幸运石是结算类不进 storage；故人的心这一场没带所以筹码键是 0）"
 	);
 	assertEqual(lib.hookmap.phaseBegin, true, "额外出牌阶段时机已登记");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "摸牌时机已登记");
@@ -5609,6 +5610,133 @@ await check("Boss 惩罚与待处理事件的收尾顺序：先付清惩罚（�
 	assertEqual(JSON.stringify(after.curios), JSON.stringify([]), "奇物按玩家的选择失去");
 	assertEqual(after.level, 6, "这套收尾不动关卡");
 	return "惩罚（含 v13 迁移清算）→ 事件 → 营地，三步顺序固定";
+});
+
+// ---------------------------------------------------------------- 故人的心（技能筹码）
+
+/** 先把技能注册进 lib（session 之前 putRun 也要过读档清洗），再进页面 */
+function registerSacrificeProbeSkills(ids) {
+	for (const id of ids) {
+		lib.skill[id] ??= { forced: true };
+		lib.translate[id] ??= id;
+		lib.translate[`${id}_info`] ??= "冒烟测试用技能。";
+	}
+}
+
+await check("故人的心：开局两阶段选择、双方等量失去、存档与背包一字不动", async () => {
+	freshWorld();
+	registerSacrificeProbeSkills(["own_one", "own_two", "own_three", "own_four", "own_five"]);
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["own_one", "own_two", "own_three"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["own_four"] };
+	putRun(0, {
+		mode: "endless",
+		curios: ["old_friend_heart"],
+		characterId: "迪迦",
+		skills: ["own_one", "own_two"],
+		skillInventory: ["own_one", "own_two", "own_three"],
+		currentBattle: {
+			status: "battle",
+			enemies: [{
+				characterId: "佐菲",
+				stats: { defense: 0, draw: 0, attack: 0 },
+				skills: ["own_five"],
+				abyss: ["abyss_jianbi"],
+				maxHp: 0,
+				hp: 0,
+			}],
+		},
+	});
+	session();
+	click("重新挑战这一关");
+	const overlay = common.currentScreenNode();
+	assert(overlay?.classList?.contains("wm-rogue-heart-overlay"), `带着故人的心开战应先弹选择页，实际：${overlay?.className ?? "无页面"}`);
+	assertEqual(nodesWithClass("wm-rogue-pick-row").length, 6, `候选：己方 3 条 + 敌方 3 条（原生 / 额外技能 / 深渊词缀），实际：${nodesWithClass("wm-rogue-pick-row").map(node => dump(node)).join("｜")}`);
+
+	click("own_one");
+	click("own_two");
+	click("下一步");
+	click("own_five");
+	click("深渊·坚壁");
+	click("确认");
+	await flush();
+
+	const enemy = game.players[1];
+	assertEqual(game.me.hasSkill("own_one"), false, "己方选中的技能真失去");
+	assertEqual(game.me.hasSkill("own_two"), false, "第二个选中的也失去");
+	assertEqual(game.me.hasSkill("own_three"), true, "没选的原生技能不动");
+	assertEqual(game.me.hasSkill("rogue_stat"), true, "属性强化载体不许被当筹码");
+	assertEqual(game.me.hasSkill("rogue_curio"), true, "奇物载体也不许被当筹码");
+	assertEqual(enemy.hasSkill("own_five"), false, "敌方额外技能真失去");
+	assertEqual(enemy.hasSkill("abyss_jianbi"), false, "深渊词缀真失去（持恒技照样摘得掉）");
+	assertEqual(enemy.hasSkill("own_four"), true, "没选的原生技能不动");
+	assertEqual(JSON.stringify(enemy.storage.abyss_affix), "[]", "深渊标记列表按实际持有同步");
+	assertEqual(enemy.marks.abyss_affix, undefined, "词缀摘光了，徽记本体也收起来");
+	assertEqual(JSON.stringify(enemy.rogueEnhanceInfo.abyss), "[]", "徽记面板的数据同步");
+	assert(log.some(item => item.type === "trigger:gameStart"), "结算完照常进 gameStart");
+	assert(log.some(item => item.type === "gameDraw"), "起手照常发牌");
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two"]), "装备栏一个字不动");
+	assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify(["own_one", "own_two", "own_three"]), "背包一个字不动");
+	assertEqual(JSON.stringify(slot.curios), JSON.stringify(["old_friend_heart"]), "奇物列表不动");
+	return "两阶段 6 条候选 → 双方各失去 2 个，存档零改动";
+});
+
+await check("故人的心：数量不等时「确认」点不动；取消则谁都不失去，战斗照常开始", async () => {
+	freshWorld();
+	registerSacrificeProbeSkills(["own_one", "own_two", "own_five"]);
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["own_one", "own_two"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putRun(0, {
+		mode: "endless",
+		curios: ["old_friend_heart"],
+		characterId: "迪迦",
+		skills: ["own_one"],
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: ["own_five"], maxHp: 0, hp: 0 }],
+		},
+	});
+	session();
+	click("重新挑战这一关");
+	click("own_one");
+	click("下一步");
+	// 敌方一个都没选：确认置灰，点下去毫无反应（与商店「付不起」同一套手感）
+	const confirm = nodesWithClass("wm-rogue-heart-confirm")[0];
+	assert(confirm, "阶段二应有确认按钮");
+	assert(confirm.classList.contains("wm-rogue-disabled"), "敌方数量还没配齐时确认置灰");
+	clickNode(confirm);
+	assertEqual(game.me.hasSkill("own_one"), true, "置灰时点下去什么都不发生");
+	assert(common.currentScreenNode()?.classList?.contains("wm-rogue-heart-overlay"), "页面也不关");
+	// 改走取消：谁都不失去，战斗照常开始
+	click("取消");
+	await flush();
+	assertEqual(game.me.hasSkill("own_one"), true, "取消后己方技能一个不少");
+	assertEqual(game.players[1].hasSkill("own_five"), true, "取消后敌方技能一个不少");
+	assert(log.some(item => item.type === "trigger:gameStart"), "取消不影响开局流程");
+	return "确认按等量门槛置灰；取消 = 零变化 + 照常开局";
+});
+
+await check("故人的心：己方没有可失去的技能（只剩肉鸽载体）时不开界面，战斗直接开始", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: [] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putRun(0, {
+		mode: "endless",
+		curios: ["old_friend_heart"],
+		characterId: "迪迦",
+		skills: [],
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
+		},
+	});
+	session();
+	click("重新挑战这一关");
+	await flush();
+	assert(!common.currentScreenNode()?.classList?.contains("wm-rogue-heart-overlay"), "没有筹码可换时不开界面");
+	assertEqual(game.me.hasSkill("rogue_stat"), true, "载体还在身上（说明只是被挡在候选之外）");
+	assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常开始，不卡在开局");
+	return "筹码为空 → 静默跳过";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

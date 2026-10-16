@@ -63,6 +63,7 @@ const skillCompat = await load("src/rogue/skillCompat.js");
 const rewardsData = await load("src/rogue/data/rewards.js");
 const enemy = await load("src/rogue/enemy.js");
 const battle = await load("src/rogue/battle.js");
+const sacrifice = await load("src/rogue/skillSacrifice.js");
 const rogueBgm = await load("src/rogue/bgm.js");
 const eventsData = await load("src/rogue/data/events.js");
 const curiosData = await load("src/rogue/data/curios.js");
@@ -3345,9 +3346,9 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("hungry_box").length, 2, "饥饿之匣两行（一扣一加）");
 	assertEqual(lines("hungry_box", "epic").length, 1, "史诗档只剩经验一行");
 	assertEqual(lines("hungry_box", "epic")[0], "经验获取 +20%", "史诗档经验 +20%");
-	assertEqual(lines("collector_showcase").join(" / "), "你可以锁定技能商店，锁定后不再刷新它的候选（连免费刷新也用不了）", "橱窗稀有档只锁技能商店");
+	assertEqual(lines("collector_showcase").join(" / "), "你可以锁定技能商店，锁定后不再刷新它的候选", "橱窗稀有档只锁技能商店");
 	assertEqual(lines("collector_showcase", "epic").length, 1, "橱窗史诗档合成一条");
-	assertEqual(lines("collector_showcase", "epic")[0], "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选（技能商店锁着时连免费刷新也用不了）", "橱窗史诗档两店都能锁");
+	assertEqual(lines("collector_showcase", "epic")[0], "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选", "橱窗史诗档两店都能锁");
 	return "十一件文案齐备 + 配套键不出行";
 });
 
@@ -5545,6 +5546,195 @@ check("Boss 代价面板删标题区 + 技能卡与商店同版式：样式判�
 	assert(/\.wm-rogue-btn\.wm-rogue-skill-btn \{ flex: none; min-width: 92px; margin-left: auto; \}/.test(css),
 		"管理页动作按钮靠右，与商店的「购买」同一位置");
 	return "标题区三件套删净 + 描述限高保留 + 按钮靠右";
+});
+
+// ---------------------------------------------------------------- 故人的心（技能筹码）
+//
+// 开局的两阶段界面由冒烟用例覆盖（这里没有 DOM）；本段盯三件逻辑：枚举口径、真失去与徽记同步、
+// 污染/虚无留在玩家身上的持续状态怎么收。
+
+/**
+ * 桩里的 lib.filter 是 Proxy（未知键一律给 anyFn），这里按本体实现补一份真的 skillDisabled，
+ * 用完立刻还原——商店候选池也读同一个函数，不能让它带着我们的临时实现跑后面的用例。
+ */
+function withSkillDisabledGate(fn) {
+	const saved = lib.filter.skillDisabled;
+	lib.filter.skillDisabled = id => {
+		if (!lib.translate[id] || !lib.translate[`${id}_info`]) {
+			return true;
+		}
+		const info = lib.skill[id];
+		return Boolean(!info || info.unique || info.temp || info.sub || info.fixed || info.vanish);
+	};
+	try {
+		return fn();
+	} finally {
+		lib.filter.skillDisabled = saved;
+	}
+}
+
+/** 注册一批测试技能：默认双键翻译齐备（本体口径才认），sac_ 前缀避免与别的用例撞名 */
+function registerSacrificeSkills(defs) {
+	for (const [id, info] of Object.entries(defs)) {
+		lib.skill[id] = info;
+		lib.translate[id] = id;
+		lib.translate[`${id}_info`] = "测试技能描述。";
+	}
+}
+
+/** 只实现 skillSacrifice.js 真正碰到的那几个成员，语义对齐本体（fixed 拦截、onremove 清理） */
+function makeFakeSkillPlayer(skills = [], options = {}) {
+	const node = {
+		name: options.name ?? "测试角色",
+		skills: skills.slice(0),
+		storage: { ...(options.storage ?? {}) },
+		updates: 0,
+		getSkills: () => node.skills.slice(0),
+		hasSkill: id => node.skills.includes(id),
+		removeSkill(id, force) {
+			const info = lib.skill[id];
+			if (info?.fixed && force !== true) {
+				return id;
+			}
+			node.skills = node.skills.filter(item => item !== id);
+			if (info?.onremove === true) {
+				delete node.storage[id];
+			} else if (typeof info?.onremove === "function") {
+				info.onremove(node, id);
+			}
+			return id;
+		},
+		update() {
+			node.updates += 1;
+			return node;
+		},
+	};
+	if (options.enhance) {
+		node.rogueEnhanceInfo = options.enhance;
+	}
+	return node;
+}
+
+check("故人的心：可失去技能的枚举口径（内部技与肉鸽载体挡在外面、group 伙伴折进主技能、持恒技算数）", () => {
+	registerSacrificeSkills({
+		sac_normal: {},
+		sac_locked: { locked: true },
+		sac_persevere: { persevereSkill: true },
+		sac_sub: { sub: true },
+		sac_temp: { temp: true },
+		sac_fixed: { fixed: true },
+		sac_unique: { unique: true },
+		sac_main: { group: ["sac_part", "sac_part2"] },
+		sac_part: {},
+		sac_part2: {},
+	});
+	// 缺 _info 的（本体口径视为「不可选用」）与没定义的 id 都不该出现
+	lib.skill.sac_notrans = {};
+	lib.translate.sac_notrans = "sac_notrans";
+	const player = makeFakeSkillPlayer([
+		"sac_normal", "sac_locked", "sac_persevere", "sac_sub", "sac_temp", "sac_fixed", "sac_unique",
+		"sac_main", "sac_part", "sac_part2", "sac_notrans", "sac_ghost",
+		"rogue_stat", "rogue_curio", "rogue_copy", "abyss_affix",
+	]);
+	const list = withSkillDisabledGate(() => sacrifice.listChoosableSkills(player));
+	assertEqual(list.join(","), "sac_normal,sac_locked,sac_persevere,sac_main", "只留上层、可失去、有翻译的技能");
+	return "内部技 4 类 + 载体 4 件挡在外面，group 伙伴折进主技能，持恒技在内";
+});
+
+check("故人的心：真失去（含 group 伙伴）并把两条徽记按实际持有同步", () => {
+	registerSacrificeSkills({
+		sac_native: {},
+		sac_main: { group: ["sac_part"] },
+		sac_part: {},
+		sac_abyss: { persevereSkill: true, onremove: player => { delete player.storage.sac_abyss_count; } },
+		sac_copy: {},
+	});
+	lib.skill.abyss_affix = { forced: true, mark: true };
+	lib.skill.rogue_copy = { forced: true, mark: true };
+	const enemy = makeFakeSkillPlayer(
+		["sac_native", "sac_main", "sac_part", "sac_abyss", "sac_copy", "abyss_affix", "rogue_copy"],
+		{
+			storage: { abyss_affix: ["sac_abyss"], rogue_copy: ["sac_copy", "sac_copy"], sac_abyss_count: 2 },
+			enhance: { stats: {}, abyss: ["sac_abyss"], copySkills: ["sac_copy"] },
+		}
+	);
+	const removed = sacrifice.loseSkillsForBattle(enemy, ["sac_main"]);
+	assertEqual(removed.join(","), "sac_main", "返回值只报上层技能，伙伴不另计一件");
+	assertEqual(enemy.hasSkill("sac_part"), false, "group 伙伴跟着一起失去");
+	assertEqual(enemy.hasSkill("sac_native"), true, "没选的技能一个都不动");
+	assertEqual(enemy.updates, 1, "失去之后只刷新一次");
+
+	assertEqual(sacrifice.loseSkillsForBattle(enemy, ["sac_abyss"]).join(","), "sac_abyss", "词缀可以被单独选中");
+	assertEqual(enemy.storage.sac_abyss_count, undefined, "技能自己的 onremove 收尾生效");
+	assertEqual(JSON.stringify(enemy.storage.abyss_affix), "[]", "深渊标记列表按实际持有同步");
+	assertEqual(enemy.hasSkill("abyss_affix"), false, "词缀摘光后连徽记本体一起摘掉");
+	assertEqual(JSON.stringify(enemy.rogueEnhanceInfo.abyss), "[]", "徽记面板的数据同步");
+	assertEqual(JSON.stringify(enemy.storage.rogue_copy), JSON.stringify(["sac_copy"]), "复制技能还在身上：列表按实际持有去重（同一条只算一件）");
+	assertEqual(JSON.stringify(enemy.rogueEnhanceInfo.copySkills), JSON.stringify(["sac_copy"]), "面板数据同样按实际持有去重");
+	return "group 伙伴跟随 + onremove 收尾 + 徽记列表/面板按实际持有同步";
+});
+
+check("故人的心：污染与虚无失去后放开它们留在玩家身上的封牌与屏蔽器（还有别人带着时不动）", () => {
+	lib.skill.abyss_wuran = {};
+	lib.skill.abyss_xuwu = {};
+	const card = { tag: true, hasGaintag: () => true, removeGaintag() { this.removed = true; } };
+	const me = makeFakeSkillPlayer(["abyss_wuran_lock", "abyss_xuwu_release"], { name: "玩家" });
+	me.storage.skill_blocker = ["abyss_xuwu_blocker", "abyss_xuwu_blocker"];
+	me.removeSkillBlocker = id => {
+		const index = me.storage.skill_blocker.indexOf(id);
+		if (index >= 0) {
+			me.storage.skill_blocker.splice(index, 1);
+		}
+		if (!me.storage.skill_blocker.length) {
+			delete me.storage.skill_blocker;
+		}
+	};
+	me.abyssWuranLocked = [card];
+	const holder = makeFakeSkillPlayer(["abyss_wuran", "abyss_xuwu"]);
+	mockGame.players = [me, holder];
+	try {
+		sacrifice.releaseLostAffixEffects();
+		assertEqual(JSON.stringify(me.storage.skill_blocker), JSON.stringify(["abyss_xuwu_blocker", "abyss_xuwu_blocker"]), "还有持有者时屏蔽器一层都不放");
+		assertEqual(me.abyssWuranLocked.length, 1, "封牌引用不动");
+		assertEqual(card.removed, undefined, "牌面标签也不摘");
+
+		holder.removeSkill("abyss_wuran");
+		holder.removeSkill("abyss_xuwu");
+		sacrifice.releaseLostAffixEffects();
+		assertEqual(me.storage.skill_blocker, undefined, "屏蔽器按层全部放开");
+		assertEqual(me.hasSkill("abyss_xuwu_release"), false, "解除宿主一并摘掉");
+		assertEqual(me.abyssWuranLocked.length, 0, "封牌引用清空");
+		assertEqual(card.removed, true, "牌面标签摘掉");
+		assertEqual(me.hasSkill("abyss_wuran_lock"), false, "封牌载体摘掉");
+		return "无持有者才放开：两层屏蔽器全解 + 封牌引用/标签/载体全清";
+	} finally {
+		mockGame.players = [];
+	}
+});
+
+await checkAsync("故人的心：任一侧没有可失去的技能就整件事跳过（不开界面、不报错）", async () => {
+	registerSacrificeSkills({ sac_only: {} });
+	const empty = makeFakeSkillPlayer([]);
+	const armed = makeFakeSkillPlayer(["sac_only"]);
+	const noPlayer = await sacrifice.runSkillSacrifice(empty, [armed]);
+	assertEqual(noPlayer.skipped, "no-player-skills", "己方没牌可出：跳过");
+	const noEnemy = await sacrifice.runSkillSacrifice(armed, [empty]);
+	assertEqual(noEnemy.skipped, "no-enemy-skills", "敌方没牌可出：跳过");
+	assertEqual(armed.hasSkill("sac_only"), true, "跳过时双方一点变化都没有");
+});
+
+check("故人的心选择页：正文可滚、面板限高、隐藏开关压得住分区（样式判据直读 styles.js）", () => {
+	// 冒烟夹具是 DOM 桩，没有排版引擎，量不出「技能几十条会不会溢出」——这三条只能在样式层钉死
+	const css = fs.readFileSync(path.join(root, "src/rogue/ui/styles.js"), "utf8").replace(/\s+/g, " ");
+	assert(/#wm-rogue-overlay \.wm-rogue-heart-body \{ [^}]*display: block !important; position: static !important; [^}]*flex: 1 1 auto; min-height: 0; [^}]*overflow-y: auto; [^}]*\}/.test(css),
+		"正文条必须是唯一的可伸缩项（min-height:0 + overflow-y:auto），技能再多也滚得动");
+	assert(/#wm-rogue-overlay\.wm-rogue-heart-overlay \.wm-rogue-heart-panel \{ [^}]*max-height: 100%; display: flex; flex-direction: column; [^}]*\}/.test(css),
+		"面板限高到 stage（max-height:100% + flex 列），标题与按钮不会被挤出屏幕");
+	assert(/#wm-rogue-overlay \.wm-rogue-heart-actions \{ [^}]*display: flex !important; flex-wrap: wrap !important; [^}]*\}/.test(css),
+		"按钮行窄屏折行，不在横向溢出");
+	assert(css.indexOf(".wm-rogue-heart-pane {") < css.lastIndexOf(".wm-rogue-hidden { display: none !important; }"),
+		"隐藏开关（.wm-rogue-hidden）必须排在分区显隐规则之后，同权重下后者才压得住");
+	return "可滚 + 限高 + 按钮折行 + 隐藏开关顺序，四条都钉在样式源文本上";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);
