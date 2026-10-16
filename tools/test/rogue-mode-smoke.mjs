@@ -6034,6 +6034,66 @@ await check("故人的心：主技能没有 trigger、靠 group 伙伴做事 —
 	return "抛错后伙伴该走的走、该留的留，开局不受影响";
 });
 
+// ---------------------------------------------------------------- 故人的心：group 伙伴自己的 onremove 抛错
+
+/** 主技能 sac_trap group 到 sac_trap_b；sac_trap_b 自己会炸，还在 init 里给自己挂了一个派生技能 */
+function registerTrappedPartnerProbeSkills() {
+	lib.skill.sac_trap = { group: ["sac_trap_b"] };
+	lib.skill.sac_trap_b = {
+		trigger: { player: "damageBegin1" },
+		onremove() { throw new Error("partner boom"); },
+		init(player, skill) { player.addAdditionalSkill(skill, ["sac_trap_child"]); },
+	};
+	lib.skill.sac_trap_child = { trigger: { player: "phaseEnd" } };
+	lib.skill.sac_e1 = {};
+	lib.skill.sac_e2 = {};
+	for (const id of ["sac_trap", "sac_trap_b", "sac_trap_child", "sac_e1", "sac_e2"]) {
+		lib.translate[id] = id;
+		lib.translate[`${id}_info`] = "冒烟测试用技能。";
+	}
+}
+
+await check("故人的心：group 伙伴自己的 onremove 抛错 —— 触发器被连带摘光后，附加技能与收尾照样补全（真机链路）", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_trap", "sac_trap_b"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putShareProbeRun();
+	session();
+	registerTrappedPartnerProbeSkills();
+	const savedError = console.error;
+	console.error = () => {};   // 这一条故意让 onremove 抛错，日志不进测试输出
+	try {
+		click("重新挑战这一关");
+		assert(playerHooks(game.me, "damageBegin1").includes("sac_trap_b"), "开战前伙伴的钩子已登记");
+		assertEqual(game.me.hasSkill("sac_trap_child"), true, "伙伴 init 里挂上的派生技能在身（本体 additionalSkills 机制）");
+		assert(playerHooks(game.me, "phaseEnd").includes("sac_trap_child"), "派生技能的钩子也登记着");
+		game.me.disabledSkills.sac_trap_b = ["sac_trap_b_awake"];   // 觉醒态：本体记成 `<id>_awake`
+
+		click("sac_trap");
+		click("下一步");
+		click("sac_e1");
+		click("确认");
+		await flush();
+
+		assertEqual(game.me.hasSkill("sac_trap"), false, "主技能真失去");
+		assertEqual(game.me.hasSkill("sac_trap_b"), false, "伙伴跟着失去");
+		assertEqual(playerHooks(game.me, "damageBegin1").includes("sac_trap_b"), false, "伙伴的钩子没有残留");
+		assertEqual(game.me.initedSkills.includes("sac_trap_b"), false, "伙伴的 initedSkills 登记清掉");
+		// 这几条是本轮的核心：触发器侧已被连带摘光，收尾不能因此被当作「已完成」
+		assertEqual(game.me.hasSkill("sac_trap_child"), false, "伙伴名下的附加技能跟着清掉");
+		assertEqual(game.me.additionalSkills.sac_trap_b, undefined, "additionalSkills 那本账删掉");
+		assertEqual(playerHooks(game.me, "phaseEnd").includes("sac_trap_child"), false, "派生技能的钩子摘干净");
+		assertEqual(game.me.disabledSkills.sac_trap_b, undefined, "觉醒禁用态清掉");
+		assertEqual(game.players[1].hasSkill("sac_e1"), false, "敌方指定的一件照常失去（两侧数量相等）");
+		assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常开始");
+		const notified = log.filter(item => item.type === "callHook" && item.name === "removeSkillCheck" && item.skills?.includes("sac_trap_b"));
+		assertEqual(notified.length, 1, "伙伴的钩子通知恰好补一次，不重复");
+	} finally {
+		console.error = savedError;
+	}
+	return "连带摘光触发器的伙伴：附加技能 / 觉醒态 / 钩子通知照样补全且不重复";
+});
+
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);
 if (failures.length) {
 	console.log(`失败用例：${failures.join("、")}`);

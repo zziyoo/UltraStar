@@ -234,11 +234,45 @@ function hasResidualTrigger(player, id) {
 }
 
 /**
- * 这个技能的「注册状态」还残留着吗：钩子、`_hookTrigger`、`initedSkills` 任一还在就算。
- * 本体 `removeSkillTrigger` 这三样是一起清的，所以任一样在 = 那一步没跑完。
+ * 本体 `removeSkill` 收尾里 `removeAdditionalSkills(skill)` 那一笔还没跑：`additionalSkills[id]`
+ * 名下还挂着派生技能（本体摘技能时只把被摘者从各成员表里剔掉，不动它自己的这本账）。
  */
-function hasResidualRegistration(player, id) {
-	return hasResidualTrigger(player, id) || (player.initedSkills ?? []).includes(id);
+function hasResidualAdditional(player, id) {
+	return !!player?.additionalSkills?.[id];
+}
+
+/**
+ * 本体 `removeSkill` 收尾里 `enableSkill(skill + "_awake")` 那一笔还没跑：觉醒态
+ * （`awakenSkill` 压进 `disabledSkills` 的 `${id}_awake`）还躺在某个技能的账上。
+ */
+function hasResidualAwake(player, id) {
+	const awake = `${id}_awake`;
+	for (const list of Object.values(player?.disabledSkills ?? {})) {
+		if (Array.isArray(list) && list.includes(awake)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * 这个技能的**收尾**（本体 `removeSkill` 里 `onremove` 之后的那几步）还没跑完吗？
+ * **不能只看触发器 / `initedSkills`**：本体 `removeSkillTrigger` 会 `game.expandSkills` 展开 `group`，
+ * 「失去 A」会先把共享 / 跟随伙伴 B 的钩子与登记一并摘掉——等 B 自己再被摘、且它的 `onremove`
+ * 抛错时，触发器侧一点残留都没有，可收尾一步都没走（`additionalSkills` 名下还挂着派生技能、
+ * 觉醒态还压着、`removeSkillCheck` 也没通知）。所以收尾三步各查各的痕迹，任一个还在就补：
+ *   · `removeSkillTrigger`：钩子 / `_hookTrigger` / `initedSkills` 登记；
+ *   · `removeAdditionalSkills`：`additionalSkills[id]`（本体对 `keepSkill` 本就跳过这一步）；
+ *   · `enableSkill`：`disabledSkills` 里的 `${id}_awake`。
+ */
+function needsRemovalFinishing(player, id) {
+	if (hasResidualTrigger(player, id) || (player.initedSkills ?? []).includes(id)) {
+		return true;
+	}
+	if (!lib.skill[id]?.keepSkill && hasResidualAdditional(player, id)) {
+		return true;
+	}
+	return hasResidualAwake(player, id);
 }
 
 /**
@@ -256,20 +290,24 @@ function removalScope(player, id) {
 /**
  * 补全一次被 `onremove` 抛错打断的摘除。
  * 本体 `removeSkill` 的语句顺序是「先摘技能表 → 再调 `onremove` → 最后才 `removeSkillTrigger` /
- * `removeAdditionalSkills` / 钩子通知」，所以一抛错就会停在中途：技能表里没了、注册状态还在
- * （`getSkills()` 里看不出问题，注册表里却有）。补全按**实际状态**决定，不无条件重放：
+ * `removeAdditionalSkills` / `enableSkill` / 钩子通知」，所以一抛错就会停在中途：技能表里没了、
+ * 收尾一步没走（`getSkills()` 里看不出问题，注册表与两本账里却有）。补全按**实际状态**决定，
+ * 不无条件重放：
  *   · 还在身上的（要留着的共享伙伴）→ 一个字都不动；
- *   · 已经不在身上、且注册状态还残留 → 才补那几步（含主技能**与它的 group 伙伴**，
+ *   · 已经不在身上、且收尾还有痕迹（见 `needsRemovalFinishing`：触发器侧可以早被连带摘光，
+ *     所以还要看 `additionalSkills` 与觉醒态）→ 才补那几步（含主技能**与它的 group 伙伴**，
  *     以及半途离开技能表的跟随件：主技能自己可以没有 `trigger`，钩子却挂在伙伴身上）；
- *   · 已经不在身上、注册状态也干净 → 说明收尾跑完了（例如抛错发生在跟随件身上、主技能早已收尾），
+ *   · 已经不在身上、收尾也干净 → 说明收尾跑完了（例如抛错发生在跟随件身上、主技能早已收尾），
  *     跳过——免得 `removeAdditionalSkills` / `removeSkillCheck` 这类有副作用的调用被执行两遍。
- * 最后把被打断的那半件事做完：跟随件该走的走、该留的补回注册。
+ * 最后把被打断的那半件事做完：scope 里**每个** id 都做一次跟随件裁决——被打断的技能自己的
+ * `group` 伙伴也在其中（上面补摘触发器会把它们的注册连带摘掉，正常路径里这半件事由
+ * `settleDependents(被摘技能)` 完成，得有人替被打断的那个补上）。
  */
 function repairRemoval(player, scope) {
 	try {
 		for (const skill of scope) {
 			const info = lib.skill[skill];
-			if (!info || playerSkillIds(player).includes(skill) || !hasResidualRegistration(player, skill)) {
+			if (!info || playerSkillIds(player).includes(skill) || !needsRemovalFinishing(player, skill)) {
 				continue;
 			}
 			player.removeSkillTrigger(skill);
@@ -279,7 +317,9 @@ function repairRemoval(player, scope) {
 			player.enableSkill(`${skill}_awake`);
 			game.callHook("removeSkillCheck", [skill, player]);
 		}
-		settleDependents(player, scope[0]);
+		for (const skill of scope) {
+			settleDependents(player, skill);
+		}
 	} catch (error) {
 		console.error("[rogue] 失去技能的收尾补全失败：", error);
 	}

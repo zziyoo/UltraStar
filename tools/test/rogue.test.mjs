@@ -24,7 +24,10 @@ export const game = {
 	addGroup: () => {}, addCharacterPack: () => {},
 	saveExtensionConfig: () => {}, getExtensionConfig: () => null,
 	playAudio: () => {}, log: () => {},
-	callHook: () => {},
+	// 对齐本体：removeSkill 收尾会给 removeSkillCheck 的听众发一次通知；这里记账，
+	// 供断言「收尾已完成的不会被重复通知、被打断的恰好补一次」
+	callHook: (name, args) => game.__hooks.push({ name, skill: args?.[0] }),
+	__hooks: [],
 	// 对齐本体 game.expandSkills：把每个技能声明的 group 伙伴原地去重追加进同一个数组并返回；
 	// 只展开一层，group 写字符串或数组都吃（subSkill 要第二参 true，这里用不到）
 	expandSkills(skills, subSkill = false) {
@@ -5602,10 +5605,25 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 		playerid: options.playerid ?? `sac_player_${++fakePlayerSeq}`,
 		skills: skills.slice(0),
 		initedSkills: [],
+		// 对齐本体：派生技能（addAdditionalSkill 挂上来的）与觉醒禁用态各有一本账
+		additionalSkills: { ...(options.additionalSkills ?? {}) },
+		disabledSkills: { ...(options.disabledSkills ?? {}) },
 		storage: { ...(options.storage ?? {}) },
 		updates: 0,
-		getSkills: () => node.skills.slice(0),
-		hasSkill: id => node.skills.includes(id),
+		// 对齐本体 getSkills：技能表 + 各 additionalSkills 名下的派生技能合并去重
+		getSkills: () => {
+			const list = node.skills.slice(0);
+			for (const source of Object.keys(node.additionalSkills)) {
+				const value = node.additionalSkills[source];
+				for (const id of Array.isArray(value) ? value : [value]) {
+					if (id && !list.includes(id)) {
+						list.push(id);
+					}
+				}
+			}
+			return list;
+		},
+		hasSkill: id => node.getSkills().includes(id),
 		/** 对齐本体 addSkillTrigger：展开 group 后逐个登记钩子与 initedSkills（init 只跑一次） */
 		addSkillTrigger(ids, hidden, triggeronly) {
 			for (const skill of mockGame.expandSkills(Array.isArray(ids) ? ids : [ids])) {
@@ -5679,15 +5697,65 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 				}
 			}
 		},
-		removeAdditionalSkills: () => node,
-		enableSkill: () => node,
+		/** 本体 getRemovableAdditionalSkills 的 `hasAnotherSKill` 口径：还被技能表或别的账保着就不算能摘 */
+		derivedKeptElsewhere(id, source) {
+			if (node.skills.includes(id)) {
+				return true;
+			}
+			return Object.keys(node.additionalSkills).some(key => {
+				if (key === source) {
+					return false;
+				}
+				const value = node.additionalSkills[key];
+				return Array.isArray(value) ? value.includes(id) : value === id;
+			});
+		},
+		/** 对齐本体 addAdditionalSkill：派生技能挂进 `additionalSkills[source]` 并登记触发器
+		 *  （本体 addSkill(x, null, null, true)——addToSkills=true 不进技能表，但触发器照登） */
+		addAdditionalSkill(source, skillsToAdd) {
+			node.additionalSkills[source] ??= [];
+			for (const id of Array.isArray(skillsToAdd) ? skillsToAdd : [skillsToAdd]) {
+				node.additionalSkills[source].push(id);
+				node.addSkillTrigger(id);
+			}
+			return node;
+		},
+		/** 对齐本体 removeAdditionalSkills（→ removeSkillLog + $removeAdditionalSkills）：
+		 *  名下没被别处保住的派生技能逐个走完整 removeSkill，最后把这本账删掉 */
+		removeAdditionalSkills(source) {
+			for (const id of (node.additionalSkills[source] ?? []).slice(0)) {
+				if (!node.derivedKeptElsewhere(id, source)) {
+					node.removeSkill(id);
+				}
+			}
+			delete node.additionalSkills[source];
+			return node;
+		},
+		/** 对齐本体 enableSkill：把 skill 从每本 disabledSkills 账里摘掉 */
+		enableSkill(skill) {
+			for (const key of Object.keys(node.disabledSkills)) {
+				node.disabledSkills[key] = node.disabledSkills[key].filter(item => item !== skill);
+				if (!node.disabledSkills[key].length) {
+					delete node.disabledSkills[key];
+				}
+			}
+			return node;
+		},
 		removeSkill(id, force) {
 			const info = lib.skill[id];
 			if (info?.fixed && force !== true) {
 				return id;
 			}
-			// 对齐本体语句顺序：先摘技能表 → onremove → 最后摘触发器（onremove 抛错就会停在中途）
+			// 对齐本体语句顺序：先摘技能表（并把被摘者从各 additionalSkills 的成员表里剔掉）→
+			// onremove → 最后才是 removeSkillTrigger / removeAdditionalSkills / enableSkill / 钩子通知。
+			// onremove 抛错就会停在中途（技能表里没了、收尾一步没走）——真机语义，桩必须照搬
 			node.skills = node.skills.filter(item => item !== id);
+			for (const key of Object.keys(node.additionalSkills)) {
+				const value = node.additionalSkills[key];
+				if (Array.isArray(value) && value.includes(id)) {
+					node.additionalSkills[key] = value.filter(item => item !== id);
+				}
+			}
 			if (info?.onremove === true) {
 				delete node.storage[id];
 			} else if (typeof info?.onremove === "function") {
@@ -5695,7 +5763,12 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 			}
 			if (info) {
 				node.removeSkillTrigger(id);
+				if (!info.keepSkill) {
+					node.removeAdditionalSkills(id);
+				}
 			}
+			node.enableSkill(`${id}_awake`);
+			mockGame.callHook("removeSkillCheck", [id, node]);
 			return id;
 		},
 		update() {
@@ -5802,6 +5875,87 @@ check("故人的心：主技能没有 trigger、group 伙伴有 —— onremove 
 		assertEqual(hooksOf(parent, "phaseZhunbei").includes("sac_child_boom"), false, "它的钩子补摘干净了");
 		assertEqual(parent.initedSkills.includes("sac_child_boom"), false, "initedSkills 也清掉");
 		return "抛错后按整组查残留：非共享伙伴彻底移除、共享伙伴保留且触发器有效、global 与跟随件残留都清干净";
+	} finally {
+		console.error = savedError;
+	}
+});
+
+check("故人的心：group 伙伴自己的 onremove 抛错 —— 触发器已被「失去主技能」连带摘光，收尾照样补全", () => {
+	registerSacrificeSkills({
+		sac_trap_main: { group: ["sac_trap_partner"] },
+		// 摘主技能时本体 removeSkillTrigger 会展开 group，把伙伴的钩子与 initedSkills 登记一并摘掉；
+		// 之后伙伴自己被摘时 onremove 抛错——触发器侧一点残留都没有，收尾却一步都没走
+		sac_trap_partner: { trigger: { player: "damageBegin1" }, onremove() { throw new Error("partner boom"); } },
+		sac_trap_child: { trigger: { player: "phaseEnd" } },   // 伙伴名下的派生技能（本体 additionalSkills 机制）
+		sac_trap_other: {},
+	});
+	const savedError = console.error;
+	console.error = () => {};   // 这一条故意让 onremove 抛错，日志不进测试输出
+	try {
+		const player = makeFakeSkillPlayer(["sac_trap_main", "sac_trap_partner", "sac_trap_other"], {
+			playerid: "sac_trap_player",
+			additionalSkills: { sac_trap_partner: ["sac_trap_child"] },
+			disabledSkills: { sac_trap_partner: ["sac_trap_partner_awake"] },   // 觉醒态：本体记成 `<id>_awake`
+		});
+		player.addSkillTrigger("sac_trap_child");   // 派生技能按本体口径本来就听着
+		assert(hooksOf(player, "damageBegin1").includes("sac_trap_partner"), "伙伴的钩子一开始登记着");
+		assert(hooksOf(player, "phaseEnd").includes("sac_trap_child"), "派生技能的钩子也登记着");
+		const notified = mockGame.__hooks.length;
+
+		assertEqual(sacrifice.loseSkillsForBattle(player, ["sac_trap_main"]).join(","), "sac_trap_main", "主技能照实记账");
+		assertEqual(player.hasSkill("sac_trap_main"), false, "主技能已失去");
+		assertEqual(player.hasSkill("sac_trap_partner"), false, "没人再依赖它 → 伙伴跟着失去");
+		assertEqual(player.initedSkills.includes("sac_trap_partner"), false, "伙伴的 initedSkills 登记清掉了");
+		assertEqual(player.initedSkills.includes("sac_trap_child"), false, "派生技能的登记也清掉了");
+		assertEqual(hooksOf(player, "damageBegin1").includes("sac_trap_partner"), false, "伙伴的钩子没有残留");
+		assertEqual(hooksOf(player, "phaseEnd").includes("sac_trap_child"), false, "派生技能的钩子没有残留");
+		// 这三条就是本轮的核心：触发器侧已无残留，收尾的另外几步不能因此被跳过
+		assertEqual(player.hasSkill("sac_trap_child"), false, "伙伴名下的附加技能跟着清掉（不能因为触发器已摘就认定收尾完成）");
+		assertEqual(player.additionalSkills.sac_trap_partner, undefined, "additionalSkills 那本账删掉");
+		assertEqual(player.disabledSkills.sac_trap_partner, undefined, "觉醒禁用态清掉");
+		assertEqual(player.hasSkill("sac_trap_other"), true, "无关技能一个都不动");
+
+		// 有副作用的钩子不许重复：收尾已完成的只通知一次，被打断的补的那一次也是唯一的
+		const fired = mockGame.__hooks.slice(notified).filter(item => item.name === "removeSkillCheck");
+		const notifyCount = id => fired.filter(item => item.skill === id).length;
+		assertEqual(notifyCount("sac_trap_main"), 1, "收尾完成的技能只收到一次钩子通知");
+		assertEqual(notifyCount("sac_trap_partner"), 1, "收尾被打断的技能把这一次补齐，也不重复");
+
+		// 契约：被打断的伙伴自己也有 group 伙伴时，补全的最后一步要替它裁决「留还是走」
+		registerSacrificeSkills({
+			sac_trap_main: { group: ["sac_trap_partner"] },
+			sac_trap_partner: { group: ["sac_trap_grand"], onremove() { throw new Error("partner boom"); } },
+			sac_trap_grand: { trigger: { player: "phaseDrawBegin2" } },
+		});
+		const nested = makeFakeSkillPlayer(["sac_trap_main", "sac_trap_partner", "sac_trap_grand"], {
+			playerid: "sac_trap_nested",
+			disabledSkills: { sac_trap_partner: ["sac_trap_partner_awake"] },   // 伙伴带觉醒态（收尾第三步的痕迹）
+		});
+		assert(hooksOf(nested, "phaseDrawBegin2").includes("sac_trap_grand"), "伙伴自己的伙伴一开始也听着");
+		sacrifice.loseSkillsForBattle(nested, ["sac_trap_main"]);
+		assertEqual(nested.hasSkill("sac_trap_partner"), false, "伙伴失去");
+		assertEqual(nested.disabledSkills.sac_trap_partner, undefined, "觉醒禁用态被清掉（触发器侧干净也得查这一步）");
+		assertEqual(nested.hasSkill("sac_trap_grand"), false, "没人再依赖它 → 它也跟着彻底移除");
+		assertEqual(hooksOf(nested, "phaseDrawBegin2").includes("sac_trap_grand"), false, "它的钩子摘干净");
+
+		// 同一个形状，但伙伴自己的伙伴还被别人依赖：留下，且补全里被连带摘掉的触发器要补回来
+		registerSacrificeSkills({
+			sac_trap_main: { group: ["sac_trap_partner"] },
+			sac_trap_partner: { group: ["sac_trap_grand"], onremove() { throw new Error("partner boom"); } },
+			sac_trap_grand: { trigger: { player: "phaseDrawBegin2" } },
+			sac_trap_keep: { trigger: { player: "damageEnd" }, group: ["sac_trap_grand"] },
+		});
+		const nestedShared = makeFakeSkillPlayer(["sac_trap_main", "sac_trap_partner", "sac_trap_grand", "sac_trap_keep"], {
+			playerid: "sac_trap_nested_shared",
+			additionalSkills: { sac_trap_partner: ["sac_trap_child"] },
+		});
+		sacrifice.loseSkillsForBattle(nestedShared, ["sac_trap_main"]);
+		assertEqual(nestedShared.hasSkill("sac_trap_partner"), false, "伙伴失去");
+		assertEqual(nestedShared.hasSkill("sac_trap_grand"), true, "它自己的伙伴还被 sac_trap_keep 依赖 → 留下");
+		assert(hooksOf(nestedShared, "phaseDrawBegin2").includes("sac_trap_grand"), "补全里被连带摘掉的触发器补了回来");
+		assertEqual(nestedShared.initedSkills.includes("sac_trap_grand"), true, "登记也在");
+		assertEqual(nestedShared.hasSkill("sac_trap_child"), false, "伙伴的派生技能照样清掉");
+		return "触发器侧零残留之外的收尾（附加技能 / 觉醒态 / 钩子通知）照样补全且不重复；被打断者的伙伴留/走各有裁决";
 	} finally {
 		console.error = savedError;
 	}

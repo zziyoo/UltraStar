@@ -337,6 +337,9 @@ function makePlayer() {
 	node.identity = null;
 	// 对齐 player.js:131：真实 Player 创建时就带 storage
 	node.storage = {};
+	// 对齐本体：派生技能（additionalSkills）与觉醒/禁用（disabledSkills）两本账，真实 Player 创建时就带
+	node.additionalSkills = {};
+	node.disabledSkills = {};
 	// 对齐本体：mark:true 的技能 addSkill 时会在角色身上建一个徽记节点（点击链路要能测）
 	node.marks = {};
 	node.init = character => {
@@ -472,17 +475,60 @@ function makePlayer() {
 		}
 		return node;
 	};
-	// 桩里没有附加技能体系：本体摘技能时会顺手清的那一组，这里给两个空实现保持接口形状
-	node.removeAdditionalSkills = () => node;
-	node.enableSkill = () => node;
-	node.addSkill = id => {
+	/** 对齐本体 getRemovableAdditionalSkills 的 hasAnotherSKill 口径：还被技能表或别的账保着就不算能摘 */
+	node.derivedKeptElsewhere = (id, source) => {
+		if (node.__skills.includes(id)) {
+			return true;
+		}
+		return Object.keys(node.additionalSkills).some(key => {
+			if (key === source) {
+				return false;
+			}
+			const value = node.additionalSkills[key];
+			return Array.isArray(value) ? value.includes(id) : value === id;
+		});
+	};
+	/** 对齐本体 addAdditionalSkill：派生技能挂进 `additionalSkills[source]`，
+	 *  addToSkills=true 不进技能表、但触发器照登（getSkills 从这本账里把派生技能带出来） */
+	node.addAdditionalSkill = (source, skillsToAdd) => {
+		node.additionalSkills[source] ??= [];
+		for (const id of Array.isArray(skillsToAdd) ? skillsToAdd : [skillsToAdd]) {
+			node.additionalSkills[source].push(id);
+			node.addSkill(id, null, null, true);
+		}
+		return node;
+	};
+	/** 对齐本体 removeAdditionalSkills（→ removeSkillLog + $removeAdditionalSkills）：
+	 *  名下没被别处保住的派生技能逐个走完整 removeSkill，最后把这本账删掉 */
+	node.removeAdditionalSkills = source => {
+		for (const id of (node.additionalSkills[source] ?? []).slice(0)) {
+			if (!node.derivedKeptElsewhere(id, source)) {
+				node.removeSkill(id);
+			}
+		}
+		delete node.additionalSkills[source];
+		return node;
+	};
+	/** 对齐本体 enableSkill：把 skill 从每本 disabledSkills 账里摘掉 */
+	node.enableSkill = skill => {
+		for (const key of Object.keys(node.disabledSkills)) {
+			node.disabledSkills[key] = node.disabledSkills[key].filter(item => item !== skill);
+			if (!node.disabledSkills[key].length) {
+				delete node.disabledSkills[key];
+			}
+		}
+		return node;
+	};
+	node.addSkill = (id, checkConflict, nobroadcast, addToSkills) => {
 		// 对齐本体 addSkill（player.js:11255）：已经在技能表里、或没有定义的技能**直接 return**。
 		// 这一条很关键——对共享伙伴重新 addSkill 是补不回触发器的，必须走 addSkillTrigger
 		if (node.__skills.includes(id) || !lib.skill[id]) {
 			return;
 		}
-		node.__skills.push(id);
 		const info = lib.skill[id];
+		if (!addToSkills) {
+			node.__skills.push(id);
+		}
 		// 对齐本体 addSkill 的标记分支：mark:true 才建徽记，marktext 走 id_bg 翻译
 		if (info?.mark && !node.marks[id]) {
 			const mark = createDiv(".mark");
@@ -493,10 +539,21 @@ function makePlayer() {
 		}
 		node.addSkillTrigger(id);
 	};
-	node.hasSkill = id => node.__skills.includes(id);
-	// 对齐本体 getSkills：(skillMode, includeEquipSkills, applySkillFilter)——桩里没有装备区，
-	// 也没有屏蔽/禁用体系，所以三个参数都不改变结果，原样给出技能表
-	node.getSkills = () => node.__skills.slice(0);
+	node.hasSkill = id => node.getSkills().includes(id);
+	// 对齐本体 getSkills：技能表 + 各 additionalSkills 名下的派生技能合并去重
+	// （桩里没有装备区/屏蔽体系，其余参数不改变结果）
+	node.getSkills = () => {
+		const list = node.__skills.slice(0);
+		for (const source of Object.keys(node.additionalSkills)) {
+			const value = node.additionalSkills[source];
+			for (const id of Array.isArray(value) ? value : [value]) {
+				if (id && !list.includes(id)) {
+					list.push(id);
+				}
+			}
+		}
+		return list;
+	};
 	node.clearSkills = () => {
 		for (const skill of node.__skills.slice(0)) {
 			node.removeSkill(skill, true);
@@ -508,10 +565,17 @@ function makePlayer() {
 		if (info?.fixed && force !== true) {
 			return id;
 		}
-		// 对齐本体语句顺序（player.js:11820）：**先**摘技能表与徽记 → 再走 onremove → **最后**才摘触发器。
-		// onremove 抛错就会停在中途，留下「技能表里没了、触发器还在」的半摘状态——
-		// 真机语义如此，桩必须照搬，不然测不出「残留触发器」这类问题
+		// 对齐本体语句顺序（player.js:11820）：**先**摘技能表与徽记（并把被摘者从各 additionalSkills
+		// 的成员表里剔掉）→ 再走 onremove → **最后**才摘触发器 / 附加技能 / 觉醒态 / 钩子通知。
+		// onremove 抛错就会停在中途，留下「技能表里没了、收尾一步没走」的半摘状态——
+		// 真机语义如此，桩必须照搬，不然测不出「残留触发器 / 残留附加技能」这类问题
 		node.__skills = node.__skills.filter(item => item !== id);
+		for (const key of Object.keys(node.additionalSkills)) {
+			const value = node.additionalSkills[key];
+			if (Array.isArray(value) && value.includes(id)) {
+				node.additionalSkills[key] = value.filter(item => item !== id);
+			}
+		}
 		if (node.marks[id]) {
 			node.marks[id].remove();
 			delete node.marks[id];
@@ -526,8 +590,9 @@ function makePlayer() {
 			if (!info.keepSkill) {
 				node.removeAdditionalSkills(id);
 			}
-			node.enableSkill(`${id}_awake`);
 		}
+		node.enableSkill(`${id}_awake`);
+		game.callHook("removeSkillCheck", [id, node]);
 		return id;
 	};
 	node.update = () => node;
@@ -745,8 +810,9 @@ export const game = {
 		}
 	},
 	log: (...args) => log({ type: "game.log", args: args.map(String) }),
-	// 对齐本体：技能被摘掉时会走一次 removeSkillCheck 钩子（「故人的心」的收尾补全会调它）
-	callHook: hookName => log({ type: "callHook", name: hookName }),
+	// 对齐本体：技能被摘掉时会走一次 removeSkillCheck 钩子（「故人的心」的收尾补全会调它）；
+	// 参数里的技能 id 一并记账，供断言「收尾完成的不会被重复通知、被打断的恰好补一次」
+	callHook: (hookName, args) => log({ type: "callHook", name: hookName, skills: Array.isArray(args) ? args.filter(arg => typeof arg === "string") : [] }),
 	/**
 	 * 对齐本体 game.addGlobalSkill / removeGlobalSkill（game/index.js:6317 / 6366）：
 	 * 全局技记进 lib.skill.global，按玩家记进 lib.skill.globalmap，钩子挂到 lib.hook.globalskill。
