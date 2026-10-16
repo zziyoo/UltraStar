@@ -5550,30 +5550,10 @@ check("Boss 代价面板删标题区 + 技能卡与商店同版式：样式判�
 
 // ---------------------------------------------------------------- 故人的心（技能筹码）
 //
-// 开局的两阶段界面由冒烟用例覆盖（这里没有 DOM）；本段盯三件逻辑：枚举口径、真失去与徽记同步、
-// 污染/虚无留在玩家身上的持续状态怎么收。
+// 开局的两阶段界面由冒烟用例覆盖（这里没有 DOM）；本段盯四件逻辑：枚举口径、真失去与徽记同步、
+// 结算的数量纪律与异常容忍、污染/虚无留在玩家身上的持续状态怎么收。
 
-/**
- * 桩里的 lib.filter 是 Proxy（未知键一律给 anyFn），这里按本体实现补一份真的 skillDisabled，
- * 用完立刻还原——商店候选池也读同一个函数，不能让它带着我们的临时实现跑后面的用例。
- */
-function withSkillDisabledGate(fn) {
-	const saved = lib.filter.skillDisabled;
-	lib.filter.skillDisabled = id => {
-		if (!lib.translate[id] || !lib.translate[`${id}_info`]) {
-			return true;
-		}
-		const info = lib.skill[id];
-		return Boolean(!info || info.unique || info.temp || info.sub || info.fixed || info.vanish);
-	};
-	try {
-		return fn();
-	} finally {
-		lib.filter.skillDisabled = saved;
-	}
-}
-
-/** 注册一批测试技能：默认双键翻译齐备（本体口径才认），sac_ 前缀避免与别的用例撞名 */
+/** 注册一批测试技能：默认双键翻译齐备（界面读得出名字与描述），sac_ 前缀避免与别的用例撞名 */
 function registerSacrificeSkills(defs) {
 	for (const [id, info] of Object.entries(defs)) {
 		lib.skill[id] = info;
@@ -5615,54 +5595,74 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 	return node;
 }
 
-check("故人的心：可失去技能的枚举口径（内部技与肉鸽载体挡在外面、group 伙伴折进主技能、持恒技算数）", () => {
+check("故人的心：可失去技能的枚举口径（本体「失去已有技能」口径，不照搬商店的获取过滤）", () => {
 	registerSacrificeSkills({
 		sac_normal: {},
 		sac_locked: { locked: true },
-		sac_persevere: { persevereSkill: true },
-		sac_sub: { sub: true },
-		sac_temp: { temp: true },
-		sac_fixed: { fixed: true },
+		sac_limited: { limited: true, unique: true },   // 限定技（本体 shenfen 那类，unique 也照放）
+		sac_awake: { juexingji: true, unique: true },   // 觉醒技（本体 drlt_hongju 那类）
 		sac_unique: { unique: true },
+		sac_vanish: { vanish: true },
+		sac_temp: { temp: true },
+		sac_persevere: { persevereSkill: true },
+		sac_charlotte: { charlotte: true },             // 本体自己的内部痕记（tianxiang2 / `${主}_used`）
+		sac_super: { superCharlotte: true },
+		sac_fixed: { fixed: true },                     // 固有技：本体 removeSkill 自己就拒摘
 		sac_main: { group: ["sac_part", "sac_part2"] },
 		sac_part: {},
 		sac_part2: {},
+		sac_parent: {},
+		sac_child: { sub: true, sourceSkill: "sac_parent" },   // subSkill 子技能：折进父技能
 	});
-	// 缺 _info 的（本体口径视为「不可选用」）与没定义的 id 都不该出现
+	// 界面上读不出名字/描述的（内部技）与根本没定义的 id 都不该出现
+	lib.skill.sac_nodesc = {};
+	lib.translate.sac_nodesc = "sac_nodesc";
 	lib.skill.sac_notrans = {};
-	lib.translate.sac_notrans = "sac_notrans";
 	const player = makeFakeSkillPlayer([
-		"sac_normal", "sac_locked", "sac_persevere", "sac_sub", "sac_temp", "sac_fixed", "sac_unique",
-		"sac_main", "sac_part", "sac_part2", "sac_notrans", "sac_ghost",
+		"sac_normal", "sac_locked", "sac_limited", "sac_awake", "sac_unique", "sac_vanish", "sac_temp",
+		"sac_persevere", "sac_charlotte", "sac_super", "sac_fixed",
+		"sac_main", "sac_part", "sac_part2", "sac_parent", "sac_child",
+		"sac_nodesc", "sac_notrans", "sac_ghost",
 		"rogue_stat", "rogue_curio", "rogue_copy", "abyss_affix",
 	]);
-	const list = withSkillDisabledGate(() => sacrifice.listChoosableSkills(player));
-	assertEqual(list.join(","), "sac_normal,sac_locked,sac_persevere,sac_main", "只留上层、可失去、有翻译的技能");
-	return "内部技 4 类 + 载体 4 件挡在外面，group 伙伴折进主技能，持恒技在内";
+	assertEqual(
+		sacrifice.listChoosableSkills(player).join(","),
+		"sac_normal,sac_locked,sac_limited,sac_awake,sac_unique,sac_vanish,sac_temp,sac_persevere,sac_main,sac_parent",
+		"限定技 / 觉醒技 / unique / 一次性技 / 持恒技都放行；内部技、固有技、载体与跟随件全部挡掉"
+	);
+	return "unique 与限定/觉醒技放行（迎乡/恤民同口径），charlotte/superCharlotte/fixed/无文案/载体挡掉";
 });
 
-check("故人的心：真失去（含 group 伙伴）并把两条徽记按实际持有同步", () => {
+check("故人的心：真失去（跟随件跟随、共享伙伴留下）并把两条徽记按实际持有同步", () => {
 	registerSacrificeSkills({
 		sac_native: {},
-		sac_main: { group: ["sac_part"] },
+		sac_main: { group: ["sac_part", "sac_shared"] },
 		sac_part: {},
+		sac_shared: {},
+		sac_shared_main: { group: ["sac_shared"] },   // 另一个主技能也声明这个伙伴
+		sac_parent: {},
+		sac_child: { sub: true, sourceSkill: "sac_parent" },
 		sac_abyss: { persevereSkill: true, onremove: player => { delete player.storage.sac_abyss_count; } },
 		sac_copy: {},
 	});
 	lib.skill.abyss_affix = { forced: true, mark: true };
 	lib.skill.rogue_copy = { forced: true, mark: true };
 	const enemy = makeFakeSkillPlayer(
-		["sac_native", "sac_main", "sac_part", "sac_abyss", "sac_copy", "abyss_affix", "rogue_copy"],
+		["sac_native", "sac_main", "sac_part", "sac_shared", "sac_shared_main", "sac_parent", "sac_child", "sac_abyss", "sac_copy", "abyss_affix", "rogue_copy"],
 		{
 			storage: { abyss_affix: ["sac_abyss"], rogue_copy: ["sac_copy", "sac_copy"], sac_abyss_count: 2 },
 			enhance: { stats: {}, abyss: ["sac_abyss"], copySkills: ["sac_copy"] },
 		}
 	);
 	const removed = sacrifice.loseSkillsForBattle(enemy, ["sac_main"]);
-	assertEqual(removed.join(","), "sac_main", "返回值只报上层技能，伙伴不另计一件");
-	assertEqual(enemy.hasSkill("sac_part"), false, "group 伙伴跟着一起失去");
+	assertEqual(removed.join(","), "sac_main", "返回值只报上层技能，跟随件不另计一件");
+	assertEqual(enemy.hasSkill("sac_part"), false, "独占的 group 伙伴跟着一起失去");
+	assertEqual(enemy.hasSkill("sac_shared"), true, "共享伙伴还被别的已拥有技能（sac_shared_main）依赖，原地留下");
 	assertEqual(enemy.hasSkill("sac_native"), true, "没选的技能一个都不动");
 	assertEqual(enemy.updates, 1, "失去之后只刷新一次");
+
+	assertEqual(sacrifice.loseSkillsForBattle(enemy, ["sac_parent"]).join(","), "sac_parent", "普通技能也能单独选中");
+	assertEqual(enemy.hasSkill("sac_child"), false, "subSkill 子技能跟着父技能一起失去（本体不会自动摘，得自己收）");
 
 	assertEqual(sacrifice.loseSkillsForBattle(enemy, ["sac_abyss"]).join(","), "sac_abyss", "词缀可以被单独选中");
 	assertEqual(enemy.storage.sac_abyss_count, undefined, "技能自己的 onremove 收尾生效");
@@ -5671,7 +5671,49 @@ check("故人的心：真失去（含 group 伙伴）并把两条徽记按实际
 	assertEqual(JSON.stringify(enemy.rogueEnhanceInfo.abyss), "[]", "徽记面板的数据同步");
 	assertEqual(JSON.stringify(enemy.storage.rogue_copy), JSON.stringify(["sac_copy"]), "复制技能还在身上：列表按实际持有去重（同一条只算一件）");
 	assertEqual(JSON.stringify(enemy.rogueEnhanceInfo.copySkills), JSON.stringify(["sac_copy"]), "面板数据同样按实际持有去重");
-	return "group 伙伴跟随 + onremove 收尾 + 徽记列表/面板按实际持有同步";
+	return "跟随件跟随 + 共享伙伴留下 + onremove 收尾 + 徽记列表/面板按实际持有同步";
+});
+
+check("故人的心：结算的数量纪律（按己方实际失去发放、缺口用敌方剩余名单顶替、单件抛错不连累其余）", () => {
+	registerSacrificeSkills({ sac_a: {}, sac_b: {}, sac_e1: {}, sac_e2: {}, sac_e3: {} });
+	// 正常路径：两侧各 1，各归各的
+	const me = makeFakeSkillPlayer(["sac_a", "sac_b"]);
+	const enemy = makeFakeSkillPlayer(["sac_e1", "sac_e2", "sac_e3"]);
+	let result = sacrifice.settleSkillSacrifice(me, { mine: ["sac_a"], theirs: [{ player: enemy, ids: ["sac_e1"] }] });
+	assertEqual(result.mine.join(","), "sac_a", "己方实际失去");
+	assertEqual(result.theirs[0].removed.join(","), "sac_e1", "敌方实际失去");
+	assertEqual(result.mine.length, result.theirs[0].removed.length, "两侧数量相等");
+
+	// 玩家选中的技能里有一件在结算前已经不在了（这里用没上身的 id 模拟）：缺口从这名敌人**还剩的**筹码里顶替
+	const me2 = makeFakeSkillPlayer(["sac_a", "sac_b"]);
+	const enemy2 = makeFakeSkillPlayer(["sac_e1", "sac_e2", "sac_e3"]);
+	result = sacrifice.settleSkillSacrifice(me2, {
+		mine: ["sac_a", "sac_b"],
+		theirs: [{ player: enemy2, ids: ["sac_e1", "sac_ghost"] }],
+	});
+	assertEqual(result.mine.join(","), "sac_a,sac_b", "己方两件都失去");
+	assertEqual(result.theirs[0].removed.join(","), "sac_e1,sac_e2", "选中的那一件照付，缺的那一件用剩余名单顶上");
+	assertEqual(result.mine.length, result.theirs[0].removed.length, "顶替之后两侧数量仍然相等");
+
+	// 单件失败（技能自己的 onremove 抛错）：不连累这一批其余技能，且「已经摘掉、只是收尾没跑完」照实记账
+	registerSacrificeSkills({ sac_boom: { onremove() { throw new Error("boom"); } } });
+	const savedError = console.error;
+	console.error = () => {};   // 这一条故意让它抛错，日志不进测试输出
+	try {
+		const boomMe = makeFakeSkillPlayer(["sac_boom", "sac_a"]);
+		const boomEnemy = makeFakeSkillPlayer(["sac_e1", "sac_e2"]);
+		const boom = sacrifice.settleSkillSacrifice(boomMe, {
+			mine: ["sac_boom", "sac_a"],
+			theirs: [{ player: boomEnemy, ids: ["sac_e1", "sac_e2"] }],
+		});
+		assertEqual(boom.mine.join(","), "sac_boom,sac_a", "抛错的那一件照实记账（技能表里确实已经不在了）");
+		assertEqual(boomMe.hasSkill("sac_a"), false, "抛错不连累同一批后面的技能");
+		assertEqual(boom.theirs[0].removed.join(","), "sac_e1,sac_e2", "敌方该失去的两件一个不少");
+		assertEqual(boom.mine.length, boom.theirs[0].removed.length, "两侧数量相等");
+		return "quota 按己方实际发放 + 缺口顶替 + 单件异常照实记账且不连累其余";
+	} finally {
+		console.error = savedError;
+	}
 });
 
 check("故人的心：污染与虚无失去后放开它们留在玩家身上的封牌与屏蔽器（还有别人带着时不动）", () => {
