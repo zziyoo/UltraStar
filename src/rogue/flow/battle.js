@@ -38,13 +38,15 @@ export function createBattleFlow(host) {
 		perfStart("战斗开局");
 		// 每一场新战斗独立判定（enemy.shouldBossBattle）——能走到这里说明 run.currentBattle 是空的
 		// （有未完成战斗在上面已分流去恢复，绝不重掷），所以这一次判定只属于即将创建的这一场。
+		// **只有无尽模式会判出 Boss 战**：run.mode 不是 endless 时 shouldBossBattle 直接返回 false，
+		// 闯关的每一场都是普通战斗，既不读保底也不掷骰。
 		// 判定两条路：保底（当前关卡 - bossPityLevel ≥ BOSS_PITY_BATTLES → 必出、且不掷骰）在前，
 		// 未到保底才按 BOSS_RUN_RATE 掷一次（严格小于）。结果写进 currentBattle.isBossBattle、
-		// 与敌方阵容同一次落盘：无尽每推进一关、闯关每一关都是各判各的。
+		// 与敌方阵容同一次落盘。
 		// 保底只认「上一次 Boss 落在哪一关」这一条关卡记录，所以虫洞跳过的关照样计入进度；
 		// 下面的失败分支（阵容生成/校验不过）直接 return，一个字段都不写，保底绝不提前消耗。
 		const lastBossLevel = Math.max(0, Math.floor(Number(run.bossPityLevel) || 0));
-		const isBossBattle = shouldBossBattle(run.level, lastBossLevel, Math.random);
+		const isBossBattle = shouldBossBattle(run.mode, run.level, lastBossLevel, Math.random);
 		perfCount("本场类型", isBossBattle ? "Boss 战" : "普通战斗");
 		perfMark("Boss 判定/保底");
 		// 抽中 Boss：本关替换为单 Boss 阵容，不走关卡配置池 / 双人组合池

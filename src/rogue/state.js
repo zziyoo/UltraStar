@@ -631,8 +631,9 @@ export function normalizeRun(raw, options = {}) {
 	//    （哪怕档里意外混进了 bossPityCount / bossPityLevel 也不当可信记录）。
 	// ② v14：只认旧计数器 → 按 v14 自己的 0..19 清洗（负数归 0、超范围夹 19）后折算
 	//    `level-1-count`，再夹到 [0, 本关]。旧计数记的是「上次 Boss 之后已经打完几场普通战斗」；
-	//    例：45 关 / 5 场 → 39（已攒 5 场，按新节奏再打 9 场、第 54 关保底到期），19 场则当场到期。
-	//    上界必须用旧版的 0..19，不能拿新阈值 BOSS_PITY_BATTLES-1 去夹——那会把 15~19 压成 14。
+	//    例：45 关 / 5 场 → 39（已攒 5 场，按当前 BOSS_PITY_BATTLES 的节奏再推进若干关、第 39+阈值 关保底到期），
+	//    19 场则当场到期。上界必须用旧版的 0..19，不能拿新口径的 BOSS_PITY_BATTLES-1 去夹——
+	//    那会把超出它的那几档历史进度压掉，旧档的保底被整体提前。
 	//    档里就算混进了 bossPityLevel 也不作数：该走 v14 的折算还是走 v14 的折算。
 	//    缺失 / 非数字的旧计数按「没有可信记录」补 0，不拿默认值 0 冒充历史进度。
 	// ③ v15 及以后：只认 bossPityLevel（真的有限数字，夹到 [0, 本关]）；缺失/非法一律补 0，
@@ -665,6 +666,7 @@ export function normalizeRun(raw, options = {}) {
 		// 旧档里残留的 bossRun 只在上文参与「正在进行的这一场」的迁移，这里不再输出该字段。
 		// v15：bossPityLevel 是 Boss 保底的唯一记录（上一次 Boss 战实际触发的关卡，0 = 还没出过）。
 		// 它只跟着每个存档槽走；上界夹到本关（未来的关卡不认），v14 及更早的 bossPityCount 在上文折算。
+		// Boss 判定只属于无尽模式，所以闯关存档里的这份记录不再被任何判定读取（旧档残留值照原样清洗、不动）。
 		bossPityLevel,
 		// v8：闯关前 10 关的敌方配置抽取结果（challenge 模式专用；由 enemy.ensureChallengeStages 生成，本层只清洗）
 		challengeStages: normalizeChallengeStages(raw.challengeStages),

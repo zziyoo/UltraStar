@@ -171,8 +171,9 @@ function draftApi(index) {
 						}
 						// 闯关新局建好立刻一次性抽出前 10 关的敌方配置并随首存落盘（ensure 只在缺/残缺时生成）；
 						// 无尽模式此调用原样返回，不生成任何东西。
-						// Boss 战不在这里判定：建局只创建存档，每场战斗的 Boss 判定在 flow/battle.js
-						// 创建那一场战斗时各掷一次（BOSS_RUN_RATE），结果写进 currentBattle.isBossBattle。
+						// Boss 战不在这里判定：建局只创建存档，无尽模式每场新战斗的 Boss 判定在
+						// flow/battle.js 创建那一场战斗时各掷一次（BOSS_RUN_RATE），结果写进
+						// currentBattle.isBossBattle；闯关模式根本不判 Boss。
 						const created = createRun(mode, characterId, now());
 						const ensured = ensureChallengeStages(created, Math.random);
 						const run = ensured.run;

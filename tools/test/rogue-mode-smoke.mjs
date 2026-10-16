@@ -310,12 +310,17 @@ async function newRunByUi(modeLabel) {
 /**
  * 点「创建一场新战斗」的按钮，并让**这一场判为普通战斗**。
  *
- * v12 起 Boss 判定改成逐场独立：`flow/battle.js` 的 startBattle 在创建新战斗时消费的第一掷
- * `Math.random()` 就是这一场的判定（BOSS_RUN_RATE，当前 0.06666）。冒烟用例绝大多数要的是普通链路，
- * 若放任真随机，整套流程会变成「每场 6.666% 概率突然换成 Boss 关」的抖动测试。
- * 这里只把「第一掷」钉成 1（≥ 判定线 → 不抽中），其余各掷原样交回当前钉好的随机
- * （没钉就是真随机），所以角色/词缀/事件/商店的随机口径一概不受影响。
+ * v12 起 Boss 判定改成逐场独立：无尽的 `flow/battle.js` startBattle 在创建新战斗时消费的第一掷
+ * `Math.random()` 就是这一场的判定（BOSS_RUN_RATE，当前 0.0625）。冒烟用例绝大多数要的是普通链路，
+ * 若放任真随机，整套流程会变成「每场 6.25% 概率突然换成 Boss 关」的抖动测试。
+ * 这里只把「第一掷」钉成 0.999999（≥ 判定线 → 不抽中），其余各掷原样交回当前钉好的随机
+ * （没钉就是真随机），所以角色/词缀/事件的随机口径一概不受影响。
  * Boss 链路由专门的用例覆盖：它们自己把 Math.random 钉到 < BOSS_RUN_RATE。
+ *
+ * 为什么不是干净的 1：闯关不再判 Boss（Boss 战只属于无尽），这一掷于是落到后面的敌方随机上，
+ * 而 `allocateEnemyStats` 按 `Math.floor(rng() * (high - low + 1))` 取值——本体的 Math.random
+ * 恒小于 1，钉成 1 会越界多分一个属性点，把「第 1 关 1 点预算」验成 2 点。0.999999 同样掷不中，
+ * 又留在 Math.random 的合法值域内。
  */
 function clickNormalBattle(label = "开始下一关") {
 	const prev = Math.random;
@@ -323,7 +328,7 @@ function clickNormalBattle(label = "开始下一关") {
 	Math.random = () => {
 		if (first) {
 			first = false;
-			return 1;
+			return 0.999999;
 		}
 		return prev();
 	};
@@ -1304,9 +1309,9 @@ await check("闯关 11~20 关：首次开战抽 10 个组合落盘，敌人按 c
 await check("闯关 21~30 关：双人组合 + 扩展池第三人，第三人随 currentBattle 落盘、恢复战斗绝不重掷", async () => {
 	// 直接给一份已抽定的组合表（等价于已经打过 11~20 关），第 21 关必须复用第 0 项
 	const combos = combosData.challengeComboPool.slice(0, cfg.CHALLENGE_COMBO_LEVELS).map(config => config.id);
-	// bossPityLevel 摆在上一关：本用例要的是普通关的阵容，不能因为「第 21 关还没出过 Boss」
-	// 就被关卡差保底抢成单 Boss 场（v15 起保底判的是关卡差，不是打了几场）
-	putRun(0, { level: 21, bossPityLevel: 20, challengeComboStages: combos, challengeStages: [] });
+	// 保底记录故意留 0（第 21 关的关卡差早已超过阈值）：Boss 判定只属于无尽，
+	// 闯关这一场绝不会被人抢成单 Boss——本用例同时验到这一点（阵容必须是 3 名敌人）
+	putRun(0, { level: 21, challengeComboStages: combos, challengeStages: [] });
 	session();
 	clickNormalBattle();
 	await flush();
@@ -2864,20 +2869,23 @@ await check("10-06 实机旧档带残留的商店锁（没有橱窗）：读档�
 	}
 });
 
-await check("闯关模式共用同一套逐场判定：抽中的那一关换单 Boss 拿 20 倍，下一关照常走关卡配置池", async () => {
+await check("闯关模式永不判 Boss：随机钉成必然命中也不换单 Boss 阵容，胜利只按 1 倍基准、标题不提 Boss", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
 		Math.random = () => 0.5;
 		session();
 		await newRunByUi("闯关模式");
-		// 抽中 Boss：这一关不走 challengeStages 的关卡配置，而是替换为单 Boss 阵容
+		// clickBossBattle 把判定那一掷钉成 0（必然 < BOSS_RUN_RATE）：这一场在无尽就是 Boss 战。
+		// 闯关走模式闸门，直接判普通场，而且不消费这一掷（它落到敌方阵容的随机上）
 		clickBossBattle();
 		await flush();
 		let slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currentBattle.isBossBattle, true, "闯关本场判为 Boss 战");
-		assertEqual(slot.currentBattle.enemies.length, 1, "本场替换为单 Boss 阵容");
-		assertEqual(slot.currentBattle.enemies[0].boss, true, "boss 标记随阵容落盘");
+		assertEqual(slot.currentBattle.isBossBattle, false, "闯关本场不判 Boss");
+		assertEqual(slot.currentBattle.enemies.some(enemy => enemy.boss), false, "没有敌人带 boss 标记");
+		assertEqual(slot.bossPityLevel, 0, "普通场一个字都不写：保底记录仍为 0");
+		const stage1 = stagesData.getChallengeStageConfig(slot.challengeStages[slot.level - 1]);
+		assertEqual(slot.currentBattle.enemies.length, stage1.players.length, "敌人数仍由本关的关卡配置决定（没被换成单 Boss）");
 		const base1 = rewardsData.getChallengeReward(1);
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
@@ -2885,40 +2893,45 @@ await check("闯关模式共用同一套逐场判定：抽中的那一关换单 
 		lib.element.player.dieAfter.call(game.players[1]);
 		await flush();
 		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currency.gold, cfg.INITIAL_CURRENCY.gold + base1.gold * cfg.BOSS_REWARD_MULTIPLIER, "闯关 Boss 胜利 = 20 倍本关基准");
+		assertEqual(slot.currency.gold, cfg.INITIAL_CURRENCY.gold + base1.gold, "第 1 关胜利 = 1 倍基准（没有 Boss 倍率）");
 		assertEqual(slot.level, 2, "关卡照常推进");
-		assertEqual(slot.curioOffers.length, 0, "闯关没有奇物商店，Boss 场也不凭空刷出货");
-		assert(screenText().includes("Boss 战 · 战斗胜利"), `闯关 Boss 场标题：${screenText()}`);
-		click("返回营地");
+		assertEqual(slot.curioOffers.length, 0, "闯关没有奇物商店，也不凭空刷出货");
+		assert(slot.currentBattle === null, "胜利后本场状态清空");
+		assert(!screenText().includes("Boss"), `胜利页不提 Boss：${screenText()}`);
+		// 深层关卡 + 关卡差早过保底阈值：闯关照样不判 Boss（阈值与概率都只属于无尽）。
+		// 组合表直接铺满，免得 rng 钉死时现抽判成「配置不足」
+		const combos = combosData.challengeComboPool.slice(0, cfg.CHALLENGE_COMBO_LEVELS).map(config => config.id);
+		freshWorld();
+		putRun(0, {
+			mode: "challenge",
+			characterId: "迪迦",
+			level: 21,
+			currency: { gold: 0, exp: 0 },
+			bossPityLevel: 0,
+			challengeStages: stagesData.challengeStagePool.slice(0, cfg.CHALLENGE_STAGE_LEVELS).map(config => config.id),
+			challengeComboStages: combos,
+		});
 		session();
-		// 下一关独立判定：没抽中 → 严格回到原来的关卡配置池流程
-		clickNormalBattle();
+		Math.random = () => 0;
+		click("开始下一关");
 		await flush();
 		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currentBattle.isBossBattle, false, "下一关独立判为普通战斗");
-		assertEqual(slot.challengeStages.length, cfg.CHALLENGE_STAGE_LEVELS, "前 10 关的抽取结果照旧存在并继续使用");
-		assertEqual(slot.currentBattle.enemies.every(enemy => !enemy.boss), true, "普通关的敌人不带 boss 标记");
-		const base2 = rewardsData.getChallengeReward(2);
-		for (const player of game.players.slice(1)) {
-			player.__alive = false;
-		}
-		lib.element.player.dieAfter.call(game.players[1]);
-		await flush();
-		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currency.gold, cfg.INITIAL_CURRENCY.gold + base1.gold * cfg.BOSS_REWARD_MULTIPLIER + base2.gold, "下一关回到 1 倍基准");
-		assertEqual(slot.skills.length, 0, "普通关不弃技能（Boss 的弃置只跟着 Boss 场）");
-		assert(screenText().includes("战斗胜利") && !screenText().includes("Boss 战"), `下一关标题不带 Boss：${screenText()}`);
-		return "闯关：本场换 Boss(20×) → 下一关回关卡配置(1×)";
+		assertEqual(slot.currentBattle.isBossBattle, false, "第 21 关（关卡差早已满阈值、随机钉 0）仍不是 Boss 战");
+		assertEqual(slot.currentBattle.enemies.length, 3, "阵容照常是双人组合 + 第三人，而不是单 Boss");
+		assertEqual(slot.bossPityLevel, 0, "闯关不写保底记录");
+		return "第 1 关随机钉 0 也判普通场(1×) → 第 21 关过阈值仍普通场(3 敌)";
 	} finally {
 		Math.random = originalRandom;
 	}
 });
 
-await check("Boss 场战败：一件不弃，本场标记随战斗状态一起清掉，重战这一关重新独立判定", async () => {
+await check("闯关旧档的进行中 Boss 场：照原样打完，战败一件不弃、标记随战斗状态清掉，重战判为普通关", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
 		Math.random = () => 0.5;
+		// 改口径前留下的闯关存档：这一场已经判成 Boss 战并落了盘。读档只认存档、绝不重掷，
+		// 所以「闯关不再判 Boss」不能把正在打的这一场悄悄降成普通场。
 		putRun(0, {
 			mode: "challenge",
 			characterId: "迪迦",
@@ -2926,12 +2939,23 @@ await check("Boss 场战败：一件不弃，本场标记随战斗状态一起�
 			currency: { gold: 100, exp: 100 },
 			skills: ["own_one", "own_two"],
 			curios: ["energy_core"],
+			challengeStages: stagesData.challengeStagePool.slice(0, cfg.CHALLENGE_STAGE_LEVELS).map(config => config.id),
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, abyss: [], skills: [], maxHp: 0, hp: 0, boss: true }],
+				rift: null,
+				isBossBattle: true,
+			},
 		});
 		session();
-		clickBossBattle();
+		// 带未完成战斗进营地 = 先落到「战斗未正常结算」的恢复页，点它才能重开这一场
+		assert(screenText().includes("战斗未正常结算"), `重进应落到恢复页：${screenText()}`);
+		// 恢复这一场走的是 startFromSavedBattle：不判 Boss、不掷骰，身份原样带回
+		click("重新挑战这一关");
 		await flush();
 		let slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currentBattle.isBossBattle, true, "本场判为 Boss 战");
+		assertEqual(slot.currentBattle.isBossBattle, true, "旧档正在打的这一场保住 Boss 战身份");
+		assertEqual(slot.currentBattle.enemies[0].boss, true, "敌人的 boss 标记与整场标记对齐");
 		game.me.__alive = false;
 		game.me.hp = 0;
 		lib.element.player.dieAfter.call(game.me);
@@ -2944,14 +2968,14 @@ await check("Boss 场战败：一件不弃，本场标记随战斗状态一起�
 		assert(failText.includes("战斗失败") && !failText.includes("Boss"), `失败页不提 Boss：${failText}`);
 		click("返回营地");
 		session();
-		// 重战这一关 = 一场全新的战斗：判定各掷各的，这里没抽中就是普通关
-		clickNormalBattle();
+		// 重战这一关 = 一场全新的战斗：闯关不再判 Boss，把随机钉成必然命中也一样
+		clickBossBattle();
 		await flush();
 		slot = lib.storage.rogueSlots[0];
-		assertEqual(slot.currentBattle.isBossBattle, false, "重战的这一关独立判为普通战斗");
+		assertEqual(slot.currentBattle.isBossBattle, false, "重战的这一关判为普通战斗（闯关没有 Boss 战）");
 		assertEqual(slot.level, 7, "仍在第 7 关");
 		assertEqual(slot.currentBattle.enemies.every(enemy => !enemy.boss), true, "普通关敌人不带 boss 标记");
-		return "战败不弃置 → 状态清空 → 重战独立判定";
+		return "旧档 Boss 场身份保留 → 战败不弃置 → 状态清空 → 重战判为普通关";
 	} finally {
 		Math.random = originalRandom;
 	}
@@ -4386,13 +4410,14 @@ await check("属性训练场（还能升、经验够）：按钮只显示「接�
 await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记录记到跳过的最后一关", async () => {
 	freshWorld();
 	const base = stateModule.createRun("endless", "迪迦", 1);
-	const pending = eventManager.buildPendingEvent("wormhole", 4, () => 0, 1, {
-		level: 5, statLevels: base.stats, curios: [], run: { ...base, level: 5 },
+	// 摆在第 6 关（刚打赢第 5 关）：跳过十关落到第 16 关，正好把 Boss 保底的关卡差（16）攒满
+	const pending = eventManager.buildPendingEvent("wormhole", 5, () => 0, 1, {
+		level: 6, statLevels: base.stats, curios: [], run: { ...base, level: 6 },
 	});
 	const expect = { gold: pending.choices[0].reward.gold, exp: pending.choices[0].reward.exp };
-	// 这一局是从存档页进来的（读档优先回事件页）：先把纪录摆在第 4 关，好验「记到跳过的最后一关」
-	lib.storage.rogueBestEndless = { level: 4, characterId: "迪迦", updatedAt: 1 };
-	putRun(0, { mode: "endless", level: 5, currency: { gold: 0, exp: 0 }, pendingEvent: pending });
+	// 这一局是从存档页进来的（读档优先回事件页）：先把纪录摆在第 5 关，好验「记到跳过的最后一关」
+	lib.storage.rogueBestEndless = { level: 5, characterId: "迪迦", updatedAt: 1 };
+	putRun(0, { mode: "endless", level: 6, currency: { gold: 0, exp: 0 }, pendingEvent: pending });
 	session();
 	const text = screenText();
 	assert(text.includes("虫洞") && text.includes("蔚蓝色的虫洞引人注目"), `事件页应展示虫洞：${text.slice(0, 240)}`);
@@ -4404,16 +4429,16 @@ await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记�
 	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "结果走浮层内弹层");
 	assert(screenText().includes("跳过 10 关"), `要写明跳了几关：${screenText()}`);
 	click("确定");
-	// 事件办完回营地：关卡已经跳到第 15 关
-	assert(screenText().includes("第 15 关"), `营地应显示第 15 关：${screenText()}`);
+	// 事件办完回营地：关卡已经跳到第 16 关
+	assert(screenText().includes("第 16 关"), `营地应显示第 16 关：${screenText()}`);
 	const slot = lib.storage.rogueSlots[0];
-	assertEqual(slot.level, 15, "存档里的关卡推进十关");
+	assertEqual(slot.level, 16, "存档里的关卡推进十关");
 	assertEqual(slot.currency.gold, expect.gold, "期间金币一次性入账");
 	assertEqual(slot.currency.exp, expect.exp, "期间经验一次性入账");
 	assertEqual(slot.pendingEvent, null, "事件收掉");
-	assertEqual(lib.storage.rogueBestEndless.level, 14, "最高记录记到跳过的最后一关");
-	// v15：跳过的这十关照样计入 Boss 保底——这一局从第 5 关起就没出过 Boss（记录 0），
-	// 落到第 15 关时关卡差刚好满 15，下一场即使掷不中也必须是 Boss（老口径会漏掉跳过的关）
+	assertEqual(lib.storage.rogueBestEndless.level, 15, "最高记录记到跳过的最后一关");
+	// v15：跳过的这十关照样计入 Boss 保底——这一局从没出过 Boss（记录 0），落到第 16 关时
+	// 关卡差刚好满 BOSS_PITY_BATTLES，下一场即使掷不中也必须是 Boss（老口径会漏掉跳过的关）
 	const originalRandom = Math.random;
 	try {
 		Math.random = () => 1;
@@ -4424,9 +4449,9 @@ await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记�
 		Math.random = originalRandom;
 	}
 	const jumped = lib.storage.rogueSlots[0];
-	assertEqual(jumped.currentBattle.isBossBattle, true, "跳到的第 15 关：保底照常触发（跳关也算进度）");
-	assertEqual(jumped.bossPityLevel, 15, "Boss 记在第 15 关");
-	return `第 5 关 → 第 15 关（${expect.gold} 金币 / ${expect.exp} 经验，记录 14）→ 第 15 关保底 Boss`;
+	assertEqual(jumped.currentBattle.isBossBattle, true, "跳到的第 16 关：保底照常触发（跳关也算进度）");
+	assertEqual(jumped.bossPityLevel, 16, "Boss 记在第 16 关");
+	return `第 6 关 → 第 16 关（${expect.gold} 金币 / ${expect.exp} 经验，记录 15）→ 第 16 关保底 Boss`;
 });
 
 await check("流浪商人：买没买过的入袋，已拥有的买回去升一级，练满了才弹提示", async () => {
@@ -5134,48 +5159,52 @@ await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「�
 	}
 });
 
-await check("Boss 判定边界与保底：严格小于、距上次 Boss 满 15 关必出、恢复不重掷、下一场各掷各的", async () => {
+await check("Boss 判定边界与保底：只判无尽、严格小于、距上次 Boss 满 16 关必出、恢复不重掷、下一场各掷各的", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {
-		// ① 概率边界（严格小于）：判定线直接读生产的 BOSS_RUN_RATE，改旋钮不用改用例；
-		// 保底那一路的入参是「当前关卡 / 上次 Boss 的关卡」
+		// ① 概率边界（严格小于）：判定线直接读生产的 BOSS_RUN_RATE，保底读 BOSS_PITY_BATTLES，改旋钮不用改用例；
+		// 保底那一路的入参是「模式 / 当前关卡 / 上次 Boss 的关卡」
 		const rate = cfg.BOSS_RUN_RATE;
-		assertEqual(enemyModule.shouldBossBattle(1, 0, () => rate - 1e-6, rate), true, "低于判定线 → Boss");
-		assertEqual(enemyModule.shouldBossBattle(1, 0, () => rate, rate), false, "正好等于判定线 → 不中（严格小于）");
-		assertEqual(enemyModule.shouldBossBattle(1, 0, () => rate * 0.5, rate), true, "半线 → Boss");
-		assertEqual(enemyModule.shouldBossBattle(1, 0, () => 0.999, rate), false, "0.999 → 不中");
-		assertEqual(enemyModule.shouldBossBattle(14, 0, () => 0.999, rate), false, "第 14 关（差 14 关）仍按概率");
-		assertEqual(enemyModule.shouldBossBattle(15, 0, () => 0.999, rate), true, "第 15 关（差满 15）保底必出，概率再低也没用");
-		// ② 保底实机链路：差 14 关仍走概率，差满 15 关即使在「永远掷不中」的随机下也必出；Boss 落地即记下这一关
+		const pity = cfg.BOSS_PITY_BATTLES;
+		const endless = cfg.RUN_MODE.endless;
+		assertEqual(enemyModule.shouldBossBattle(endless, 1, 0, () => rate - 1e-6, rate), true, "低于判定线 → Boss");
+		assertEqual(enemyModule.shouldBossBattle(endless, 1, 0, () => rate, rate), false, "正好等于判定线 → 不中（严格小于）");
+		assertEqual(enemyModule.shouldBossBattle(endless, 1, 0, () => rate * 0.5, rate), true, "半线 → Boss");
+		assertEqual(enemyModule.shouldBossBattle(endless, 1, 0, () => 0.999, rate), false, "0.999 → 不中");
+		assertEqual(enemyModule.shouldBossBattle(endless, pity - 1, 0, () => 0.999, rate), false, `第 ${pity - 1} 关（差 ${pity - 1} 关）仍按概率`);
+		assertEqual(enemyModule.shouldBossBattle(endless, pity, 0, () => 0.999, rate), true, `第 ${pity} 关（差满 ${pity}）保底必出，概率再低也没用`);
+		// 模式闸门：同样的入参换成闯关，判不出 Boss（连掷骰都不做）
+		assertEqual(enemyModule.shouldBossBattle(cfg.RUN_MODE.challenge, pity, 0, () => 0, rate), false, "闯关到保底关卡差、随机钉成 0 也不判 Boss");
+		// ② 保底实机链路：差阈值一关仍走概率，差满阈值即使在「永远掷不中」的随机下也必出；Boss 落地即记下这一关
 		freshWorld();
-		putRun(0, { mode: "endless", characterId: "迪迦", level: 14, currency: { gold: 0, exp: 0 }, bossPityLevel: 0 });
+		putRun(0, { mode: "endless", characterId: "迪迦", level: pity - 1, currency: { gold: 0, exp: 0 }, bossPityLevel: 0 });
 		session();
-		Math.random = () => 1; // 概率路径永远不中（1 不小于判定线），保底是唯一出路
+		Math.random = () => 0.999999; // 概率路径永远不中（不小于判定线），保底是唯一出路
 		click("开始下一关");
 		Math.random = () => 0.5;
 		await flush();
 		let battle = lib.storage.rogueSlots[0];
-		assertEqual(battle.currentBattle.isBossBattle, false, "第 14 关：差 14 关，仍走概率，这一掷未中");
+		assertEqual(battle.currentBattle.isBossBattle, false, `第 ${pity - 1} 关：差 ${pity - 1} 关，仍走概率，这一掷未中`);
 		assertEqual(battle.bossPityLevel, 0, "普通场一个字都不写：保底记录原样");
-		// 打赢第 14 关（结算推进到第 15 关，但结算本身不碰保底记录）再开下一场
+		// 打赢这一关（结算推进到第 pity 关，但结算本身不碰保底记录）再开下一场
 		for (const player of game.players.slice(1)) {
 			player.__alive = false;
 		}
 		lib.element.player.dieAfter.call(game.players[1]);
 		await flush();
-		assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "第 14 关正常结算");
-		assertEqual(lib.storage.rogueSlots[0].level, 15, "通关把进度推到第 15 关");
+		assertEqual(lib.storage.rogueSlots[0].currentBattle, null, "普通场正常结算");
+		assertEqual(lib.storage.rogueSlots[0].level, pity, `通关把进度推到第 ${pity} 关`);
 		assertEqual(lib.storage.rogueSlots[0].bossPityLevel, 0, "结算是结算、保底是保底：记录还是 0");
 		session();
-		Math.random = () => 1;
+		Math.random = () => 0.999999;
 		click("开始下一关");
 		Math.random = () => 0.5;
 		await flush();
 		battle = lib.storage.rogueSlots[0];
-		assertEqual(battle.currentBattle.isBossBattle, true, "第 15 关即使掷不中也必定 Boss（保底，不消费随机源）");
+		assertEqual(battle.currentBattle.isBossBattle, true, `第 ${pity} 关即使掷不中也必定 Boss（保底，不消费随机源）`);
 		assertEqual(battle.currentBattle.enemies.length, 1, "保底场同样换成单 Boss 阵容");
-		assertEqual(battle.bossPityLevel, 15, "Boss 创建成功即记下这一关（下一次保底从 15 数到 30）");
+		assertEqual(battle.bossPityLevel, pity, `Boss 创建成功即记下这一关（下一次保底从 ${pity} 数到 ${pity * 2}）`);
 		// ③ 抽中 Boss 后中途退出重进：恢复分支不重掷——把随机钉成「远高于判定线」也仍是那一场
 		freshWorld();
 		putRun(0, { mode: "endless", characterId: "迪迦", level: 3, currency: { gold: 0, exp: 0 } });
@@ -5208,7 +5237,7 @@ await check("Boss 判定边界与保底：严格小于、距上次 Boss 满 15 �
 		await flush();
 		assertEqual(lib.storage.rogueSlots[0].currentBattle.isBossBattle, false, "下一场各掷各的：没抽中就是普通场");
 		assertEqual(lib.storage.rogueSlots[0].bossPityLevel, 3, "普通场不动记录：距上次 Boss 的关卡差交给下一场现算");
-		return "四档边界(读生产概率) / 差 14 关走概率、差满 15 关保底实机 / 恢复不重掷 / 逐场独立";
+		return "四档边界(读生产概率) / 闯关不判 Boss / 差阈值一关走概率、差满阈值保底实机 / 恢复不重掷 / 逐场独立";
 	} finally {
 		Math.random = originalRandom;
 	}
@@ -5227,7 +5256,7 @@ await check("Boss 开局性能日志：默认关闭零输出，打开后按阶�
 	const startBossBattle = async () => {
 		freshWorld();
 		lib.character["本体测试将"] ??= { hp: 4, maxHp: 4, skills: [] };
-		putRun(0, { mode: "endless", characterId: "迪迦", level: 15, currency: { gold: 0, exp: 0 }, bossPityLevel: 0 });
+		putRun(0, { mode: "endless", characterId: "迪迦", level: cfg.BOSS_PITY_BATTLES, currency: { gold: 0, exp: 0 }, bossPityLevel: 0 });
 		session();
 		click("开始下一关");
 		await flush();
@@ -5273,9 +5302,9 @@ await check("Boss 保底：建编失败不消耗、失败重战不推关卡、�
 	const digaInfo = lib.character["迪迦"];
 	try {
 		Math.random = () => 1; // 概率路径永远不中（1 不小于判定线）
-		// ① 保底已到（第 15 关距上次 Boss 满 15 关）但本场建不出来（玩家角色被本体判为不可用）：
+		// ① 保底已到（第 BOSS_PITY_BATTLES 关距上次 Boss 满阈值）但本场建不出来（玩家角色被本体判为不可用）：
 		// 记录必须原样保留，下次仍能触发
-		putRun(0, { mode: "endless", characterId: "迪迦", level: 15, currency: { gold: 0, exp: 0 }, bossPityLevel: 0 });
+		putRun(0, { mode: "endless", characterId: "迪迦", level: cfg.BOSS_PITY_BATTLES, currency: { gold: 0, exp: 0 }, bossPityLevel: 0 });
 		session();
 		lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: [], isHiddenBoss: true };
 		click("开始下一关");

@@ -86,7 +86,8 @@ export const COLLECTION_KEY = "rogueCollection";
  *      = **上一次 Boss 战实际触发的关卡**（0 = 这一局还没出过 Boss）。保底判据是
  *      `当前关卡 - bossPityLevel ≥ BOSS_PITY_BATTLES`，所以虫洞这类「一次跳过多关」的进度
  *      自动算进保底，不必再数打了几场。正常一关一场的推进下，两种口径给出的 Boss 关卡完全一致
- *      （新档第 15 场＝第 15 关，Boss 后第 15 关再必出）。旧档的迁移路径按**存档版本**选、不看字段在不在：
+ *      （新档第 `BOSS_PITY_BATTLES` 场＝第 `BOSS_PITY_BATTLES` 关，Boss 后满同一个关卡差再必出；
+ *      阈值随该常量走，本行写的是当时口径）。旧档的迁移路径按**存档版本**选、不看字段在不在：
  *      v14 的存档按 `bossPityLevel = level - 1 - bossPityCount` 折算（旧计数按 v14 自己的合法范围
  *      0..19 清洗，见 LEGACY_BOSS_PITY_COUNT_MAX；档里混进 `bossPityLevel` 也不作数）；
  *      v13 及更早两个字段都不属于它们 → 一律补 0，绝不拿当前关卡反推；版本号缺失/非法按当前版本处理。
@@ -221,24 +222,26 @@ export const MERCHANT_PRICE_MULTIPLIER = 4;
 export const FORGE_EXP_MULTIPLIER = 5;
 
 // ---------------------------------------------------------------- Boss 战
-// 以下参数作用于两种模式：每场新战斗创建时独立掷一次概率，抽中就把**那一场**替换为 Boss 战。
+// **Boss 战只属于无尽模式**：无尽每推进一关，创建那场新战斗时独立掷一次概率，抽中就把**那一场**
+// 替换为 Boss 战；闯关模式的每一场新战斗恒判为普通战斗，一个随机数都不消费（见 enemy.js
+// shouldBossBattle 的模式闸门）。历史版本曾让两个模式共用这条判定，那是错的口径，已收掉。
 // 判定不看整局、也不看上一场的结果，所以既不连续锁定、也不因之前没抽中而抬高单次概率；
-// 连续没命中只由下面的 BOSS_PITY_BATTLES 兜底（距上一次 Boss 满 15 关必定是 Boss 战）。
+// 连续没命中只由下面的 BOSS_PITY_BATTLES 兜底（距上一次 Boss 满 16 关必定是 Boss 战）。
 
 /**
- * Boss 战替换概率：即将创建一场新的常规关卡战斗时 Math.random() < BOSS_RUN_RATE 即本场为 Boss 战。
- * 判定点只有一处（flow/battle.js 的 startBattle，且只在 currentBattle 为空时）：结果写进
- * currentBattle.isBossBattle 并与敌方阵容同一次落盘；读档恢复、页面重进、失败后重战都只认存档里
+ * Boss 战替换概率：无尽模式即将创建一场新的常规关卡战斗时 Math.random() < BOSS_RUN_RATE 即本场为 Boss 战。
+ * 判定点只有一处（flow/battle.js 的 startBattle，且只在 currentBattle 为空时），且**只对无尽开放**：
+ * 结果写进 currentBattle.isBossBattle 并与敌方阵容同一次落盘；读档恢复、页面重进、失败后重战都只认存档里
  * 这一场的结果，绝不重新随机。结算（奖励倍率 / 强制弃置 / 结算页标题）同样只看这一场，
  * 战斗状态清掉后标记随之消失，下一场重新独立判定。
  * 深渊裂隙那一场不走这里（它有独立结算，创建时显式记为普通战斗）。
  */
-export const BOSS_RUN_RATE = 0.06666;
+export const BOSS_RUN_RATE = 0.0625;
 
 /**
- * Boss 战保底：距「上一次 Boss 战实际触发的关卡」满 BOSS_PITY_BATTLES 关之后，
+ * Boss 战保底（只作用于无尽模式）：距「上一次 Boss 战实际触发的关卡」满 BOSS_PITY_BATTLES 关之后，
  * 下一场新建的常规战斗必定是 Boss 战——与 BOSS_RUN_RATE 相互独立的第二道保证：
- * 概率 0.06666 连着掷不中也好，第 15 关一定出。
+ * 概率 0.0625 连着掷不中也好，第 16 关一定出。
  * 口径（run.bossPityLevel = 上一次 Boss 战实际触发的关卡；0 = 这一局还没出过 Boss）：
  *   · 创建新战斗时 `run.level - bossPityLevel ≥ 本值` → 判定为 Boss 战、**不掷骰**，
  *     并且不消费随机源（保底路径与概率路径互不干扰）；
@@ -247,9 +250,9 @@ export const BOSS_RUN_RATE = 0.06666;
  *   · Boss 战创建成功时把这一场的关卡写进 bossPityLevel，随战斗同一次 commit 落盘；
  *   · 创建失败（阵容生成/校验不过）一个字节都不写，保底留到下次；
  *   · 深渊裂隙战与恢复未完成的战斗都不改关卡，天然不参与保底；失败后重打同一关同样不推进。
- * 例如：第 5 关提前命中 Boss → 记下 5，之后一路没抽中就在第 20 关保底触发。
+ * 例如：第 5 关提前命中 Boss → 记下 5，之后一路没抽中就在第 21 关保底触发。
  */
-export const BOSS_PITY_BATTLES = 15;
+export const BOSS_PITY_BATTLES = 16;
 
 /**
  * v14 时代 `bossPityCount` 的合法上界：那一版的 `BOSS_PITY_BATTLES` 是 20（计数到 19 时下一场必出、
@@ -257,8 +260,8 @@ export const BOSS_PITY_BATTLES = 15;
  * 清洗口径：只有「真的是有限数字」的旧计数才折算——数字越界按其旧范围夹（负数归 0、超范围取 19）；
  * null / 字符串 / NaN 这类脏值视同「没有记录」→ 补 0。字段缺失只可能出现在 v13 及更早的档里，
  * 那些档连这个字段都不属于，一律走「补 0」那条路（见 state.js 的版本闸门）。
- * 折算时必须拿本值当上界，不能顺手用 `BOSS_PITY_BATTLES - 1`——那是新口径的场内节奏：
- * 拿 14 去夹旧计数会把 15~19 这五档历史进度压成 14，旧档的保底被整体提前若干关。
+ * 折算时必须拿本值当上界，不能顺手用 `BOSS_PITY_BATTLES - 1`——那是当前保底节奏的场内上界，
+ * 跟 v14 自己的范围无关：拿它去夹旧计数会把超出它的那几档历史进度压掉，旧档的保底被整体提前若干关。
  */
 export const LEGACY_BOSS_PITY_COUNT_MAX = 19;
 

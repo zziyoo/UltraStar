@@ -214,17 +214,23 @@ export function createEnemyConfigs(level, mode, rng = Math.random, options = {})
 
 /**
  * 这一场新建的常规战斗要不要判成 Boss 战（纯函数，rng 与概率都可注入，方便测试）。
- * 两条互相独立的路径：
+ * **模式闸门在最前**：Boss 战只属于无尽模式，闯关（含其它任何 mode 值）一律直接返回 false，
+ * 既不读保底、也**一个随机数都不消费**——所以给闯关传一个会抛的 rng 也炸不出来。
+ * 无尽的两条互相独立的路径：
  *   1. 保底：当前关卡 - 上一次 Boss 触发的关卡 ≥ BOSS_PITY_BATTLES → 必定 Boss，**不消费随机源**
- *      ——概率掷了多少次没命中都不会影响它，第 15 关一定出；判据是关卡而不是场次，
+ *      ——概率掷了多少次没命中都不会影响它，满那么多关一定出；判据是关卡而不是场次，
  *      所以虫洞这类一次跳过多关的推进照样计入保底；
  *   2. 概率：Math.random() < BOSS_RUN_RATE（严格小于，与逐场判定的原口径一致）。
+ * @param {string} mode run.mode：只有 RUN_MODE.endless 才会判出 Boss 战
  * @param {number} level 即将开打的这一场所在的关卡（run.level）
  * @param {number} lastBossLevel run.bossPityLevel：上一次 Boss 战实际触发的关卡，0 = 还没出过
- * @param {() => number} [rng] 随机源；只有未到保底时才会被调用一次
+ * @param {() => number} [rng] 随机源；只有无尽且未到保底时才会被调用一次
  * @param {number} [rate] 判定概率；生产走 BOSS_RUN_RATE，测试可注入其它概率验证「未命中」路径
  */
-export function shouldBossBattle(level, lastBossLevel, rng = Math.random, rate = BOSS_RUN_RATE) {
+export function shouldBossBattle(mode, level, lastBossLevel, rng = Math.random, rate = BOSS_RUN_RATE) {
+	if (mode !== RUN_MODE.endless) {
+		return false;
+	}
 	const current = Math.max(1, Math.floor(Number(level) || 0));
 	const since = Math.max(0, Math.floor(Number(lastBossLevel) || 0));
 	if (current - since >= BOSS_PITY_BATTLES) {
@@ -347,7 +353,8 @@ export function pickBossSkillDonors(bossId, rng = Math.random, count = BOSS_SKIL
 }
 
 /**
- * 生成 Boss 战的单人阵容（创建那场战斗时逐场掷中 Boss 才走这里，见 flow/battle.js 的 isBossBattle 分支）：
+ * 生成 Boss 战的单人阵容（无尽模式创建那场战斗时逐场掷中 Boss 才走这里，见 flow/battle.js 的 isBossBattle 分支；
+ * 闯关不判 Boss，所以永远走不到这里）：
  *   · 只有 1 名敌人，角色从当前模式敌方池再按统一禁将名单（getBannedCharacterIds）过滤后随机
  *     ——禁将绝不入选担当 Boss（闯关池本身刻意不拦禁将，那是固定配置「照打」的口径，这里不适用）；
  *   · 额外获得另外三个不同角色（不与 Boss 本体重复）的全部技能，全部随阵容落盘、
