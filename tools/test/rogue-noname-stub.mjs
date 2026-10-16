@@ -41,6 +41,10 @@ export function resetState() {
 	lib.onover.length = 0;
 	lib.hookmap = {};
 	lib.hook = {};
+	// 上面那一圈把 lib.skill 清空了（本体不会这么干），全局技的三个容器要重新建回来
+	lib.skill.global = bag();
+	lib.skill.globalmap = {};
+	lib.hook.globalskill = {};
 	ui.dialogs.length = 0;
 	ui.lastDialog = null;
 	game.players.length = 0;
@@ -377,16 +381,20 @@ function makePlayer() {
 			}
 			if (!triggeronly) {
 				if (info.global) {
-					// 本体的全局技登记；桩里没有全局技体系，这里只在有人实现时转交
 					const globals = Array.isArray(info.global) ? info.global : [info.global];
 					for (const name of globals) {
-						game.addGlobalSkill?.(name, node);
+						game.addGlobalSkill(name, node);
 					}
 				}
+				// 本体用 initedSkills 当 init 的守卫：已经在里面就整块跳过（连这一遍的钩子登记也跳过，
+				// 这正是「重复 addSkillTrigger 会重跑 init」与「triggeronly 不跑 init」两个语义的来源）
 				if (node.initedSkills.includes(skill)) {
 					continue;
 				}
 				node.initedSkills.push(skill);
+				if (typeof info.init === "function") {
+					info.init(node, skill);
+				}
 			}
 			if (info.trigger && node.playerid) {
 				for (const role of Object.keys(info.trigger)) {
@@ -427,6 +435,13 @@ function makePlayer() {
 				continue;
 			}
 			if (!triggeronly) {
+				if (info.global) {
+					// 本体在这一步摘全局技（在 initedSkills 判定**之前**，所以没初始化过的也会被摘）
+					const globals = Array.isArray(info.global) ? info.global : [info.global];
+					for (const name of globals) {
+						game.removeGlobalSkill(name, node);
+					}
+				}
 				if (!node.initedSkills.includes(skill)) {
 					continue;
 				}
@@ -523,6 +538,29 @@ function makePlayer() {
 	return node;
 }
 
+/**
+ * 对齐本体给 Array 打的 add / remove 补丁：去重追加 / 删一个。
+ * 本体的 `lib.skill.global`、`lib.skill.globalmap[*]`、`lib.hook.*` 都是这种「自带去重的数组」，
+ * 所以重复注册（例如补注册共享伙伴）不会产生重复项。
+ */
+function bag(...items) {
+	const list = [...items];
+	list.add = item => {
+		if (!list.includes(item)) {
+			list.push(item);
+		}
+		return list;
+	};
+	list.remove = item => {
+		const index = list.indexOf(item);
+		if (index >= 0) {
+			list.splice(index, 1);
+		}
+		return list;
+	};
+	return list;
+}
+
 export const lib = {
 	version: "stub",
 	configprefix: "noname_stub_",
@@ -561,6 +599,11 @@ export const lib = {
 	init: {},
 	assetURL: "",
 };
+// 本体把「全局技」记在 lib.skill.global（自带去重的数组）里，按玩家登记在 lib.skill.globalmap，
+// 钩子挂在 lib.hook.globalskill[`${全局技}_${时机}`] 上 —— 三者都是 Array.add/remove 的语义
+lib.skill.global = bag();
+lib.skill.globalmap = {};
+lib.hook.globalskill = {};
 
 export const _status = { over: false, event: null, paused: false, gameStarted: false };
 
@@ -704,6 +747,48 @@ export const game = {
 	log: (...args) => log({ type: "game.log", args: args.map(String) }),
 	// 对齐本体：技能被摘掉时会走一次 removeSkillCheck 钩子（「故人的心」的收尾补全会调它）
 	callHook: hookName => log({ type: "callHook", name: hookName }),
+	/**
+	 * 对齐本体 game.addGlobalSkill / removeGlobalSkill（game/index.js:6317 / 6366）：
+	 * 全局技记进 lib.skill.global，按玩家记进 lib.skill.globalmap，钩子挂到 lib.hook.globalskill。
+	 * 三个容器都是「自带去重的数组」（本体给 Array 打过 add/remove 补丁），所以重复注册不会翻倍。
+	 */
+	addGlobalSkill(skill, player) {
+		const info = lib.skill[skill];
+		if (!info) {
+			return false;
+		}
+		lib.skill.global.add(skill);
+		if (player) {
+			lib.skill.globalmap[skill] ??= bag();
+			lib.skill.globalmap[skill].add(player);
+		}
+		if (info.trigger) {
+			for (const role of Object.keys(info.trigger)) {
+				const events = Array.isArray(info.trigger[role]) ? info.trigger[role] : [info.trigger[role]];
+				for (const evt of events) {
+					const key = `${role}_${evt}`;
+					lib.hook.globalskill[key] ??= bag();
+					lib.hook.globalskill[key].add(skill);
+					lib.hookmap[evt] = true;
+				}
+			}
+		}
+		return true;
+	},
+	removeGlobalSkill(skill, player) {
+		const players = lib.skill.globalmap[skill];
+		if (player && Array.isArray(players)) {
+			players.remove(player);
+			if (players.length) {
+				return;
+			}
+		}
+		lib.skill.global.remove(skill);
+		delete lib.skill.globalmap[skill];
+		for (const key of Object.keys(lib.hook.globalskill ?? {})) {
+			lib.hook.globalskill[key].remove(skill);
+		}
+	},
 	playAudio: () => {},
 	getPlayer: () => null,
 	giveup: () => {},

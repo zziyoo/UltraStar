@@ -5607,15 +5607,30 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 		getSkills: () => node.skills.slice(0),
 		hasSkill: id => node.skills.includes(id),
 		/** 对齐本体 addSkillTrigger：展开 group 后逐个登记钩子与 initedSkills（init 只跑一次） */
-		addSkillTrigger(ids) {
+		addSkillTrigger(ids, hidden, triggeronly) {
 			for (const skill of mockGame.expandSkills(Array.isArray(ids) ? ids : [ids])) {
-				if (!lib.skill[skill]) {
+				const info = lib.skill[skill];
+				if (!info) {
 					continue;
 				}
-				if (!node.initedSkills.includes(skill)) {
-					node.initedSkills.push(skill);
+				// triggeronly===true 是本体「只补触发器、不碰 global/initedSkills/init」的那条路
+				if (!triggeronly) {
+					if (!node.initedSkills.includes(skill)) {
+						node.initedSkills.push(skill);
+						if (typeof info.init === "function") {
+							info.init(node, skill);
+						}
+					} else {
+						continue;
+					}
 				}
 				node.registerHooks(skill);
+				if (info.hookTrigger) {
+					node._hookTrigger ??= [];
+					if (!node._hookTrigger.includes(skill)) {
+						node._hookTrigger.push(skill);
+					}
+				}
 			}
 			return node;
 		},
@@ -5627,6 +5642,12 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 				}
 				node.initedSkills = node.initedSkills.filter(item => item !== skill);
 				node.unregisterHooks(skill);
+				if (Array.isArray(node._hookTrigger)) {
+					node._hookTrigger = node._hookTrigger.filter(item => item !== skill);
+					if (!node._hookTrigger.length) {
+						delete node._hookTrigger;
+					}
+				}
 			}
 			return node;
 		},
@@ -5691,6 +5712,100 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 	}
 	return node;
 }
+
+check("故人的心：共享伙伴补注册只补触发器——init 不重跑、hookTrigger 登记在，最终移除零残留", () => {
+	// C 的 init 就是那种「加属性 / 加标记 / 发资源」的一次性初始化：跑两次就会翻倍
+	registerSacrificeSkills({
+		sac_a: { trigger: { player: "phaseEnd" }, group: ["sac_c"] },
+		sac_b: { trigger: { player: "damageEnd" }, group: ["sac_c"] },
+		sac_c: {
+			trigger: { player: "damageBegin1" },
+			hookTrigger: true,
+			init(player) { player.storage.sac_c_init = (player.storage.sac_c_init ?? 0) + 1; },
+		},
+	});
+	const player = makeFakeSkillPlayer(["sac_a", "sac_b", "sac_c"], { playerid: "sac_init_player" });
+	assertEqual(player.storage.sac_c_init, 1, "开局 C 只初始化一次");
+	assertEqual(player.initedSkills.includes("sac_c"), true, "C 的 initedSkills 登记在案");
+	assert(player._hookTrigger.includes("sac_c"), "hookTrigger 登记在案");
+
+	// 失去 A：C 被 B 依赖 → 留下，且补注册**不能**重跑 init
+	sacrifice.loseSkillsForBattle(player, ["sac_a"]);
+	assertEqual(player.hasSkill("sac_c"), true, "共享伙伴留下");
+	assertEqual(player.storage.sac_c_init, 1, "补注册没重跑 init（走的是 triggeronly 模式）");
+	assertEqual(player.initedSkills.includes("sac_c"), true, "initedSkills 登记补回来了（否则它将来真被摘时钩子摘不掉）");
+	assert(hooksOf(player, "damageBegin1").includes("sac_c"), "C 的钩子补回来了");
+	assert(player._hookTrigger.includes("sac_c"), "_hookTrigger 登记也在");
+	assertEqual(hooksOf(player, "phaseEnd").includes("sac_a"), false, "A 自己的钩子摘干净了");
+
+	// 失去 B：没人再依赖 C → 彻底移除，注册状态一条不留
+	sacrifice.loseSkillsForBattle(player, ["sac_b"]);
+	assertEqual(player.hasSkill("sac_c"), false, "最后一个依赖者失去后 C 跟着失去");
+	assertEqual(hooksOf(player, "damageBegin1").includes("sac_c"), false, "C 的钩子摘干净了");
+	assertEqual(player.initedSkills.includes("sac_c"), false, "initedSkills 清掉了");
+	assertEqual((player._hookTrigger ?? []).includes("sac_c"), false, "_hookTrigger 清掉了");
+	assertEqual(player.storage.sac_c_init, 1, "整个流程里 init 只跑过一次");
+	return "init 一次 + 只补触发器 + 最终移除零残留";
+});
+
+check("故人的心：主技能没有 trigger、group 伙伴有 —— onremove 抛错也不留残留", () => {
+	registerSacrificeSkills({
+		// 主技能自己一条触发器都没有，效果全靠 group 伙伴；它的 onremove 会炸
+		sac_boom: { group: ["sac_partner"], onremove() { throw new Error("boom"); } },
+		sac_partner: { trigger: { player: "damageBegin1" } },
+		sac_keep_main: { group: ["sac_partner"] },   // 另一个也声明这个伙伴的主技能
+		sac_other: {},
+	});
+	const savedError = console.error;
+	console.error = () => {};   // 这一条故意让它抛错，日志不进测试输出
+	try {
+		// 场景一：伙伴只被抛错的这个主技能依赖 → 抛错后它必须彻底移除（含触发器）
+		const solo = makeFakeSkillPlayer(["sac_boom", "sac_partner", "sac_other"], { playerid: "sac_boom_solo" });
+		assert(hooksOf(solo, "damageBegin1").includes("sac_partner"), "伙伴的钩子一开始是登记着的");
+		assertEqual(sacrifice.loseSkillsForBattle(solo, ["sac_boom"]).join(","), "sac_boom", "抛错的技能照实记账");
+		assertEqual(solo.hasSkill("sac_boom"), false, "主技能已失去");
+		assertEqual(solo.hasSkill("sac_partner"), false, "没人再依赖它 → 伙伴跟着彻底移除");
+		assertEqual(hooksOf(solo, "damageBegin1").includes("sac_partner"), false, "伙伴的钩子摘干净（主技能自己没 trigger 也要查得到）");
+		assertEqual(solo.initedSkills.includes("sac_partner"), false, "伙伴的 initedSkills 也清掉");
+		assertEqual(solo.hasSkill("sac_other"), true, "无关技能一个都不动");
+
+		// 场景二：伙伴还被另一个主技能依赖 → 抛错后它保留，且触发器仍然有效
+		const shared = makeFakeSkillPlayer(["sac_boom", "sac_keep_main", "sac_partner"], { playerid: "sac_boom_shared" });
+		sacrifice.loseSkillsForBattle(shared, ["sac_boom"]);
+		assertEqual(shared.hasSkill("sac_partner"), true, "共享伙伴保留");
+		assert(hooksOf(shared, "damageBegin1").includes("sac_partner"), "它的触发器仍然有效（补注册过）");
+		assertEqual(shared.initedSkills.includes("sac_partner"), true, "initedSkills 登记在");
+		assertEqual(shared.hasSkill("sac_keep_main"), true, "另一个主技能不受影响");
+
+		// 场景三：主技能自己没 trigger、只有 global，onremove 抛错 → 注册状态也必须清干净
+		// （只查「主技能有没有钩子」会漏掉这一种：钩子一个都没有，注册状态却在 initedSkills 里）
+		lib.skill.sac_glob = {};
+		lib.skill.sac_global_main = { global: ["sac_glob"], onremove() { throw new Error("boom"); } };
+		registerSacrificeSkills({ sac_glob_main_other: {} });
+		const globalMain = makeFakeSkillPlayer(["sac_global_main", "sac_glob_main_other"], { playerid: "sac_global_main" });
+		assertEqual(globalMain.initedSkills.includes("sac_global_main"), true, "主技能的注册状态本来在案（补全要靠它认出残留）");
+		sacrifice.loseSkillsForBattle(globalMain, ["sac_global_main"]);
+		assertEqual(globalMain.hasSkill("sac_global_main"), false, "主技能已失去");
+		assertEqual(globalMain.initedSkills.includes("sac_global_main"), false, "它的注册状态清干净了（没有残留登记）");
+
+		// 场景四：跟随件自己的 onremove 抛错 → 它的钩子也必须补摘干净
+		// 这里用 `subSkill` 子技能：它**不参与** `expandSkills`，主技能的 removeSkillTrigger 碰不到它，
+		// 抛错后残留只能靠「整组 id」逐个查才找得出来（只查主技能一个 id 必漏）
+		registerSacrificeSkills({
+			sac_child_boom: { trigger: { player: "phaseZhunbei" }, sub: true, sourceSkill: "sac_parent_main", onremove() { throw new Error("child boom"); } },
+			sac_parent_main: {},
+		});
+		const parent = makeFakeSkillPlayer(["sac_parent_main", "sac_child_boom"], { playerid: "sac_parent_main" });
+		assert(hooksOf(parent, "phaseZhunbei").includes("sac_child_boom"), "跟随件的钩子一开始登记着");
+		assertEqual(sacrifice.loseSkillsForBattle(parent, ["sac_parent_main"]).join(","), "sac_parent_main", "主技能照实记账");
+		assertEqual(parent.hasSkill("sac_child_boom"), false, "跟随件（没人依赖）跟着失去");
+		assertEqual(hooksOf(parent, "phaseZhunbei").includes("sac_child_boom"), false, "它的钩子补摘干净了");
+		assertEqual(parent.initedSkills.includes("sac_child_boom"), false, "initedSkills 也清掉");
+		return "抛错后按整组查残留：非共享伙伴彻底移除、共享伙伴保留且触发器有效、global 与跟随件残留都清干净";
+	} finally {
+		console.error = savedError;
+	}
+});
 
 check("故人的心：可失去技能的枚举口径（本体「失去已有技能」口径，不照搬商店的获取过滤）", () => {
 	registerSacrificeSkills({

@@ -5758,8 +5758,17 @@ function registerShareProbeSkills() {
 	}
 }
 
-/** 故人的心用例共用的开局夹具：玩家带 A、B、C 三个技能，敌人带 sac_e1 / sac_e2 两个技能 */
-function putShareProbeRun() {
+/** 主技能自己一条触发器都没有、效果全靠 group 伙伴，且 onremove 会抛错——专测异常补全的整组残留检查 */
+function registerBoomProbeSkills() {
+	lib.skill.sac_boom = { group: ["sac_partner"], onremove() { throw new Error("boom"); } };
+	lib.skill.sac_partner = { trigger: { player: "damageBegin1" } };
+	for (const id of ["sac_boom", "sac_partner"]) {
+		lib.translate[id] = id;
+		lib.translate[`${id}_info`] = "冒烟测试用技能。";
+	}
+}
+
+/** 故人的心用例共用的开局夹具：玩家带 A、B、C 三个技能，敌人带 sac_e1 / sac_e2 两个技能 */function putShareProbeRun() {
 	return putRun(0, {
 		mode: "endless",
 		curios: ["old_friend_heart"],
@@ -5907,6 +5916,122 @@ await check("故人的心：onremove 抛错时不残留触发器，战斗照常�
 	assertEqual(game.players[1].hasSkill("sac_e1"), false, "敌方指定的一件照常失去（两侧数量相等）");
 	assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常开始");
 	return "onremove 抛错 → 照实记账 + 触发器/登记补全 + 开局照常";
+});
+
+await check("故人的心：共享 group 伙伴的 init() 不重复执行（真机链路）", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_a", "sac_b", "sac_c"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putShareProbeRun();
+	session();
+	registerShareProbeSkills();
+	// C 的 init 就是「加属性 / 加标记 / 发资源」那类一次性初始化：跑两次就翻倍
+	lib.skill.sac_c = {
+		trigger: { player: "damageBegin1" },
+		init(player) {
+			player.storage.sac_c_init = (player.storage.sac_c_init ?? 0) + 1;
+		},
+	};
+	click("重新挑战这一关");
+	assertEqual(game.me.storage.sac_c_init, 1, "开战前 C 只初始化一次");
+	click("sac_a");
+	click("下一步");
+	click("sac_e1");
+	click("确认");
+	await flush();
+	assertEqual(game.me.hasSkill("sac_c"), true, "共享伙伴留下");
+	assertEqual(game.me.storage.sac_c_init, 1, "补注册只补触发器，init 一次都没重跑");
+	assert(playerHooks(game.me, "damageBegin1").includes("sac_c"), "C 的触发器仍然有效");
+
+	// 再失去 B（没人再依赖 C）：直接走结算层，省掉一次整页重载
+	sacrificeModule.settleSkillSacrifice(game.me, { mine: ["sac_b"], theirs: [] });
+	assertEqual(game.me.hasSkill("sac_c"), false, "最后一个依赖者失去后 C 跟着失去");
+	assertEqual(playerHooks(game.me, "damageBegin1").includes("sac_c"), false, "C 的钩子摘干净了");
+	assertEqual(game.me.storage.sac_c_init, 1, "整条链路里 init 始终只跑过一次");
+	return "init 一次 + 补注册不重跑 + 最终移除零残留（真机链路）";
+});
+
+await check("故人的心：带 global / hookTrigger 的共享伙伴，补注册与最终注销都正确", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_a", "sac_b", "sac_c"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+	putShareProbeRun();
+	session();
+	registerShareProbeSkills();
+	lib.skill.sac_glob = {};   // 全局技本体：C 通过 info.global 把它登记成全局技
+	lib.skill.sac_c = { trigger: { player: "damageBegin1" }, global: ["sac_glob"], hookTrigger: true };
+	click("重新挑战这一关");
+	assert(lib.skill.global.includes("sac_glob"), "开战前全局技已登记进 lib.skill.global");
+	assert((lib.skill.globalmap.sac_glob ?? []).includes(game.me), "玩家登记在 globalmap 里");
+	assert(game.me._hookTrigger.includes("sac_c"), "hookTrigger 登记在案");
+
+	click("sac_a");
+	click("下一步");
+	click("sac_e1");
+	click("确认");
+	await flush();
+	assert(lib.skill.global.includes("sac_glob"), "失去 A 后全局技仍然登记着（共享伙伴留下的那半边）");
+	assertEqual((lib.skill.globalmap.sac_glob ?? []).length, 1, "补注册不会把同一个玩家登记两遍");
+	assert(game.me._hookTrigger.includes("sac_c"), "_hookTrigger 登记还在");
+	assert(playerHooks(game.me, "damageBegin1").includes("sac_c"), "钩子还在");
+
+	// 再失去 B：C 彻底移除，全局技与 hookTrigger 登记一起注销
+	sacrificeModule.settleSkillSacrifice(game.me, { mine: ["sac_b"], theirs: [] });
+	assertEqual(game.me.hasSkill("sac_c"), false, "C 跟着失去");
+	assertEqual(lib.skill.global.includes("sac_glob"), false, "全局技注销");
+	assertEqual((lib.skill.globalmap.sac_glob ?? []).length, 0, "globalmap 清空");
+	assertEqual((game.me._hookTrigger ?? []).includes("sac_c"), false, "_hookTrigger 摘干净");
+	return "global / hookTrigger 的注册、补注册与注销都正确";
+});
+
+await check("故人的心：主技能没有 trigger、靠 group 伙伴做事 —— onremove 抛错后的两种结局都正确", async () => {
+	const savedError = console.error;
+	console.error = () => {};   // 这两段故意让 onremove 抛错，日志不进测试输出
+	try {
+		// 场景一：伙伴只被抛错的这个主技能依赖 → 抛错后它彻底移除
+		freshWorld();
+		lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_boom", "sac_partner"] };
+		lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+		putShareProbeRun();
+		session();
+		registerShareProbeSkills();
+		registerBoomProbeSkills();
+		click("重新挑战这一关");
+		assert(playerHooks(game.me, "damageBegin1").includes("sac_partner"), "伙伴的钩子一开始登记着");
+		click("sac_boom");
+		click("下一步");
+		click("sac_e1");
+		click("确认");
+		await flush();
+		assertEqual(game.me.hasSkill("sac_boom"), false, "主技能已失去");
+		assertEqual(game.me.hasSkill("sac_partner"), false, "没人再依赖它 → 伙伴跟着彻底移除");
+		assertEqual(playerHooks(game.me, "damageBegin1").includes("sac_partner"), false, "伙伴的钩子摘干净（主技能自己没 trigger 也要查得到）");
+		assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常开始");
+
+		// 场景二：伙伴还被 sac_b 依赖 → 抛错后它保留，且触发器仍然有效
+		freshWorld();
+		lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["sac_boom", "sac_b", "sac_partner"] };
+		lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: [] };
+		putShareProbeRun();
+		session();
+		registerShareProbeSkills();
+		registerBoomProbeSkills();
+		lib.skill.sac_b = { trigger: { player: "damageEnd" }, group: ["sac_partner"] };
+		click("重新挑战这一关");
+		click("sac_boom");
+		click("下一步");
+		click("sac_e1");
+		click("确认");
+		await flush();
+		assertEqual(game.me.hasSkill("sac_partner"), true, "共享伙伴保留");
+		assert(playerHooks(game.me, "damageBegin1").includes("sac_partner"), "它的触发器仍然有效（补注册过）");
+		assertEqual(game.me.initedSkills.includes("sac_partner"), true, "initedSkills 登记在");
+		assertEqual(game.me.hasSkill("sac_b"), true, "另一个主技能不受影响");
+		assert(log.some(item => item.type === "trigger:gameStart"), "战斗照常开始");
+	} finally {
+		console.error = savedError;
+	}
+	return "抛错后伙伴该走的走、该留的留，开局不受影响";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);
