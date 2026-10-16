@@ -1,81 +1,5 @@
 import { lib, game, ui, get, ai, _status } from "../../../../noname.js";
 
-// ===== tbznengchi（能吃）专用辅助函数 =====
-// 说明：无名杀只在卡牌定义上读取 ai.equipValue（get.equipValue / game.finishCard 的 aiBasicValue），
-// 写在技能 ai 里的 equipValue 不会被任何引擎代码调用；真正生效的评分接口是：
-//   mod.aiOrder  -> get.order       （chooseToUse 里 ai1=get.cacheOrder，决定 AI 选哪张牌用）
-//   mod.aiValue  -> get.value       （弃牌/收益评估）
-//   ai.effect    -> get.effect_use  （chooseToUse 里 ai2=get.cacheEffectUse，决定 AI 是否真的用出去）
-const tbznengchiExcludedNames = ["muniu"];
-
-/** 是否是参与决策的牌对象（实体牌 card / 虚拟牌 vcard / {name} 牌名对象） */
-function tbznengchiIsCardObject(card) {
-	if (!card) return false;
-	const type = get.itemtype(card);
-	return type === "card" || type === "vcard";
-}
-
-/** 是否是装备牌 */
-function tbznengchiIsEquip(card) {
-	return tbznengchiIsCardObject(card) && get.type2(card) === "equip";
-}
-
-/** 该装备是否带有本技能可以永久继承的效果（装备技能 / 距离修正 / 攻击范围） */
-function tbznengchiHasEffect(card) {
-	if (!tbznengchiIsEquip(card)) return false;
-	const name = get.name(card);
-	if (!name || tbznengchiExcludedNames.includes(name)) return false;
-	const info = get.info(card);
-	if (!info) return false;
-	if (Array.isArray(info.skills) && info.skills.length > 0) return true;
-	const dist = info.distance;
-	if (!dist) return false;
-	return Boolean(dist.globalTo || dist.globalFrom || typeof dist.attackFrom === "number" || typeof dist.attackRange === "function");
-}
-
-/** 该装备的永久效果是否已经获得过（旧存档里 tbznengchi_mark 可能不是数组） */
-function tbznengchiHasGained(player, card) {
-	const storage = player?.getStorage ? player.getStorage("tbznengchi_mark") : null;
-	if (!Array.isArray(storage)) return false;
-	return storage.includes(get.name(card));
-}
-
-/** 是否已经获得过任意装备效果（用于装备槽禁用/重新启用、失去装备后补回永久技能） */
-function tbznengchiHasGainedAny(player) {
-	const storage = player?.getStorage ? player.getStorage("tbznengchi_mark") : null;
-	return Array.isArray(storage) && storage.length > 0;
-}
-
-/** 是否是「装上就能拿到一份新的永久效果」的装备：有效果 + 没获得过 + 合法可装备 */
-function tbznengchiIsFreshEquip(player, card) {
-	if (!player || typeof player.canEquip !== "function") return false;
-	if (!tbznengchiHasEffect(card)) return false;
-	if (tbznengchiHasGained(player, card)) return false;
-	return player.canEquip(card, true);
-}
-
-/** 旧存档兼容：距离加成可能缺字段或不是数字 */
-function tbznengchiGetDistance(player) {
-	const raw = player.getStorage("tbznengchi_distance", { globalTo: 0, globalFrom: 0 });
-	return { globalTo: Number(raw?.globalTo) || 0, globalFrom: Number(raw?.globalFrom) || 0 };
-}
-
-function tbznengchiGetAttackRange(player) {
-	return Number(player.getStorage("tbznengchi_attackRange", 0)) || 0;
-}
-
-/** 按装备定义计算武器自身的攻击范围，与 player.getEquipRange 同源 */
-function tbznengchiWeaponRange(card, player) {
-	const dist = get.info(card)?.distance;
-	if (!dist) return 1;
-	if (typeof dist.attackRange === "function") {
-		const range = dist.attackRange(card, player);
-		return typeof range === "number" ? range : 1;
-	}
-	if (typeof dist.attackFrom === "number") return 1 - dist.attackFrom;
-	return 1;
-}
-
 export const skills = {
 	myjuesheng: {
 		audio: ["ext:奥特之星/assets/audio/juesheng"],
@@ -241,167 +165,210 @@ export const skills = {
 			},
 		},
 	},
-	tbznengchi: {
-		forced: true,
-		trigger: {
-			player: ["loseAfter", "disableEquipAfter", "enableEquipAfter"],
-			global: ["equipAfter", "addJudgeAfter", "gainAfter", "loseAsyncAfter", "addToExpansionAfter"],
-		},
-		onremove: true,
-		ai: {
-			// 装备栏已有装备时 get.equipResult 可能算出 0（常规价值不足以替换），
-			// 这里把「新装备带来的永久收益」直接加进 result1，AI 才会真的把牌用出去。
-			effect: {
-				player(card, player, target, result) {
-					if (!tbznengchiIsFreshEquip(player, card)) return;
-					return [1, 4];
-				},
-				player_use(card, player, target, result) {
-					if (!tbznengchiIsFreshEquip(player, card)) return;
-					return [1, 4];
-				},
-			},
-		},
-		filter(event, player) {
-			if (event.name === "disableEquip" || event.name === "enableEquip") {
-				return tbznengchiHasGainedAny(player);
+	tbznengchi: (() => {
+		const excludedNames = ["muniu"];
+		const isCardObject = card => {
+			if (!card) return false;
+			const type = get.itemtype(card);
+			return type === "card" || type === "vcard";
+		};
+		const isEquip = card => isCardObject(card) && get.type2(card) === "equip";
+		const hasEffect = card => {
+			if (!isEquip(card)) return false;
+			const name = get.name(card);
+			if (!name || excludedNames.includes(name)) return false;
+			const info = get.info(card);
+			if (!info) return false;
+			if (Array.isArray(info.skills) && info.skills.length > 0) return true;
+			const dist = info.distance;
+			if (!dist) return false;
+			return Boolean(dist.globalTo || dist.globalFrom || typeof dist.attackFrom === "number" || typeof dist.attackRange === "function");
+		};
+		const hasGained = (player, card) => {
+			const storage = player?.getStorage ? player.getStorage("tbznengchi_mark") : null;
+			if (!Array.isArray(storage)) return false;
+			return storage.includes(get.name(card));
+		};
+		const hasGainedAny = player => {
+			const storage = player?.getStorage ? player.getStorage("tbznengchi_mark") : null;
+			return Array.isArray(storage) && storage.length > 0;
+		};
+		const isFreshEquip = (player, card) => {
+			if (!player || typeof player.canEquip !== "function") return false;
+			if (!hasEffect(card)) return false;
+			if (hasGained(player, card)) return false;
+			return player.canEquip(card, true);
+		};
+		const getDistance = player => {
+			const raw = player.getStorage("tbznengchi_distance", { globalTo: 0, globalFrom: 0 });
+			return { globalTo: Number(raw?.globalTo) || 0, globalFrom: Number(raw?.globalFrom) || 0 };
+		};
+		const getAttackRange = player => Number(player.getStorage("tbznengchi_attackRange", 0)) || 0;
+		const weaponRange = (card, player) => {
+			const dist = get.info(card)?.distance;
+			if (!dist) return 1;
+			if (typeof dist.attackRange === "function") {
+				const range = dist.attackRange(card, player);
+				return typeof range === "number" ? range : 1;
 			}
-			if (event.name === "equip" && event.player === player) {
-				return tbznengchiHasEffect(event.card);
-			}
-			const evt = event.getl(player);
-			if (!evt?.es?.length) return false;
-			return tbznengchiHasGainedAny(player);
-		},
-		async content(event, trigger, player) {
-			if (trigger.name === "equip" && trigger.player === player) {
-				const card = trigger.card;
-				// 先判重再发增益：同一装备名的永久效果只拿一次，避免反复装备同名装备重复叠加
-				if (tbznengchiHasEffect(card) && !tbznengchiHasGained(player, card)) {
-					const cardName = get.name(card);
-					const dist = get.info(card)?.distance ?? {};
-					const addTo = Number(dist.globalTo) || 0;
-					const addFrom = Number(dist.globalFrom) || 0;
-					if (addTo || addFrom) {
-						const stored = tbznengchiGetDistance(player);
-						stored.globalTo += addTo;
-						stored.globalFrom += addFrom;
-						player.setStorage("tbznengchi_distance", stored);
-						if (addTo) game.log(player, "获得了加一马效果，其他角色计算与你的距离+" + addTo);
-						if (addFrom) game.log(player, "获得了减一马效果，你计算与其他角色的距离" + addFrom);
-					}
-					// 武器自带攻击范围是「1 - attackFrom」，永久获得的是相对基础范围的增量
-					const rangeBonus = tbznengchiWeaponRange(card, player) - 1;
-					if (rangeBonus > 0) {
-						player.setStorage("tbznengchi_attackRange", tbznengchiGetAttackRange(player) + rangeBonus);
-						game.log(player, "获得了攻击范围+" + rangeBonus + "的效果");
-					}
-					player.markAuto("tbznengchi_mark", [cardName]);
-					game.log(player, "获得了装备【" + get.translation(card) + "】的效果");
-					player.markSkill("tbznengchi_mark");
-				}
-			}
-			// 装备被替换/失去/装备槽被禁用或重新启用后，已获得的永久技能都要补回来
-			const storage = player.getStorage("tbznengchi_mark");
-			if (!Array.isArray(storage) || storage.length === 0) return;
-			const gained = [];
-			for (const cardName of storage) {
-				if (tbznengchiExcludedNames.includes(cardName)) continue;
-				const info = get.info({ name: cardName });
-				if (!info?.skills) continue;
-				for (const skill of info.skills) {
-					if (!gained.includes(skill)) gained.push(skill);
-				}
-			}
-			if (gained.length > 0) player.addSkill(gained);
-		},
-		mod: {
-			globalTo(from, to, distance) {
-				const dist = tbznengchiGetDistance(to);
-				if (dist.globalTo) {
-					return distance + dist.globalTo;
-				}
+			if (typeof dist.attackFrom === "number") return 1 - dist.attackFrom;
+			return 1;
+		};
+		return {
+			forced: true,
+			trigger: {
+				player: ["loseAfter", "disableEquipAfter", "enableEquipAfter"],
+				global: ["equipAfter", "addJudgeAfter", "gainAfter", "loseAsyncAfter", "addToExpansionAfter"],
 			},
-			globalFrom(from, to, distance) {
-				const dist = tbznengchiGetDistance(from);
-				if (dist.globalFrom) {
-					return distance + dist.globalFrom;
-				}
-			},
-			attackRange(player, num) {
-				const attackRange = tbznengchiGetAttackRange(player);
-				if (attackRange > 0) {
-					return num + attackRange;
-				}
-			},
-			// get.order：chooseToUse 用 ai1=get.cacheOrder 选出要用的牌，这里给「新装备」加优先级
-			aiOrder(player, card, num) {
-				if (!tbznengchiIsFreshEquip(player, card)) return;
-				return num + 5;
-			},
-			// get.value：让 AI 舍不得扔掉还没获得过效果的装备
-			aiValue(player, card, num) {
-				if (!tbznengchiHasEffect(card)) return;
-				if (tbznengchiHasGained(player, card)) return;
-				return num + 8;
-			},
-		},
-		group: ["tbznengchi_draw"],
-		subSkill: {
-			draw: {
-				audio: ["ext:奥特之星/assets/audio/nengchi"],
-				trigger: { player: "phaseUseBegin" },
-				forced: true,
-				async content(event, trigger, player) {
-					player.logSkill("tbznengchi_draw");
-					const cards = [];
-					for (let i = 0; i < 3; i++) {
-						const card = get.cardPile(card => get.type2(card) === "equip" && !cards.includes(card));
-						if (card) cards.push(card);
-					}
-					if (cards.length > 0) {
-						await player.gain(cards, "gain2");
-						game.log(player, "从牌堆或弃牌堆获得了" + cards.length + "张装备牌");
-					} else {
-						game.log("牌堆和弃牌堆中没有装备牌");
-					}
-				},
-			},
-			mark: {
-				mark: true,
-				marktext: "装",
-				intro: {
-					content(storage, player) {
-						const raw = player.getStorage("tbznengchi_mark");
-						const s = Array.isArray(raw) ? raw : [];
-						const dist = tbznengchiGetDistance(player);
-						const attackRange = tbznengchiGetAttackRange(player);
-						let str = "";
-						if (attackRange > 0) {
-							str += "攻击范围+" + attackRange;
-						}
-						if (dist.globalTo > 0) {
-							if (str.length > 0) str += "<br>";
-							str += "其他角色与你的距离+" + dist.globalTo;
-						}
-						if (dist.globalFrom < 0) {
-							if (str.length > 0) str += "<br>";
-							str += "你与其他角色的距离" + dist.globalFrom;
-						}
-						if (s.length > 0) {
-							if (str.length > 0) str += "<br>";
-							str += "已获得以下装备的效果：";
-							for (const name of s) {
-								str += "<br>【" + get.translation(name) + "】";
-							}
-						}
-						return str.length === 0 ? "暂无装备效果" : str;
+			onremove: true,
+			ai: {
+				effect: {
+					player(card, player, target, result) {
+						if (!isFreshEquip(player, card)) return;
+						return [1, 4];
+					},
+					player_use(card, player, target, result) {
+						if (!isFreshEquip(player, card)) return;
+						return [1, 4];
 					},
 				},
-				onremove: true,
 			},
-		},
-	},
+			filter(event, player) {
+				if (event.name === "disableEquip" || event.name === "enableEquip") {
+					return hasGainedAny(player);
+				}
+				if (event.name === "equip" && event.player === player) {
+					return hasEffect(event.card);
+				}
+				const evt = event.getl(player);
+				if (!evt?.es?.length) return false;
+				return hasGainedAny(player);
+			},
+			async content(event, trigger, player) {
+				if (trigger.name === "equip" && trigger.player === player) {
+					const card = trigger.card;
+					if (hasEffect(card) && !hasGained(player, card)) {
+						const cardName = get.name(card);
+						const dist = get.info(card)?.distance ?? {};
+						const addTo = Number(dist.globalTo) || 0;
+						const addFrom = Number(dist.globalFrom) || 0;
+						if (addTo || addFrom) {
+							const stored = getDistance(player);
+							stored.globalTo += addTo;
+							stored.globalFrom += addFrom;
+							player.setStorage("tbznengchi_distance", stored);
+							if (addTo) game.log(player, "获得了加一马效果，其他角色计算与你的距离+" + addTo);
+							if (addFrom) game.log(player, "获得了减一马效果，你计算与其他角色的距离" + addFrom);
+						}
+						const rangeBonus = weaponRange(card, player) - 1;
+						if (rangeBonus > 0) {
+							player.setStorage("tbznengchi_attackRange", getAttackRange(player) + rangeBonus);
+							game.log(player, "获得了攻击范围+" + rangeBonus + "的效果");
+						}
+						player.markAuto("tbznengchi_mark", [cardName]);
+						game.log(player, "获得了装备【" + get.translation(card) + "】的效果");
+						player.markSkill("tbznengchi_mark");
+					}
+				}
+				const storage = player.getStorage("tbznengchi_mark");
+				if (!Array.isArray(storage) || storage.length === 0) return;
+				const gained = [];
+				for (const cardName of storage) {
+					if (excludedNames.includes(cardName)) continue;
+					const info = get.info({ name: cardName });
+					if (!info?.skills) continue;
+					for (const skill of info.skills) {
+						if (!gained.includes(skill)) gained.push(skill);
+					}
+				}
+				if (gained.length > 0) player.addSkill(gained);
+			},
+			mod: {
+				globalTo(from, to, distance) {
+					const dist = getDistance(to);
+					if (dist.globalTo) {
+						return distance + dist.globalTo;
+					}
+				},
+				globalFrom(from, to, distance) {
+					const dist = getDistance(from);
+					if (dist.globalFrom) {
+						return distance + dist.globalFrom;
+					}
+				},
+				attackRange(player, num) {
+					const attackRange = getAttackRange(player);
+					if (attackRange > 0) {
+						return num + attackRange;
+					}
+				},
+				aiOrder(player, card, num) {
+					if (!isFreshEquip(player, card)) return;
+					return num + 5;
+				},
+				aiValue(player, card, num) {
+					if (!hasEffect(card)) return;
+					if (hasGained(player, card)) return;
+					return num + 8;
+				},
+			},
+			group: ["tbznengchi_draw"],
+			subSkill: {
+				draw: {
+					audio: ["ext:奥特之星/assets/audio/nengchi"],
+					trigger: { player: "phaseUseBegin" },
+					forced: true,
+					async content(event, trigger, player) {
+						player.logSkill("tbznengchi_draw");
+						const cards = [];
+						for (let i = 0; i < 3; i++) {
+							const card = get.cardPile(card => get.type2(card) === "equip" && !cards.includes(card));
+							if (card) cards.push(card);
+						}
+						if (cards.length > 0) {
+							await player.gain(cards, "gain2");
+							game.log(player, "从牌堆或弃牌堆获得了" + cards.length + "张装备牌");
+						} else {
+							game.log("牌堆和弃牌堆中没有装备牌");
+						}
+					},
+				},
+				mark: {
+					mark: true,
+					marktext: "装",
+					intro: {
+						content(storage, player) {
+							const raw = player.getStorage("tbznengchi_mark");
+							const s = Array.isArray(raw) ? raw : [];
+							const dist = getDistance(player);
+							const attackRange = getAttackRange(player);
+							let str = "";
+							if (attackRange > 0) {
+								str += "攻击范围+" + attackRange;
+							}
+							if (dist.globalTo > 0) {
+								if (str.length > 0) str += "<br>";
+								str += "其他角色与你的距离+" + dist.globalTo;
+							}
+							if (dist.globalFrom < 0) {
+								if (str.length > 0) str += "<br>";
+								str += "你与其他角色的距离" + dist.globalFrom;
+							}
+							if (s.length > 0) {
+								if (str.length > 0) str += "<br>";
+								str += "已获得以下装备的效果：";
+								for (const name of s) {
+									str += "<br>【" + get.translation(name) + "】";
+								}
+							}
+							return str.length === 0 ? "暂无装备效果" : str;
+						},
+					},
+					onremove: true,
+				},
+			},
+		};
+	})(),
 	hjcsuixin: {
 		audio: ["ext:奥特之星/assets/audio/suixin1", "ext:奥特之星/assets/audio/suixin2"],
 		trigger: { global: ["phaseBegin", "phaseEnd"] },
