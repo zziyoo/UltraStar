@@ -84,9 +84,9 @@ function isChoosableSkill(id) {
 /**
  * 这些技能带出来的跟随件（都必须在身上才算）：`group` 伙伴，以及 `subSkill` 子技能
  * （本体注册成 `${主}_${子}` 并打上 `sub: true` + `sourceSkill: 父技能`）。
- * 列表用它把跟随件折进主技能，摘除用它找出该跟着走的那几件——两边同一份判据，
- * 所以「折进列表的」和「跟着一起失去的」永远是同一批：只摘主技能会留下还在响的子技能，
- * 那正是「已经失去了但效果还在」。
+ * 注意 `group` 伙伴按本体语义可以只活在触发器注册表里、不进 `player.skills`（grantSkills 修复后即如此）：
+ * 这类伙伴不需要在这里枚举——`removeSkill(main)` 的 `removeSkillTrigger` 会展开 `group` 连带摘掉它，
+ * 还被别的已拥有技能依赖时由 `restoreSharedPartners` 补注册。这里枚举的是「自己也在技能表里」的跟随件。
  */
 function dependentsOf(player, ids) {
 	const owned = new Set(playerSkillIds(player));
@@ -210,11 +210,12 @@ function restoreSharedPartner(player, partner) {
 	player.addSkillTrigger(partner, null, true);
 }
 
-/** 把 `removeSkillTrigger(被摘技能)` 连带摘掉的共享伙伴补回来 */
+/** 把 `removeSkillTrigger(被摘技能)` 连带摘掉的共享伙伴补回来。
+ *  判据是「还有别的已拥有技能依赖它」而不是「它自己在技能表里」：`group` 伙伴本来就不进技能表。 */
 function restoreSharedPartners(player, removedId) {
 	const collateral = new Set(game.expandSkills([removedId]).filter(skill => skill !== removedId));
 	for (const partner of collateral) {
-		if (!playerSkillIds(player).includes(partner) || !isStillNeeded(player, partner)) {
+		if (!isStillNeeded(player, partner)) {
 			continue;
 		}
 		restoreSharedPartner(player, partner);

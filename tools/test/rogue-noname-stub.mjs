@@ -539,7 +539,8 @@ function makePlayer() {
 		}
 		node.addSkillTrigger(id);
 	};
-	node.hasSkill = id => node.getSkills().includes(id);
+	// 对齐本体 hasSkill（player.js:13272）：先展开 group 再判断；group 伙伴不独立进技能表也算拥有
+	node.hasSkill = id => game.expandSkills(node.getSkills().slice(0)).includes(id);
 	// 对齐本体 getSkills：技能表 + 各 additionalSkills 名下的派生技能合并去重
 	// （桩里没有装备区/屏蔽体系，其余参数不改变结果）
 	node.getSkills = () => {

@@ -93,17 +93,20 @@ function bindMarkTap(mark, open) {
 }
 
 /**
- * 运行时给一个 Player 发技能：先过本体 `game.expandSkills` 把 `group` 伙伴补齐再挂上。
- * 本体角色正常初始化走的就是同一条（`player.js:13210` 的 `game.expandSkills(lib.character[name][3].slice(0))`），
- * 而 `player.addSkill` 自己不会带出 `group` 伙伴（本体的 `group` 只在 `disableSkill` 里被读一次），
- * 所以少了这一步，买到的带 group 技能就只剩主技能那半边。
- * expandSkills 是「原地去重追加同一个数组」（`Array.prototype.add` 自带 includes 判断），
- * 只展开一层、group 写字符串或数组都吃，这里不自己重写一遍 group 解析。
+ * 运行时给一个 Player 发技能：只对调用方给的主技能调用 `player.addSkill`。
+ *
+ * 本体 `addSkill` 内部会调 `addSkillTrigger`（player.js:10946），而后者先 `game.expandSkills`
+ * 展开 `group`（player.js:10744），再逐个登记 `global` / `init` / `initedSkills` / 触发器——
+ * 所以 `group` 伙伴的效果与触发器照常生效，但**不会**被写进 `player.skills`，
+ * 也就不会在技能面板里额外显示一条（本体角色初始化就是这么挂的：player.js:3505）。
+ * 以前这里先 `game.expandSkills` 再逐个 `addSkill`，等于把伙伴当成独立技能挂上去：
+ * 带 `group` 的技能（如 yyfuqi → yyfuqi_fuqi）会在面板里出现两个同名技能。
+ *
  * 展开出来的伙伴技能只活在当前 Player 上：不写回 run.skills / 敌人配置 / 属性表，也就一个都不占装备位。
  * @param {object} player 目标 Player
  * @param {string[]} skillIds 调用方给的技能 id（来自存档、敌人配置或属性表）
  * @param {string} missingLabel 未注册 id 的警告文案前缀，保持原来的三种提示不变
- * @returns {string[]} 实际挂上去的技能 id（含 group 展开部分）
+ * @returns {string[]} 实际调用 addSkill 的主技能 id（去重、已过滤未注册项；不含 group 伙伴）
  */
 export function grantSkills(player, skillIds, missingLabel) {
 	const list = [];
@@ -119,10 +122,7 @@ export function grantSkills(player, skillIds, missingLabel) {
 			list.push(id);
 		}
 	}
-	if (!list.length) {
-		return list;
-	}
-	for (const id of game.expandSkills(list)) {
+	for (const id of list) {
 		player.addSkill(id);
 	}
 	return list;
@@ -323,7 +323,8 @@ export async function beginBattle(event, run, enemies) {
 	game.me.init(run.characterId);
 	game.me.rogueStatRun = { openPanel: () => showBattleStats(run) };
 	game.me.rogueCurioRun = { openPanel: () => showBattleCurios(run) };
-	// 装备中的技能在这里展开 group 伙伴；存档与「装备位」统计始终只看 run.skills 本身（背包里的不参战）
+	// 装备中的技能在这里挂上；group 伙伴由本体 addSkill→addSkillTrigger 内部展开登记，
+	// 不进 player.skills（面板只显示主技能），存档与「装备位」统计始终只看 run.skills 本身（背包里的不参战）
 	grantSkills(game.me, run.skills, "存档里的技能未注册");
 	const bonuses = sumStatEffects(run.stats);
 	applyEffects(game.me, bonuses, true);

@@ -5623,7 +5623,8 @@ function makeFakeSkillPlayer(skills = [], options = {}) {
 			}
 			return list;
 		},
-		hasSkill: id => node.getSkills().includes(id),
+		// 对齐本体 hasSkill（player.js:13272）：先展开 group 再判断；group 伙伴不独立进技能表也算拥有
+		hasSkill: id => mockGame.expandSkills(node.getSkills().slice(0)).includes(id),
 		/** 对齐本体 addSkillTrigger：展开 group 后逐个登记钩子与 initedSkills（init 只跑一次） */
 		addSkillTrigger(ids, hidden, triggeronly) {
 			for (const skill of mockGame.expandSkills(Array.isArray(ids) ? ids : [ids])) {
@@ -5819,6 +5820,35 @@ check("故人的心：共享伙伴补注册只补触发器——init 不重跑�
 	assertEqual((player._hookTrigger ?? []).includes("sac_c"), false, "_hookTrigger 清掉了");
 	assertEqual(player.storage.sac_c_init, 1, "整个流程里 init 只跑过一次");
 	return "init 一次 + 只补触发器 + 最终移除零残留";
+});
+
+check("故人的心：group 伙伴不在技能表里（本体 grant 形态）——失去一个主技能不能注销共享伙伴的触发器", () => {
+	// 真机修好 grantSkills 后的形态：技能表里只有主技能 A / B，伙伴 C 仅由 addSkillTrigger 展开登记。
+	// 本体 removeSkillTrigger(A) 会把 C 的钩子与 initedSkills 一并摘掉，但 B 还依赖 C，必须补回来。
+	registerSacrificeSkills({
+		sac_native_a: { trigger: { player: "phaseEnd" }, group: ["sac_native_c"] },
+		sac_native_b: { trigger: { player: "damageEnd" }, group: ["sac_native_c"] },
+		sac_native_c: { trigger: { player: "damageBegin1" }, init(player) { player.storage.sac_native_c_init = (player.storage.sac_native_c_init ?? 0) + 1; } },
+	});
+	const player = makeFakeSkillPlayer(["sac_native_a", "sac_native_b"], { playerid: "sac_native_share" });
+	assertEqual(player.hasSkill("sac_native_c"), true, "hasSkill 按 group 展开语义认伙伴");
+	assertEqual(player.initedSkills.includes("sac_native_c"), true, "伙伴的 init 登记在案");
+	assertEqual(player.storage.sac_native_c_init, 1, "伙伴 init 只跑一次");
+	assert(hooksOf(player, "damageBegin1").includes("sac_native_c"), "伙伴的钩子一开始登记着");
+
+	sacrifice.loseSkillsForBattle(player, ["sac_native_a"]);
+	assertEqual(player.hasSkill("sac_native_a"), false, "A 已失去");
+	assertEqual(player.hasSkill("sac_native_b"), true, "B 不受影响");
+	assert(hooksOf(player, "damageBegin1").includes("sac_native_c"), "B 仍依赖 C → 钩子必须补回来");
+	assertEqual(player.initedSkills.includes("sac_native_c"), true, "C 的 initedSkills 登记补回来");
+	assertEqual(player.storage.sac_native_c_init, 1, "补注册不重跑 init");
+	assertEqual(hooksOf(player, "phaseEnd").includes("sac_native_a"), false, "A 自己的钩子摘干净");
+
+	sacrifice.loseSkillsForBattle(player, ["sac_native_b"]);
+	assertEqual(player.hasSkill("sac_native_b"), false, "B 已失去");
+	assertEqual(hooksOf(player, "damageBegin1").includes("sac_native_c"), false, "没人再依赖 C → 钩子摘干净");
+	assertEqual(player.initedSkills.includes("sac_native_c"), false, "C 的 initedSkills 清掉");
+	return "伙伴不进技能表：共享触发器补回、最终零残留";
 });
 
 check("故人的心：主技能没有 trigger、group 伙伴有 —— onremove 抛错也不留残留", () => {

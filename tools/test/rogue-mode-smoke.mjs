@@ -779,24 +779,28 @@ await check("敌人强化：属性等级复用玩家效果表，额外技能与�
 	return `敌 ${enemy.__char} maxHp ${lib.character["赛文"].maxHp} → ${enemy.maxHp}`;
 });
 
-await check("运行时发技能：按本体 expandSkills 补齐 group 伙伴（字符串/数组/未注册/重复）", () => {
+await check("运行时发技能：group 伙伴只登记触发器、不进技能表（字符串/数组/未注册/重复）", () => {
 	lib.skill.grp_plain = {};
 	lib.skill.grp_one = { group: "grp_one_part" };
 	lib.skill.grp_one_part = {};
 	lib.skill.grp_many = { group: ["grp_many_a", "grp_many_b"] };
-	lib.skill.grp_many_a = {};
+	lib.skill.grp_many_a = { trigger: { player: "damageBegin2" } };
 	lib.skill.grp_many_b = {};
 	lib.skill.grp_ghost = { group: "grp_never_registered" };
 	const player = stub.ui.create.player();
+	player.getId();
 	const granted = battleModule.grantSkills(player, ["grp_plain", "grp_one", "grp_many", "grp_ghost", "grp_plain", "grp_absent"], "测试技能未注册");
+	// 本体 addSkill 只把传入的主技能写进 skills，group 伙伴由 addSkillTrigger 展开登记
+	assertEqual(granted.join(","), "grp_plain,grp_one,grp_many,grp_ghost", "返回实际挂载的主技能（去重、过滤未注册）");
+	assertEqual(player.__skills.join(","), "grp_plain,grp_one,grp_many,grp_ghost", "技能表只有主技能：group 伙伴不独立上面板");
 	for (const id of ["grp_plain", "grp_one", "grp_one_part", "grp_many", "grp_many_a", "grp_many_b"]) {
-		assert(player.hasSkill(id), `应挂上 ${id}`);
+		assert(player.hasSkill(id), `本体 hasSkill 展开语义下应拥有 ${id}`);
 	}
 	assertEqual(player.hasSkill("grp_never_registered"), false, "group 伙伴没注册时由本体 expandSkills 自己过滤");
 	assertEqual(granted.includes("grp_absent"), false, "未注册的 id 应被过滤掉（并给出警告）");
 	assertEqual(granted.filter(id => id === "grp_plain").length, 1, "同一技能重复传入只挂一次");
-	assertEqual(player.__skills.length, granted.length, `挂上去的条数要和返回列表一致：${player.__skills.join(",")}`);
-	return granted.join(",");
+	assert((lib.hook[`${player.playerid}_player_damageBegin2`] ?? []).includes("grp_many_a"), "group 伙伴自己的触发器仍在注册表里");
+	return `${player.__skills.join(",")}（伙伴仅登记触发器）`;
 });
 
 	await check("开局：买来的带 group 技能把伙伴一起挂上，存档与技能槽只认主技能", async () => {
@@ -812,13 +816,15 @@ await check("运行时发技能：按本体 expandSkills 补齐 group 伙伴（�
 	session();
 	// 官方技能 kongcheng 就是 `group: "kongcheng1"` 这个写法，这里照搬一份夹具
 	lib.skill.grp_buy = { forced: true, group: "grp_buy_locked" };
-	lib.skill.grp_buy_locked = { forced: true };
+	lib.skill.grp_buy_locked = { forced: true, trigger: { player: "damageBegin3" } };
 	click("重新挑战这一关");
 	await flush();
 	// session() 会把 game.me 清掉，运行时的技能列表要先记下来
 	const liveSkills = game.me.__skills.join(",");
-	assert(liveSkills.includes("grp_buy") && liveSkills.includes("grp_buy_locked"), "玩家身上应有主技能与 group 伙伴");
-	assert(game.me.hasSkill("grp_buy_locked"), "group 伙伴应随主技能一起挂上");
+	assertEqual(game.me.__skills.filter(id => id.startsWith("grp_buy")).join(","), "grp_buy", "运行时技能表只应出现主技能（group 伙伴不额外占一条）");
+	assertEqual(game.me.getSkills().includes("grp_buy_locked"), false, "getSkills（技能面板数据源）不包含 group 伙伴");
+	assert(game.me.hasSkill("grp_buy_locked"), "group 伙伴仍按本体 hasSkill 展开语义算拥有");
+	assert((lib.hook[`${game.me.playerid}_player_damageBegin3`] ?? []).includes("grp_buy_locked"), "group 伙伴的触发器照常登记");
 	const saved = lib.storage.rogueSlots[5];
 	assertEqual(saved.skills.length, 1, "存档里只有主技能");
 	assertEqual(saved.skills[0], "grp_buy", "group 伙伴不得写进存档");
@@ -840,12 +846,14 @@ await check("开局：敌人配置的带 group 技能同样展开，存档阵容
 	}, stateModule.createRun("challenge", "赛文", 1));
 	session();
 	lib.skill.grp_enemy = { group: ["grp_enemy_part"] };
-	lib.skill.grp_enemy_part = {};
+	lib.skill.grp_enemy_part = { trigger: { player: "damageBegin4" } };
 	click("重新挑战这一关");
 	await flush();
 	const enemy = game.players[1];
 	assert(enemy.hasSkill("grp_enemy"), "敌人应拿到配置里的主技能");
-	assert(enemy.hasSkill("grp_enemy_part"), "敌人也应拿到 group 伙伴");
+	assertEqual(enemy.getSkills().includes("grp_enemy_part"), false, "敌人的技能面板数据源不含 group 伙伴");
+	assert(enemy.hasSkill("grp_enemy_part"), "group 伙伴仍按本体展开语义算拥有");
+	assert((lib.hook[`${enemy.playerid}_player_damageBegin4`] ?? []).includes("grp_enemy_part"), "敌人身上 group 伙伴的触发器照常登记");
 	assertEqual(game.me.hasSkill("grp_enemy_part"), false, "不该串到玩家身上");
 	const saved = lib.storage.rogueSlots[3].currentBattle.enemies[0];
 	assertEqual(saved.skills.join(","), "grp_enemy", "存档阵容里只保存主技能 id");
@@ -868,11 +876,13 @@ await check("开局：属性 extraSkills 的带 group 技能也展开", async ()
 		}, stateModule.createRun("challenge", "迪迦", 1));
 		session();
 		lib.skill.grp_stat = { group: "grp_stat_part" };
-		lib.skill.grp_stat_part = {};
+		lib.skill.grp_stat_part = { trigger: { player: "damageBegin5" } };
 		click("重新挑战这一关");
 		await flush();
 		assert(game.me.hasSkill("grp_stat"), "属性 extraSkills 的主技能应挂上");
-		assert(game.me.hasSkill("grp_stat_part"), "extraSkills 的 group 伙伴也应挂上");
+		assertEqual(game.me.getSkills().includes("grp_stat_part"), false, "技能面板数据源不含 group 伙伴");
+		assert(game.me.hasSkill("grp_stat_part"), "extraSkills 的 group 伙伴仍按本体展开语义算拥有");
+		assert((lib.hook[`${game.me.playerid}_player_damageBegin5`] ?? []).includes("grp_stat_part"), "extraSkills 伙伴的触发器照常登记");
 		// 防御 1 级只有初始护甲，四项数值全 0 时不该多出 rogue_stat 标记
 		assertEqual(game.me.hujia, 1, "同一份 extraSkills 之外的属性效果不受影响");
 		assertEqual(game.me.hasSkill("rogue_stat"), true, "玩家应始终拥有紧凑属性强化入口");
@@ -884,6 +894,44 @@ await check("开局：属性 extraSkills 的带 group 技能也展开", async ()
 			delete level0.extraSkills;
 		}
 	}
+});
+
+await check("运行时发技能：group 指向 subSkill 子技能 —— 子技能不独立面板、触发器照常", () => {
+	// yyfuqi 的写法：group 指向自己的 subSkill（本体 finishSkill 会把它注册成 `主_子` 并打 sub/sourceSkill）
+	lib.skill.grp_sublike_main = { group: "grp_sublike_main_fuqi", trigger: { player: "useCardToPlayer" } };
+	lib.skill.grp_sublike_main_fuqi = { sub: true, sourceSkill: "grp_sublike_main", trigger: { player: "useCard" } };
+	const player = stub.ui.create.player();
+	player.getId();
+	const granted = battleModule.grantSkills(player, ["grp_sublike_main"], "测试技能未注册");
+	assertEqual(granted.join(","), "grp_sublike_main", "只挂主技能");
+	assertEqual(player.__skills.join(","), "grp_sublike_main", "子技能不独立进技能表（技能面板只显示一条）");
+	assertEqual(player.getSkills().includes("grp_sublike_main_fuqi"), false, "getSkills（面板数据源）不含子技能");
+	assert(player.hasSkill("grp_sublike_main_fuqi"), "hasSkill 展开 group 后仍认子技能");
+	const hooks = lib.hook[`${player.playerid}_player_useCard`] ?? [];
+	assert(hooks.includes("grp_sublike_main_fuqi"), "子技能的触发器照常登记（近距离不可响应效果不丢）");
+	assert((lib.hook[`${player.playerid}_player_useCardToPlayer`] ?? []).includes("grp_sublike_main"), "主技能触发器也在");
+	return player.__skills.join(",");
+});
+
+await check("运行时发技能：卸下再装回同一技能，group 伙伴触发器不残留也不重复", () => {
+	lib.skill.grp_cycle = { group: "grp_cycle_part", trigger: { player: "damageBegin6" } };
+	lib.skill.grp_cycle_part = { trigger: { player: "damageEnd6" } };
+	const player = stub.ui.create.player();
+	player.getId();
+	const partHookKey = `${player.playerid}_player_damageEnd6`;
+	const count = id => (lib.hook[partHookKey] ?? []).filter(item => item === id).length;
+	battleModule.grantSkills(player, ["grp_cycle"], "测试技能未注册");
+	assertEqual(count("grp_cycle_part"), 1, "伙伴触发器只登记一次");
+	player.removeSkill("grp_cycle", true);
+	assertEqual(player.__skills.includes("grp_cycle"), false, "主技能已卸下");
+	assertEqual(count("grp_cycle_part"), 0, "伙伴触发器一并摘掉");
+	assertEqual(player.initedSkills.includes("grp_cycle_part"), false, "伙伴 init 登记一并摘掉");
+	battleModule.grantSkills(player, ["grp_cycle"], "测试技能未注册");
+	assertEqual(count("grp_cycle_part"), 1, "装回后伙伴触发器只登记一次（无重复）");
+	assertEqual(player.__skills.filter(id => id === "grp_cycle").length, 1, "主技能只进技能表一次");
+	assertEqual(player.__skills.includes("grp_cycle_part"), false, "装回后伙伴仍不独立上面板");
+	assertEqual(player.initedSkills.filter(id => id === "grp_cycle_part").length, 1, "伙伴 init 登记只有一份");
+	return "卸下摘净 / 装回单份";
 });
 
 	await check("胜利结算：固定奖励入账、关卡推进、清除标记且不重复结算", async () => {
