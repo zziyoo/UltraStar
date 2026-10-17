@@ -1,6 +1,7 @@
 // 失败结算：无尽删档、闯关扣货币、货币不足时的 fallback 惩罚；
-// 外加**统一的「真正失去技能」操作**（loseSkill / loseSkills）：从背包删除、已装备的一并卸下、
+// 外加**统一的「真正失去技能」操作**（loseSkill / loseSkills）：从当前拥有列表删除、已装备的一并卸下、
 // 按持有的遗忘之石/贪食魔盒（当前品质）结算金币与经验。纯函数。
+// 拥有列表按模式取：无尽 = skillInventory（完整背包），闯关 = skills（技能栏就是全部持有）。
 //
 // 规格书对「货币不足」未给出精确判据，本文件的实现是：
 // 按比例算下来一项都扣不动（所有货币都已为 0）→ 视为不足 → 走 fallback。
@@ -9,6 +10,7 @@
 import { CURRENCIES, FAILURE_POLICY, RUN_MODE, STAT_IDS } from "./config.js";
 import { getSkillLossRewardExp, getSkillLossRewardGold } from "./curioManager.js";
 import { stats } from "./data/stats.js";
+import { getOwnedSkillIds } from "./shop.js";
 
 function rateFor(policy, key) {
 	const rate = policy?.currencyLossRate;
@@ -22,10 +24,10 @@ function rateFor(policy, key) {
 	return 0;
 }
 
-/** 可执行的 fallback 惩罚；都没有时返回全 false，上层据此跳过惩罚。技能按**完整背包**算（含未装备的） */
+/** 可执行的 fallback 惩罚；都没有时返回全 false，上层据此跳过惩罚。技能按模式取拥有列表（见 getOwnedSkillIds） */
 export function getFallbackOptions(run) {
 	return {
-		canLoseSkill: (run?.skillInventory?.length ?? 0) > 0,
+		canLoseSkill: getOwnedSkillIds(run).length > 0,
 		canLowerStat: STAT_IDS.some(id => (run?.stats?.[id] ?? 0) > 0),
 	};
 }
@@ -69,9 +71,10 @@ export function settleDefeat(run, now, policy = FAILURE_POLICY) {
 }
 
 /**
- * 统一的「真正失去技能」操作（v14）：**所有**真正删除技能的路径都走这里，别再各写一套。
+ * 统一的「真正失去技能」操作：**所有**真正删除技能的路径都走这里，别再各写一套。
  * 语义（缺一不可）：
- *   · 只从 run.skillInventory 删除——那才是「拥有」的权威列表；run.skills 只是装备视图；
+ *   · 拥有列表按模式取（shop.getOwnedSkillIds）：无尽从 run.skillInventory 删，闯关从 run.skills 删；
+ *     闯关没有背包，旧档残留的 skillInventory 条目不能拿来顶替技能栏里的技能；
  *   · 被删的技能若当前装备着，同时从 run.skills 卸下（装备 ⊆ 背包的不变量继续成立）；
  *   · 每失去一个技能按**当前持有的奇物与品质**结算一次奖励：遗忘之石发本层胜利金币 ×N（goldOnSkillLoss）、
  *     贪食魔盒发本层胜利经验 ×N（expOnSkillLoss）——一次删 N 个就发 N 次，绝不合并成一次、
@@ -86,11 +89,11 @@ export function settleDefeat(run, now, policy = FAILURE_POLICY) {
  *   不传就会拿下一关的基准发遗石/魔盒奖励（其余路径传不传都一样，因为它们的 run.level 没被推进过）
  */
 export function loseSkills(run, skillIds, now = 0, level = run?.level) {
-	const inventory = Array.isArray(run?.skillInventory) ? run.skillInventory : [];
+	const owned = getOwnedSkillIds(run);
 	const removed = [];
 	for (const raw of Array.isArray(skillIds) ? skillIds : []) {
 		const skillId = typeof raw === "string" ? raw : "";
-		if (skillId && inventory.includes(skillId) && !removed.includes(skillId)) {
+		if (skillId && owned.includes(skillId) && !removed.includes(skillId)) {
 			removed.push(skillId);
 		}
 	}
@@ -100,7 +103,7 @@ export function loseSkills(run, skillIds, now = 0, level = run?.level) {
 	const removedSet = new Set(removed);
 	const next = {
 		...run,
-		skillInventory: inventory.filter(id => !removedSet.has(id)),
+		skillInventory: (Array.isArray(run.skillInventory) ? run.skillInventory : []).filter(id => !removedSet.has(id)),
 		skills: (Array.isArray(run.skills) ? run.skills : []).filter(id => !removedSet.has(id)),
 		currency: { ...run.currency },
 		updatedAt: now,

@@ -270,8 +270,8 @@ cyclic.self = cyclic;
 	return "拒绝循环引用";
 });
 
-check("装备上限：最多 SKILL_SLOTS 个，购买一律进背包、绝不替换", () => {
-	const run = freshRun();
+check("无尽装备上限：最多 SKILL_SLOTS 个，购买一律进背包、绝不替换", () => {
+	const run = freshRun(cfg.RUN_MODE.endless);
 	run.currency[cfg.SKILL_CURRENCY] = 9999;
 	run.skills = [SKILL_A, SKILL_B, SKILL_C];
 	run.skillInventory = [SKILL_A, SKILL_B, SKILL_C];
@@ -293,8 +293,74 @@ check("装备上限：最多 SKILL_SLOTS 个，购买一律进背包、绝不替
 	return `装备位 ${cfg.SKILL_SLOTS}，背包不设限`;
 });
 
-check("装备与卸下：只改装备列表、背包与奖励都不动", () => {
-	const run = state.normalizeRun({ ...freshRun(), skillInventory: [SKILL_A, SKILL_B] });
+check("闯关技能栏：未满直接获得，满槽必须替换、旧技能不进背包", () => {
+	const newSkill = "rogue_swap_in";
+	const makeRun = () => {
+		const run = freshRun(cfg.RUN_MODE.challenge);
+		run.currency[cfg.SKILL_CURRENCY] = 9999;
+		run.shopOffers = [{ id: newSkill, price: 10, sold: false }];
+		return run;
+	};
+	// 未满：直接获得，不触发替换；skills 就是全部持有
+	const roomy = makeRun();
+	const direct = shop.buySkill(roomy, newSkill);
+	assert(direct.ok, direct.error ?? "未满时应直接购买成功");
+	assertEqual(JSON.stringify(direct.run.skills), JSON.stringify([newSkill]), "新技能直接进技能栏");
+	assertEqual(direct.removed, null, "未满没有替换");
+	assertEqual(direct.run.currency[cfg.SKILL_CURRENCY], 9999 - 10, "照常扣款");
+	assertEqual(JSON.stringify(direct.run.shopOffers), JSON.stringify([{ id: newSkill, price: 10, sold: true }]), "候选标记已购");
+	// 满槽：不给 replaceId 或给一个不在技能栏里的都会被拒，且零副作用
+	const full = makeRun();
+	full.skills = [SKILL_A, SKILL_B, SKILL_C];
+	full.skillInventory = [SKILL_A, SKILL_B, SKILL_C];
+	const missing = shop.buySkill(full, newSkill);
+	assert(!missing.ok && missing.error.includes("技能槽已满"), "满槽必须替换");
+	assertEqual(missing.run, undefined, "被拒不返回改过的 run");
+	assertEqual(full.currency[cfg.SKILL_CURRENCY], 9999, "被拒不扣款");
+	assertEqual(JSON.stringify(full.skills), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "被拒不改技能栏");
+	const invalid = shop.buySkill(full, newSkill, "rogue_not_owned");
+	assert(!invalid.ok && invalid.error.includes("技能槽已满"), "替换目标必须是技能栏里的技能");
+	// 合法替换：旧技能让位、新技能进栏；旧技能直接失去（不进背包），背包条目数不增长
+	const replaced = shop.buySkill(full, newSkill, SKILL_B);
+	assert(replaced.ok, replaced.error ?? "合法替换应成功");
+	assertEqual(replaced.removed, SKILL_B, "回传被换下的技能");
+	assertEqual(JSON.stringify(replaced.run.skills), JSON.stringify([SKILL_A, SKILL_C, newSkill]), "新技能顶替旧技能");
+	assert(!replaced.run.skillInventory.includes(SKILL_B), "被换下的旧技能不得留在背包里");
+	assert(replaced.run.skillInventory.includes(newSkill), "新技能同步进历史镜像（读档不变量 skills ⊆ inventory）");
+	assertEqual(replaced.run.skillInventory.length, 3, "背包条目数不增长（没有额外存储）");
+	assertEqual(replaced.run.currency[cfg.SKILL_CURRENCY], 9999 - 10, "成交才扣款");
+	return "未满直得 / 满槽三态 / 换下即失去";
+});
+
+check("闯关旧档：残留的背包技能不提供额外存储，容量与拥有判定只认技能栏", () => {
+	const legacy = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.challenge),
+		skills: [SKILL_A],
+		skillInventory: [SKILL_B, SKILL_A, SKILL_C, "rogue_d"],
+	});
+	assertEqual(JSON.stringify(legacy.skills), JSON.stringify([SKILL_A]), "技能栏原样（不自动从背包装备）");
+	assertEqual(legacy.skillInventory.length, 4, "背包条目保留（不静默删数据）");
+	assertEqual(JSON.stringify(shop.getOwnedSkillIds(legacy)), JSON.stringify([SKILL_A]), "闯关拥有列表 = 技能栏");
+	const excluded = shop.getExcludedSkillIds(legacy);
+	assert(excluded.has(SKILL_A), "技能栏里的技能被排除");
+	assert(!excluded.has(SKILL_B) && !excluded.has(SKILL_C), "背包残留条目不算拥有：可以重新刷出/购买");
+	// 满槽时仍需替换，绝不会因为背包里有条目就直接收下
+	const full = {
+		...legacy,
+		skills: [SKILL_A, SKILL_B, SKILL_C],
+		currency: { gold: 999, exp: 0 },
+		shopOffers: [{ id: "rogue_d", price: 10, sold: false }],
+	};
+	assertEqual(shop.getOwnedSkillIds(full).length, cfg.SKILL_SLOTS, "容量仍按技能栏计");
+	assert(!shop.buySkill(full, "rogue_d").ok, "满槽不给替换目标时照旧拒绝");
+	assert(!shop.equipSkill(legacy, SKILL_B).ok, "闯关不能通过装备接口把背包残留塞进技能栏");
+	assert(!shop.unequipSkill(legacy, SKILL_A).ok, "闯关没有背包，不能卸下技能");
+	assertEqual(legacy.currency.gold, cfg.INITIAL_CURRENCY.gold, "读档不动金币");
+	return "技能栏 3 上限 + 背包条目冻结";
+});
+
+check("装备与卸下（无尽）：只改装备列表、背包与奖励都不动", () => {
+	const run = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), skillInventory: [SKILL_A, SKILL_B] });
 	// 装备：背包里的技能进装备位
 	const up = shop.equipSkill(run, SKILL_A);
 	assert(up.ok, up.error ?? "背包里的技能应能装备");
@@ -355,8 +421,8 @@ check("技能候选随机：数量受配置控制且写入存档后可复现", (
 	return offers.map(offer => offer.id).join(",");
 });
 
-check("重复技能过滤：已拥有的技能不进入候选池（按完整背包判，含未装备的）", () => {
-	const run = freshRun();
+check("重复技能过滤（无尽）：已拥有的技能不进入候选池（按完整背包判，含未装备的）", () => {
+	const run = freshRun(cfg.RUN_MODE.endless);
 	// 拥有整个池（含分包技能）时才应一个候选都刷不出——全放背包、一件都不装备
 	run.skillInventory = skillsData.pool.map(item => item.id);
 	run.skills = [];
@@ -535,6 +601,17 @@ check("货币不足 fallback：清零后给出可选惩罚，全 0 时不惩罚"
 	}
 	const none = penalty.settleDefeat(nothing, NOW);
 	assertEqual(none.kind, "none", "无技能、属性全 0、货币也清空时不再惩罚");
+
+	// 闯关：背包残留条目不算「可失去的技能」——技能栏为空时不能拿它顶包（否则等于变相多出存储位）
+	const bagOnly = freshRun(cfg.RUN_MODE.challenge);
+	for (const key of cfg.CURRENCIES) {
+		bagOnly.currency[key] = 0;
+	}
+	bagOnly.skills = [];
+	bagOnly.skillInventory = [SKILL_A];
+	const bagOnlyRes = penalty.settleDefeat(bagOnly, NOW);
+	assertEqual(bagOnlyRes.kind, "none", "闯关背包残留不算可失去技能");
+	assert(!bagOnlyRes.fallback.canLoseSkill, "fallback 不把背包条目列为可失去");
 
 	const lost = penalty.loseSkill({ ...res.run }, SKILL_A, NOW);
 	assert(lost.ok && !lost.run.skills.includes(SKILL_A), "失去技能");
@@ -1421,11 +1498,11 @@ check("闯关经验：第28关结算后 310，第29关结算后 330", () => {
 	return "进入第29关前 310，完成第29关后 330";
 });
 
-check("商店排除：角色原生技能与当前拥有（含未装备）不上架，真正失去的可以再出现", () => {
+check("商店排除（无尽）：角色原生技能与当前拥有（含未装备）不上架，真正失去的可以再出现", () => {
 	const poolIds = skillsData.pool.map(item => item.id);
 	const free = poolIds[poolIds.length - 1]; // 既非拥有也非原生的「自由」技能
 	// 装备一个 + 背包里再放一个（没装备）：两者都算「当前拥有」，都必须被排除
-	const run = { ...freshRun(), characterId: "迪迦", skills: [SKILL_B], skillInventory: [SKILL_B, SKILL_A], level: 1 };
+	const run = { ...freshRun(cfg.RUN_MODE.endless), characterId: "迪迦", skills: [SKILL_B], skillInventory: [SKILL_B, SKILL_A], level: 1 };
 	const characterSkills = poolIds.filter(id => id !== free);
 
 	const excluded = shop.getExcludedSkillIds(run, characterSkills);
@@ -2024,6 +2101,23 @@ check("事件结算：入账与扣款、奇物/技能/属性奖励、pendingEven
 	assert(noRoom.ok && noRoom.skillId === SKILL_A, "装备位满也照常学到技能");
 	assertEqual(JSON.stringify(noRoom.run.skillInventory), JSON.stringify([SKILL_B, SKILL_C, "rogue_extra", SKILL_A]), "新技能进背包，绝不因装备满而丢失");
 	assertEqual(noRoom.run.skills.length, 3, "装备位不被自动占用");
+	// 闯关（旧版机制）：未满直接进技能栏；满槽学不会，也不许偷偷进任何背包
+	const chEvent = { id: "mystery_merchant", choices: [{ text: "购买情报", reward: { skill: "random" } }], createdAt: NOW };
+	const chRun = { ...freshRun(cfg.RUN_MODE.challenge), pendingEvent: chEvent };
+	const chLearned = eventManager.resolveEventChoice(chRun, 0, { candidates: [{ id: SKILL_A }] }, () => 0);
+	assert(chLearned.ok && chLearned.skillId === SKILL_A, "闯关未满时应学会技能");
+	assertEqual(JSON.stringify(chLearned.run.skills), JSON.stringify([SKILL_A]), "闯关事件技能直接进技能栏");
+	const chFull = {
+		...chRun,
+		skills: [SKILL_A, SKILL_B, SKILL_C],
+		skillInventory: [SKILL_A, SKILL_B, SKILL_C],
+		pendingEvent: chEvent,
+	};
+	const chNoRoom = eventManager.resolveEventChoice(chFull, 0, { candidates: [{ id: "rogue_extra" }] }, () => 0);
+	assert(chNoRoom.ok && chNoRoom.skillId === null, "闯关满槽学不会");
+	assertEqual(JSON.stringify(chNoRoom.run.skills), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "技能栏不变");
+	assertEqual(JSON.stringify(chNoRoom.run.skillInventory), JSON.stringify([SKILL_A, SKILL_B, SKILL_C]), "不会偷偷进背包");
+	assert(chNoRoom.lines.some(line => line.includes("技能槽已满")), "文案写明未学会");
 	// 属性随机 +1：rng 定死属性、越界钳制并写明
 	const labRun = freshRun(cfg.RUN_MODE.endless);
 	labRun.pendingEvent = { id: "unknown_lab", choices: [{ text: "进入", reward: { statUp: "attack" } }], createdAt: NOW };
@@ -3772,7 +3866,7 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	assert(!shop.checkSkillPurchase(afterBuy, SKILL_A).ok, "A 买不动（不会再进替换页被「已拥有该技能」挡回来）");
 	assert(shop.checkSkillPurchase(afterBuy, SKILL_B).ok, "留下的候选在新的一关确实买得动");
 	// 新的一关再买 B：额度用光 → C 被挡；再通关时 A、B 都算留货，第三关又是新的一次进店
-	const boughtAgain = shop.buySkill(afterBuy, SKILL_B, { isSkillAllowed: () => true }).run;
+	const boughtAgain = shop.buySkill(afterBuy, SKILL_B, null, { isSkillAllowed: () => true }).run;
 	assertEqual(shop.getPurchasedCount(boughtAgain), 1, "本局买过 B → 购买额度用光");
 	assertEqual(shop.checkSkillPurchase(boughtAgain, SKILL_C).error, `本局最多只能购买 ${cfg.SKILL_PURCHASE_COUNT} 个技能`, "C 被本局额度挡住");
 	const secondKeep = reward.settleVictory(boughtAgain, NOW, () => 0.999).run;

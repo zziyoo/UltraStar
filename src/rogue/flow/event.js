@@ -2,7 +2,7 @@
 // 事件奖励口径在 eventManager.js，这里只负责「按存档里定死的选项落地 → 落盘 → 弹结果」。
 // 裂隙的开打不在本文件：这里只把阵容定死落盘并重载，真正的开局由恢复页在全新会话里做。
 
-import { BATTLE_STATUS } from "../config.js";
+import { BATTLE_STATUS, RUN_MODE } from "../config.js";
 import { getCurio, getNextCurioQuality, grantCurioById, upgradeCurio, CURIOSITY_RARITY } from "../curioManager.js";
 import { createEnemyConfigs } from "../enemy.js";
 import { applyEventCurrency, boostEventExp, getEvent, pickRandomSkillId, resolveEventChoice } from "../eventManager.js";
@@ -256,7 +256,16 @@ export function createEventFlow() {
 		if (action.grant === "skill") {
 			const picked = pickRandomSkillId(run, ctx, Math.random);
 			if (picked) {
-				run = { ...run, skillInventory: [...(run.skillInventory ?? []), picked] };
+				if (run.mode === RUN_MODE.endless) {
+					run = { ...run, skillInventory: [...(run.skillInventory ?? []), picked] };
+				} else {
+					// 闯关：失去一个刚腾出位置，新技能直接进技能栏（没有背包可放）
+					run = {
+						...run,
+						skills: [...(run.skills ?? []), picked],
+						skillInventory: [...new Set([...(run.skillInventory ?? []), picked])],
+					};
+				}
 				lines.push(`获得技能：${skillName(picked)}`);
 			} else {
 				lines.push("没有可学的技能，炉子只吞了不放。");

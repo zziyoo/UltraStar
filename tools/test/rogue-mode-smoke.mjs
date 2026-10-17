@@ -551,11 +551,11 @@ await check("Hub：角色/关卡/货币/属性与两行动作按钮（含技能�
 	assert(nodesWithClass("wm-rogue-hub-skills")[0], "技能管理按钮用自己的配色类");
 	// 闯关没有奇物来源（无事件、无奇物商店），营地不画奇物入口——空页上的提示会变成假信息
 	assertEqual(nodesWithClass("wm-rogue-hub-curios").length, 0, "闯关营地不该有奇物按钮");
-	// 营地的技能按钮直达管理页（装备/卸下），返回键回营地
+	// 营地的技能按钮直达技能页（闯关=只读技能栏），返回键回营地
 	clickNode(nodesWithClass("wm-rogue-hub-skills")[0]);
-	assert(screenText().includes("当前没有装备技能"), `营地技能入口直达管理页：${screenText().slice(0, 160)}`);
+	assert(screenText().includes("当前没有已购买技能"), `营地技能入口直达只读技能栏：${screenText().slice(0, 160)}`);
 	click("返回");
-	assert(screenText().includes("开始下一关"), "管理页返回应回到营地");
+	assert(screenText().includes("开始下一关"), "技能页返回应回到营地");
 	return "营地信息齐备 + 动作分两行（技能入口；奇物仅无尽）";
 });
 
@@ -1160,10 +1160,10 @@ await check("选择玩法页：自建浮层 + 两张玩法卡 + 无尽与闯关�
 	return "玩法卡 + 最高记录";
 });
 
-await check("技能管理页：商店资源块进入、装备/卸下即时落盘、满位反馈、poptip 转成技能名", async () => {
+await check("技能管理页（无尽）：商店资源块进入、装备/卸下即时落盘、满位反馈、poptip 转成技能名", async () => {
 	freshWorld();
 	session();
-	await newRunByUi("闯关模式");
+	await newRunByUi("无尽模式");
 	click("商店");
 	const skillCell = nodesWithClass("wm-rogue-res-skill")[0];
 	assert(skillCell, "商店顶部应有可点击的技能资源块");
@@ -1183,6 +1183,7 @@ await check("技能管理页：商店资源块进入、装备/卸下即时落盘
 
 	// 有技能（描述里带 poptip）时：显示清洗并转名后的完整描述；装备/卸下即时落盘
 	putRun(0, {
+		mode: "endless",
 		currency: { gold: 9999, exp: 0 },
 		skills: ["rogue_poptip"],
 		skillInventory: ["rogue_poptip", "own_one", "own_two", "own_three"],
@@ -1281,6 +1282,74 @@ await check("装备与卸下不是失去：遗忘之石/贪食魔盒一分钱不
 	assertEqual(slot.currency.exp, 100, "贪食魔盒不发经验");
 	click("返回");
 	return "卸下 + 装回：只有装备位在动";
+});
+
+await check("闯关技能页：只读技能栏，旧档残留的背包技能不显示、也不能装备", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "challenge",
+		skills: ["own_one"],
+		// v14 时代遗留的背包数据：修复后应被冻结，不再提供额外存储能力
+		skillInventory: ["own_one", "own_two", "own_three", "rogue_extra"],
+		currency: { gold: 100, exp: 0 },
+		currentBattle: null,
+	});
+	session();
+	click("商店");
+	assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验,技能", "闯关资源块不写背包");
+	assertEqual(textOf(nodesWithClass("wm-rogue-res-num")[2]), "1/3", "技能格只报技能栏数量");
+	clickNode(nodesWithClass("wm-rogue-res-skill")[0]);
+	const text = screenText();
+	assert(text.includes("技能（1/3）"), `标题只报技能栏：${text}`);
+	assert(text.includes("own_one"), `列出技能栏里的技能：${text}`);
+	assert(!text.includes("背包"), `闯关技能页不得出现背包：${text}`);
+	assertEqual(nodesWithClass("wm-rogue-shop-card").length, 1, "只显示技能栏里的技能（残留背包条目不显示）");
+	assertEqual(nodesWithClass("wm-rogue-skill-btn").length, 0, "闯关没有装备/卸下按钮");
+	click("返回");
+	assert(screenText().includes("技能商店"), "返回应回到商店");
+	return "只读 1 张卡 / 无背包 / 无装卸";
+});
+
+await check("闯关满槽购买：弹替换页、取消零扣费、确认后旧技能让位且不进背包", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "challenge",
+		level: 2,
+		currency: { gold: 500, exp: 0 },
+		skills: ["own_one", "own_two", "own_three"],
+		skillInventory: ["own_one", "own_two", "own_three"],
+		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
+		currentBattle: null,
+	});
+	session();
+	click("商店");
+	const before = JSON.stringify(lib.storage.rogueSlots[0]);
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	await flush();
+	// 打开替换页本身不改存档
+	assertEqual(nodesWithClass("wm-rogue-replace-overlay").length, 1, "满槽购买应弹替换页");
+	assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "打开替换页不扣款、不改技能");
+	const replaceText = screenText();
+	assert(replaceText.includes("技能槽已满，请选择一个已有技能进行替换"), `替换页说明：${replaceText}`);
+	assertEqual(nodesWithClass("wm-rogue-replace-btn").length, 3, "三个已有技能都能被替换");
+	// 取消：返回商店，金币与技能栏一个字不动
+	click("返回");
+	assert(screenText().includes("技能商店"), "返回应回到商店");
+	assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "取消替换零副作用");
+	// 确认替换：新技能进技能栏、旧技能直接失去、不进任何背包
+	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+	await flush();
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[1]);
+	await flush();
+	const after = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(after.skills), JSON.stringify(["own_one", "own_three", "rogue_extra"]), "新技能顶替旧技能");
+	assert(!after.skillInventory.includes("own_two"), "被替换的旧技能不得进背包");
+	assert(after.skillInventory.includes("rogue_extra"), "新技能同步进历史镜像");
+	assertEqual(after.skillInventory.length, 3, "背包条目数不增长（没有额外存储）");
+	assertEqual(after.currency.gold, 490, "成交才扣款");
+	assert(after.shopOffers[0].sold, "候选标记已购");
+	assert(screenText().includes("已购买"), `成交后原位标已购买：${screenText().slice(0, 200)}`);
+	return "替换页 / 取消零扣费 / 确认让位";
 });
 
 await check("异常退出恢复：恢复页展示原阵容，重打同一套敌人，不判胜、不补奖、不跳关", async () => {
@@ -1409,7 +1478,7 @@ await check("商店：浮层骨架——固定标题与资源栏 + 三张技能�
 	const text = screenText();
 	assert(text.includes("技能商店") && text.includes("属性强化"), `两个分区标题：${text}`);
 	assertEqual(nodesWithClass("wm-rogue-res-num").map(node => textOf(node)).join(","), "1000,0,0/3", "资源数字（技能格只报装备数）");
-	assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验,技能·背包 0", "资源标签（第三块把总持有量写在标签里）");
+	assertEqual(nodesWithClass("wm-rogue-res-label").map(node => textOf(node)).join(","), "金币,经验,技能", "闯关资源标签：技能栏本身就是全部持有，不写背包");
 	// 买得起的候选：按钮只写动作，价格只写在价格行
 	assertEqual(textOf(nodesWithClass("wm-rogue-shop-buy")[0]), "购买", "购买按钮只写「购买」");
 	assert(/^\d+ 金币$/.test(textOf(nodesWithClass("wm-rogue-shop-price")[0])), `价格行应是「N 金币」：${textOf(nodesWithClass("wm-rogue-shop-price")[0])}`);
@@ -1473,8 +1542,9 @@ await check("商店：点技能卡弹完整描述，点购买按钮不会顺带�
 	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
 	await flush();
 	assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "购买按钮不应连带打开描述");
-	assert(lib.storage.rogueSlots[0].skillInventory.includes("rogue_extra"), "技能已买到（进背包）");
-	assertEqual(lib.storage.rogueSlots[0].skills.length, 0, "购买不自动装备");
+	// 闯关（旧版机制）：技能栏未满时购买直接获得，没有背包这一层
+	assert(lib.storage.rogueSlots[0].skills.includes("rogue_extra"), "闯关购买直接进技能栏");
+	assertEqual(lib.storage.rogueSlots[0].skills.length, 1, "未满时直接获得");
 	return "描述弹层 + 按钮不冒泡";
 });
 
@@ -1574,8 +1644,8 @@ await check("商店：购买一个后本次不能再买第二个", async () => {
 	const after = lib.storage.rogueSlots[0];
 	assertEqual(after.shopOffers.filter(offer => offer.sold).length, 1, "只标记一项已购");
 	assertEqual(after.currency.gold, 990, "扣款落盘");
-	assert(after.skillInventory.includes("rogue_extra"), "技能已拥有（进背包）");
-	assertEqual(after.skills.length, 0, "购买不自动占用装备位");
+	assert(after.skills.includes("rogue_extra"), "闯关购买直接进技能栏（未满）");
+	assertEqual(after.skills.length, 1, "购买即获得一个技能");
 	putRun(0, { currency: { gold: 9999, exp: 0 } }, after);
 	session();
 	click("商店");
@@ -1731,8 +1801,9 @@ await check("商店刷新次数：战斗恢复与失败都不补，通关进下�
 	return "恢复/失败保持 1，通关补满";
 });
 
-await check("满槽购买：直接进背包、绝不弹替换页，装备一个都不动，资源块口径同步", async () => {
+await check("无尽满槽购买：直接进背包、绝不弹替换页，装备一个都不动，资源块口径同步", async () => {
 	putRun(0, {
+		mode: "endless",
 		skills: ["own_one", "own_two", "own_three"],
 		skillInventory: ["own_one", "own_two", "own_three"],
 		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
@@ -1765,8 +1836,9 @@ await check("满槽购买：直接进背包、绝不弹替换页，装备一个�
 	return "满槽购买进背包 + 资源块口径 + 参战集合";
 });
 
-await check("技能管理页：超长描述与 poptip 都不撑爆页面、不漏原始标签，卡片与技能商店同一条版式", async () => {
+await check("技能管理页（无尽）：超长描述与 poptip 都不撑爆页面、不漏原始标签，卡片与技能商店同一条版式", async () => {
 	putRun(0, {
+		mode: "endless",
 		skills: ["own_long", "own_poptip", "own_one"],
 		skillInventory: ["own_long", "own_poptip", "own_one", "own_two"],
 		shopOffers: [{ id: "rogue_extra", price: 10, sold: false }],
@@ -1937,8 +2009,9 @@ await check("货币不足 fallback：玩家可选失去技能", async () => {
 	const text = screenText();
 	assert(text.includes("选择一项承担"), `应进入惩罚选择页：${text}`);
 	assert(text.includes("属性等级 -1"), "应给出属性降级选项");
-	// 候选按完整背包列，装备中的那条带「（已装备）」标注——失去它会同时解除装备
-	assert(text.includes("额外（已装备）"), `已装备技能要标出来：${text}`);
+	// 闯关的候选就是技能栏本身（没有背包）：逐条列出，不另标「已装备」
+	assert(text.includes("额外"), `技能栏里的技能要列出来：${text}`);
+	assert(!text.includes("额外（已装备）"), "闯关没有背包，不给技能栏条目加「已装备」标注");
 	click("额外");
 	const after = lib.storage.rogueSlots[0];
 	assert(!after.skills.includes("rogue_extra"), "技能已失去（装备位同步解除）");

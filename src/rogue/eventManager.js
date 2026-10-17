@@ -27,6 +27,7 @@ import {
 	RIFT_EXTRA_AFFIXES,
 	RIFT_TIERS,
 	RUN_MODE,
+	SKILL_SLOTS,
 	SPRING_DEBT_AFFIXES,
 	STAT_IDS,
 } from "./config.js";
@@ -46,6 +47,7 @@ import {
 	pickUnownedCurioOfRarity,
 	rollMerchantCurio,
 } from "./curioManager.js";
+import { getOwnedSkillIds, isEndlessRun } from "./shop.js";
 
 /** 战斗胜利后是否触发事件（rng 可注入，方便测试） */
 export function shouldTriggerEvent(rng = Math.random) {
@@ -527,8 +529,8 @@ export function getBlockedMessage(run, choice) {
 	}
 	const kind = choice?.action?.kind;
 	if (kind === "skillForge") {
-		// 按**完整背包**判：躺在背包里、没装备的技能同样能投进炉子
-		return (run?.skillInventory ?? []).length ? null : text;
+		// 按「当前拥有」判：无尽=完整背包（没装备的同样能投），闯关=技能栏本身
+		return getOwnedSkillIds(run).length ? null : text;
 	}
 	if (kind === "curioForge") {
 		return getUpgradableCurios(run).length ? null : text;
@@ -640,14 +642,14 @@ export function applyEventCurrency(run, reward, asGain = false) {
 }
 
 /**
- * 从商店候选池里随机挑一个「当前角色自带」与「已拥有（含未装备的）」都排除掉的技能 id；池子空了返回 null。
+ * 从商店候选池里随机挑一个「当前角色自带」与「已拥有」都排除掉的技能 id；池子空了返回 null。
  * 事件奖励的「随机给技能」与技能熔炉的「换一个随机新技能」共用这一份判据，免得两处各自漂移。
- * @param {object} run 存档（读 run.skillInventory——那才是完整的拥有列表）
+ * @param {object} run 存档（拥有列表按模式取：无尽=完整背包，闯关=技能栏）
  * @param {{ candidates?: {id:string}[], characterSkills?: string[] }} [ctx] 由 mode.js 从 lib 现算后传入
  */
 export function pickRandomSkillId(run, ctx = {}, rng = Math.random) {
 	const excluded = new Set([
-		...(Array.isArray(run?.skillInventory) ? run.skillInventory : []),
+		...getOwnedSkillIds(run),
 		...(Array.isArray(ctx.characterSkills) ? ctx.characterSkills : []),
 	]);
 	const pool = (Array.isArray(ctx.candidates) ? ctx.candidates : [])
@@ -820,13 +822,25 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	}
 
 	if (reward.skill === "random") {
-		// v14：技能一律进背包，装备位满也不落空、也不自动装备（由玩家在技能管理页决定装哪个）
-		skillId = pickRandomSkillId(next, ctx, rng);
-		if (skillId) {
-			next.skillInventory.push(skillId);
-			lines.push("获得一个随机技能");
+		if (!isEndlessRun(next) && next.skills.length >= SKILL_SLOTS) {
+			// 闯关（旧版机制）：技能栏就是全部持有，满了就学不会——不替换、不进任何背包
+			lines.push("技能槽已满，未能学会技能");
 		} else {
-			lines.push("没有可学的技能");
+			skillId = pickRandomSkillId(next, ctx, rng);
+			if (skillId) {
+				if (isEndlessRun(next)) {
+					// 无尽：技能一律进背包，装备位满也不落空、也不自动装备
+					next.skillInventory.push(skillId);
+				} else {
+					next.skills.push(skillId);
+					if (!next.skillInventory.includes(skillId)) {
+						next.skillInventory.push(skillId);
+					}
+				}
+				lines.push("获得一个随机技能");
+			} else {
+				lines.push("没有可学的技能");
+			}
 		}
 	}
 

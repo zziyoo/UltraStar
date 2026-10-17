@@ -73,7 +73,9 @@ export const COLLECTION_KEY = "rogueCollection";
  * 旧档（v12 及更早）没有这个字段按「不欠惩罚」补齐——那一版的随机惩罚在结算那一刻就已兑现完毕。
  *
  * v14 两处结构变化：
- *   ① 技能改成「装备区 + 无限背包」：新增 skillInventory（玩家全部拥有的技能，无游戏规则上限），
+ *   ① 技能改成「装备区 + 无限背包」（**现行只作用于无尽模式**；闯关已恢复 v13 及更早的有限技能栏
+ *      ——skills 即全部持有、满槽替换、没有背包，旧闯关档残留的 skillInventory 只保存不参与判定）：
+ *      新增 skillInventory（玩家全部拥有的技能，无游戏规则上限），
  *      run.skills 收窄为「当前装备中的技能」（仍以 SKILL_SLOTS 为上限，购买不再替换、新技能先进背包），
  *      不变量是 run.skills ⊆ run.skillInventory。旧档只有 skills 时整套迁入背包、装备保持原样；
  *      读档清洗只对 skills 施加装备上限，绝不对 skillInventory 截断（二次读档幂等）。
@@ -139,9 +141,12 @@ export const CURRENCY_LABEL = { gold: "金币", exp: "经验" };
 export const STAT_IDS = ["defense", "draw", "attack"];
 
 /**
- * 技能装备位上限：run.skills 是**当前装备中的技能**，实际参加战斗，最多这么多；
- * 玩家**拥有**的全部技能记在 run.skillInventory（无游戏规则上限，卸下/失去以它为准）。
- * 购买技能只进背包、不自动装备，要换装先卸下已装备的技能——这里不再表示「可购买的技能总数」。
+ * 技能容量上限，含义随模式走：
+ *   · 闯关（旧版机制）：run.skills 就是全部持有技能，最多这么多；未满直接获得，
+ *     已满必须在购买时替换掉一个已有技能——没有背包，换下的旧技能直接失去。
+ *   · 无尽（v14 背包机制）：run.skills 是**当前装备中的技能**（实际参加战斗），最多这么多；
+ *     玩家**拥有**的全部技能记在 run.skillInventory（无游戏规则上限，卸下/失去以它为准）。
+ *     购买只进背包、不自动装备，要换装先卸下已装备的技能。
  */
 export const SKILL_SLOTS = 3;
 export const SKILL_OFFER_COUNT = 3;

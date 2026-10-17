@@ -38,11 +38,18 @@ function moneyText(run) {
 	return money.length ? money.join("　") : "货币 0";
 }
 
-/** 存档卡与摘要共用的技能读数：装备栏（参加战斗的）与背包（拥有但没装备的）分开报——上限只约束装备，别把 n/3 当成总持有 */
+/**
+ * 存档卡与摘要共用的技能读数，按模式分开报：
+ *   · 无尽：装备栏（参加战斗的）与背包（拥有但没装备的）分列——上限只约束装备；
+ *   · 闯关：技能栏就是全部持有，只报 n/3；旧档残留的 skillInventory 不显示、也不计入。
+ */
 function skillTextOf(run) {
 	const equipped = Array.isArray(run.skills) ? run.skills : [];
-	const backpack = (Array.isArray(run.skillInventory) ? run.skillInventory : []).filter(id => !equipped.includes(id));
 	const names = equipped.length ? equipped.map(skillName).join("、") : "无";
+	if (run.mode !== RUN_MODE.endless) {
+		return `技能（${equipped.length}/${SKILL_SLOTS}）：${names}`;
+	}
+	const backpack = (Array.isArray(run.skillInventory) ? run.skillInventory : []).filter(id => !equipped.includes(id));
 	return `技能（装备 ${equipped.length}/${SKILL_SLOTS} · 背包 ${backpack.length}）：${names}`;
 }
 

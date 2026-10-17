@@ -1,5 +1,6 @@
-// 商店逻辑：技能候选随机、购买（只进背包）、装备/卸下、属性升级。纯函数，可在 Node 里直接测。
-// 候选结果由调用方写进存档（shopOffers），本文件不碰 game；候选池本身见 skillPool.js。
+// 商店逻辑：技能候选随机、购买（闯关满槽替换 / 无尽进背包）、装备/卸下（仅无尽）、属性升级。
+// 纯函数，可在 Node 里直接测。候选结果由调用方写进存档（shopOffers），本文件不碰 game；
+// 候选池本身见 skillPool.js。
 
 import {
 	ALLOW_DUPLICATE_SKILLS,
@@ -21,6 +22,23 @@ import { isShopLocked } from "./curioManager.js";
 
 const SKILL_CURRENCY_NAME = CURRENCY_LABEL[SKILL_CURRENCY] ?? SKILL_CURRENCY;
 const STAT_CURRENCY_NAME = CURRENCY_LABEL[STAT_CURRENCY] ?? STAT_CURRENCY;
+
+/** 无尽模式对外不认识的 mode 一律按闯关处理（与 getSkillBasePrice 同一口径） */
+export function isEndlessRun(run) {
+	return (run?.mode ?? RUN_MODE.challenge) === RUN_MODE.endless;
+}
+
+/**
+ * 「当前拥有」的技能列表——所有容量/重复/失去判定都以它为准：
+ *   · 无尽：run.skillInventory（完整背包；装备只是它的子集）；
+ *   · 闯关：run.skills（技能栏本身就是全部持有，没有背包）。
+ * 闯关存档里可能残留 v14 时代的 skillInventory 条目（背包机制后来只留给无尽）：
+ * 这里一律不读，它们既不会自动装备，也不提供任何额外存储能力。
+ */
+export function getOwnedSkillIds(run) {
+	const list = isEndlessRun(run) ? run?.skillInventory : run?.skills;
+	return Array.isArray(list) ? list : [];
+}
 
 function shuffle(list, rng) {
 	const out = list.slice(0);
@@ -81,15 +99,15 @@ export function getStatUpgradePrice(run, statId, level) {
 }
 
 /**
- * 随机时要排除的技能 id：当前角色原生技能 + **当前拥有的全部技能**（run.skillInventory，
- * 含没装备的那些——卸下不等于丢失，重复购买的口子就是这么堵的）。
+ * 随机时要排除的技能 id：当前角色原生技能 + **当前拥有的全部技能**（见 getOwnedSkillIds：
+ * 无尽读完整背包，含没装备的那些；闯关读技能栏本身）。
  * 只按“当前拥有状态”算，不做永久购买历史——真正被删除/失去的技能下次商店还能再出现。
  * @param {object} run 存档
  * @param {string[]} [characterSkills] 角色原生技能（由 mode.js 从 lib.character 取出后传入，保持本文件纯逻辑）
  */
 export function getExcludedSkillIds(run, characterSkills = []) {
 	const excluded = new Set();
-	for (const list of [run?.skillInventory, characterSkills]) {
+	for (const list of [getOwnedSkillIds(run), characterSkills]) {
 		for (const id of Array.isArray(list) ? list : []) {
 			if (typeof id === "string" && id) {
 				excluded.add(id);
@@ -110,7 +128,7 @@ export function getExcludedSkillIds(run, characterSkills = []) {
  */
 export function rollSkillOffers(run, rng = Math.random, characterSkills = [], candidates = []) {
 	const excluded = getExcludedSkillIds(run, characterSkills);
-	const owned = new Set(run?.skillInventory ?? []);
+	const owned = new Set(getOwnedSkillIds(run));
 	const pickedFrom = (Array.isArray(candidates) ? candidates : []).filter(entry => {
 		if (!entry || typeof entry.id !== "string" || !entry.id) {
 			return false;
@@ -229,16 +247,21 @@ export function checkSkillPurchase(run, offerId, options = {}) {
 }
 
 /**
- * 购买技能。v14 起购买只进背包（run.skillInventory），**不再替换、不再自动装备**：
- * 装备位满也照买不误，由玩家在技能管理页自己决定装哪个（装备上限只约束 equipSkill）。
+ * 购买技能，按模式分两条路：
+ *   · 闯关（旧版机制）：技能栏就是全部持有，上限 SKILL_SLOTS。未满直接获得；已满时**必须**
+ *     给出合法的 replaceId（技能栏里已有的一个）才能成交，被替换的旧技能直接失去、不进任何背包；
+ *     取消/没给 replaceId 时 ok:false、不扣款。
+ *   · 无尽（背包机制）：购买只进 run.skillInventory，**不替换、不自动装备**，装备位满也照买不误。
  * 三道闸门：
  *   1. 本局购买次数上限由 SKILL_PURCHASE_COUNT 真正驱动（不再只是刷新时的旁敲侧击）；
  *   2. 技能合法性最终校验：技能存在、当前仍允许进入肉鸽池、不是已禁用/已失效技能；
- *   3. 货币、重复持有（按完整背包判重）等原有规则。
- * 返回 { ok, error, run }；失败时 run 与传入的 run 是同一份未修改数据。
+ *   3. 货币、重复持有（按当前拥有判重）等原有规则。
+ * 返回 { ok, error, run, removed }；失败时 run 与传入的 run 是同一份未修改数据。
+ * removed 只在闯关满槽替换时是被换下的技能 id（商店据此结算遗忘之石/贪食魔盒），其余情况为 null。
+ * @param {string|null} [replaceId] 闯关满槽时指定要被替换的技能；无尽忽略
  * @param {{ isSkillAllowed?: (id: string) => boolean }} [options] 见 checkSkillPurchase
  */
-export function buySkill(run, offerId, options = {}) {
+export function buySkill(run, offerId, replaceId = null, options = {}) {
 	const check = checkSkillPurchase(run, offerId, options);
 	if (!check.ok) {
 		return { ok: false, error: check.error };
@@ -247,32 +270,62 @@ export function buySkill(run, offerId, options = {}) {
 	if (!Number.isFinite(offer.price) || !hasCurrency(run, SKILL_CURRENCY, offer.price)) {
 		return { ok: false, error: `${SKILL_CURRENCY_NAME}不足` };
 	}
-	const inventory = Array.isArray(run.skillInventory) ? run.skillInventory : [];
-	if (inventory.includes(offerId) && !ALLOW_DUPLICATE_SKILLS) {
+	if (getOwnedSkillIds(run).includes(offerId) && !ALLOW_DUPLICATE_SKILLS) {
 		return { ok: false, error: "已拥有该技能" };
 	}
 
 	const next = {
 		...run,
-		skillInventory: inventory.slice(0),
+		skills: Array.isArray(run.skills) ? run.skills.slice(0) : [],
 		currency: { ...run.currency },
 		shopOffers: run.shopOffers.map(item => ({ ...item })),
 	};
-	next.skillInventory.push(offerId);
+	let removed = null;
+	if (isEndlessRun(run)) {
+		const inventory = getOwnedSkillIds(run).slice(0);
+		inventory.push(offerId);
+		next.skillInventory = inventory;
+	} else {
+		if (next.skills.length >= SKILL_SLOTS) {
+			if (!replaceId || !next.skills.includes(replaceId)) {
+				return { ok: false, error: `技能槽已满（${next.skills.length}/${SKILL_SLOTS}），需要先替换一个已有技能` };
+			}
+			next.skills = next.skills.filter(id => id !== replaceId);
+			removed = replaceId;
+		}
+		next.skills.push(offerId);
+		// 闯关的权威列表是 skills；skillInventory 只是给旧 v14 档保留的历史数据（可能为空/残留）。
+		// 这里只同步本次真正换入/换出的技能，绝不把换下的旧技能留在背包里变成额外存储。
+		const inventory = (Array.isArray(run.skillInventory) ? run.skillInventory : []).slice(0);
+		if (removed) {
+			const index = inventory.indexOf(removed);
+			if (index >= 0) {
+				inventory.splice(index, 1);
+			}
+		}
+		if (!inventory.includes(offerId)) {
+			inventory.push(offerId);
+		}
+		next.skillInventory = inventory;
+	}
 	spend(next, SKILL_CURRENCY, offer.price);
 	const target = next.shopOffers.find(item => item.id === offerId);
 	if (target) {
 		target.sold = true;
 	}
 
-	return { ok: true, error: null, run: next };
+	return { ok: true, error: null, run: next, removed };
 }
 
 /**
- * 装备一个已拥有的技能：只改 run.skills（从背包挪进装备位），背包与货币一个字不动。
+ * 装备一个已拥有的技能（**仅无尽**）：只改 run.skills（从背包挪进装备位），背包与货币一个字不动。
  * 不满足时 ok:false 且零副作用；换装策略由玩家决定——装备位满时必须先卸下（这里不提供隐式替换）。
+ * 闯关没有背包概念，装备/卸下入口整个不存在；这里也挡一道，防止别的路径绕过容量规则。
  */
 export function equipSkill(run, skillId) {
+	if (!isEndlessRun(run)) {
+		return { ok: false, error: "闯关模式没有技能背包，不能装备或卸下技能", run };
+	}
 	const inventory = Array.isArray(run?.skillInventory) ? run.skillInventory : [];
 	if (!inventory.includes(skillId)) {
 		return { ok: false, error: "并未拥有该技能", run };
@@ -288,10 +341,14 @@ export function equipSkill(run, skillId) {
 }
 
 /**
- * 卸下一个已装备的技能：只把它从 run.skills 拿掉，技能仍留在 run.skillInventory——
+ * 卸下一个已装备的技能（**仅无尽**）：只把它从 run.skills 拿掉，技能仍留在 run.skillInventory——
  * 「卸下」不是「失去」，既不触发遗忘之石/贪食魔盒，也不影响任何以持有为准的判定。
+ * 闯关模式没有背包，卸下后技能就无处可放，所以整条入口不存在。
  */
 export function unequipSkill(run, skillId) {
+	if (!isEndlessRun(run)) {
+		return { ok: false, error: "闯关模式没有技能背包，不能装备或卸下技能", run };
+	}
 	const skills = Array.isArray(run?.skills) ? run.skills : [];
 	if (!skills.includes(skillId)) {
 		return { ok: false, error: "该技能并未装备", run };

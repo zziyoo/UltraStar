@@ -534,12 +534,17 @@ export function normalizeRun(raw, options = {}) {
 		currency[key] = clampInt(raw.currency?.[key], 0, Number.MAX_SAFE_INTEGER, 0);
 	}
 
-	// v14 技能改成「装备区 + 无限背包」：
-	//   · skillInventory = 玩家全部拥有的技能（无游戏规则上限，这里绝不按 SKILL_SLOTS 截断）；
-	//   · skills = 当前装备中的技能，仍以 SKILL_SLOTS 为上限（购买不再替换、新技能先进背包）；
-	//   · 不变量 skills ⊆ skillInventory：装备里的技能若不在背包里（旧档/脏数据）就补进去，
+	// 技能字段按模式分工：
+	//   · 无尽：v14 的「装备区 + 无限背包」——skillInventory = 玩家全部拥有的技能（无游戏规则上限，
+	//     这里绝不按 SKILL_SLOTS 截断）；skills = 当前装备中的技能（上限 SKILL_SLOTS）；
+	//     不变量 skills ⊆ skillInventory：装备里的技能若不在背包里（旧档/脏数据）就补进去，
 	//     背包里多出来的技能一律原样保留（它们只是没装备）。
-	// 旧档（v13 及更早）只有 skills：整套迁入背包，原装备原样保持，老玩家不会突然被卸装。
+	//   · 闯关：旧版机制，skills 就是全部持有且上限 SKILL_SLOTS（超出部分不会自动装备）。
+	//     闯关存档里可能残留 v14 时代的 skillInventory 条目——这里只做形状清洗、原样保存，
+	//     绝不把它们补进技能栏：修复后它们不再参与任何容量/拥有判定，也就不再提供额外存储能力。
+	//     （不静默删除是为了不丢历史数据；它们既不能装备、也不能被失去/奖励选中。）
+	// 旧档（v13 及更早）只有 skills：装备原样保持；skillInventory 照旧由 skills 同步一份，
+	// 无尽用它当背包，闯关则只把它当历史镜像。
 	const invSeen = new Set();
 	const skillInventory = [];
 	const pushInventory = skillId => {
@@ -673,7 +678,8 @@ export function normalizeRun(raw, options = {}) {
 		// v10：闯关第 11~30 关的双人组合抽取结果（同上由 enemy.ensureChallengeComboStages 生成；旧档按空数组补齐）
 		challengeComboStages: normalizeChallengeComboStages(raw.challengeComboStages),
 		currency,
-		// v14：装备中的技能（参加战斗的就是它，上限 SKILL_SLOTS）与全部拥有的技能（无限背包）
+		// 装备中的技能（参加战斗的就是它，上限 SKILL_SLOTS）与技能背包。
+		// 背包只属于无尽；闯关的权威列表是 skills，skillInventory 仅保存旧档残留、不参与判定。
 		skills,
 		skillInventory,
 		stats: statLevels,

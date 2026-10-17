@@ -493,7 +493,7 @@ check("非法/过期 shopOffers 绕不过技能合法性闸门", () => {
 	assertEqual(cleaned.shopOffers[0].id, "pack_yao", "留下的是合法候选");
 	// 2) 就算存档侥幸留着（不做清洗），购买前那道校验也必须挡住
 	for (const id of ["rogue_xushui", "pack_wat"]) {
-		const bad = shop.buySkill(run, id, gate);
+		const bad = shop.buySkill(run, id, null, gate);
 		assert(!bad.ok, `${id} 必须买不到`);
 		assert(bad.error.includes("下架"), `提示要说清是下架/不可售：${bad.error}`);
 	}

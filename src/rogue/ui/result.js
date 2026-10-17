@@ -2,7 +2,7 @@
 // 结算页、恢复页与 Boss 惩罚选择页都是自建浮层（大标题 + 信息卡 + 显著操作按钮 / 分栏卡片）；
 // 只有「失败惩罚的 fallback 选择页」还是本体 Dialog 列表（条目平铺在 dialog.content 下，见 ui/common.js 顶部说明）。
 
-import { CURRENCIES, CURRENCY_LABEL, RUN_MODE_LABEL, STAT_IDS } from "../config.js";
+import { CURRENCIES, CURRENCY_LABEL, RUN_MODE, RUN_MODE_LABEL, STAT_IDS } from "../config.js";
 import { ui } from "../../../../../noname.js";
 import { stats } from "../data/stats.js";
 import { describeCurio, getCurio, getCurioQuality, CURIOSITY_RARITY } from "../curioManager.js";
@@ -135,10 +135,16 @@ export function showPenaltyChoice(run, fallback, api) {
 
 	if (fallback.canLoseSkill) {
 		addLine(content, "<b>失去一个技能</b>");
-		// 候选 = 完整背包（含没装备的）；已装备的标注出来——失去它会同时把它从装备位卸下
+		// 候选按模式取：无尽 = 完整背包（含没装备的，已装备的标注出来）；
+		// 闯关 = 技能栏本身（旧档残留的背包条目不能拿来顶包，否则等于变相多了存储位）
+		const isEndless = run.mode === RUN_MODE.endless;
 		const equipped = new Set(Array.isArray(run.skills) ? run.skills : []);
-		for (const id of Array.isArray(run.skillInventory) ? run.skillInventory : []) {
-			addButton(`${skillName(id)}${equipped.has(id) ? "（已装备）" : ""}`, content, () => api.chooseLoseSkill(id));
+		const candidates = isEndless
+			? (Array.isArray(run.skillInventory) ? run.skillInventory : [])
+			: (Array.isArray(run.skills) ? run.skills : []);
+		for (const id of candidates) {
+			const label = isEndless && equipped.has(id) ? "（已装备）" : "";
+			addButton(`${skillName(id)}${label}`, content, () => api.chooseLoseSkill(id));
 		}
 	} else {
 		addDisabledButton("失去一个技能", content, "没有可失去的技能");
