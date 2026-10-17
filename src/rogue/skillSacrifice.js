@@ -1,5 +1,5 @@
 // 「故人的心」（史诗奇物）：每场战斗的游戏开始时，玩家可以失去任意个技能，
-// 令任意名敌方角色**各**失去等量个技能（每名被指定的敌人各扣 X 个，次数互相独立）。
+// 令一名或多名敌方角色**各**失去等量个技能（每名被指定的敌人各扣 X 个，次数互相独立）。
 // 结算只发生在当前这一场战斗的 Player 上。
 //
 // 三条纪律：
@@ -429,10 +429,10 @@ export function releaseLostAffixEffects() {
 
 /**
  * 结算前的整单核验：数量、重复、归属一次查完，任何一条不合格就整单不做。
- * 规则是「玩家失去 X 个、每名被选中的敌人**各**失去 X 个」（X = 玩家列表长度），
- * 不是「所有敌人合计失去 X 个」。界面是上一刻拿同一份枚举构造的，正常路径下这里永远是空的；
- * 一旦不空就说明有东西在这中间动过技能，此时**一个技能都不能删**——半单执行会让玩家
- * 单方面损失技能，或让某个敌人的失去数不足 X。
+ * 规则是「玩家失去 X 个、至少指定一名其他角色、每名被选中的敌人**各**失去 X 个」
+ * （X = 玩家列表长度），不是「所有敌人合计失去 X 个」。界面是上一刻拿同一份枚举构造的，
+ * 正常路径下这里永远是空的；一旦不空就说明有东西在这中间动过技能，此时**一个技能都不能删**
+ * ——半单执行会让玩家单方面损失技能，或让某个敌人的失去数不足 X。
  * @returns {{mine: string[], picks: {player: object, ids: string[]}[], invalid: {player: object, id: string|null, reason: string}[]}}
  */
 function inspectSacrificeChoice(me, choice) {
@@ -444,6 +444,11 @@ function inspectSacrificeChoice(me, choice) {
 	const invalid = [];
 	const reject = (player, id, reason) => invalid.push({ player, id: id ?? null, reason });
 
+	// 至少一名有效目标：theirs 缺失 / 空数组 / 所有 ids 都为空时，
+	// 只删玩家自己的技能等于单方面损失，必须整单拒绝。
+	if (!picks.length) {
+		reject(me, null, "至少需要选择一名有效的其他角色作为目标");
+	}
 	if (!mine.length) {
 		reject(me, null, "没有选择要失去的技能");
 	}
@@ -511,14 +516,14 @@ function inspectSacrificeChoice(me, choice) {
  * 三条纪律：
  *   1. **只删玩家指定过的技能**：绝不自动顶替、绝不随机补位（那等于替玩家做了选择，
  *      而且会出现「玩家失去 3 个、敌方只失去 2 个」这种正常完成态）；
- *   2. 先整单核验再动手（`inspectSacrificeChoice`）：玩家失去 X 个、**每名被选中的敌人各** X 个，
- *      技能与目标都不能重复；任何一条不合格就整单不做，把 `invalid` 交回流程层去重选或取消，
- *      **一个技能都不损失**；
+ *   2. 先整单核验再动手（`inspectSacrificeChoice`）：玩家失去 X 个、**至少指定一名其他角色**、
+ *      每名被选中的敌人各 X 个，技能与目标都不能重复；任何一条不合格就整单不做，
+ *      把 `invalid` 交回流程层去重选或取消，**一个技能都不损失**；
  *   3. 单件 `onremove` 抛错只影响那一件（`loseSkillsForBattle` 逐件兜底并补全残留），
  *      绝不因此继续去删别的技能。
  * @param {object} me 玩家 Player
  * @param {{mine: string[], theirs: {player: object, ids: string[]}[]}} choice 界面给出的选择
- *        （`mine` 的长度就是 X；每个 `theirs[].ids` 必须恰好 X 个）
+ *        （`mine` 的长度就是 X；至少一个 `theirs` 目标的 `ids` 恰好 X 个，其余可为空/跳过）
  * @returns {{mine: string[], theirs: {player: object, removed: string[]}[], invalid?: {player: object, id: string|null, reason: string}[]}}
  *          带 `invalid` 时双方**一个技能都没失去**，调用方应重选或取消
  */

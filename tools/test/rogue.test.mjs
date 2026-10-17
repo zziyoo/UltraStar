@@ -6260,6 +6260,58 @@ check("故人的心：结算前整单核验（每名各 X、无重复、无重�
 	return "数量不足 / 玩家重复 / 目标重复 / 重复目标角色 / 自指 / 技能不足，全部整单拒绝";
 });
 
+check("故人的心：没有有效敌方目标时整单拒绝（theirs 空 / 缺失 / 全空 ids）", () => {
+	registerSacrificeSkills({ sac_t1: {}, sac_o1: {}, sac_o2: {} });
+	const makePair = () => ({
+		me: makeFakeSkillPlayer(["sac_t1"]),
+		enemy: makeFakeSkillPlayer(["sac_o1", "sac_o2"]),
+	});
+
+	// theirs: []
+	let pair = makePair();
+	let result = sacrifice.settleSkillSacrifice(pair.me, { mine: ["sac_t1"], theirs: [] });
+	assert(result.invalid?.some(item => item.reason.includes("至少")), "空 theirs 被拒绝");
+	assertEqual(result.mine.length + result.theirs.length, 0, "空目标：整单未执行");
+	assertEqual(pair.me.hasSkill("sac_t1"), true, "玩家技能原样");
+	assertEqual(pair.enemy.hasSkill("sac_o1") && pair.enemy.hasSkill("sac_o2"), true, "敌人技能原样");
+
+	// 未提供 theirs
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, { mine: ["sac_t1"] });
+	assert(result.invalid?.some(item => item.reason.includes("至少")), "缺 theirs 被拒绝");
+	assertEqual(pair.me.hasSkill("sac_t1"), true, "零损失");
+
+	// 所有目标的 ids 均为空
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, { mine: ["sac_t1"], theirs: [{ player: pair.enemy, ids: [] }] });
+	assert(result.invalid?.some(item => item.reason.includes("至少")), "全空 ids 被拒绝");
+	assertEqual(pair.me.hasSkill("sac_t1"), true, "零损失");
+	assertEqual(pair.enemy.hasSkill("sac_o1") && pair.enemy.hasSkill("sac_o2"), true, "目标技能原样");
+
+	// ids 缺失同样视为没选
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, { mine: ["sac_t1"], theirs: [{ player: pair.enemy }] });
+	assert(result.invalid?.some(item => item.reason.includes("至少")), "缺 ids 被拒绝");
+	assertEqual(pair.me.hasSkill("sac_t1"), true, "零损失");
+
+	// 边界：空目标 + 有效目标并存 → 空的那名视为跳过，整单正常结算
+	const emptyTarget = makeFakeSkillPlayer(["sac_o1", "sac_o2"]);
+	const validTarget = makeFakeSkillPlayer(["sac_o1", "sac_o2"]);
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, {
+		mine: ["sac_t1"],
+		theirs: [
+			{ player: emptyTarget, ids: [] },
+			{ player: validTarget, ids: ["sac_o1"] },
+		],
+	});
+	assertEqual(result.invalid, undefined, "至少一名有效目标即可结算");
+	assertEqual(pair.me.hasSkill("sac_t1"), false, "玩家正常失去");
+	assertEqual(validTarget.hasSkill("sac_o1"), false, "有效目标正常失去");
+	assertEqual(emptyTarget.hasSkill("sac_o1") && emptyTarget.hasSkill("sac_o2"), true, "空目标一个都不动");
+	return "空数组 / 缺字段 / 全空 ids / 缺 ids 一律拒绝；空目标 + 有效目标正常";
+});
+
 check("故人的心：奇物效果文案明确「每名被指定的角色各失去同样多个技能」", () => {
 	const text = curioManager.describeCurioEffects({ skillSacrifice: 1 }).join("\n");
 	assert(text.includes("每名被指定的角色各失去同样多个技能"), `文案没有写清每名各失去：${text}`);

@@ -6156,8 +6156,9 @@ await check("故人的心：共享 group 伙伴的 init() 不重复执行（真�
 	assertEqual(game.me.storage.sac_c_init, 1, "补注册只补触发器，init 一次都没重跑");
 	assert(playerHooks(game.me, "damageBegin1").includes("sac_c"), "C 的触发器仍然有效");
 
-	// 再失去 B（没人再依赖 C）：直接走结算层，省掉一次整页重载
-	sacrificeModule.settleSkillSacrifice(game.me, { mine: ["sac_b"], theirs: [] });
+	// 再失去 B（没人再依赖 C）：直接走结算层，省掉一次整页重载。
+	// 结算现在要求至少一名有效目标，拿敌人剩下的 sac_e2 当这一笔的对手
+	sacrificeModule.settleSkillSacrifice(game.me, { mine: ["sac_b"], theirs: [{ player: game.players[1], ids: ["sac_e2"] }] });
 	assertEqual(game.me.hasSkill("sac_c"), false, "最后一个依赖者失去后 C 跟着失去");
 	assertEqual(playerHooks(game.me, "damageBegin1").includes("sac_c"), false, "C 的钩子摘干净了");
 	assertEqual(game.me.storage.sac_c_init, 1, "整条链路里 init 始终只跑过一次");
@@ -6188,8 +6189,9 @@ await check("故人的心：带 global / hookTrigger 的共享伙伴，补注册
 	assert(game.me._hookTrigger.includes("sac_c"), "_hookTrigger 登记还在");
 	assert(playerHooks(game.me, "damageBegin1").includes("sac_c"), "钩子还在");
 
-	// 再失去 B：C 彻底移除，全局技与 hookTrigger 登记一起注销
-	sacrificeModule.settleSkillSacrifice(game.me, { mine: ["sac_b"], theirs: [] });
+	// 再失去 B：C 彻底移除，全局技与 hookTrigger 登记一起注销。
+	// 结算现在要求至少一名有效目标，拿敌人剩下的 sac_e2 当这一笔的对手
+	sacrificeModule.settleSkillSacrifice(game.me, { mine: ["sac_b"], theirs: [{ player: game.players[1], ids: ["sac_e2"] }] });
 	assertEqual(game.me.hasSkill("sac_c"), false, "C 跟着失去");
 	assertEqual(lib.skill.global.includes("sac_glob"), false, "全局技注销");
 	assertEqual((lib.skill.globalmap.sac_glob ?? []).length, 0, "globalmap 清空");
