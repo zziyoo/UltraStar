@@ -24,6 +24,8 @@
 //   refresh 包只有 xin_xusheng）；秦宓 → yijiang 包 qinmi（全库唯一）；
 //   曹昂 → sp 包裸 id caoang（技能就是 kaikang「慷忾」；dc_sb_caoang/yj_caoang/tw_caoang
 //   是新杀谋/用间/TW 变体，都不带慷忾）。
+//   2026-10-17 用户点名：含神姜维的组合统一换用手杀神姜维 mb_shen_jiangwei（shiji 包）；
+//   组合 id 保持原样，已存档的 11~30 关组合按 id 查找不受影响。
 //   29~31 号组合的角色全部来自本扩展（中文即 id）：曼波/哈基米 → uma-musume 包，
 //   盖亚/阿古茹/迪迦/戴拿 → ultraman 包 eternal-torch 分包。
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验结构与 id 唯一，并对角色 id 做存在性提醒）。
@@ -49,10 +51,10 @@ export const challengeComboPool = [
 	{ id: "蒲元×界凌统", type: "group", players: [{ character: "puyuan" }, { character: "xin_lingtong" }] },
 	{ id: "势周瑜×势魏延", type: "group", players: [{ character: "pot_zhouyu" }, { character: "pot_weiyan" }] },
 	{ id: "势邓艾×势周瑜", type: "group", players: [{ character: "pot_dengai" }, { character: "pot_zhouyu" }] },
-	{ id: "势周瑜×神姜维", type: "group", players: [{ character: "pot_zhouyu" }, { character: "shen_jiangwei" }] },
-	{ id: "势魏延×神姜维", type: "group", players: [{ character: "pot_weiyan" }, { character: "shen_jiangwei" }] },
+	{ id: "势周瑜×神姜维", type: "group", players: [{ character: "pot_zhouyu" }, { character: "mb_shen_jiangwei" }] },
+	{ id: "势魏延×神姜维", type: "group", players: [{ character: "pot_weiyan" }, { character: "mb_shen_jiangwei" }] },
 	{ id: "势邓艾×势魏延", type: "group", players: [{ character: "pot_dengai" }, { character: "pot_weiyan" }] },
-	{ id: "势邓艾×神姜维", type: "group", players: [{ character: "pot_dengai" }, { character: "shen_jiangwei" }] },
+	{ id: "势邓艾×神姜维", type: "group", players: [{ character: "pot_dengai" }, { character: "mb_shen_jiangwei" }] },
 	{ id: "乐蔡邕×乐蔡文姬", type: "group", players: [{ character: "yue_caiyong" }, { character: "yue_caiwenji" }] },
 	{ id: "乐小乔×乐大乔", type: "group", players: [{ character: "yue_xiaoqiao" }, { character: "yue_daqiao" }] },
 	{ id: "星周不疑×标曹丕", type: "group", players: [{ character: "yj_zhoubuyi" }, { character: "caopi" }] },
