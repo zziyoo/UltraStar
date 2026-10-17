@@ -5,7 +5,8 @@
 //     所以本体自己的角色信息区就能列出它们，不必再造一遍；
 //   · 全部词缀（含污染的封牌载体 abyss_wuran_lock）带 persevereSkill: true——引擎的「持恒技」标记：
 //     技能详情面板显示「持恒技」分类，且不被本体白板（baiban）类失效效果封禁
-//     （fengyin 只封非锁定技，词缀全是锁定技本就豁免；虚无的 abyss_xuwu_blocker 无条件封一切，不吃此标记）；
+//     （fengyin 只封非锁定技，词缀全是锁定技本就豁免；虚无的 abyss_xuwu_blocker 封一切，不吃此标记，
+//     唯一豁免是污染留在持牌者身上的 abyss_wuran_lock——那是负面状态载体，不是玩家自己的技能）；
 //   · abyss_affix 是纯粹的标记载体（不发效果），负责在敌人身边挂一个「深渊」徽记，
 //     与玩家的「强化」徽记同一套做法；徽记说明从 player.storage.abyss_affix 里的词缀 id 现查文案。
 //   · 另有三个「载体技能」（abyssHelperSkills）也不进随机池：abyss_xuwu_blocker 只被 addSkillBlocker
@@ -224,8 +225,10 @@ export const affix = {
 	// 5. 深渊·虚无：受到玩家用「非实体牌」打来的伤害后，把那名玩家封到本回合结束——所有技能失效。
 	//    不再限制「本局一次」：这一回合里每挨一发都重新按住（已经按着就不重复计数）。
 	//    「所有技能失效」只能走本体的技能屏蔽器：本体每查一个技能都要过 filterTrigger → getSkills →
-	//    game.filterSkills → get.is.blocked，再挨个问注册表里的 skillBlocker；载体一律答「是」＝全部失效，
+	//    game.filterSkills → get.is.blocked，再挨个问注册表里的 skillBlocker；除污染载体外一律答「是」＝全部失效，
 	//    连还没响的触发技一起压住（disableSkill 必须点名技能 id，做不到「所有」）。
+	//    污染的封牌载体 abyss_wuran_lock 不能跟着失效：它若被 getSkills 滤掉，getModableSkills 就读不到它的
+	//    mod，牌面污染标签还在、封牌效果却全没了（虚无 × 污染的那个 Bug）。
 	//    解除挂在**被封印玩家自己**的临时技上：addTempSkill 到点会 removeSkill，而 removeSkill 才走 onremove。
 	//    千万别挂在词缀持有者身上——本体的死亡流程只摘临时技（content.js:11668），永久技不会被移除，
 	//    持有者先死的话它的触发与 onremove 都不会响，玩家就被永久缴械了。
@@ -418,8 +421,10 @@ export function releaseXuwuBlocks() {
 /**
  * 词缀自己用的三个载体，随模式注册但不可能被随机发到敌人身上：
  *   · abyss_xuwu_blocker 只被 `player.addSkillBlocker(载体id)` 按名字引用，永远不 addSkill——
- *     本体 get.is.blocked 会挨个问注册表里的 skillBlocker，这里一律回答「是」，
+ *     本体 get.is.blocked 会挨个问注册表里的 skillBlocker，这里除污染载体外一律回答「是」，
  *     就等于把那名角色「所有技能」按住（装备技能在本体 filterSkills 里算 exclude，不在其列）；
+ *     abyss_wuran_lock 必须豁免：它在 getSkills 阶段就被过滤掉的话，getModableSkills 读不到它的 mod，
+ *     「被污染的牌不能使用/打出/弃置」会整条失效——不能靠重复 addSkill 或摘屏蔽器绕开；
  *   · abyss_xuwu_release 以临时技形式挂在被封印的玩家身上，只借它的 onremove 到点放人；
  *   · abyss_wuran_lock 由污染挂到**玩家**身上：本体 checkMod 只读执行动作那个人自己的技能，
  *     所以封牌的 mod 必须住在持牌者身上，放在敌人身上是死技能。
@@ -429,8 +434,11 @@ export const abyssHelperSkills = {
 		forced: true,
 		popup: false,
 		nopop: true,
-		skillBlocker() {
-			return true;
+		// 其余技能一律封住（含持恒技 / 锁定技 / 触发技）；只豁免污染留在持牌者身上的封牌载体：
+		// 它是别的角色施加的负面状态，不是玩家自己的技能，跟着一起被 filterSkills 滤掉
+		// 就会出现「牌面还有污染标记、封牌 mod 却不再参与判定」。
+		skillBlocker(skill) {
+			return skill !== WURAN_LOCK_SKILL;
 		},
 	},
 	// 只当「本回合结束就解除」的到期宿主：本体到点 removeSkill，onremove 里放掉屏蔽器。

@@ -2572,6 +2572,8 @@ check("深渊词缀池配置：池子项数、id 唯一、与技能定义和翻�
 	}
 	assert(abyssAffixes.abyssHelperSkills.abyss_xuwu_blocker.skillBlocker("any_skill", {}) === true,
 		"封印载体要把所有技能一律算作失效");
+	assertEqual(abyssAffixes.abyssHelperSkills.abyss_xuwu_blocker.skillBlocker("abyss_wuran_lock", {}), false,
+		"污染封牌载体是别人施加的状态载体，不该被虚无一起滤掉");
 	assert(typeof abyssAffixes.abyssHelperSkills.abyss_xuwu_release.onremove === "function",
 		"解除载体要靠 removeSkill 时的 onremove 放人");
 	return `${ids.length} 个词缀 + 3 个载体，定义/文案/翻译三处对齐`;
@@ -2869,6 +2871,277 @@ await checkAsync("深渊·污染：玩家对持有者用牌后随机锁一张手
 	assert(!info.filter(makeEvent("useCard", { player: enemyUser.player, targets: [holder.player] }), holder.player, "useCardAfter"), "敌人用牌不受污染");
 	assert(!info.filter(makeEvent("useCard", { player: victim.player, card: played, targets: ["别人"] }), holder.player, "useCardAfter"), "目标不含持有者时不触发");
 	return "锁一张手牌（已用的牌除外）/ 使用·打出·弃置三处锁死 / 无牌可锁不触发";
+});
+
+// 本体屏蔽链的最小镜像：get.is.blocked（get/is.js:286）→ game.filterSkills（game/index.js:9615）
+// → player.getSkills（player.js:5454，默认 applySkillFilter）→ getModableSkills（player.js:5432）
+// → game.checkMod（game/index.js:8486）。虚无 × 污染的回归必须走这条链：直接调
+// abyss_wuran_lock.mod.cardEnabled2 会绕过「技能被 filterSkills 滤掉」这一步，恰好漏掉本 Bug。
+const nativeSkillChain = {
+	blocked(skill, player) {
+		const blockers = player?.storage?.skill_blocker;
+		if (!Array.isArray(blockers) || !blockers.length) {
+			return false;
+		}
+		for (const id of blockers) {
+			if (lib.skill[id]?.skillBlocker?.(skill, player)) {
+				return true;
+			}
+		}
+		return false;
+	},
+	filterSkills(skills, player, exclude) {
+		const out = skills.filter(id => !(id in (player.disabledSkills ?? {})));
+		if (!Array.isArray(player?.storage?.skill_blocker) || !player.storage.skill_blocker.length) {
+			return out;
+		}
+		return out.filter(id => exclude?.includes(id) || !nativeSkillChain.blocked(id, player));
+	},
+};
+mockGet.is = { blocked: nativeSkillChain.blocked };
+mockGame.filterSkills = nativeSkillChain.filterSkills;
+mockGame.checkMod = function () {
+	const args = Array.from(arguments);
+	const name = args[args.length - 2];
+	let skills = args[args.length - 1];
+	if (typeof skills.getModableSkills === "function") {
+		skills = skills.getModableSkills();
+	}
+	const argv = args.slice(0, -2);
+	for (const id of skills) {
+		const mod = lib.skill[id]?.mod?.[name];
+		if (typeof mod !== "function") {
+			continue;
+		}
+		const result = mod.call(this, ...argv);
+		if (result !== undefined && typeof argv[argv.length - 1] !== "object") {
+			argv[argv.length - 1] = result;
+		}
+	}
+	return argv[argv.length - 1];
+};
+
+/** makeAbyssPlayer 的技能表版本：补上本体 getSkills / getModableSkills / removeSkill 的语义 */
+function makeEngineAbyssPlayer(options = {}) {
+	const { player, rec } = makeAbyssPlayer(options);
+	player.skills = (options.skills ?? []).slice();
+	player.tempSkills = {};
+	player.disabledSkills = {};
+	player.getSkills = function (skillMode, includeEquipSkills, applySkillFilter) {
+		const list = player.skills.slice();
+		for (const id of Object.keys(player.tempSkills)) {
+			if (!list.includes(id)) {
+				list.push(id);
+			}
+		}
+		if (applySkillFilter === false) {
+			return list;
+		}
+		return nativeSkillChain.filterSkills(list, player, []);
+	};
+	player.getModableSkills = function () {
+		const list = player.getSkills().concat(Array.isArray(lib.skill.global) ? lib.skill.global : []);
+		mockGame.expandSkills(list);
+		return list.filter(id => lib.skill[id]?.mod);
+	};
+	player.hasSkill = id => player.getSkills(null, false, false).includes(id);
+	// 对齐本体 addSkill：已在技能表里就直接返回（污染重复触发不会重复注册）
+	player.addSkill = id => {
+		rec.addSkill.push(id);
+		if (lib.skill[id] && !player.skills.includes(id)) {
+			player.skills.push(id);
+		}
+	};
+	player.addTempSkill = (id, expire) => {
+		rec.tempSkill.push({ id, expire });
+		rec.addSkill.push(id);
+		if (lib.skill[id]) {
+			if (!player.skills.includes(id)) {
+				player.skills.push(id);
+			}
+			player.tempSkills[id] = expire ?? true;
+		}
+	};
+	// 只实现本用例用到的收尾：先摘技能表，再到点走 onremove（虚无的解除宿主就挂在这里）
+	player.removeSkill = (id, force) => {
+		const info = lib.skill[id];
+		if (info?.fixed && force !== true) {
+			return id;
+		}
+		player.skills = player.skills.filter(item => item !== id);
+		delete player.tempSkills[id];
+		if (typeof info?.onremove === "function") {
+			info.onremove(player, id);
+		}
+		return id;
+	};
+	return { player, rec };
+}
+
+await checkAsync("深渊·虚无 × 污染：虚无屏蔽期间，污染封牌经本体 getModableSkills/checkMod 链仍然生效", async () => {
+	const xuwu = abyssAffixes.affix.abyss_xuwu;
+	const wuran = abyssAffixes.affix.abyss_wuran;
+	const savedSkills = new Map();
+	const register = {
+		...abyssAffixes.abyssHelperSkills,
+		abyss_wuran: wuran,
+		abyss_xuwu: xuwu,
+		test_normal_mod: { mod: { attackRange: () => 9 } },
+		test_normal_trigger: { trigger: { player: "phaseDraw" }, forced: true, async content() {} },
+		// 虚无不许被「整类豁免」削弱：持恒技、锁定技照旧封住
+		test_normal_persevere: { persevereSkill: true, mod: { attackRange: () => 7 } },
+		test_normal_locked: { locked: true, forced: true, trigger: { player: "phaseDraw" }, async content() {} },
+	};
+	for (const [id, info] of Object.entries(register)) {
+		savedSkills.set(id, lib.skill[id]);
+		lib.skill[id] = info;
+	}
+	const played = realCard("sha");
+	const spare = realCard("install");
+	const hand = [played, spare];
+	const victim = makeEngineAbyssPlayer({
+		playerid: "wuran_victim",
+		rogueSide: 0,
+		hand,
+		skills: ["test_normal_mod", "test_normal_trigger", "test_normal_persevere", "test_normal_locked"],
+	});
+	const holder = makeEngineAbyssPlayer({ playerid: "wuran_holder", skills: ["abyss_wuran", "abyss_xuwu"] });
+	const holder2 = makeEngineAbyssPlayer({ playerid: "wuran_holder2", skills: ["abyss_wuran"] });
+	const other = makeEngineAbyssPlayer({ playerid: "other_actor" });
+	mockGame.players = [victim.player, holder.player, holder2.player, other.player];
+	const canUse = card => mockGame.checkMod(card, victim.player, null, "unchanged", "cardEnabled2", victim.player);
+	const canRespond = card => mockGame.checkMod(card, victim.player, "unchanged", "cardRespondable", victim.player);
+	const canDiscard = card => mockGame.checkMod(card, victim.player, "phaseDiscard", "unchanged", "cardDiscardable", victim.player);
+	try {
+		// ① 只有污染：三处限制都要经过本体 checkMod 链生效
+		const used = makeEvent("useCard", { player: victim.player, card: played, targets: [holder.player] });
+		await wuran.content(abyssSkillEvent("useCardAfter", used), used, holder.player);
+		assert(victim.player.abyssWuranLocked.includes(spare), "污染锁住 spare");
+		assert(spare.hasGaintag("abyss_wuran"), "牌面有污染标签");
+		assert(victim.player.getModableSkills().includes("abyss_wuran_lock"), "封牌载体进入了本体的可 mod 技能表");
+		assertEqual(canUse(spare), false, "只有污染：本体链判定不能使用");
+		assertEqual(canRespond(spare), false, "只有污染：本体链判定不能打出");
+		assertEqual(canDiscard(spare), false, "只有污染：本体链判定不能自己弃置");
+		assertEqual(canUse(played), "unchanged", "没被污染的手牌照常可用");
+		assertEqual(mockGame.checkMod(spare, other.player, "phaseDiscard", "unchanged", "cardDiscardable", other.player), "unchanged",
+			"别的角色拆牌读的是执行者自己的技能，不受持牌者载体影响");
+
+		// ② 虚无触发：玩家的非实体牌伤害按住其所有技能
+		const hit = makeEvent("damage", { num: 1, card: virtualCard("sha"), source: victim.player });
+		assert(xuwu.filter(hit, holder.player, "damageEnd"), "虚无应对玩家的非实体牌伤害触发");
+		await xuwu.content(abyssSkillEvent("damageEnd", hit), hit, holder.player);
+		assertEqual(victim.player.storage.skill_blocker?.[0], "abyss_xuwu_blocker", "虚无按上屏蔽器");
+		assert(nativeSkillChain.blocked("test_normal_mod", victim.player), "虚无期间普通 mod 技失效");
+		assert(nativeSkillChain.blocked("test_normal_trigger", victim.player), "虚无期间普通触发技失效");
+		assert(nativeSkillChain.blocked("test_normal_persevere", victim.player), "持恒技照旧被封，虚无没有被整类豁免削弱");
+		assert(nativeSkillChain.blocked("test_normal_locked", victim.player), "锁定技照旧被封，虚无没有被整类豁免削弱");
+		assert(!nativeSkillChain.blocked("abyss_wuran_lock", victim.player), "污染载体不吃虚无屏蔽（精确豁免）");
+		assert(victim.player.getModableSkills().includes("abyss_wuran_lock"), "虚无期间载体仍在可 mod 技能表里");
+		assert(!victim.player.getModableSkills().includes("test_normal_mod"), "虚无期间普通 mod 技被滤出判定链");
+		assertEqual(canUse(spare), false, "虚无期间：污染牌仍不能使用");
+		assertEqual(canRespond(spare), false, "虚无期间：污染牌仍不能打出");
+		assertEqual(canDiscard(spare), false, "虚无期间：污染牌仍不能自己弃置");
+
+		// ③ 虚无期间再次污染：新牌立刻受限，旧牌不受影响，载体不重复注册
+		hand.splice(hand.indexOf(played), 1); // 用掉的牌离开手牌
+		const played2 = realCard("sha");
+		const fresh = realCard("tao");
+		hand.push(played2, fresh);
+		const used2 = makeEvent("useCard", { player: victim.player, card: played2, targets: [holder.player] });
+		await wuran.content(abyssSkillEvent("useCardAfter", used2), used2, holder.player);
+		assert(victim.player.abyssWuranLocked.includes(fresh), "虚无期间新污染照常落点");
+		assert(fresh.hasGaintag("abyss_wuran"), "新污染牌面也有标签");
+		for (const card of [spare, fresh]) {
+			assertEqual(canUse(card), false, "虚无期间新旧污染牌都不能使用");
+			assertEqual(canRespond(card), false, "虚无期间新旧污染牌都不能打出");
+			assertEqual(canDiscard(card), false, "虚无期间新旧污染牌都不能自己弃置");
+		}
+		assertEqual(victim.player.skills.filter(id => id === "abyss_wuran_lock").length, 1, "载体不重复注册");
+
+		// ④ 第二名污染持有者追加污染：引用累加不覆盖，载体仍只有一份
+		hand.splice(hand.indexOf(played2), 1);
+		const played3 = realCard("sha");
+		const fresh2 = realCard("tao");
+		hand.push(played3, fresh2);
+		const used3 = makeEvent("useCard", { player: victim.player, card: played3, targets: [holder2.player] });
+		await wuran.content(abyssSkillEvent("useCardAfter", used3), used3, holder2.player);
+		assert(victim.player.abyssWuranLocked.includes(fresh2), "第二名持有者也能追加污染");
+		assertEqual(victim.player.abyssWuranLocked.length, 3, "多条污染引用累加而不是互相覆盖");
+		assertEqual(victim.player.skills.filter(id => id === "abyss_wuran_lock").length, 1, "多持有者不重复注册载体");
+
+		// ⑤ 重复虚无：不叠屏蔽层、不重复挂解除宿主
+		const hit2 = makeEvent("damage", { num: 2, source: victim.player });
+		await xuwu.content(abyssSkillEvent("damageEnd", hit2), hit2, holder.player);
+		assertEqual(victim.player.storage.skill_blocker.length, 1, "重复虚无只保留一层屏蔽器");
+		assertEqual(victim.rec.tempSkill.length, 1, "重复虚无不重复挂解除宿主");
+
+		// ⑥ 虚无期间第一次污染（此前没有载体）：addSkill 后要立刻走判定链
+		const latePlayed = realCard("sha");
+		const lateLocked = realCard("install");
+		const lateHand = [latePlayed, lateLocked];
+		const lateVictim = makeEngineAbyssPlayer({ playerid: "late_victim", rogueSide: 0, hand: lateHand, skills: ["test_normal_mod"] });
+		mockGame.players.push(lateVictim.player);
+		const lateHit = makeEvent("damage", { num: 1, source: lateVictim.player });
+		await xuwu.content(abyssSkillEvent("damageEnd", lateHit), lateHit, holder.player);
+		assert(nativeSkillChain.blocked("test_normal_mod", lateVictim.player), "先封住该玩家");
+		const lateUsed = makeEvent("useCard", { player: lateVictim.player, card: latePlayed, targets: [holder.player] });
+		await wuran.content(abyssSkillEvent("useCardAfter", lateUsed), lateUsed, holder.player);
+		assertEqual(mockGame.checkMod(lateLocked, lateVictim.player, null, "unchanged", "cardEnabled2", lateVictim.player), false,
+			"封技能期间新挂上的污染载体也立刻生效");
+
+		// ⑦ 本回合结束：虚无解除，其他技能恢复，污染继续生效
+		victim.player.removeSkill("abyss_xuwu_release", true); // 本体到点 removeSkill → onremove 放人
+		assertEqual(victim.player.storage.skill_blocker, undefined, "虚无解除后屏蔽器清空");
+		assert(!nativeSkillChain.blocked("test_normal_mod", victim.player), "普通技能恢复");
+		assert(victim.player.getModableSkills().includes("test_normal_mod"), "普通 mod 技回到判定链");
+		assert(victim.player.getModableSkills().includes("test_normal_persevere"), "持恒技在虚无结束后也恢复");
+		assert(!nativeSkillChain.blocked("test_normal_locked", victim.player), "锁定技在虚无结束后也恢复");
+		assertEqual(canUse(spare), false, "虚无结束后：旧污染牌仍不能使用");
+		assertEqual(canRespond(spare), false, "虚无结束后：旧污染牌仍不能打出");
+		assertEqual(canDiscard(spare), false, "虚无结束后：旧污染牌仍不能自己弃置");
+		assert(victim.player.abyssWuranLocked.includes(spare) && victim.player.abyssWuranLocked.includes(fresh) && victim.player.abyssWuranLocked.includes(fresh2),
+			"污染引用没有随虚无解除被清掉");
+		const clean = realCard("jiu");
+		hand.push(clean);
+		assertEqual(canUse(clean), "unchanged", "没被污染的新摸牌照常可用");
+
+		// ⑧ 多持有者只失去一个：清理机制不能替另一个持有者免掉污染
+		holder.player.removeSkill("abyss_wuran"); // 故意留着 abyss_xuwu，下一步验证「封着技能也能清理污染」
+		sacrifice.releaseLostAffixEffects();
+		assertEqual(victim.player.abyssWuranLocked.length, 3, "还有污染持有者时封牌引用一条都不放");
+		assert(victim.player.skills.includes("abyss_wuran_lock"), "还有污染持有者时载体留在身上");
+
+		// ⑨ 最后一名持有者也失去：releaseWuranLocks 清引用、摘标签、摘载体
+		holder2.player.removeSkill("abyss_wuran");
+		sacrifice.releaseLostAffixEffects();
+		assertEqual(victim.player.abyssWuranLocked.length, 0, "无持有者后封牌引用清空");
+		for (const card of [spare, fresh, fresh2]) {
+			assert(!card.hasGaintag("abyss_wuran"), "无持有者后牌面污染标签摘掉");
+			assertEqual(canUse(card), "unchanged", "清理后手牌恢复可用");
+		}
+		assert(!victim.player.skills.includes("abyss_wuran_lock"), "无持有者后封牌载体摘掉");
+		// 此时 holder 还带着虚无：lateVictim 仍被封着，但它的污染载体也必须被清掉
+		assertEqual(lateVictim.player.abyssWuranLocked.length, 0, "虚无仍封着时，污染引用也照常清空");
+		assert(!lateLocked.hasGaintag("abyss_wuran"), "虚无仍封着时，牌面标签也照常摘掉");
+		assert(!lateVictim.player.skills.includes("abyss_wuran_lock"), "虚无仍封着时，封牌载体也照常摘掉（不能因屏蔽过滤漏清）");
+		assert((lateVictim.player.storage.skill_blocker ?? []).includes("abyss_xuwu_blocker"), "此时虚无屏蔽器仍在，清理没有误当成解封");
+
+		// ⑩ 虚无源最后失去：屏蔽器与解除宿主照旧被 releaseXuwuBlocks 收走
+		holder.player.removeSkill("abyss_xuwu");
+		sacrifice.releaseLostAffixEffects();
+		assertEqual(lateVictim.player.storage.skill_blocker, undefined, "虚无源失去后屏蔽器清空");
+		assert(!lateVictim.player.skills.includes("abyss_xuwu_release"), "解除宿主一并摘掉");
+		return "本体链三限制 / 虚无中新旧污染 / 重复虚无不叠层 / 回合结束恢复 / 多持有者清理";
+	} finally {
+		mockGame.players = [];
+		for (const [id, info] of savedSkills) {
+			if (info === undefined) {
+				delete lib.skill[id];
+			} else {
+				lib.skill[id] = info;
+			}
+		}
+	}
 });
 
 await checkAsync("深渊·永恒：任意角色回合开始都补满体力，满血与阵亡不空转", async () => {
