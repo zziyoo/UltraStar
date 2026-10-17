@@ -1,4 +1,5 @@
-// 「故人的心」的选择界面：两阶段——先挑自己要失去的技能，再把这笔账分摊到敌方头上。
+// 「故人的心」的选择界面：两阶段——先挑自己要失去的 X 个技能，再指定任意名其他角色，
+// **每名被指定的角色各失去 X 个**（不是让所有敌人合起来分摊 X 个）。
 //
 // 版式沿用「标题 + 分隔线 + 可滚动正文 + 钉底按钮」这一套（与属性/奇物面板、Boss 惩罚页同一语言）：
 // 技能可能有几十条，正文条必须自己滚、标题与按钮留在原位；选择状态全在内存里，
@@ -74,11 +75,19 @@ export function showSkillSacrifice({ me, mine, targets }) {
 
 			// ---- 第一阶段：己方技能
 			ui.create.div(".wm-rogue-stat-section-title", `${translateCharacter(me?.name)}（你）`, minePane);
-			ui.create.div(".wm-rogue-pick-hint", "选中你要失去的技能；它们只在这一场战斗里失去，存档不受影响。", minePane);
+			ui.create.div(".wm-rogue-pick-hint", "选中你要失去的技能；它们只在这一场战斗里失去，存档不受影响。进入下一阶段后，可以指定任意名其他角色，每名各失去同样多个技能。", minePane);
 			const minePicked = new Set();
 			const mineRows = new Map();
+			// 第一阶段最多能选「单个敌人身上最多的可失去技能数」：再多就没有任何敌人接得住。
+			const maxTargetSkills = targets.reduce((max, target) => Math.max(max, target.skills.length), 0);
+			// X = 玩家最终选了几个；进入第二阶段时固定下来，作为每名敌人的独立配额
+			let quota = 0;
+			let stageNow = 1;
 			for (const id of mine) {
 				mineRows.set(id, buildPickRow(minePane, id, guarded("切换选中", () => {
+					if (!minePicked.has(id) && minePicked.size >= maxTargetSkills) {
+						return;
+					}
 					if (minePicked.has(id)) {
 						minePicked.delete(id);
 					} else {
@@ -88,9 +97,9 @@ export function showSkillSacrifice({ me, mine, targets }) {
 				})));
 			}
 
-			// ---- 第二阶段：敌方（按角色分区，逐人指定）
-			const enemyTotal = targets.reduce((sum, target) => sum + target.skills.length, 0);
-			ui.create.div(".wm-rogue-pick-hint", "敌方的总失去数必须与你相等。", enemyPane);
+			// ---- 第二阶段：敌方（按角色分区，逐人独立维护选择）
+			// 每名敌人各有一份 picked；被选中的必须恰好选满 X 个，未选中的保持 0 个。
+			const enemyHint = ui.create.div(".wm-rogue-pick-hint", "", enemyPane);
 			const enemyRows = [];
 			for (const target of targets) {
 				const section = ui.create.div(".wm-rogue-heart-target", enemyPane);
@@ -99,10 +108,15 @@ export function showSkillSacrifice({ me, mine, targets }) {
 				const rows = new Map();
 				for (const id of target.skills) {
 					rows.set(id, buildPickRow(section, id, guarded("切换选中", () => {
+						if (stageNow !== 2 || target.skills.length < quota) {
+							return;
+						}
 						if (picked.has(id)) {
 							picked.delete(id);
-						} else {
+						} else if (picked.size < quota) {
 							picked.add(id);
+						} else {
+							return;
 						}
 						paint();
 					})));
@@ -133,9 +147,19 @@ export function showSkillSacrifice({ me, mine, targets }) {
 				});
 			}), "wm-rogue-heart-confirm");
 
-			let stageNow = 1;
 			function showStage(next) {
 				stageNow = next;
+				if (next === 2) {
+					// X 变了（返回上一步改了数量）就清空敌方选择：旧配额下的选择不再成立，
+					// 保留一部分会让「选了但不够数」的目标看起来像已确认。
+					const nextQuota = minePicked.size;
+					if (nextQuota !== quota) {
+						quota = nextQuota;
+						for (const row of enemyRows) {
+							row.picked.clear();
+						}
+					}
+				}
 				minePane.classList[next === 1 ? "remove" : "add"]("wm-rogue-hidden");
 				enemyPane.classList[next === 1 ? "add" : "remove"]("wm-rogue-hidden");
 				// 两个阶段各三枚按钮：阶段一「不发动 / 下一步」，阶段二「返回 / 取消 / 确认」
@@ -148,29 +172,39 @@ export function showSkillSacrifice({ me, mine, targets }) {
 				paint();
 			}
 
-			function enemyPickedCount() {
-				return enemyRows.reduce((sum, row) => sum + row.picked.size, 0);
-			}
-
 			function paint() {
 				for (const [id, row] of mineRows) {
 					row.classList[minePicked.has(id) ? "add" : "remove"]("wm-rogue-picked");
 				}
-				for (const row of enemyRows) {
-					for (const [id, node] of row.rows) {
-						node.classList[row.picked.has(id) ? "add" : "remove"]("wm-rogue-picked");
-					}
-					row.heading.textContent = `${translateCharacter(row.target.player?.name)}（已选 ${row.picked.size}）`;
-				}
 				const mineCount = minePicked.size;
-				const enemyCount = enemyPickedCount();
 				if (stageNow === 1) {
-					subtitle.textContent = `选择你要失去的技能（已选 ${mineCount} 个，最多 ${enemyTotal} 个）`;
-					nextButton.classList[mineCount >= 1 && mineCount <= enemyTotal ? "remove" : "add"]("wm-rogue-disabled");
-				} else {
-					subtitle.textContent = `为敌方指定 ${mineCount} 个技能（已选 ${enemyCount} 个）`;
-					confirmButton.classList[enemyCount === mineCount ? "remove" : "add"]("wm-rogue-disabled");
+					subtitle.textContent = `选择你要失去的技能（已选 ${mineCount} 个，最多 ${maxTargetSkills} 个；敌方每名被指定者各失去同样多个）`;
+					nextButton.classList[mineCount >= 1 && mineCount <= maxTargetSkills ? "remove" : "add"]("wm-rogue-disabled");
+					return;
 				}
+				enemyHint.textContent = `每名被指定的敌人各失去 ${quota} 个技能；可以只指定其中一部分。可失去技能不足 ${quota} 个的敌人无法作为目标。`;
+				let selectedTargets = 0;
+				let incomplete = false;
+				for (const row of enemyRows) {
+					const eligible = row.target.skills.length >= quota;
+					const full = eligible && row.picked.size >= quota;
+					for (const [id, node] of row.rows) {
+						const picked = row.picked.has(id);
+						node.classList[picked ? "add" : "remove"]("wm-rogue-picked");
+						node.classList[eligible ? "remove" : "add"]("wm-rogue-target-locked");
+						node.classList[eligible && !picked && full ? "add" : "remove"]("wm-rogue-quota-full");
+					}
+					row.heading.textContent = eligible
+						? `${translateCharacter(row.target.player?.name)}（已选 ${row.picked.size}/${quota}）`
+						: `${translateCharacter(row.target.player?.name)}（可失去技能只有 ${row.target.skills.length} 个，不足 ${quota} 个，无法作为目标）`;
+					if (row.picked.size === quota) {
+						selectedTargets++;
+					} else if (row.picked.size > 0) {
+						incomplete = true;
+					}
+				}
+				subtitle.textContent = `每名被选中的角色各失去 ${quota} 个技能（已指定 ${selectedTargets} 名，合计 ${selectedTargets * quota} 个）`;
+				confirmButton.classList[quota >= 1 && selectedTargets >= 1 && !incomplete ? "remove" : "add"]("wm-rogue-disabled");
 			}
 
 			guarded("初始渲染", () => showStage(1))();

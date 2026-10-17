@@ -6134,6 +6134,138 @@ check("故人的心：结算只删玩家指定过的技能（选择失效 → �
 	}
 });
 
+check("故人的心：每名被指定的敌人各失去 X 个（次数独立，可只选部分敌人）", () => {
+	registerSacrificeSkills({
+		sac_m1: {}, sac_m2: {},
+		sac_a1: {}, sac_a2: {},
+		sac_b1: {}, sac_b2: {},
+		sac_c1: {}, sac_c2: {},
+	});
+	const mineTwo = makeFakeSkillPlayer(["sac_m1", "sac_m2"]);
+	const enemyA = makeFakeSkillPlayer(["sac_a1", "sac_a2"]);
+	const enemyB = makeFakeSkillPlayer(["sac_b1", "sac_b2"]);
+	const enemyC = makeFakeSkillPlayer(["sac_c1", "sac_c2"]);
+	let result = sacrifice.settleSkillSacrifice(mineTwo, {
+		mine: ["sac_m1", "sac_m2"],
+		theirs: [
+			{ player: enemyA, ids: ["sac_a1", "sac_a2"] },
+			{ player: enemyB, ids: ["sac_b1", "sac_b2"] },
+			{ player: enemyC, ids: ["sac_c1", "sac_c2"] },
+		],
+	});
+	assertEqual(result.invalid, undefined, "完整选择不应被判失效");
+	assertEqual(result.mine.length, 2, "玩家失去 X=2 个");
+	assertEqual(result.theirs.map(entry => entry.removed.length).join(","), "2,2,2", "三名敌人每人各失去 2 个");
+	assertEqual(result.theirs.reduce((sum, entry) => sum + entry.removed.length, 0), 6, "敌方合计 6 个，不共用玩家那 2 个配额");
+	for (const [player, ids] of [
+		[enemyA, ["sac_a1", "sac_a2"]],
+		[enemyB, ["sac_b1", "sac_b2"]],
+		[enemyC, ["sac_c1", "sac_c2"]],
+	]) {
+		for (const id of ids) {
+			assertEqual(player.hasSkill(id), false, `${id} 真失去`);
+		}
+	}
+
+	// X=1：三名敌人各失去 1 个，合计 3 个
+	const mineOne = makeFakeSkillPlayer(["sac_m1"]);
+	const oneA = makeFakeSkillPlayer(["sac_a1", "sac_a2"]);
+	const oneB = makeFakeSkillPlayer(["sac_b1", "sac_b2"]);
+	const oneC = makeFakeSkillPlayer(["sac_c1", "sac_c2"]);
+	result = sacrifice.settleSkillSacrifice(mineOne, {
+		mine: ["sac_m1"],
+		theirs: [
+			{ player: oneA, ids: ["sac_a1"] },
+			{ player: oneB, ids: ["sac_b1"] },
+			{ player: oneC, ids: ["sac_c1"] },
+		],
+	});
+	assertEqual(result.theirs.map(entry => entry.removed.length).join(","), "1,1,1", "X=1 时每人也各失去 1 个");
+	assertEqual(result.theirs.reduce((sum, entry) => sum + entry.removed.length, 0), 3, "敌方合计 3 个");
+	assertEqual(oneA.hasSkill("sac_a2"), true, "没选的技能保留");
+
+	// 只选部分敌人：未选中的一个都不动
+	const minePartial = makeFakeSkillPlayer(["sac_m1", "sac_m2"]);
+	const partialA = makeFakeSkillPlayer(["sac_a1", "sac_a2"]);
+	const partialB = makeFakeSkillPlayer(["sac_b1", "sac_b2"]);
+	result = sacrifice.settleSkillSacrifice(minePartial, {
+		mine: ["sac_m1", "sac_m2"],
+		theirs: [{ player: partialA, ids: ["sac_a1", "sac_a2"] }],
+	});
+	assertEqual(result.theirs.length, 1, "只结算被指定的那名敌人");
+	assertEqual(partialB.hasSkill("sac_b1") && partialB.hasSkill("sac_b2"), true, "未指定的敌人技能原样");
+	return "X=2×3 人 = 6；X=1×3 人 = 3；只选部分敌人时其余不动";
+});
+
+check("故人的心：结算前整单核验（每名各 X、无重复、无重复目标），不合格零损失", () => {
+	registerSacrificeSkills({ sac_m1: {}, sac_m2: {}, sac_e1: {}, sac_e2: {}, sac_solo: {} });
+	const makePair = () => ({
+		me: makeFakeSkillPlayer(["sac_m1", "sac_m2"]),
+		enemy: makeFakeSkillPlayer(["sac_e1", "sac_e2"]),
+	});
+	let pair = makePair();
+	let result = sacrifice.settleSkillSacrifice(pair.me, {
+		mine: ["sac_m1", "sac_m2"],
+		theirs: [{ player: pair.enemy, ids: ["sac_e1"] }],
+	});
+	assert(result.invalid?.some(item => item.reason.includes("需要失去 2 个技能")), "目标少选一个被拦下");
+	assertEqual(result.mine.length + result.theirs.length, 0, "整单未执行");
+	assertEqual(pair.me.hasSkill("sac_m1") && pair.me.hasSkill("sac_m2"), true, "玩家技能原样");
+	assertEqual(pair.enemy.hasSkill("sac_e1"), true, "敌人技能原样");
+
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, {
+		mine: ["sac_m1", "sac_m1"],
+		theirs: [{ player: pair.enemy, ids: ["sac_e1", "sac_e2"] }],
+	});
+	assert(result.invalid?.some(item => item.reason.includes("重复选择")), "玩家重复选同一技能被拦下");
+	assertEqual(pair.me.hasSkill("sac_m1"), true, "零损失");
+
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, {
+		mine: ["sac_m1", "sac_m2"],
+		theirs: [{ player: pair.enemy, ids: ["sac_e1", "sac_e1"] }],
+	});
+	assert(result.invalid?.some(item => item.reason.includes("重复选择")), "敌人重复选同一技能被拦下");
+	assertEqual(pair.enemy.hasSkill("sac_e1"), true, "零损失");
+
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, {
+		mine: ["sac_m1", "sac_m2"],
+		theirs: [
+			{ player: pair.enemy, ids: ["sac_e1", "sac_e2"] },
+			{ player: pair.enemy, ids: ["sac_e1", "sac_e2"] },
+		],
+	});
+	assert(result.invalid?.some(item => item.reason.includes("重复指定")), "同一角色被列两次被拦下");
+	assertEqual(pair.enemy.hasSkill("sac_e1"), true, "零损失");
+
+	pair = makePair();
+	result = sacrifice.settleSkillSacrifice(pair.me, {
+		mine: ["sac_m1"],
+		theirs: [{ player: pair.me, ids: ["sac_m2"] }],
+	});
+	assert(result.invalid?.some(item => item.reason.includes("不能把自己")), "把自己列为目标被拦下");
+	assertEqual(pair.me.hasSkill("sac_m2"), true, "零损失");
+
+	// 目标可失去技能不足 X：即便把仅有的一个报上来，数量也对不上 → 整单不做
+	const soloMe = makeFakeSkillPlayer(["sac_m1", "sac_m2"]);
+	const solo = makeFakeSkillPlayer(["sac_solo"]);
+	result = sacrifice.settleSkillSacrifice(soloMe, {
+		mine: ["sac_m1", "sac_m2"],
+		theirs: [{ player: solo, ids: ["sac_solo"] }],
+	});
+	assert(result.invalid?.length, "技能不足 X 的目标不可能凑够数量");
+	assertEqual(solo.hasSkill("sac_solo"), true, "零损失");
+	return "数量不足 / 玩家重复 / 目标重复 / 重复目标角色 / 自指 / 技能不足，全部整单拒绝";
+});
+
+check("故人的心：奇物效果文案明确「每名被指定的角色各失去同样多个技能」", () => {
+	const text = curioManager.describeCurioEffects({ skillSacrifice: 1 }).join("\n");
+	assert(text.includes("每名被指定的角色各失去同样多个技能"), `文案没有写清每名各失去：${text}`);
+	return text;
+});
+
 await checkAsync("故人的心：选择界面创建失败时按未发动继续（不抛错、不损失任何技能）", async () => {
 	registerSacrificeSkills({ sac_ok: {} });
 	const me = makeFakeSkillPlayer(["sac_ok"]);
@@ -6200,18 +6332,35 @@ await checkAsync("故人的心：任一侧没有可失去的技能就整件事�
 	assertEqual(armed.hasSkill("sac_only"), true, "跳过时双方一点变化都没有");
 });
 
-check("故人的心选择页：正文可滚、面板限高、隐藏开关压得住分区（样式判据直读 styles.js）", () => {
-	// 冒烟夹具是 DOM 桩，没有排版引擎，量不出「技能几十条会不会溢出」——这三条只能在样式层钉死
+check("故人的心选择页：flex 加固、正文可滚、按钮钉底、描述不截断（样式判据直读 styles.js）", () => {
+	// 冒烟夹具是 DOM 桩，没有排版引擎，量不出「技能几十条会不会溢出」——这些只能在样式层钉死
 	const css = fs.readFileSync(path.join(root, "src/rogue/ui/styles.js"), "utf8").replace(/\s+/g, " ");
-	assert(/#wm-rogue-overlay \.wm-rogue-heart-body \{ [^}]*display: block !important; position: static !important; [^}]*flex: 1 1 auto; min-height: 0; [^}]*overflow-y: auto; [^}]*\}/.test(css),
-		"正文条必须是唯一的可伸缩项（min-height:0 + overflow-y:auto），技能再多也滚得动");
+	assert(/#wm-rogue-overlay \.wm-rogue-heart-body \{ [^}]*display: block !important; position: static !important; [^}]*flex: 1 1 auto; min-height: 0; [^}]*overflow-y: auto; [^}]*overscroll-behavior: contain; [^}]*\}/.test(css),
+		"正文条必须是唯一的可伸缩项（min-height:0 + overflow-y:auto + 触摸滚动隔离），技能再多也滚得动");
 	assert(/#wm-rogue-overlay\.wm-rogue-heart-overlay \.wm-rogue-heart-panel \{ [^}]*max-height: 100%; display: flex; flex-direction: column; [^}]*\}/.test(css),
 		"面板限高到 stage（max-height:100% + flex 列），标题与按钮不会被挤出屏幕");
-	assert(/#wm-rogue-overlay \.wm-rogue-heart-actions \{ [^}]*display: flex !important; flex-wrap: wrap !important; [^}]*\}/.test(css),
-		"按钮行窄屏折行，不在横向溢出");
+	assert(/#wm-rogue-overlay \.wm-rogue-stat-panel, #wm-rogue-overlay \.wm-rogue-heart-panel,/.test(css),
+		"故人的心面板必须登记进 id 级 flex 加固名单，否则会被通用 .wm-rogue-panel{display:block!important} 压回 block");
+	assert(css.indexOf("#wm-rogue-overlay .wm-rogue-panel { display: block !important; }") < css.indexOf("#wm-rogue-overlay .wm-rogue-heart-panel"),
+		"flex 加固必须排在通用 block 规则之后（同权重按顺序取胜）");
+	assert(/#wm-rogue-overlay \.wm-rogue-heart-actions \{ [^}]*display: flex !important; flex-wrap: wrap !important; [^}]*flex: none; [^}]*\}/.test(css),
+		"按钮行 flex:none + 窄屏折行：永远钉在面板底部，也不横向溢出");
+	const descRule = /#wm-rogue-overlay \.wm-rogue-pick-desc \{[^}]*\}/.exec(css)?.[0] ?? "";
+	assert(descRule && !/max-height|overflow(?!-wrap)|text-overflow|-webkit-line-clamp/.test(descRule),
+		"技能描述没有限高 / 裁剪 / 省略规则，长描述必须完整保留");
+	assert(/\.wm-rogue-pick-desc, #wm-rogue-overlay \.wm-rogue-pick-hint \{ white-space: normal !important; overflow-wrap: break-word !important; \}/.test(css),
+		"描述与提示允许正常换行，长文本不会被推出面板");
+	assert(/#wm-rogue-overlay \.wm-rogue-index-art \{ display: flex !important; align-items: center !important; justify-content: center !important; \}/.test(css),
+		"图鉴图位的 flex 居中也要补回（同类 display:block!important 冲突，审计时发现）");
 	assert(css.indexOf(".wm-rogue-heart-pane {") < css.lastIndexOf(".wm-rogue-hidden { display: none !important; }"),
 		"隐藏开关（.wm-rogue-hidden）必须排在分区显隐规则之后，同权重下后者才压得住");
-	return "可滚 + 限高 + 按钮折行 + 隐藏开关顺序，四条都钉在样式源文本上";
+	// 移动端滚动不误触：条目走 bindTap（位移 >10px 不算轻触），正文条隔离本体触摸
+	const overlaySource = fs.readFileSync(path.join(root, "src/ui/overlay.js"), "utf8");
+	assert(/Math\.abs\(touch\.clientX - startX\) > 10 \|\| Math\.abs\(touch\.clientY - startY\) > 10/.test(overlaySource),
+		"轻触判定带 10px 位移阈值：滑动列表不会触发技能选择");
+	const pageSource = fs.readFileSync(path.join(root, "src/rogue/ui/skillSacrifice.js"), "utf8");
+	assert(/bindOverlayTap\(row, onToggle\)/.test(pageSource), "技能条目仍走 bindTap 轻触判定");
+	return "flex 加固 + 可滚 + 按钮钉底 + 描述完整 + 同类冲突补回 + 移动端轻触阈值，全部钉在源文本上";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

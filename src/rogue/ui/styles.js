@@ -345,6 +345,11 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-picked { border-color: rgba(216,166,255,0.95);
 	background: linear-gradient(rgba(62,42,84,0.88), rgba(28,18,40,0.92));
 	box-shadow: 0 0 14px rgba(180,120,255,0.28); }
+/* 已选满配额后的未选条目、以及技能数不足 X 的敌人条目：仍显示描述，但点了不再改变选择 */
+#wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-quota-full,
+#wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-target-locked { opacity: 0.5; cursor: default; }
+#wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-quota-full:hover,
+#wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-target-locked:hover { border-color: rgba(255,255,255,0.14); }
 #wm-rogue-overlay .wm-rogue-pick-head { display: flex !important; align-items: center !important;
 	justify-content: space-between !important; gap: 10px; }
 #wm-rogue-overlay .wm-rogue-pick-name { display: block !important; font-size: 20px; font-weight: bold;
@@ -622,10 +627,13 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-shop-card,
 #wm-rogue-overlay .wm-rogue-stat-card,
 #wm-rogue-overlay .wm-rogue-hub,
-/* 属性/奇物/敌人强化面板必须钉回 flex 列：它靠「面板限高 + 正文条压缩后自己滚」来兜住长列表，
-   而上面的 .wm-rogue-panel{display:block !important}（同权重、在前）会把 flex 压成 block——
-   正文条于是拿不到可压缩的高度，内容直接画到框外面去（真机实录：奇物多了，最后一条漏在框下） */
+/* 属性/奇物/敌人强化面板与「故人的心」选择页必须钉回 flex 列：它们靠「面板限高 + 正文条压缩后
+   自己滚」来兜住长列表，而上面的 .wm-rogue-panel{display:block !important}（同权重、在前）会把
+   flex 压成 block——正文条于是拿不到可压缩的高度，内容直接画到框外面去（真机实录：奇物多了，
+   最后一条漏在框下；故人的心技能描述过长时按钮被挤出可视区）。**所有 .wm-rogue-panel 的 flex
+   使用者都必须登记在这里**。 */
 #wm-rogue-overlay .wm-rogue-stat-panel,
+#wm-rogue-overlay .wm-rogue-heart-panel,
 #wm-rogue-overlay .wm-rogue-skills,
 #wm-rogue-overlay .wm-rogue-curios,
 #wm-rogue-overlay .wm-rogue-replace,
@@ -669,6 +677,10 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-event-art,
 #wm-rogue-overlay .wm-rogue-index-art,
 #wm-rogue-overlay .wm-rogue-curio-art { display: block !important; }
+/* 图鉴图位里的「？？？」靠 flex 居中；上面这条会把它的 flex 压回 block（同类冲突，与故人的心面板
+   同因），这里按顺序补回。图片本身用背景图，display 不影响它 */
+#wm-rogue-overlay .wm-rogue-index-art { display: flex !important; align-items: center !important;
+	justify-content: center !important; }
 #wm-rogue-overlay .wm-rogue-shop-section-title,
 #wm-rogue-overlay .wm-rogue-shop-subtitle,
 #wm-rogue-overlay .wm-rogue-stat-body,

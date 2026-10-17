@@ -5765,6 +5765,171 @@ await check("故人的心：数量不等时「确认」点不动；取消则谁�
 	return "确认按等量门槛置灰；取消 = 零变化 + 照常开局";
 });
 
+await check("故人的心：X 个技能令每名敌人各失去 X 个（2×3=6、1×3=3），不再共用总额", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["heart_m1", "heart_m2", "heart_m3"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["heart_a1", "heart_a2", "heart_a3"] };
+	lib.character["赛文"] = { hp: 4, maxHp: 4, skills: ["heart_b1", "heart_b2", "heart_b3"] };
+	lib.character["巴尔坦星人"] = { hp: 4, maxHp: 4, skills: ["heart_c1", "heart_c2", "heart_c3"] };
+	const probeIds = [
+		"heart_m1", "heart_m2", "heart_m3",
+		"heart_a1", "heart_a2", "heart_a3",
+		"heart_b1", "heart_b2", "heart_b3",
+		"heart_c1", "heart_c2", "heart_c3",
+	];
+	putRun(0, {
+		mode: "endless",
+		curios: ["old_friend_heart"],
+		characterId: "迪迦",
+		skills: [],
+		currentBattle: {
+			status: "battle",
+			enemies: [
+				{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "巴尔坦星人", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+			],
+		},
+	});
+	session();
+	registerSacrificeProbeSkills(probeIds);
+	click("重新挑战这一关");
+	assertEqual(nodesWithClass("wm-rogue-pick-row").length, 12, "己方 3 条 + 三名敌人各 3 条");
+	click("heart_m1");
+	click("heart_m2");
+	click("下一步");
+	click("heart_a1");
+	click("heart_a2");
+	click("heart_b1");
+	click("heart_b2");
+	click("heart_c1");
+	click("heart_c2");
+	const confirm = nodesWithClass("wm-rogue-heart-confirm")[0];
+	assert(confirm && !confirm.classList.contains("wm-rogue-disabled"), "三名敌人都选满 X=2 后确认可用");
+	click("确认");
+	await flush();
+	assertEqual(game.players.length, 4, "玩家 + 三名敌人");
+	const [enemyA, enemyB, enemyC] = game.players.slice(1);
+	assertEqual(game.me.hasSkill("heart_m1"), false, "玩家失去选中的第 1 个技能");
+	assertEqual(game.me.hasSkill("heart_m2"), false, "玩家失去选中的第 2 个技能");
+	assertEqual(game.me.hasSkill("heart_m3"), true, "没选的己方技能保留");
+	for (const [enemy, prefix] of [[enemyA, "heart_a"], [enemyB, "heart_b"], [enemyC, "heart_c"]]) {
+		assertEqual(enemy.hasSkill(`${prefix}1`), false, `${prefix}1 失去（每名敌人各扣 2 个）`);
+		assertEqual(enemy.hasSkill(`${prefix}2`), false, `${prefix}2 失去`);
+		assertEqual(enemy.hasSkill(`${prefix}3`), true, `${prefix}3 保留`);
+	}
+	assert(log.some(item => item.type === "trigger:gameStart"), "结算后照常开局");
+
+	// X=1：三名敌人各失去 1 个，合计 3 个
+	session();
+	registerSacrificeProbeSkills(probeIds);
+	click("重新挑战这一关");
+	click("heart_m1");
+	click("下一步");
+	click("heart_a1");
+	click("heart_b1");
+	click("heart_c1");
+	click("确认");
+	await flush();
+	const [oneA, oneB, oneC] = game.players.slice(1);
+	assertEqual(oneA.hasSkill("heart_a1"), false, "X=1 时 A 失去 1 个");
+	assertEqual(oneB.hasSkill("heart_b1"), false, "X=1 时 B 失去 1 个");
+	assertEqual(oneC.hasSkill("heart_c1"), false, "X=1 时 C 失去 1 个");
+	assertEqual(oneA.hasSkill("heart_a2") && oneB.hasSkill("heart_b2") && oneC.hasSkill("heart_c2"), true, "没选的技能都不动");
+	return "X=2×3 人 = 6；X=1×3 人 = 3；每名敌人的次数互相独立";
+});
+
+await check("故人的心：第一阶段上限按单个敌人可取数收窄；技能不足 X 的敌人不可选，其余正常结算", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["heart_m1", "heart_m2", "heart_m3"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["heart_a1", "heart_a2"] };
+	lib.character["赛文"] = { hp: 4, maxHp: 4, skills: ["heart_b1"] };
+	putRun(0, {
+		mode: "endless",
+		curios: ["old_friend_heart"],
+		characterId: "迪迦",
+		skills: [],
+		currentBattle: {
+			status: "battle",
+			enemies: [
+				{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+			],
+		},
+	});
+	session();
+	registerSacrificeProbeSkills(["heart_m1", "heart_m2", "heart_m3", "heart_a1", "heart_a2", "heart_b1"]);
+	click("重新挑战这一关");
+	const rowOf = name => nodesWithClass("wm-rogue-pick-row").find(row => dump(row).includes(name));
+	assert(screenText().includes("最多 2 个"), "第一阶段上限取单个敌人的最大可取数（2），不是敌方技能总数（3）");
+	click("heart_m1");
+	click("heart_m2");
+	click("heart_m3");
+	assert(rowOf("heart_m3") && !rowOf("heart_m3").classList.contains("wm-rogue-picked"), "第三步点不动：没有敌人接得住 X=3");
+	click("下一步");
+	assert(screenText().includes("不足 2 个，无法作为目标"), "技能不足 X 的敌人明确标出来");
+	click("heart_b1");
+	assert(rowOf("heart_b1") && !rowOf("heart_b1").classList.contains("wm-rogue-picked"), "不足 X 的敌人点了也不选中");
+	click("heart_a1");
+	click("heart_a2");
+	const confirm = nodesWithClass("wm-rogue-heart-confirm")[0];
+	assert(confirm && !confirm.classList.contains("wm-rogue-disabled"), "只指定符合条件的敌人即可确认（其余敌人跳过）");
+	click("确认");
+	await flush();
+	const [enemyA, enemyB] = game.players.slice(1);
+	assertEqual(game.me.hasSkill("heart_m1"), false, "玩家失去实际选中的第 1 个");
+	assertEqual(game.me.hasSkill("heart_m2"), false, "玩家失去实际选中的第 2 个");
+	assertEqual(game.me.hasSkill("heart_m3"), true, "被上限挡住的第 3 个没失去");
+	assertEqual(enemyA.hasSkill("heart_a1"), false, "符合条件的敌人失去第 1 个");
+	assertEqual(enemyA.hasSkill("heart_a2"), false, "符合条件的敌人失去第 2 个（各扣 X 个）");
+	assertEqual(enemyB.hasSkill("heart_b1"), true, "技能不足的敌人不被选中，一个都不失去");
+	return "上限=2 / 不足 X 锁定 / 只选部分敌人正常结算";
+});
+
+await check("故人的心：返回上一步改 X 会清空敌方旧选择，重选后按新配额结算", async () => {
+	freshWorld();
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: ["heart_m1", "heart_m2"] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["heart_a1", "heart_a2"] };
+	lib.character["赛文"] = { hp: 4, maxHp: 4, skills: ["heart_b1", "heart_b2"] };
+	putRun(0, {
+		mode: "endless",
+		curios: ["old_friend_heart"],
+		characterId: "迪迦",
+		skills: [],
+		currentBattle: {
+			status: "battle",
+			enemies: [
+				{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+				{ characterId: "赛文", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 },
+			],
+		},
+	});
+	session();
+	registerSacrificeProbeSkills(["heart_m1", "heart_m2", "heart_a1", "heart_a2", "heart_b1", "heart_b2"]);
+	click("重新挑战这一关");
+	const rowOf = name => nodesWithClass("wm-rogue-pick-row").find(row => dump(row).includes(name));
+	click("heart_m1");
+	click("heart_m2");
+	click("下一步");
+	click("heart_a1");
+	click("heart_a2");
+	click("返回");
+	click("heart_m2");   // X 从 2 改回 1
+	click("下一步");
+	assert(rowOf("heart_a1") && !rowOf("heart_a1").classList.contains("wm-rogue-picked"), "X 变了：敌方旧选择被清空");
+	assert(screenText().includes("已选 0/1"), "目标配额跟着改成 1");
+	click("heart_b1");
+	click("确认");
+	await flush();
+	const [enemyA, enemyB] = game.players.slice(1);
+	assertEqual(game.me.hasSkill("heart_m1"), false, "玩家按新的 X=1 失去技能");
+	assertEqual(game.me.hasSkill("heart_m2"), true, "返回后取消选中的技能保留");
+	assertEqual(enemyA.hasSkill("heart_a1") && enemyA.hasSkill("heart_a2"), true, "旧目标未被结算");
+	assertEqual(enemyB.hasSkill("heart_b1"), false, "新目标按 X=1 失去");
+	assertEqual(enemyB.hasSkill("heart_b2"), true, "新目标没选的技能保留");
+	return "返回改 X → 敌方选择清空 → 按新配额只结算新目标";
+});
+
 await check("故人的心：己方没有可失去的技能（只剩肉鸽载体）时不开界面，战斗直接开始", async () => {
 	freshWorld();
 	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: [] };

@@ -1,5 +1,6 @@
 // 「故人的心」（史诗奇物）：每场战斗的游戏开始时，玩家可以失去任意个技能，
-// 令任意名敌方角色失去**等量**个技能。结算只发生在当前这一场战斗的 Player 上。
+// 令任意名敌方角色**各**失去等量个技能（每名被指定的敌人各扣 X 个，次数互相独立）。
+// 结算只发生在当前这一场战斗的 Player 上。
 //
 // 三条纪律：
 //   1. 只动战斗里的 Player，绝不碰存档——run.skills / run.skillInventory 一个字都不改，
@@ -427,25 +428,82 @@ export function releaseLostAffixEffects() {
 }
 
 /**
- * 动手之前核验选中的每一条此刻是否「还在身上、还属于可失去的上层技能」。
- * 界面是上一刻拿同一份枚举构造的，正常路径下这里永远是空的；一旦不空就说明有东西
- * 在这中间动过技能，此时**一条都不能删**（半单执行会让两边数量对不上）。
- * @returns {{player: object, id: string}[]} 失效的条目
+ * 结算前的整单核验：数量、重复、归属一次查完，任何一条不合格就整单不做。
+ * 规则是「玩家失去 X 个、每名被选中的敌人**各**失去 X 个」（X = 玩家列表长度），
+ * 不是「所有敌人合计失去 X 个」。界面是上一刻拿同一份枚举构造的，正常路径下这里永远是空的；
+ * 一旦不空就说明有东西在这中间动过技能，此时**一个技能都不能删**——半单执行会让玩家
+ * 单方面损失技能，或让某个敌人的失去数不足 X。
+ * @returns {{mine: string[], picks: {player: object, ids: string[]}[], invalid: {player: object, id: string|null, reason: string}[]}}
  */
-function staleSelections(me, mine, picks) {
-	const stale = [];
-	const check = (player, ids) => {
-		for (const id of Array.isArray(ids) ? ids : []) {
-			if (!playerSkillIds(player).includes(id) || !isChoosableSkill(id)) {
-				stale.push({ player, id });
+function inspectSacrificeChoice(me, choice) {
+	const mine = Array.isArray(choice?.mine) ? choice.mine.slice() : [];
+	// 空 ids 的目标等于「没选这名敌人」，直接忽略（UI 提交前也会过滤）
+	const picks = (Array.isArray(choice?.theirs) ? choice.theirs : [])
+		.filter(pick => Array.isArray(pick?.ids) && pick.ids.length)
+		.map(pick => ({ player: pick.player, ids: pick.ids.slice() }));
+	const invalid = [];
+	const reject = (player, id, reason) => invalid.push({ player, id: id ?? null, reason });
+
+	if (!mine.length) {
+		reject(me, null, "没有选择要失去的技能");
+	}
+	const seenMine = new Set();
+	for (const id of mine) {
+		if (seenMine.has(id)) {
+			reject(me, id, "同一个技能被重复选择");
+		}
+		seenMine.add(id);
+	}
+
+	const quota = mine.length;
+	const seenTargets = new Set();
+	for (const pick of picks) {
+		if (!pick.player) {
+			reject(null, null, "目标角色无效");
+			continue;
+		}
+		if (pick.player === me) {
+			reject(pick.player, null, "不能把自己指定为目标");
+		}
+		if (seenTargets.has(pick.player)) {
+			reject(pick.player, null, "同一名角色被重复指定");
+		}
+		seenTargets.add(pick.player);
+		if (pick.ids.length !== quota) {
+			reject(pick.player, null, `需要失去 ${quota} 个技能，实际选择了 ${pick.ids.length} 个`);
+		}
+		const seen = new Set();
+		for (const id of pick.ids) {
+			if (seen.has(id)) {
+				reject(pick.player, id, "同一个技能被重复选择");
+			}
+			seen.add(id);
+		}
+	}
+
+	// 归属核验用与界面同一份枚举（`listChoosableSkills`），确保每条都还在身上、还是可失去的
+	// 上层技能；同一名角色只枚举一次，重复目标已经报过，不重复刷同一条。
+	const choosable = new Map();
+	const choosableOf = player => {
+		if (!choosable.has(player)) {
+			choosable.set(player, new Set(listChoosableSkills(player)));
+		}
+		return choosable.get(player);
+	};
+	const checkOwned = (player, ids) => {
+		const owned = choosableOf(player);
+		for (const id of new Set(ids)) {
+			if (!owned.has(id)) {
+				reject(player, id, "技能已不在身上或不可失去");
 			}
 		}
 	};
-	check(me, mine);
+	checkOwned(me, mine);
 	for (const pick of picks) {
-		check(pick.player, pick.ids);
+		checkOwned(pick.player, pick.ids);
 	}
-	return stale;
+
+	return { mine, picks, invalid };
 }
 
 /**
@@ -453,22 +511,23 @@ function staleSelections(me, mine, picks) {
  * 三条纪律：
  *   1. **只删玩家指定过的技能**：绝不自动顶替、绝不随机补位（那等于替玩家做了选择，
  *      而且会出现「玩家失去 3 个、敌方只失去 2 个」这种正常完成态）；
- *   2. 先核验再动手（`staleSelections`）：任何一条选中项失效就整单不做，
- *      把 `invalid` 交回流程层去重选或取消，**一个技能都不损失**；
+ *   2. 先整单核验再动手（`inspectSacrificeChoice`）：玩家失去 X 个、**每名被选中的敌人各** X 个，
+ *      技能与目标都不能重复；任何一条不合格就整单不做，把 `invalid` 交回流程层去重选或取消，
+ *      **一个技能都不损失**；
  *   3. 单件 `onremove` 抛错只影响那一件（`loseSkillsForBattle` 逐件兜底并补全残留），
  *      绝不因此继续去删别的技能。
  * @param {object} me 玩家 Player
- * @param {{mine: string[], theirs: {player: object, ids: string[]}[]}} choice 界面给出的选择（两侧数量已相等）
- * @returns {{mine: string[], theirs: {player: object, removed: string[]}[], invalid?: {player: object, id: string}[]}}
+ * @param {{mine: string[], theirs: {player: object, ids: string[]}[]}} choice 界面给出的选择
+ *        （`mine` 的长度就是 X；每个 `theirs[].ids` 必须恰好 X 个）
+ * @returns {{mine: string[], theirs: {player: object, removed: string[]}[], invalid?: {player: object, id: string|null, reason: string}[]}}
  *          带 `invalid` 时双方**一个技能都没失去**，调用方应重选或取消
  */
 export function settleSkillSacrifice(me, choice) {
-	const picks = (Array.isArray(choice?.theirs) ? choice.theirs : []).filter(pick => Array.isArray(pick?.ids) && pick.ids.length);
-	const invalid = staleSelections(me, choice?.mine, picks);
+	const { mine, picks, invalid } = inspectSacrificeChoice(me, choice);
 	if (invalid.length) {
 		return { invalid, mine: [], theirs: [] };
 	}
-	const mine = loseSkillsForBattle(me, choice.mine);
+	const removedMine = loseSkillsForBattle(me, mine);
 	const theirs = [];
 	for (const pick of picks) {
 		const removed = loseSkillsForBattle(pick.player, pick.ids);
@@ -476,7 +535,7 @@ export function settleSkillSacrifice(me, choice) {
 			theirs.push({ player: pick.player, removed });
 		}
 	}
-	return { mine, theirs };
+	return { mine: removedMine, theirs };
 }
 
 /**
@@ -550,7 +609,10 @@ export async function runSkillSacrifice(me, enemies) {
 			return result;
 		}
 		// 选择在结算前失效：整单没执行，重选一次（下一轮会用最新的枚举重建界面）
-		console.warn("[rogue] 故人的心：选择的技能此刻已失效，请重新选择：", result.invalid.map(item => item.id).join("、"));
+		console.warn(
+			"[rogue] 故人的心：选择未通过结算前核验，整单未执行，请重新选择：",
+			result.invalid.map(item => item.id ? `${item.id}（${item.reason}）` : item.reason).join("、"),
+		);
 	}
 	return { cancelled: true };
 }
