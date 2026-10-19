@@ -70,6 +70,7 @@ const ui = {
 			return { title, content };
 		},
 	},
+	cardPile: { childNodes: [] },
 };
 const ai = {};
 const get = {
@@ -229,6 +230,7 @@ function makePlayer(options = {}) {
 		aiChoice: options.aiChoice ?? false,
 		aiResults: [],
 		drawCalls: [],
+		gainCalls: [],
 		recoverCalls: [],
 		onRecover: options.onRecover,
 		calls: [],
@@ -289,6 +291,15 @@ function makePlayer(options = {}) {
 		async draw(num) {
 			this.drawCalls.push(num);
 			return [];
+		},
+		async gain(cards, animate) {
+			const list = Array.isArray(cards) ? cards : (cards?.cards ?? []);
+			const gained = list.slice();
+			for (const card of gained) {
+				if (!this.hand.includes(card)) this.hand.push(card);
+			}
+			this.gainCalls.push({ cards: gained, animate });
+			return gained;
 		},
 		async changeCharacter(names) {
 			this.calls.push(["changeCharacter", names]);
@@ -423,7 +434,7 @@ await check("角色、技能与替换注册齐全", () => {
 	assert(registry.includes('"月神高斯","日蚀高斯"'), "CHARACTER_ORDER 未登记");
 });
 
-await check("三段技能描述原样保留", () => {
+await check("技能描述与当前规格一致", () => {
 	equal(
 		skillTranslate.ysmanyue_info,
 		"锁定技，你的伤害牌只能当【闪】，【桃】，【无懈可击】使用或打出；出牌阶段，你可以主动对其他角色使用【桃】。当你使用牌时，若你手牌中有伤害牌和非伤害牌，你摸一张牌，否则摸两张牌。",
@@ -436,7 +447,7 @@ await check("三段技能描述原样保留", () => {
 	);
 	equal(
 		skillTranslate.rsrishi_info,
-		"锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；红心牌无视防具；方块牌无距离限制；黑桃牌造成的伤害+1；梅花牌不计入次数且无次数限制。",
+		"锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；红心牌无视防具；方块牌无距离限制；黑桃牌造成的伤害+1；梅花牌不计入次数且无次数限制。准备阶段，若你手牌中的伤害牌与非伤害牌数量不相等，你随机从牌堆中获得数量较少类别的牌，直至两类牌数量相等或牌堆中没有符合条件的牌。",
 		"日蚀描述",
 	);
 });
@@ -1588,6 +1599,91 @@ await check("感化 AI：公开防御期望与私人真实防御", () => {
 	equal(publicDefense.score, publicAttack.score, "相同手牌数量下，高斯预测不得读取隐藏牌名");
 	assert(actualDefense.survival < actualAttack.survival, "目标实际持有闪桃酒时私人防御压力应更低");
 	assert(actualDefense.score < actualAttack.score, "目标实际防御牌应降低其投降倾向");
+});
+
+await check("日蚀：准备阶段补齐少类并随机从牌堆获得实体牌", async () => {
+	const shared = skills.ysganhua.shared;
+	const prepare = skills.rsrishi.subSkill.prepare;
+	assert(prepare, "应存在准备阶段子技能");
+	assert(skills.rsrishi.group.includes("rsrishi_prepare"), "日蚀组应包含准备阶段子技能");
+	equal(prepare.trigger.player, "phaseZhunbeiBegin", "准备阶段触发时机");
+	const makeEclipse = (hand, pile) => {
+		const player = makePlayer({ name: "日蚀高斯", skills: ["rsrishi"], hand });
+		ui.cardPile = { childNodes: pile };
+		return player;
+	};
+	const countHand = player => {
+		const hand = player.getCards("h");
+		const damage = hand.filter(card => skills.ysmanyue.shared.isDamageCard(card)).length;
+		return { damage, nonDamage: hand.length - damage };
+	};
+	const originalRandom = Math.random;
+	try {
+		let player = makeEclipse([sha, tao], [makeCard("sha", "spade", 1, "basic", { damage: 1 })]);
+		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), false, "两类数量相等时不触发");
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		equal(player.gainCalls.length, 0, "两类数量相等时不获得牌");
+
+		player = makeEclipse([], [makeCard("sha", "spade", 1, "basic", { damage: 1 })]);
+		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), false, "空手牌两类均为0时不触发");
+
+		const damagePile = Array.from({ length: 6 }, (_, i) => makeCard("sha", "spade", i + 1, "basic", { damage: 1 }));
+		player = makeEclipse([sha, tao, tao, tao, tao, tao], damagePile);
+		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), true, "少类为伤害牌时应触发");
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		equal(player.gainCalls.length, 1, "应获得一次牌");
+		equal(player.gainCalls[0].cards.length, 4, "应按差值4补牌");
+		assert(player.gainCalls[0].cards.every(card => damagePile.includes(card) && skills.ysmanyue.shared.isDamageCard(card)), "应获得牌堆中的实体伤害牌");
+		assert(countHand(player).damage === countHand(player).nonDamage, "补牌后两类数量应相等");
+
+		const bigPile = Array.from({ length: 10 }, (_, i) => makeCard("sha", "club", i + 1, "basic", { damage: 1 }));
+		player = makeEclipse(repeatCard(8), bigPile);
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		equal(player.gainCalls[0].cards.length, 8, "获得数量不设上限，应补满差值8");
+		assert(countHand(player).damage === countHand(player).nonDamage, "大量补牌后两类数量应相等");
+
+		const nonDamagePile = Array.from({ length: 4 }, (_, i) => makeCard("tao", "heart", i + 1, "basic", { recover: 1 }));
+		player = makeEclipse([sha, sha, sha, tao], nonDamagePile);
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		equal(player.gainCalls[0].cards.length, 2, "少类为非伤害牌时应补2张");
+		assert(player.gainCalls[0].cards.every(card => nonDamagePile.includes(card) && !skills.ysmanyue.shared.isDamageCard(card)), "应获得牌堆中的实体非伤害牌");
+
+		const shortPile = [makeCard("sha", "heart", 1, "basic", { damage: 1 }), makeCard("sha", "heart", 2, "basic", { damage: 1 })];
+		player = makeEclipse([sha, tao, tao, tao, tao, tao], shortPile);
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		equal(player.gainCalls[0].cards.length, 2, "牌堆不足时应获得所有可用牌");
+		assert(player.gainCalls[0].cards.every(card => shortPile.includes(card)), "不足时不得凭空生成牌");
+		assert(countHand(player).damage !== countHand(player).nonDamage, "牌堆不足时允许两类仍不相等");
+
+		const randomPile = [makeCard("sha", "spade", 1, "basic", { damage: 1 }), makeCard("sha", "spade", 2, "basic", { damage: 1 }), makeCard("sha", "spade", 3, "basic", { damage: 1 })];
+		Math.random = () => 0;
+		player = makeEclipse([sha, tao, tao], randomPile);
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		const firstRandom = player.gainCalls[0].cards[0];
+		Math.random = () => 0.99;
+		player = makeEclipse([sha, tao, tao], randomPile);
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		const lastRandom = player.gainCalls[0].cards[0];
+		assert(firstRandom !== lastRandom, "随机抽取不应固定检索第一张");
+
+		const delayPile = [makeCard("fulei", "heart", 5, "delay", { damage: 1, thunderDamage: 1 })];
+		player = makeEclipse([shandian, tao, tao], delayPile);
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+		equal(player.gainCalls[0].cards[0], delayPile[0], "伤害延时锦囊按满月口径归为伤害牌");
+
+		const moon = makePlayer({ name: "月神高斯", skills: ["ysmanyue", "ysganhua"], hand: [sha, tao, tao] });
+		assert(!moon.skills.includes("rsrishi"), "变身前的月神没有日蚀");
+		await shared.switchToEclipse(moon);
+		equal(moon.name1, "日蚀高斯", "变身应切换为日蚀高斯");
+		assert(moon.skills.includes("rsrishi"), "变身后应获得日蚀");
+		ui.cardPile = { childNodes: [makeCard("sha", "spade", 4, "basic", { damage: 1 })] };
+		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, moon), true, "变身后的下一个准备阶段应触发");
+		await prepare.content({}, { name: "phaseZhunbeiBegin" }, moon);
+		equal(moon.gainCalls[0].cards.length, 1, "变身后的准备阶段应正常补牌");
+	} finally {
+		Math.random = originalRandom;
+		ui.cardPile = { childNodes: [] };
+	}
 });
 
 await check("日蚀：红/黑、红心/方块/黑桃/梅花效果可叠加", async () => {

@@ -3873,7 +3873,7 @@ export const skills = {
 	},
 	rsrishi: {
 		locked: true,
-		group: ["rsrishi_use", "rsrishi_heart", "rsrishi_spade"],
+		group: ["rsrishi_use", "rsrishi_heart", "rsrishi_spade", "rsrishi_prepare"],
 		mod: {
 			targetInRange(card) {
 				if (get.suit(card) === "diamond") return true;
@@ -3883,6 +3883,35 @@ export const skills = {
 			},
 		},
 		subSkill: {
+			prepare: {
+				trigger: { player: "phaseZhunbeiBegin" },
+				forced: true,
+				locked: true,
+				filter(event, player) {
+					const shared = lib.skill.ysmanyue.shared;
+					const hand = player.getCards("h");
+					const damage = hand.filter(card => shared.isDamageCard(card)).length;
+					return damage !== hand.length - damage;
+				},
+				async content(event, trigger, player) {
+					const shared = lib.skill.ysmanyue.shared;
+					const hand = player.getCards("h");
+					const damage = hand.filter(card => shared.isDamageCard(card)).length;
+					const nonDamage = hand.length - damage;
+					const gap = Math.abs(damage - nonDamage);
+					if (!gap) return;
+					const needDamage = damage < nonDamage;
+					const candidates = Array.from(ui.cardPile?.childNodes || []).filter(card => shared.isDamageCard(card) === needDamage);
+					if (!candidates.length) return;
+					const gain = [];
+					const count = Math.min(gap, candidates.length);
+					for (let i = 0; i < count; i++) {
+						const index = Math.floor(Math.random() * candidates.length);
+						gain.push(candidates.splice(index, 1)[0]);
+					}
+					await player.gain(gain, "gain2");
+				},
+			},
 			use: {
 				trigger: { player: "useCard1" },
 				forced: true,
