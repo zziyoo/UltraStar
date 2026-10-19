@@ -3195,7 +3195,7 @@ export const skills = {
 		shared: {
 			names: ["shan", "tao", "wuxie"],
 			isDamageCard(card) {
-				return Boolean(card && get.is.damageCard(card));
+				return Boolean(card && get.tag(card, "damage"));
 			},
 			options(event, player) {
 				if (!event?.filterCard) return [];
@@ -3246,8 +3246,16 @@ export const skills = {
 					const friendlyDamaged = game.hasPlayer(
 						target => target !== player && target.isDamaged() && get.attitude(player, target) > 0,
 					);
-					if (!player.isDamaged() && !friendlyDamaged) return 0;
-					return value + 10;
+					const ganhua = lib.skill.ysganhua.shared;
+					let recruitValue = 0;
+					if (ganhua.isMoonGauss(player) && player.hasSkill("ysganhua")) {
+						for (const target of game.players) {
+							if (target === player || get.attitude(player, target) >= 0) continue;
+							recruitValue = Math.max(recruitValue, ganhua.getRecruitTargetValue(player, target));
+						}
+					}
+					if (!player.isDamaged() && !friendlyDamaged && recruitValue <= 0) return 0;
+					return value + 10 + recruitValue * 6;
 				}
 				return value + (name === "shan" ? 6 : 5);
 			},
@@ -3332,6 +3340,20 @@ export const skills = {
 				const shared = lib.skill.ysmanyue.shared;
 				return player.hasCards("he", card => shared.isDamageCard(card));
 			},
+			effect: {
+				target(card, player, target) {
+					if (get.name(card) !== "tao" || target === player || get.attitude(player, target) >= 0) return;
+					const score = lib.skill.ysganhua.shared.getRecruitTargetValue(player, target);
+					if (score <= 0) return;
+					return [0, -(3 + score * 5)];
+				},
+				player_use(card, player, target) {
+					if (get.name(card) !== "tao" || !target || target === player || get.attitude(player, target) >= 0) return;
+					const score = lib.skill.ysganhua.shared.getRecruitTargetValue(player, target);
+					if (score <= 0) return;
+					return [1, 3 + score * 2];
+				},
+			},
 			order: 9,
 			result: {
 				player(player) {
@@ -3346,53 +3368,84 @@ export const skills = {
 			isMoonGauss(player) {
 				return Boolean(player) && [player.name, player.name1, player.name2].includes("月神高斯");
 			},
-			campIdentity(identity) {
+			normalizeIdentity(identity) {
 				switch (identity) {
 					case "zhu":
+					case "zhong":
+					case "mingzhong":
 						return "zhong";
-					case "ezhu":
-						return "ezhong";
-					case "rZhu":
-						return "rZhong";
-					case "bZhu":
-						return "bZhong";
-					case "zhu_false":
-						return "zhong_false";
+					case "fan":
+						return "fan";
+					case "nei":
+						return "nei";
+					case "commoner":
+						return "commoner";
 					default:
-						return identity;
+						return null;
 				}
 			},
-			canJoin(source, target) {
-				if (!source || !target) return false;
-				if (target === game.zhu || target.identity === "zhu" || target.isZhu) return false;
+			getModeKind() {
 				const mode = get.mode();
-				if (mode === "doudizhu") {
-					return source.identity === "fan" && target.identity === "fan";
-				}
-				if (mode === "identity") {
-					return typeof source.identity === "string" && source.identity.length > 0;
-				}
-				if (mode === "guozhan") {
-					return (
-						typeof source.identity === "string" &&
-						!["unknown", "ye"].includes(source.identity) &&
-						Boolean(source.group)
-					);
-				}
-				if (typeof source.side === "boolean" && typeof target.side === "boolean") {
-					return !(target === game.friendZhu || target === game.enemyZhu || target === game.boss);
-				}
-				return false;
+				if (mode === "doudizhu") return "doudizhu";
+				if (mode === "identity") return _status.mode === "purple" ? "unsupported" : "identity";
+				if (mode === "guozhan") return "guozhan";
+				if (["versus", "chess", "stone"].includes(mode)) return "side";
+				return "unsupported";
 			},
-			async join(source, target) {
-				if (!this.canJoin(source, target)) return false;
-				const mode = get.mode();
-				if (mode === "doudizhu") {
-					game.log(target, "已与你处于同一阵营");
-					return true;
+			hasPendingReplacements() {
+				return [_status.replacelist, _status.enemyreplacelist, _status.additionallist, _status.mylist, _status.enemylist].some(
+					list => Array.isArray(list) && list.length > 0,
+				);
+			},
+			getJoinPlan(source, target) {
+				if (!source || !target) return null;
+				if (target === game.zhu || target.identity === "zhu" || target.isZhu) return null;
+				const kind = this.getModeKind();
+				if (kind === "identity") {
+					if (target.special_identity) return null;
+					const identity = this.normalizeIdentity(source.identity);
+					if (identity !== "zhong" && identity !== "fan") return null;
+					const sourceKnown = Boolean(source.identityShown || source.isZhu || source === game.zhu);
+					const targetIdentity = this.normalizeIdentity(target.identity);
+					return {
+						kind,
+						identity,
+						fromLord: source.identity === "zhu",
+						same: Boolean(sourceKnown && targetIdentity === identity),
+					};
 				}
-				if (mode === "guozhan") {
-					await target.changeGroup(source.group);
+				if (kind === "guozhan") {
+					if (!source.identityShown || !target.identityShown) return null;
+					if (target.isUnseen?.(0) || target.isUnseen?.(1)) return null;
+					if ([source.identity, target.identity].some(identity => !identity || ["unknown", "ye"].includes(identity))) {
+						return null;
+					}
+					if (!source.group || !target.group) return null;
+					return {
+						kind,
+						identity: source.identity,
+						group: source.group,
+						same: target.identity === source.identity && target.group === source.group,
+					};
+				}
+				if (kind === "side") {
+					if (typeof source.side !== "boolean" || typeof target.side !== "boolean") return null;
+					if (this.hasPendingReplacements()) return null;
+					if (target === game.friendZhu || target === game.enemyZhu || target === game.boss) return null;
+					const identity = this.normalizeIdentity(source.identity) ?? source.identity;
+					return {
+						kind,
+						side: source.side,
+						identity,
+						same: target.side === source.side,
+					};
+				}
+				return null;
+			},
+			async join(source, target, plan = this.getJoinPlan(source, target)) {
+				if (!plan) return { ok: false, changed: false };
+				if (plan.kind === "identity") {
+					if (target.identity === plan.identity) return { ok: true, changed: false };
 					game.broadcastAll(
 						(target, identity) => {
 							target.identity = identity;
@@ -3401,39 +3454,258 @@ export const skills = {
 							target.showIdentity?.();
 						},
 						target,
-						source.identity,
+						plan.identity,
 					);
-					game.log(target, "加入了", source, "的阵营");
-					return true;
-				}
-				const identity = this.campIdentity(source.identity);
-				const side = typeof source.side === "boolean" ? source.side : undefined;
-				game.broadcastAll(
-					(target, source, identity, side) => {
-						if (typeof side === "boolean") target.side = side;
-						if (identity) target.identity = identity;
-						target.identityShown = true;
-						target.setIdentity();
-						target.showIdentity?.();
-						if (target.node?.identity && source.node?.identity) {
-							target.node.identity.dataset.color = source.node.identity.dataset.color;
-						}
-					},
-					target,
-					source,
-					identity,
-					side,
-				);
-				if (mode === "identity") {
-					if (source.identity === "zhu" && identity === "zhong") {
+					if (plan.fromLord) {
 						game.log(target, "以忠臣身份加入了", source, "的主公阵营");
 					} else {
-						game.log(target, "的身份牌变更为了", get.translation(identity));
+						game.log(target, "的身份牌变更为了", get.translation(plan.identity));
 					}
-				} else {
-					game.log(target, "加入了", source, "的阵营");
+					return { ok: true, changed: true };
 				}
-				return true;
+				if (plan.kind === "side") {
+					if (target.side === plan.side) return { ok: true, changed: false };
+					game.broadcastAll(
+						(target, source, identity, side) => {
+							target.side = side;
+							if (identity) target.identity = identity;
+							target.identityShown = true;
+							target.setIdentity();
+							target.showIdentity?.();
+							if (target.node?.identity && source.node?.identity) {
+								target.node.identity.dataset.color = source.node.identity.dataset.color;
+							}
+						},
+						target,
+						source,
+						plan.identity,
+						plan.side,
+					);
+					game.log(target, "加入了", source, "的阵营");
+					return { ok: true, changed: true };
+				}
+				if (plan.kind === "guozhan") {
+					if (target.identity === plan.identity && target.group === plan.group) return { ok: true, changed: false };
+					await target.changeGroup(plan.group);
+					game.broadcastAll(
+						(target, identity) => {
+							target.identity = identity;
+							target.identityShown = true;
+							target.setIdentity();
+							target.showIdentity?.();
+						},
+						target,
+						plan.identity,
+					);
+					game.log(target, "加入了", source, "的阵营");
+					return { ok: true, changed: true };
+				}
+				return { ok: false, changed: false };
+			},
+			async checkVictory(source, target, plan) {
+				if (_status.over || !plan || plan.same) return;
+				if (plan.kind === "identity") {
+					game.checkResult?.();
+					return;
+				}
+				if (plan.kind === "guozhan") {
+					game.tryResult?.();
+					return;
+				}
+				if (plan.kind === "side") {
+					if (this.hasPendingReplacements()) return;
+					const alive = game.players.filter(current => current.isAlive?.() && !current.isOut?.());
+					if (alive.some(current => current.side !== plan.side)) return;
+					const me = game.me?._trueMe || game.me;
+					if (typeof game.over === "function") {
+						game.over(me ? me.side === plan.side : true);
+					}
+				}
+			},
+			getPublicPower(player, viewer) {
+				if (!player || !player.isAlive?.() || player.isOut?.()) return 0;
+				const hp = Math.max(0, Number(player.getHp?.() ?? player.hp) || 0);
+				let power = hp * 2;
+				power += (player.countCards?.("h") ?? 0) * 0.7;
+				power += (player.countCards?.("e") ?? 0) * 1.4;
+				power += (player.countCards?.("j") ?? 0) * 0.25;
+				const visibleSkills =
+					player === viewer ||
+					get.mode() !== "guozhan" ||
+					Boolean(player.identityShown && !player.isUnseen?.(0) && !player.isUnseen?.(1));
+				if (visibleSkills) {
+					power += Math.min(player.getSkills?.().length ?? 0, 10) * 0.35;
+					const threat = Number(get.threaten?.(player, viewer)) || 1;
+					if (threat > 1) power += (threat - 1) * 1.5;
+				}
+				if (player.isZhu) power += 3;
+				return power;
+			},
+			getCampPower(plan, source, target, join, viewer) {
+				const campIdentity = join ? plan.identity : this.normalizeIdentity(target.identity);
+				if (plan.kind === "identity" && campIdentity === "nei" && !join) return 0;
+				const sourceCampKnown = plan.kind !== "identity" || source === viewer || source.identityShown || source.isZhu || source === game.zhu;
+				const targetCampKnown = plan.kind !== "identity" || target === viewer || target.identityShown;
+				const campKnown = join ? sourceCampKnown : targetCampKnown;
+				let total = 0;
+				for (const current of game.players) {
+					if (!current || current === target || !current.isAlive?.() || current.isOut?.()) continue;
+					let inCamp = false;
+					if (plan.kind === "side") {
+						inCamp = current.side === (join ? plan.side : target.side);
+					} else if (current === source) {
+						inCamp = join;
+					} else if (plan.kind === "identity") {
+						if (!campKnown) continue;
+						const identity = this.normalizeIdentity(current.identity);
+						if (current === game.zhu) {
+							inCamp = identity === campIdentity;
+						} else if (current.identityShown) {
+							inCamp = identity === campIdentity;
+						}
+					} else if (plan.kind === "guozhan" && current.identityShown) {
+						inCamp = current.identity === campIdentity;
+					}
+					if (inCamp) total += this.getPublicPower(current, viewer);
+				}
+				return total;
+			},
+			getCoreStatus(plan, source, target, join, viewer) {
+				const camp = join ? plan.identity : this.normalizeIdentity(target.identity);
+				let core;
+				if (plan.kind === "side") {
+					const side = join ? plan.side : target.side;
+					core = [game.friendZhu, game.enemyZhu, game.boss].find(current => current && current !== target && current.side === side);
+				} else {
+					const sourceCampKnown = plan.kind !== "identity" || source === viewer || source.identityShown || source.isZhu || source === game.zhu;
+					const targetCampKnown = plan.kind !== "identity" || target === viewer || target.identityShown;
+					if (plan.kind === "identity" && !(join ? sourceCampKnown : targetCampKnown)) return 0.5;
+					core = game.players.find(current => {
+						if (!current || current === target || current.isOut?.()) return false;
+						if (![game.zhu, game.friendZhu, game.enemyZhu].includes(current)) return false;
+						if (current === source) return join;
+						if (current === game.zhu) return this.normalizeIdentity(current.identity) === camp;
+						if (!current.identityShown) return false;
+						return this.normalizeIdentity(current.identity) === camp;
+					});
+					if (!core && join && source.isZhu) core = source;
+				}
+				if (!core) return 0.5;
+				if (!core.isAlive?.()) return 0;
+				const hp = Number(core.getHp?.() ?? core.hp) || 0;
+				return Math.max(0, Math.min(1, hp / Math.max(1, core.maxHp)));
+			},
+			getSurvivalPressure(target) {
+				const hp = Number(target.getHp?.() ?? target.hp) || 0;
+				const hpRatio = target.maxHp ? Math.max(0, Math.min(1, hp / target.maxHp)) : 0.5;
+				const defense = target.countCards?.("h", card => ["shan", "tao", "jiu"].includes(card.name)) ?? 0;
+				const guard = Math.min(3, defense) / 3;
+				return Math.max(0, Math.min(1, 1 - hpRatio * 0.72 - guard * 0.28));
+			},
+			normalizeAttitude(target, source) {
+				const attitude = Number(get.attitude(target, source)) || 0;
+				return Math.max(0, Math.min(1, (attitude + 5) / 10));
+			},
+			evaluateSurrender(source, target, includePrivate = false) {
+				const plan = this.getJoinPlan(source, target);
+				const empty = {
+					supported: false,
+					same: false,
+					score: 0,
+					powerEdge: 0,
+					winEdge: 0,
+					survival: 0,
+					coreEdge: 0,
+					attitude: 0,
+				};
+				if (!plan) return empty;
+				if (plan.same) {
+					const viewer = includePrivate ? target : source;
+					const sameKnown = viewer === target || Boolean(target.identityShown) || plan.kind !== "identity";
+					if (sameKnown) {
+						return {
+							supported: true,
+							same: true,
+							score: 1,
+							powerEdge: 1,
+							winEdge: 1,
+							survival: 1,
+							coreEdge: 0.5,
+							attitude: 1,
+						};
+					}
+				}
+				const viewer = includePrivate ? target : source;
+				const targetPower = this.getPublicPower(target, viewer);
+				const joinPower = this.getCampPower(plan, source, target, true, viewer) + targetPower * 0.75;
+				const stayPower = this.getCampPower(plan, source, target, false, viewer) + targetPower;
+				const totalPower = joinPower + stayPower;
+				const powerEdge = totalPower > 0 ? joinPower / totalPower : 0.5;
+				const joinCore = this.getCoreStatus(plan, source, target, true, viewer);
+				const stayCore = this.getCoreStatus(plan, source, target, false, viewer);
+				const joinWin = joinPower * (0.8 + joinCore * 0.4);
+				const stayWin = stayPower * (0.8 + stayCore * 0.4);
+				const winEdge = joinWin + stayWin > 0 ? joinWin / (joinWin + stayWin) : 0.5;
+				const coreEdge = (joinCore - stayCore + 1) / 2;
+				const survival = includePrivate ? this.getSurvivalPressure(target) : 0.5;
+				const attitude = this.normalizeAttitude(target, source);
+				const score = powerEdge * 0.35 + winEdge * 0.3 + survival * 0.2 + coreEdge * 0.1 + attitude * 0.05;
+				return { supported: true, same: false, score, powerEdge, winEdge, survival, coreEdge, attitude };
+			},
+			shouldJoin(source, target) {
+				const analysis = this.evaluateSurrender(source, target, true);
+				if (!analysis.supported) return false;
+				if (analysis.same) return true;
+				return analysis.score >= 0.62 && analysis.powerEdge >= 0.5;
+			},
+			getRecruitValue(source, target) {
+				if (!source || !target || target === source) return 0;
+				if (!this.isMoonGauss(source)) return 0;
+				const sourceSkills = source.getSkills?.() ?? source.skills ?? [];
+				if (!sourceSkills.includes("ysganhua")) return 0;
+				if (get.mode() === "doudizhu") return 0;
+				if (!target.isAlive?.() || target.isOut?.()) return 0;
+				if (target === game.zhu || target.identity === "zhu" || target.isZhu) return 0;
+				const analysis = this.evaluateSurrender(source, target, false);
+				if (!analysis.supported || analysis.same) return 0;
+				return analysis.score >= 0.62 && analysis.powerEdge >= 0.5 ? analysis.score : 0;
+			},
+			getRecruitTargetValue(source, target) {
+				if (!target?.isDamaged?.()) return 0;
+				return this.getRecruitValue(source, target);
+			},
+			getBattlePressure(source) {
+				let allyPower = this.getPublicPower(source, source);
+				let enemyPower = 0;
+				for (const current of game.players) {
+					if (!current || current === source || !current.isAlive?.() || current.isOut?.()) continue;
+					const attitude = get.attitude(source, current);
+					if (attitude > 0) allyPower += this.getPublicPower(current, source);
+					else if (attitude < 0) enemyPower += this.getPublicPower(current, source);
+				}
+				const total = allyPower + enemyPower;
+				return total > 0 ? enemyPower / total : 0.5;
+			},
+			shouldTransform(source, target) {
+				if (!source) return true;
+				const mode = get.mode();
+				const pressure = this.getBattlePressure(source);
+				const damageCards = source.countCards?.("h", card => lib.skill.ysmanyue.shared.isDamageCard(card)) ?? 0;
+				const hp = Number(source.getHp?.() ?? source.hp) || 0;
+				if (mode === "doudizhu") {
+					return pressure >= 0.55 || hp <= 2 || damageCards >= 2;
+				}
+				const allies = game.players.filter(current => current !== source && current.isAlive?.() && get.attitude(source, current) > 0);
+				const recruitables = game.players.filter(
+					current => current !== source && current !== target && current.isAlive?.() && this.getRecruitValue(source, current) > 0,
+				);
+				const damagedAllies = allies.filter(current => current.isDamaged?.());
+				if (recruitables.length >= 2 && pressure < 0.7) return false;
+				if (damagedAllies.length > 0 && pressure < 0.65) return false;
+				if (pressure < 0.45) return false;
+				if (recruitables.length === 0 && pressure >= 0.5) return true;
+				if (damageCards >= 2 && pressure >= 0.5) return true;
+				return hp <= 2;
 			},
 			async switchToEclipse(player) {
 				if (!player?.isAlive()) return false;
@@ -3468,7 +3740,8 @@ export const skills = {
 			const shared = lib.skill.ysganhua.shared;
 			if (!shared.isMoonGauss(player) || event.source !== player || event.player === player) return false;
 			if (!event.num || event.num <= 0 || !event.player?.isAlive()) return false;
-			if (event.player === game.zhu || event.player.identity === "zhu") return false;
+			if (event.player === game.zhu || event.player.identity === "zhu" || event.player.isZhu) return false;
+			if ([game.friendZhu, game.enemyZhu, game.boss].includes(event.player)) return false;
 			return true;
 		},
 		logTarget(event) {
@@ -3477,26 +3750,39 @@ export const skills = {
 		async content(event, trigger, player) {
 			const shared = lib.skill.ysganhua.shared;
 			const target = trigger.player;
-			if (!shared.canJoin(player, target)) {
-				game.log(target, "无法在当前模式安全地变更阵营");
-			} else {
+			if (get.mode() !== "doudizhu") {
+				const plan = shared.getJoinPlan(player, target);
+				if (!plan) {
+					game.log(target, "无法在当前模式或身份下安全地加入", player, "的阵营");
+					return;
+				}
 				const result = await target
 					.chooseBool(`是否加入${get.translation(player)}的阵营？`)
 					.set("source", player)
 					.set("ai", () => {
 						const target = get.player();
 						const source = get.event().source;
-						return get.attitude(target, source) > 0;
+						return lib.skill.ysganhua.shared.shouldJoin(source, target);
 					})
 					.forResult();
 				if (result?.bool) {
-					await shared.join(player, target);
+					const joined = await shared.join(player, target, plan);
+					if (!joined?.ok) {
+						game.log(target, "加入", player, "的阵营失败");
+						return;
+					}
+					if (joined.changed) {
+						target.chat("其实，我早就找回奥特精神了");
+						await shared.checkVictory(player, target, plan);
+					} else {
+						game.log(target, "已与你处于同一阵营");
+					}
 					return;
 				}
 			}
 			const result = await player
 				.chooseBool(`${get.translation("ysganhua")}：是否将武将牌切换为日蚀高斯？`)
-				.set("ai", () => true)
+				.set("ai", () => lib.skill.ysganhua.shared.shouldTransform(player, target))
 				.forResult();
 			if (result?.bool) await shared.switchToEclipse(player);
 		},

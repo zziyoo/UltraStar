@@ -34,7 +34,14 @@ const _status = { mode: "identity", event: null };
 const game = {
 	players: [],
 	zhu: null,
+	me: null,
+	friendZhu: null,
+	enemyZhu: null,
+	boss: null,
 	logs: [],
+	checkResultCalls: 0,
+	tryResultCalls: 0,
+	overCalls: [],
 	log(...args) {
 		this.logs.push(args);
 	},
@@ -43,6 +50,15 @@ const game = {
 	},
 	broadcastAll(fn, ...args) {
 		return fn(...args);
+	},
+	checkResult() {
+		this.checkResultCalls++;
+	},
+	tryResult() {
+		this.tryResultCalls++;
+	},
+	over(result) {
+		this.overCalls.push(result);
 	},
 };
 const ui = {
@@ -76,6 +92,9 @@ const get = {
 		if (card?.name === "wuxie") return "trick";
 		return "basic";
 	},
+	name(card) {
+		return card?.name || card;
+	},
 	suit(card) {
 		return card?.suit;
 	},
@@ -91,7 +110,14 @@ const get = {
 	value() {
 		return 5;
 	},
-	attitude() {
+	attitude(from, to) {
+		if (typeof from?.side === "boolean" && typeof to?.side === "boolean") return from.side === to.side ? 5 : -5;
+		if (from?.identity && to?.identity) {
+			const loyal = ["zhu", "zhong", "mingzhong"];
+			if (from.identity === to.identity) return 5;
+			if (loyal.includes(from.identity) && loyal.includes(to.identity)) return 5;
+			return -5;
+		}
 		return 1;
 	},
 	translation(value) {
@@ -137,6 +163,9 @@ function makePlayer(options = {}) {
 		name1: name,
 		name2: options.name2,
 		identity: options.identity,
+		identityShown: options.identityShown ?? false,
+		unseen: options.unseen,
+		special_identity: options.special_identity,
 		group: options.group ?? "ao",
 		side: options.side,
 		hp: options.hp ?? 4,
@@ -147,9 +176,12 @@ function makePlayer(options = {}) {
 		storage: options.storage ?? {},
 		skills: (options.skills ?? ["ysmanyue", "ysganhua"]).slice(),
 		hand: (options.hand ?? []).slice(),
+		equipment: (options.equipment ?? []).slice(),
+		judge: (options.judge ?? []).slice(),
 		choices: (options.choices ?? []).slice(),
 		drawCalls: [],
 		calls: [],
+		chats: [],
 		stat: { card: { sha: 1 } },
 		node: { identity: { dataset: { color: "x" } } },
 		isAlive() {
@@ -158,8 +190,27 @@ function makePlayer(options = {}) {
 		isDamaged() {
 			return this.hp < this.maxHp;
 		},
+		isOut() {
+			return false;
+		},
+		isUnseen(num) {
+			return Boolean(this.unseen?.[num]);
+		},
+		getHp() {
+			return this.hp;
+		},
+		getSkills() {
+			return this.skills.slice();
+		},
+		countCards(position, filter) {
+			return this.getCards(position).filter(card => !filter || filter(card, this)).length;
+		},
 		getCards(position) {
-			return String(position).includes("h") ? this.hand : [];
+			position = String(position);
+			if (position === "h") return this.hand;
+			if (position === "e") return this.equipment;
+			if (position === "j") return this.judge;
+			return [...this.hand, ...this.equipment];
 		},
 		hasCards(position, filter) {
 			return this.getCards(position).some(card => !filter || filter(card, this));
@@ -213,6 +264,9 @@ function makePlayer(options = {}) {
 			this.identityShown = true;
 		},
 		logSkill() {},
+		chat(message) {
+			this.chats.push(message);
+		},
 		chooseBool(prompt) {
 			const event = {
 				player: this,
@@ -251,12 +305,25 @@ function assert(condition, message) {
 function equal(actual, expected, message) {
 	if (actual !== expected) throw new Error(`${message}: ${JSON.stringify(actual)} !== ${JSON.stringify(expected)}`);
 }
+function resetCalls() {
+	game.checkResultCalls = 0;
+	game.tryResultCalls = 0;
+	game.overCalls.length = 0;
+	game.logs.length = 0;
+}
 
 const sha = makeCard("sha", "spade", 7, "basic", { damage: 1 });
 const clubSha = makeCard("sha", "club", 8, "basic", { damage: 1 });
 const juedou = makeCard("juedou", "club", 9, "trick", { damage: 1 });
 const tao = makeCard("tao", "heart", 3, "basic", { recover: 1 });
 const shan = makeCard("shan", "diamond", 2, "basic", { respondShan: 1 });
+const nanman = makeCard("nanman", "spade", 7, "trick", { damage: 1, multitarget: 1 });
+const wanjian = makeCard("wanjian", "heart", 1, "trick", { damage: 1, multitarget: 1 });
+const huogong = makeCard("huogong", "heart", 2, "trick", { damage: 1 });
+const shandian = makeCard("shandian", "spade", 1, "delay", { damage: 0.16, thunderDamage: 0.16 });
+const fulei = makeCard("fulei", "heart", 5, "delay", { damage: 1, thunderDamage: 1 });
+const lebu = makeCard("lebu", "club", 6, "delay", {});
+const bingliang = makeCard("bingliang", "spade", 6, "delay", {});
 
 console.log("月神高斯 / 日蚀高斯");
 
@@ -298,6 +365,38 @@ await check("三段技能描述原样保留", () => {
 		"锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；红心牌无视防具；方块牌无距离限制；黑桃牌造成的伤害+1；梅花牌不计入次数且无次数限制。",
 		"日蚀描述",
 	);
+});
+
+await check("满月：伤害牌统一按 damage 标签识别，包含伤害延时锦囊", () => {
+	const shared = skills.ysmanyue.shared;
+	for (const card of [sha, juedou, nanman, wanjian, huogong, shandian, fulei]) {
+		assert(shared.isDamageCard(card), `${card.name} 应识别为伤害牌`);
+	}
+	for (const card of [tao, shan, lebu, bingliang]) {
+		assert(!shared.isDamageCard(card), `${card.name} 不应识别为伤害牌`);
+	}
+	assert(!get.is.damageCard(shandian), "本体 get.is.damageCard 默认排除延时锦囊，测试桩必须保持该行为");
+	const player = makePlayer({ hand: [shandian], hp: 3 });
+	game.players = [player];
+	equal(skills.ysmanyue.mod.cardEnabled(shandian, player), false, "闪电不能以原牌使用");
+	assert(skills.ysmanyue.mod.cardEnabled(lebu, player) === undefined, "非伤害延时锦囊不应被误伤");
+	_status.event = { name: "chooseToRespond", type: "sha" };
+	equal(skills.ysmanyue.mod.cardRespondable(shandian, player), false, "闪电不能原样打出");
+	_status.event = { name: "chooseToRespond", type: "sha", skill: "ysmanyue_backup" };
+	assert(skills.ysmanyue.mod.cardRespondable(shandian, player) === undefined, "满月转化应放行闪电");
+	_status.event = null;
+	assert(skills.ysmanyue.hiddenCard(player, "wuxie"), "只有闪电时仍可声明无懈转化");
+	assert(skills.ysmanyue.filter({ name: "chooseToUse", type: "phase", filterCard: card => card.name === "tao" }, player), "闪电可以当桃");
+	assert(skills.ysmanyue.filter({ name: "chooseToUse", type: "respondShan", filterCard: card => card.name === "shan" }, player), "闪电可以当闪");
+	assert(skills.ysmanyue.filter({ name: "chooseToUse", type: "wuxie", filterCard: card => card.name === "wuxie" }, player), "闪电可以当无懈");
+	const backup = skills.ysmanyue.chooseButton.backup([["锦囊", "", "tao"]], player);
+	assert(backup.filterCard(shandian), "闪电可作为满月转化载体");
+	assert(backup.filterCard(fulei), "其他伤害延时锦囊可作为满月转化载体");
+	assert(!backup.filterCard(lebu), "非伤害延时锦囊不能作为载体");
+	const judgePlayer = makePlayer({ hand: [], judge: [shandian], hp: 3 });
+	game.players = [judgePlayer];
+	assert(!skills.ysmanyue.filter({ name: "chooseToUse", type: "phase", filterCard: card => card.name === "tao" }, judgePlayer), "判定区闪电不能触发满月转化");
+	assert(!skills.ysmanyue.hiddenCard(judgePlayer, "wuxie"), "判定区闪电不能凭空转化");
 });
 
 await check("满月：伤害牌禁止原样使用/打出，桃可对其他角色使用", () => {
@@ -352,6 +451,10 @@ await check("满月：三种手牌构成摸牌数正确", async () => {
 		{ hand: [sha, tao], expected: 1, name: "伤害+非伤害" },
 		{ hand: [sha], expected: 2, name: "仅伤害" },
 		{ hand: [sha, juedou], expected: 2, name: "多种伤害牌" },
+		{ hand: [shandian, tao], expected: 1, name: "闪电+桃" },
+		{ hand: [shandian], expected: 2, name: "仅闪电" },
+		{ hand: [shandian, sha], expected: 2, name: "闪电+杀" },
+		{ hand: [shandian, lebu], expected: 1, name: "闪电+非伤害延时锦囊" },
 		{ hand: [tao], expected: 2, name: "仅非伤害" },
 		{ hand: [], expected: 2, name: "零手牌" },
 	];
@@ -394,6 +497,7 @@ await check("感化：身份模式接受后身份与胜利关系真实变更", a
 	game.zhu = makePlayer({ name: "佐菲", identity: "zhu", skills: [] });
 	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
 	equal(target.identity, "zhong", "目标身份应变为忠臣");
+	equal(target.chats.join(""), "其实，我早就找回奥特精神了", "接受加入阵营时目标应发言");
 	assert(target.identityUpdates > 0, "身份牌 UI 应刷新");
 });
 
@@ -434,6 +538,7 @@ await check("感化：斗地主不伪造地主阵营", async () => {
 	game.zhu = source;
 	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
 	equal(target.identity, "fan", "不能把农民伪装成地主阵营");
+	equal(target.chats.length, 0, "未接受加入时目标不应发言");
 	equal(target.choices.length, 1, "无法安全加入时不应消耗目标的选择");
 	equal(source.name1, "日蚀高斯", "拒绝后仍可正常切换形态");
 });
@@ -446,6 +551,265 @@ await check("感化：阵营模式按 side 真实变更且主公身份降为忠�
 	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
 	equal(target.side, true, "side 应变更");
 	equal(target.identity, "zhong", "不应复制出第二个主公");
+	equal(target.chats.join(""), "其实，我早就找回奥特精神了", "阵营模式接受时目标应发言");
+});
+
+await check("感化：反贼阵营招降后成为反贼并触发本体胜负检查", async () => {
+	_status.mode = "identity";
+	resetCalls();
+	const source = makePlayer({ identity: "fan", identityShown: true });
+	const target = makePlayer({ name: "迪迦", identity: "zhong", skills: [], choices: [true] });
+	game.players = [source, target];
+	game.zhu = makePlayer({ name: "佐菲", identity: "zhu", skills: [] });
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.identity, "fan", "目标应成为反贼");
+	equal(game.checkResultCalls, 1, "身份变更后应调用本体胜负检查");
+});
+
+await check("感化：同阵营接受不产生身份改动与重复胜负检查", async () => {
+	_status.mode = "identity";
+	resetCalls();
+	const source = makePlayer({ identity: "fan", identityShown: true });
+	const target = makePlayer({ name: "迪迦", identity: "fan", skills: [], choices: [true] });
+	game.players = [source, target];
+	game.zhu = makePlayer({ name: "佐菲", identity: "zhu", skills: [] });
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.identity, "fan", "同阵营身份不应改变");
+	equal(target.chats.length, 0, "同阵营无变化时不应发言");
+	equal(game.checkResultCalls, 0, "无状态变化不应重复判胜");
+});
+
+await check("感化：内奸来源为不支持，不询问目标也不视为拒绝", async () => {
+	_status.mode = "identity";
+	resetCalls();
+	const source = makePlayer({ identity: "nei", identityShown: true, choices: [true] });
+	const target = makePlayer({ name: "迪迦", identity: "fan", skills: [], choices: [true] });
+	game.players = [source, target];
+	game.zhu = makePlayer({ name: "佐菲", identity: "zhu", skills: [] });
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.identity, "fan", "内奸来源不应伪造招降");
+	equal(target.choices.length, 1, "不支持时不应询问目标");
+	equal(source.choices.length, 1, "不支持时不应弹出变身选择");
+	equal(source.name1, "月神高斯", "不支持时不应切换形态");
+});
+
+await check("感化：加入失败不发言、不判胜、不视为拒绝", async () => {
+	_status.mode = "identity";
+	resetCalls();
+	const shared = skills.ysganhua.shared;
+	const originalJoin = shared.join;
+	const source = makePlayer({ identity: "fan", identityShown: true, choices: [true] });
+	const target = makePlayer({ name: "迪迦", identity: "zhong", skills: [], choices: [true] });
+	game.players = [source, target];
+	game.zhu = makePlayer({ name: "佐菲", identity: "zhu", skills: [] });
+	shared.join = async () => ({ ok: false, changed: false });
+	try {
+		await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	} finally {
+		shared.join = originalJoin;
+	}
+	equal(target.identity, "zhong", "失败时不改身份");
+	equal(target.chats.length, 0, "失败时不发言");
+	equal(source.choices.length, 1, "失败时不弹出变身选择");
+	equal(game.checkResultCalls, 0, "失败时不判胜");
+});
+
+await check("感化：斗地主地主/农民高斯都跳过招降，只由高斯选择变身", async () => {
+	_status.mode = "doudizhu";
+	for (const identity of ["zhu", "fan"]) {
+		resetCalls();
+		const source = makePlayer({ identity, choices: [false] });
+		const target = makePlayer({ name: "农民", identity: "fan", skills: [], choices: [true] });
+		game.players = [source, target];
+		game.zhu = identity === "zhu" ? source : makePlayer({ name: "另一个地主", identity: "zhu", skills: [] });
+		game.players.push(game.zhu);
+		await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+		equal(target.choices.length, 1, `${identity}: 不应询问地主/农民目标`);
+		equal(target.identity, "fan", `${identity}: 身份不得改变`);
+		equal(target.side, undefined, `${identity}: 不得写入阵营`);
+		equal(source.choices.length, 0, `${identity}: 应直接询问高斯是否变身`);
+		equal(source.name1, "月神高斯", `${identity}: 玩家选择不变身时应保留月神`);
+	}
+});
+
+await check("感化：身份模式主公阵营招降调用本体胜负检查", async () => {
+	_status.mode = "identity";
+	resetCalls();
+	const source = makePlayer({ identity: "zhu", identityShown: true });
+	const target = makePlayer({ name: "迪迦", identity: "fan", skills: [], choices: [true] });
+	game.players = [source, target];
+	game.zhu = source;
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.identity, "zhong", "应变为忠臣");
+	equal(game.checkResultCalls, 1, "应调用 game.checkResult");
+});
+
+await check("感化：侧阵营最后一名敌人加入后按本体 side 判胜", async () => {
+	_status.mode = "versus";
+	resetCalls();
+	const source = makePlayer({ identity: "zhu", side: true });
+	const target = makePlayer({ name: "迪迦", identity: "zhong", side: false, skills: [], choices: [true] });
+	game.players = [source, target];
+	game.me = source;
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.side, true, "side 应变更");
+	equal(game.overCalls.length, 1, "最后一名敌人加入后应判胜");
+	equal(game.overCalls[0], true, "本机应与新阵营同胜");
+});
+
+await check("感化：国战势力与身份同步并调用 tryResult", async () => {
+	_status.mode = "guozhan";
+	resetCalls();
+	const source = makePlayer({ identity: "wei", identityShown: true, group: "wei" });
+	const target = makePlayer({ name: "迪迦", identity: "shu", identityShown: true, group: "shu", skills: [], choices: [true] });
+	game.players = [source, target];
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.identity, "wei", "阵营身份应同步");
+	equal(target.group, "wei", "势力应同步");
+	equal(game.tryResultCalls, 1, "应调用国战 tryResult");
+});
+
+await check("感化 AI：劣势独狼会投降，强势与接近局不投降", () => {
+	_status.mode = "versus";
+	const shared = skills.ysganhua.shared;
+	const strongCards = [tao, tao, tao, tao, tao];
+	const strongEquip = [tao, tao];
+	const makeStrong = (name, side) => makePlayer({ name, side, hand: strongCards, equipment: strongEquip });
+	const source = makeStrong("月神高斯", true);
+	const lone = makePlayer({ name: "独狼", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [source, lone];
+	assert(shared.shouldJoin(source, lone), "孤立濒危敌人应投降");
+	const ally = makeStrong("高斯盟友", true);
+	const enemyAlly = makeStrong("敌方大将", false);
+	const oneHpEnemy = makePlayer({ name: "一血敌人", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [makePlayer({ name: "月神高斯", side: true, hp: 2, hand: [tao], skills: ["ysmanyue", "ysganhua"] }), ally, oneHpEnemy, enemyAlly];
+	assert(!shared.shouldJoin(game.players[0], oneHpEnemy), "己方明显领先时不应只因一血投降");
+	const closeSource = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao, tao] });
+	const closeTarget = makePlayer({ name: "敌人", side: false, hp: 4, hand: [tao, tao], skills: [] });
+	game.players = [closeSource, closeTarget];
+	assert(!shared.shouldJoin(closeSource, closeTarget), "实力接近时应保持原阵营");
+	const losingSource = makePlayer({ name: "月神高斯", side: true, hp: 2, hand: [], skills: ["ysmanyue", "ysganhua"] });
+	const strongTarget = makePlayer({ name: "强敌", side: false, hp: 4, hand: [tao, tao, tao], equipment: [tao], skills: ["a", "b", "c"] });
+	const strongTargetAlly = makeStrong("强敌援军", false);
+	game.players = [losingSource, strongTarget, strongTargetAlly];
+	assert(!shared.shouldJoin(losingSource, strongTarget), "高斯阵营明显败局时敌人应拒绝");
+	assert(shared.shouldJoin(source, makePlayer({ name: "同阵营", side: true, hp: 3, skills: [] })), "同阵营应接受");
+});
+
+await check("满月 AI：治疗有招降价值的敌人，不治疗无价值目标", () => {
+	_status.mode = "versus";
+	const shared = skills.ysganhua.shared;
+	const source = makePlayer({
+		name: "月神高斯",
+		side: true,
+		hand: [sha, sha, tao],
+		equipment: [tao, tao],
+	});
+	const target = makePlayer({ name: "濒危敌人", side: false, hp: 2, hand: [], skills: [] });
+	game.players = [source, target];
+	const value = shared.getRecruitTargetValue(source, target);
+	assert(value > 0, "有招降价值的敌人应被识别");
+	const effect = skills.ysmanyue.ai.effect.target(tao, source, target);
+	assert(Array.isArray(effect) && effect[1] < 0, "对敌方 AI 效果应为可招募的负向目标值");
+	const playerUse = skills.ysmanyue.ai.effect.player_use(tao, source, target);
+	assert(Array.isArray(playerUse) && playerUse[1] > 0, "正常桃与转换桃的使用价值都应被提高");
+	_status.event = { player: source };
+	const score = skills.ysmanyue.chooseButton.check({ link: [null, null, "tao"] });
+	assert(score > 10, "招降价值应提高转换桃的 AI 权重");
+	const weakSource = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [], skills: ["ysmanyue", "ysganhua"] });
+	const strongEnemy = makePlayer({ name: "强势敌人", side: false, hp: 4, hand: [tao, tao, tao], skills: [] });
+	const enemyAlly = makePlayer({ name: "敌方援军", side: false, hp: 4, hand: [tao, tao, tao], skills: [] });
+	game.players = [weakSource, strongEnemy, enemyAlly];
+	equal(shared.getRecruitTargetValue(weakSource, strongEnemy), 0, "败局敌人不应被视为可招降");
+	equal(skills.ysmanyue.ai.effect.target(tao, weakSource, strongEnemy), undefined, "败局不应给出招降加权");
+	_status.event = { player: weakSource };
+	const weakScore = skills.ysmanyue.chooseButton.check({ link: [null, null, "tao"] });
+	equal(weakScore, 0, "月神满血且无友方受伤时不应主动治疗无招降价值敌人");
+});
+
+await check("感化 AI：变身判断不会无条件切换，也不会永远拒绝", () => {
+	_status.mode = "doudizhu";
+	const shared = skills.ysganhua.shared;
+	const weakSource = makePlayer({ name: "月神高斯", identity: "fan", hp: 1, hand: [], skills: ["ysmanyue", "ysganhua"] });
+	const strongEnemy = makePlayer({ name: "地主", identity: "zhu", hp: 4, hand: [tao, tao], skills: [] });
+	game.players = [weakSource, strongEnemy];
+	assert(shared.shouldTransform(weakSource, strongEnemy), "斗地主危险局势应倾向变身");
+	const safeSource = makePlayer({ name: "月神高斯", identity: "fan", hp: 4, hand: [], skills: ["ysmanyue", "ysganhua"] });
+	const weakEnemy = makePlayer({ name: "地主", identity: "zhu", hp: 1, hand: [], skills: [] });
+	game.players = [safeSource, weakEnemy];
+	assert(!shared.shouldTransform(safeSource, weakEnemy), "斗地主优势局不应无脑变身");
+	_status.mode = "versus";
+	const source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao, tao], skills: ["ysmanyue", "ysganhua"] });
+	const target = makePlayer({ name: "拒绝者", side: false, hp: 1, hand: [], skills: [] });
+	const enemy2 = makePlayer({ name: "敌人二", side: false, hp: 1, hand: [], skills: [] });
+	const enemy3 = makePlayer({ name: "敌人三", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [source, target, enemy2, enemy3];
+	assert(!shared.shouldTransform(source, target), "多个可招降敌人且优势明显时应保留月神");
+	const losingSource = makePlayer({ name: "月神高斯", side: true, hp: 1, hand: [], skills: ["ysmanyue", "ysganhua"] });
+	const losingEnemy = makePlayer({ name: "敌军", side: false, hp: 4, hand: [tao, tao, tao], skills: [] });
+	game.players = [losingSource, losingEnemy];
+	assert(shared.shouldTransform(losingSource, losingEnemy), "劣势局应倾向变身");
+});
+
+await check("感化：侧阵营尚有敌人时不提前结束", async () => {
+	_status.mode = "versus";
+	resetCalls();
+	const source = makePlayer({ identity: "zhu", side: true });
+	const target = makePlayer({ name: "迪迦", identity: "zhong", side: false, skills: [], choices: [true] });
+	const enemy = makePlayer({ name: "赛文", identity: "zhong", side: false, skills: [] });
+	game.players = [source, target, enemy];
+	game.me = source;
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.side, true, "目标应加入");
+	equal(enemy.side, false, "第三人仍敌对");
+	equal(game.overCalls.length, 0, "尚有敌人时不应判胜");
+});
+
+await check("感化：目标内奸可以改投，目标特殊身份不伪造转换", async () => {
+	_status.mode = "identity";
+	resetCalls();
+	const source = makePlayer({ identity: "fan", identityShown: true });
+	const nei = makePlayer({ name: "内奸", identity: "nei", skills: [], choices: [true] });
+	game.players = [source, nei];
+	game.zhu = makePlayer({ name: "佐菲", identity: "zhu", skills: [] });
+	await skills.ysganhua.content({}, { source, player: nei, num: 1 }, source);
+	equal(nei.identity, "fan", "目标内奸应实际改投反贼");
+	const specialSource = makePlayer({ identity: "fan", identityShown: true, choices: [true] });
+	const specialTarget = makePlayer({ name: "贼首", identity: "zhong", special_identity: "identity_zeishou", skills: [], choices: [true] });
+	game.players = [specialSource, specialTarget];
+	await skills.ysganhua.content({}, { source: specialSource, player: specialTarget, num: 1 }, specialSource);
+	equal(specialTarget.identity, "zhong", "特殊身份目标不得伪造转换");
+	equal(specialTarget.choices.length, 1, "特殊身份目标不应被询问");
+	equal(specialSource.choices.length, 1, "不支持时不应弹出变身选择");
+});
+
+await check("感化：存在替补/后续波次时侧阵营转换被禁用", async () => {
+	_status.mode = "versus";
+	_status.replacelist = ["替补"];
+	resetCalls();
+	const source = makePlayer({ identity: "zhu", side: true, choices: [true] });
+	const target = makePlayer({ name: "迪迦", identity: "zhong", side: false, skills: [], choices: [true] });
+	game.players = [source, target];
+	game.me = source;
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	delete _status.replacelist;
+	equal(target.side, false, "有替补时不得改阵营");
+	equal(target.choices.length, 1, "有替补时不应询问目标");
+	equal(source.choices.length, 1, "有替补时不应视为拒绝并弹出变身");
+	equal(game.overCalls.length, 0, "有替补时不得提前判胜");
+});
+
+await check("感化：国战未完全亮将或身份未公开时不伪造转换", async () => {
+	_status.mode = "guozhan";
+	resetCalls();
+	const source = makePlayer({ identity: "wei", identityShown: true, group: "wei", choices: [true] });
+	const target = makePlayer({ name: "迪迦", identity: "shu", identityShown: true, group: "shu", unseen: [true, false], choices: [true] });
+	game.players = [source, target];
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.identity, "shu", "未亮将目标不得改阵营");
+	equal(target.choices.length, 1, "不支持时不应询问目标");
+	equal(source.choices.length, 1, "不支持时不应弹出变身选择");
+	equal(game.tryResultCalls, 0, "未转换时不应判胜");
 });
 
 await check("日蚀：红/黑、红心/方块/黑桃/梅花效果可叠加", async () => {
