@@ -3835,6 +3835,7 @@ export const skills = {
 				if (!player.hasSkill("rsrishi")) await player.addSkills("rsrishi");
 				lib.skill.rsrishi.shared.refreshMarks(player);
 				game.log(player, "将武将牌切换为【日蚀高斯】");
+				player.$skill("日蚀高斯", "legend", "ice");
 				return true;
 			},
 		},
@@ -3878,6 +3879,7 @@ export const skills = {
 						return;
 					}
 					if (joined.changed) {
+						player.$skill("感化", "legend", "ice");
 						target.chat("其实，我早就找回奥特精神了");
 						await shared.checkVictory(player, target, plan);
 					} else {

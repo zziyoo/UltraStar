@@ -286,6 +286,7 @@ function makePlayer(options = {}) {
 		onRecover: options.onRecover,
 		calls: [],
 		chats: [],
+		skillAnims: [],
 		stat: { card: { sha: 1 } },
 		node: { identity: { dataset: { color: "x" } } },
 		isAlive() {
@@ -409,6 +410,9 @@ function makePlayer(options = {}) {
 		logSkill() {},
 		chat(message) {
 			this.chats.push(message);
+		},
+		$skill(name, type, color) {
+			this.skillAnims.push([name, type, color]);
 		},
 		chooseBool(prompt) {
 			const event = {
@@ -663,6 +667,7 @@ await check("感化：身份模式同阵营在过滤阶段跳过，隐藏身份�
 		equal(source.name1, "月神高斯", `${message}：不应提供变身`);
 		equal(source.choices.length, 1, `${message}：不应消耗变身选择`);
 		equal(target.choices.length, 1, `${message}：不应弹出感化询问`);
+		equal(source.skillAnims.length, 0, `${message}：不应播放触发动画`);
 	};
 	const shared = skills.ysganhua.shared;
 	resetRecruitState("identity");
@@ -726,6 +731,7 @@ await check("感化：国战与对战同阵营在过滤阶段跳过", async () =
 		equal(source.name1, "月神高斯", `${message}：不应提供变身`);
 		equal(source.choices.length, 1, `${message}：不应消耗变身选择`);
 		equal(target.choices.length, 1, `${message}：不应弹出感化询问`);
+		equal(source.skillAnims.length, 0, `${message}：不应播放触发动画`);
 	};
 
 	resetRecruitState("guozhan");
@@ -774,6 +780,7 @@ await check("感化：斗地主按角色身份跳过同阵营，不依赖 getJoi
 	equal(source.name1, "月神高斯", "农民同阵营不应提供变身");
 	equal(source.choices.length, 1, "农民同阵营不应消耗变身选择");
 	equal(target.choices.length, 1, "农民同阵营不应弹出感化询问");
+	equal(source.skillAnims.length, 0, "农民同阵营不应播放触发动画");
 
 	resetRecruitState("doudizhu");
 	source = makePlayer({ name: "月神高斯", identity: "zhu", isZhu: true, choices: [true] });
@@ -783,6 +790,22 @@ await check("感化：斗地主按角色身份跳过同阵营，不依赖 getJoi
 	equal(await fire(source, target), true, "地主对农民应继续触发感化");
 	equal(source.name1, "日蚀高斯", "地主对农民拒绝后仍可正常变身");
 	equal(target.choices.length, 1, "斗地主不询问目标加入，保持原有变身流程");
+});
+
+await check("感化：阵营变更与变身播放触发动画", async () => {
+	_status.mode = "identity";
+	const source = makePlayer({ name: "月神高斯", identity: "fan", identityShown: true, choices: [true] });
+	const target = makePlayer({ name: "迪迦", identity: "zhong", choices: [true], skills: [] });
+	game.players = [source, target];
+	game.zhu = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, skills: [] });
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(JSON.stringify(source.skillAnims), JSON.stringify([["感化", "legend", "ice"]]), "目标切换阵营后应播放感化动画");
+
+	const refusingSource = makePlayer({ name: "月神高斯", identity: "fan", identityShown: true, choices: [true] });
+	const refusingTarget = makePlayer({ name: "迪迦", identity: "zhong", choices: [false], skills: [] });
+	game.players = [refusingSource, refusingTarget];
+	await skills.ysganhua.content({}, { source: refusingSource, player: refusingTarget, num: 1 }, refusingSource);
+	equal(JSON.stringify(refusingSource.skillAnims), JSON.stringify([["日蚀高斯", "legend", "ice"]]), "变身日蚀高斯后应播放变身动画");
 });
 
 await check("感化：身份模式接受后身份与胜利关系真实变更", async () => {
