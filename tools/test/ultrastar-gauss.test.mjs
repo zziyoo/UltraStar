@@ -138,12 +138,15 @@ const get = {
 		return card?.name || card;
 	},
 	suit(card, player) {
-		if (player !== false && card?.modSuit) return card.modSuit;
+		if (player !== false && card?.modSuit && (player || get.owner(card))) return card.modSuit;
 		return card?.suit;
 	},
 	color(card, player) {
-		if (player !== false && card?.modColor) return card.modColor;
-		return card?.color;
+		if (card?.color !== undefined) return card.color;
+		const suit = get.suit(card, player);
+		if (suit === "heart" || suit === "diamond") return "red";
+		if (suit === "spade" || suit === "club") return "black";
+		return "none";
 	},
 	number(card) {
 		return card?.number;
@@ -683,6 +686,22 @@ await check("感化：身份模式同阵营在过滤阶段跳过，隐藏身份�
 	game.zhu = source;
 	game.players = [source, target];
 	await assertBlocked(source, target, "主公与忠臣同阵营");
+
+	resetRecruitState("identity");
+	const zhu3 = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, skills: [] });
+	game.zhu = zhu3;
+	source = makePlayer({ name: "月神高斯", identity: "fan", identityShown: false, choices: [true] });
+	target = makePlayer({ name: "特殊同阵营", identity: "fan", special_identity: true, choices: [false], skills: [] });
+	game.players = [zhu3, source, target];
+	equal(shared.getJoinPlan(source, target), null, "特殊身份目标可能没有加入计划");
+	assert(shared.isSameCamp(source, target), "特殊身份仍应按实际阵营判定为同阵营");
+	await assertBlocked(source, target, "特殊身份的实际同阵营");
+
+	source = makePlayer({ name: "月神高斯", identity: "zhong", identityShown: true, choices: [true] });
+	target = makePlayer({ name: "特殊敌人", identity: "fan", special_identity: true, choices: [false], skills: [] });
+	game.players = [zhu3, source, target];
+	assert(!shared.isSameCamp(source, target), "特殊身份不同阵营不得误判为同阵营");
+	equal(skills.ysganhua.filter({ source, player: target, num: 1 }, source), true, "特殊身份不同阵营仍应通过 filter");
 
 	resetRecruitState("identity");
 	const zhu2 = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, skills: [] });
@@ -1890,8 +1909,14 @@ await check("日蚀牌面标记：四花色六效果各自成对并支持多标�
 	equal(JSON.stringify(shared.getCardMarkTags(modified)), JSON.stringify(["rsrishi_mark_red", "rsrishi_mark_spade"]), "颜色与花色被修改时分别叠加");
 	const handOnlyMod = makeCard("sha", "club", 4, "basic", { damage: 1 });
 	handOnlyMod.modSuit = "diamond";
-	handOnlyMod.modColor = "red";
-	equal(JSON.stringify(shared.getCardMarkTags(handOnlyMod)), JSON.stringify(["rsrishi_mark_black", "rsrishi_mark_club"]), "仅在手牌生效的改色改花不得改变标记，应与实体牌离手后的实际结算一致");
+	const modOwner = makePlayer({ name: "日蚀高斯", skills: ["rsrishi"], hand: [handOnlyMod] });
+	game.players = [modOwner];
+	equal(get.suit(handOnlyMod), "diamond", "在手时普通 get.suit 应受手牌 mod 影响");
+	equal(get.color(handOnlyMod), "black", "颜色字段本身未被修改");
+	equal(JSON.stringify(shared.getCardMarkTags(handOnlyMod)), JSON.stringify(["rsrishi_mark_black", "rsrishi_mark_club"]), "仅在手牌生效的改花不得改变标记");
+	modOwner.hand = [];
+	equal(get.suit(handOnlyMod), "club", "离手后普通 get.suit 回到实体花色，与标记口径一致");
+	equal(get.color(handOnlyMod), "black", "离手后普通 get.color 与标记口径一致");
 	const colorless = makeCard("sha", "none", 1, "basic", {});
 	colorless.color = "black";
 	equal(JSON.stringify(shared.getCardMarkTags(colorless)), JSON.stringify(["rsrishi_mark_black"]), "无花色只显示颜色效果");

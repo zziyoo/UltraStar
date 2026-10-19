@@ -3491,13 +3491,13 @@ export const skills = {
 					const targetRole = role(target);
 					return Boolean(sourceRole && targetRole && sourceRole === targetRole);
 				}
+				if (kind === "identity") {
+					const sourceCamp = this.normalizeIdentity(source === game.zhu ? "zhu" : source.identity);
+					const targetCamp = this.normalizeIdentity(target === game.zhu ? "zhu" : target.identity);
+					return Boolean(sourceCamp && sourceCamp !== "nei" && sourceCamp === targetCamp);
+				}
 				const plan = this.getJoinPlan(source, target);
-				if (!plan) return false;
-				if (plan.same) return true;
-				if (kind !== "identity") return false;
-				const sourceCamp = this.normalizeIdentity(source === game.zhu ? "zhu" : source.identity);
-				const targetCamp = this.normalizeIdentity(target === game.zhu ? "zhu" : target.identity);
-				return Boolean(sourceCamp && sourceCamp !== "nei" && sourceCamp === targetCamp);
+				return Boolean(plan?.same);
 			},
 			async join(source, target, plan = this.getJoinPlan(source, target)) {
 				if (!plan) return { ok: false, changed: false };
