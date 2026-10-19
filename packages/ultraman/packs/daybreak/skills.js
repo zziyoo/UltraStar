@@ -510,6 +510,9 @@ export const skills = {
 			return !get.tag(card, "damage");
 		},
 		viewAs: { name: "sha" },
+		viewAsFilter(player) {
+			return player.hasCards("he", card => !get.tag(card, "damage"));
+		},
 		prompt: "将一张非伤害类牌当普通的【杀】使用",
 		position: "he",
 		check(card) {
@@ -517,7 +520,7 @@ export const skills = {
 		},
 		hiddenCard(player, name) {
 			if (name === "sha") {
-				return player.hasCards("h", card => !get.is.damageCard(card));
+				return player.hasCards("he", card => !get.tag(card, "damage"));
 			}
 			return false;
 		},
@@ -525,7 +528,7 @@ export const skills = {
 			respondSha: true,
 			skillTagFilter(player, tag) {
 				if (tag === "respondSha") {
-					return player.hasCards("h", card => !get.is.damageCard(card));
+					return player.hasCards("he", card => !get.tag(card, "damage"));
 				}
 				return false;
 			},

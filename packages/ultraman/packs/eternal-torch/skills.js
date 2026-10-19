@@ -3197,6 +3197,12 @@ export const skills = {
 			isDamageCard(card) {
 				return Boolean(card && get.tag(card, "damage"));
 			},
+			recruitEffect(card, player, target) {
+				if (get.name(card) !== "tao" || !target || target === player || get.attitude(player, target) >= 0) return;
+				const score = lib.skill.ysganhua.shared.getRecruitTargetValue(player, target);
+				if (score <= 0) return;
+				return [1, 3 + score * 2, 1, -(3 + score * 5)];
+			},
 			options(event, player) {
 				if (!event?.filterCard) return [];
 				let names = [];
@@ -3341,17 +3347,11 @@ export const skills = {
 				return player.hasCards("he", card => shared.isDamageCard(card));
 			},
 			effect: {
-				target(card, player, target) {
-					if (get.name(card) !== "tao" || target === player || get.attitude(player, target) >= 0) return;
-					const score = lib.skill.ysganhua.shared.getRecruitTargetValue(player, target);
-					if (score <= 0) return;
-					return [0, -(3 + score * 5)];
+				player(card, player, target) {
+					return lib.skill.ysmanyue.shared.recruitEffect(card, player, target);
 				},
 				player_use(card, player, target) {
-					if (get.name(card) !== "tao" || !target || target === player || get.attitude(player, target) >= 0) return;
-					const score = lib.skill.ysganhua.shared.getRecruitTargetValue(player, target);
-					if (score <= 0) return;
-					return [1, 3 + score * 2];
+					return lib.skill.ysmanyue.shared.recruitEffect(card, player, target);
 				},
 			},
 			order: 9,

@@ -60,6 +60,9 @@ const game = {
 	over(result) {
 		this.overCalls.push(result);
 	},
+	expandSkills(skills) {
+		return skills;
+	},
 };
 const ui = {
 	create: {
@@ -126,6 +129,23 @@ const get = {
 	poptip(value) {
 		return value;
 	},
+	info(item) {
+		if (typeof item === "string") return lib.skill[item];
+		if (item && item.name) return lib.card[item.name];
+		return undefined;
+	},
+	result(card, skill) {
+		const info = get.info(card);
+		let result = info?.ai?.result ? { ...info.ai.result } : {};
+		if (skill) {
+			const skillInfo = get.info(skill);
+			if (skillInfo?.ai?.result) result = { ...result, ...skillInfo.ai.result };
+		}
+		return result;
+	},
+	card() {
+		return _status.event?._get_card;
+	},
 };
 let skillTable;
 const lib = {
@@ -135,6 +155,15 @@ const lib = {
 	},
 	translate: {},
 	skill: {},
+	card: {
+		tao: {
+			ai: {
+				result: {
+					target_use: () => 2,
+				},
+			},
+		},
+	},
 	filter: {
 		cardEnabled(card, player, event) {
 			if (event === "forceEnable") return true;
@@ -149,6 +178,7 @@ const loadSkills = loadExports(path.join(pack, "skills.js"), ["skills"]);
 const skills = loadSkills(lib, game, ui, get, ai, _status).skills;
 skillTable = skills;
 lib.skill = skills;
+lib.skill.global = [];
 const loadCharacters = loadExports(path.join(pack, "characters.js"), ["characters"]);
 const characters = loadCharacters(lib, game, ui, get, ai, _status).characters;
 const loadMeta = loadExports(path.join(pack, "characters-meta.js"), ["characterTranslate", "characterTitle", "characterIntro"]);
@@ -217,6 +247,9 @@ function makePlayer(options = {}) {
 		},
 		hasSkill(skill) {
 			return this.skills.includes(skill);
+		},
+		hasSkillTag() {
+			return false;
 		},
 		getStat() {
 			return this.stat;
@@ -709,10 +742,11 @@ await check("满月 AI：治疗有招降价值的敌人，不治疗无价值目�
 	game.players = [source, target];
 	const value = shared.getRecruitTargetValue(source, target);
 	assert(value > 0, "有招降价值的敌人应被识别");
-	const effect = skills.ysmanyue.ai.effect.target(tao, source, target);
-	assert(Array.isArray(effect) && effect[1] < 0, "对敌方 AI 效果应为可招募的负向目标值");
 	const playerUse = skills.ysmanyue.ai.effect.player_use(tao, source, target);
-	assert(Array.isArray(playerUse) && playerUse[1] > 0, "正常桃与转换桃的使用价值都应被提高");
+	assert(Array.isArray(playerUse) && playerUse.length === 4 && playerUse[1] > 0 && playerUse[3] < 0, "使用路径应同时提高来源收益并压低目标治疗收益");
+	const normalEffect = skills.ysmanyue.ai.effect.player(tao, source, target);
+	assert(Array.isArray(normalEffect) && normalEffect.length === 4 && normalEffect[1] > 0 && normalEffect[3] < 0, "普通效果路径应返回同一组招降权重");
+	equal(skills.ysmanyue.ai.effect.target, undefined, "来源技能不提供 target 回调，避免依赖本不会调用的路径");
 	_status.event = { player: source };
 	const score = skills.ysmanyue.chooseButton.check({ link: [null, null, "tao"] });
 	assert(score > 10, "招降价值应提高转换桃的 AI 权重");
@@ -721,7 +755,8 @@ await check("满月 AI：治疗有招降价值的敌人，不治疗无价值目�
 	const enemyAlly = makePlayer({ name: "敌方援军", side: false, hp: 4, hand: [tao, tao, tao], skills: [] });
 	game.players = [weakSource, strongEnemy, enemyAlly];
 	equal(shared.getRecruitTargetValue(weakSource, strongEnemy), 0, "败局敌人不应被视为可招降");
-	equal(skills.ysmanyue.ai.effect.target(tao, weakSource, strongEnemy), undefined, "败局不应给出招降加权");
+	equal(skills.ysmanyue.ai.effect.player_use(tao, weakSource, strongEnemy), undefined, "败局不应给出使用加权");
+	equal(skills.ysmanyue.ai.effect.player(tao, weakSource, strongEnemy), undefined, "败局不应给出普通效果加权");
 	_status.event = { player: weakSource };
 	const weakScore = skills.ysmanyue.chooseButton.check({ link: [null, null, "tao"] });
 	equal(weakScore, 0, "月神满血且无友方受伤时不应主动治疗无招降价值敌人");
@@ -810,6 +845,140 @@ await check("感化：国战未完全亮将或身份未公开时不伪造转换"
 	equal(target.choices.length, 1, "不支持时不应询问目标");
 	equal(source.choices.length, 1, "不支持时不应弹出变身选择");
 	equal(game.tryResultCalls, 0, "未转换时不应判胜");
+});
+
+function findMatchingBrace(source, open) {
+	let depth = 0;
+	for (let i = open; i < source.length; i++) {
+		const char = source[i];
+		if (char === '"' || char === "'" || char === "`") {
+			const quote = char;
+			for (i++; i < source.length; i++) {
+				if (source[i] === "\\") {
+					i++;
+					continue;
+				}
+				if (source[i] === quote) break;
+			}
+		} else if (char === "/" && source[i + 1] === "/") {
+			i = source.indexOf("\n", i);
+			if (i < 0) return -1;
+		} else if (char === "/" && source[i + 1] === "*") {
+			i = source.indexOf("*/", i + 2) + 1;
+			if (i < 1) return -1;
+		} else if (char === "{") {
+			depth++;
+		} else if (char === "}") {
+			depth--;
+			if (depth === 0) return i;
+		}
+	}
+	return -1;
+}
+
+function loadHostMethod(source, name) {
+	const start = source.indexOf(`\n\t${name}(`);
+	if (start < 0) throw new Error(`本体缺少 ${name}`);
+	const open = source.indexOf("{", start);
+	const close = findMatchingBrace(source, open);
+	if (close < 0) throw new Error(`无法定位 ${name} 的方法体`);
+	const method = source.slice(start + 1, close + 1);
+	const cache = {
+		delegate(value) {
+			return value;
+		},
+		get: {
+			attitude: (...args) => get.attitude(...args),
+			effect: () => 0,
+		},
+	};
+	const CacheContext = {
+		requireCacheContext() {
+			return cache;
+		},
+	};
+	return new Function(
+		"get",
+		"game",
+		"lib",
+		"_status",
+		"ui",
+		"CacheContext",
+		`return (function ${method});`,
+	)(get, game, lib, _status, ui, CacheContext);
+}
+
+await check("满月 AI：本体 effect_use/effect 实际调用招降权重", () => {
+	_status.mode = "versus";
+	const hostFile = path.join(root, "..", "..", "src", "noname", "get", "index.js");
+	if (!fs.existsSync(hostFile)) {
+		console.log("  skip 本体源码不存在，无法验证 AI 调用路径");
+		return;
+	}
+	const contentFile = path.join(root, "..", "..", "src", "noname", "library", "element", "content.ts");
+	const contentSource = fs.readFileSync(contentFile, "utf8");
+	assert(contentSource.includes('next.set("ai", event.ai || get.effect_use);'), "本体使用牌目标选择应走 get.effect_use");
+	const hostSource = fs.readFileSync(hostFile, "utf8");
+	const effectUse = loadHostMethod(hostSource, "effect_use");
+	const effect = loadHostMethod(hostSource, "effect");
+	const originalAttitude = get.attitude;
+	get.attitude = (from, to) => {
+		if (from === to) return 1;
+		if (typeof from?.side === "boolean" && typeof to?.side === "boolean" && from.side !== to.side) return -4;
+		return originalAttitude(from, to);
+	};
+	const source = makePlayer({ name: "月神高斯", side: true, hand: [sha, sha, tao], equipment: [tao, tao] });
+	const target = makePlayer({ name: "濒危敌人", side: false, hp: 2, hand: [], skills: [] });
+	game.players = [source, target];
+	_status.event = { player: source, skill: "ysmanyue_backup" };
+	const converted = { name: "tao", type: "basic", suit: "heart", number: 3, color: "red", tags: {}, cards: [shandian], isCard: false };
+	const originalUse = skills.ysmanyue.ai.effect.player_use;
+	const originalPlayer = skills.ysmanyue.ai.effect.player;
+	let useCalls = 0;
+	let playerCalls = 0;
+	let targetCalls = 0;
+	skills.ysmanyue.ai.effect.player_use = function (...args) {
+		useCalls++;
+		return originalUse.apply(this, args);
+	};
+	skills.ysmanyue.ai.effect.player = function (...args) {
+		playerCalls++;
+		return originalPlayer.apply(this, args);
+	};
+	lib.skill.__gauss_probe = {
+		ai: {
+			effect: {
+				target() {
+					targetCalls++;
+				},
+			},
+		},
+	};
+	source.skills.push("__gauss_probe");
+	try {
+		const physicalUse = effectUse(target, tao, source, source);
+		const convertedUse = effectUse(target, converted, source, source);
+		const normal = effect(target, tao, source, source);
+		assert(useCalls >= 2, "本体 effect_use 应调用来源技能 player_use");
+		equal(playerCalls, 1, "本体 effect 应调用来源技能 effect.player");
+		assert(physicalUse > 0, "普通桃经本体 effect_use 应得到正收益");
+		assert(convertedUse > 0, "满月转换桃经本体 effect_use 应得到正收益");
+		assert(normal > 0, "普通桃经本体 effect 应得到正收益");
+		equal(targetCalls, 0, "本体不会读取来源技能的 effect.target，招降权重不能放在这里");
+	} finally {
+		source.skills.pop();
+		delete lib.skill.__gauss_probe;
+		skills.ysmanyue.ai.effect.player_use = originalUse;
+		skills.ysmanyue.ai.effect.player = originalPlayer;
+		get.attitude = originalAttitude;
+	}
+	const weakSource = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [], skills: ["ysmanyue", "ysganhua"] });
+	const strongEnemy = makePlayer({ name: "强势敌人", side: false, hp: 4, hand: [tao, tao, tao], skills: [] });
+	const enemyAlly = makePlayer({ name: "敌方援军", side: false, hp: 4, hand: [tao, tao, tao], skills: [] });
+	game.players = [weakSource, strongEnemy, enemyAlly];
+	_status.event = { player: weakSource, skill: "ysmanyue_backup" };
+	assert(effectUse(strongEnemy, tao, weakSource, weakSource) <= 0, "无招降价值时本体 effect_use 不应鼓励治疗敌人");
+	assert(effect(strongEnemy, tao, weakSource, weakSource) <= 0, "无招降价值时本体 effect 不应鼓励治疗敌人");
 });
 
 await check("日蚀：红/黑、红心/方块/黑桃/梅花效果可叠加", async () => {
