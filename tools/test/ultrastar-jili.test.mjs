@@ -266,10 +266,7 @@ await check("极力：合法非伤害牌正常识别，装备区与手牌一致"
 });
 
 await check("极力：本体 hasSha/hasSkillTag/hasUsableCard 路径与筛选一致", () => {
-	if (!hostAvailable) {
-		console.log("  skip 本体源码不存在，无法验证 AI 调用路径");
-		return;
-	}
+	assert(hostAvailable, "本体源码不存在，无法验证 AI 调用路径");
 	for (const card of [lightning, fulei]) {
 		const player = makeHostPlayer({ hand: [card] });
 		_status.event = makeEvent("chooseToUse", "phase", player);

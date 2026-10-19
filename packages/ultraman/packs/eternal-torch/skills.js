@@ -3526,9 +3526,14 @@ export const skills = {
 					}
 				}
 			},
-			getPublicPower(player, viewer) {
+			getProjectedHp(target, recover = 1) {
+				const hp = Math.max(0, Number(target?.getHp?.() ?? target?.hp) || 0);
+				const maxHp = Math.max(0, Number(target?.maxHp) || hp);
+				return Math.max(0, Math.min(maxHp, hp + recover));
+			},
+			getPublicPower(player, viewer, options = {}) {
 				if (!player || !player.isAlive?.() || player.isOut?.()) return 0;
-				const hp = Math.max(0, Number(player.getHp?.() ?? player.hp) || 0);
+				const hp = Math.max(0, Number(options.hp ?? player.getHp?.() ?? player.hp) || 0);
 				let power = hp * 2;
 				power += (player.countCards?.("h") ?? 0) * 0.7;
 				power += (player.countCards?.("e") ?? 0) * 1.4;
@@ -3546,10 +3551,10 @@ export const skills = {
 				return power;
 			},
 			getCampPower(plan, source, target, join, viewer) {
-				const campIdentity = join ? plan.identity : this.normalizeIdentity(target.identity);
-				if (plan.kind === "identity" && campIdentity === "nei" && !join) return 0;
 				const sourceCampKnown = plan.kind !== "identity" || source === viewer || source.identityShown || source.isZhu || source === game.zhu;
 				const targetCampKnown = plan.kind !== "identity" || target === viewer || target.identityShown;
+				const campIdentity = join ? plan.identity : this.normalizeIdentity(target.identity);
+				if (plan.kind === "identity" && !join && targetCampKnown && campIdentity === "nei") return 0;
 				const campKnown = join ? sourceCampKnown : targetCampKnown;
 				let total = 0;
 				for (const current of game.players) {
@@ -3599,10 +3604,13 @@ export const skills = {
 				const hp = Number(core.getHp?.() ?? core.hp) || 0;
 				return Math.max(0, Math.min(1, hp / Math.max(1, core.maxHp)));
 			},
-			getSurvivalPressure(target) {
-				const hp = Number(target.getHp?.() ?? target.hp) || 0;
+			getSurvivalPressure(target, options = {}) {
+				if (!target) return 0.5;
+				const hp = Math.max(0, Number(options.hp ?? target.getHp?.() ?? target.hp) || 0);
 				const hpRatio = target.maxHp ? Math.max(0, Math.min(1, hp / target.maxHp)) : 0.5;
-				const defense = target.countCards?.("h", card => ["shan", "tao", "jiu"].includes(card.name)) ?? 0;
+				const defense = options.includePrivate
+					? (target.countCards?.("h", card => ["shan", "tao", "jiu"].includes(card.name)) ?? 0)
+					: Math.min(3, target.countCards?.("h") ?? 0);
 				const guard = Math.min(3, defense) / 3;
 				return Math.max(0, Math.min(1, 1 - hpRatio * 0.72 - guard * 0.28));
 			},
@@ -3610,17 +3618,77 @@ export const skills = {
 				const attitude = Number(get.attitude(target, source)) || 0;
 				return Math.max(0, Math.min(1, (attitude + 5) / 10));
 			},
-			evaluateSurrender(source, target, includePrivate = false) {
+			getAnalysisAttitude(source, target, plan, includePrivate) {
+				if (includePrivate) return this.normalizeAttitude(target, source);
+				if (plan.kind === "identity" && !target.identityShown && target !== game.zhu) return 0.5;
+				return this.normalizeAttitude(target, source);
+			},
+			getRecruitEndgameContext(source, target, plan = this.getJoinPlan(source, target), options = {}) {
+				const empty = { confirmed: false, bonus: 0, allyPower: 0, targetPowerAfterHeal: 0, ratio: 0 };
+				if (!source || !target || !plan || _status.over) return empty;
+				if (!source.isAlive?.() || source.isOut?.() || !target.isAlive?.() || target.isOut?.()) return empty;
+				if (this.hasPendingReplacements()) return empty;
+				const includePrivate = Boolean(options.includePrivate);
+				const viewer = includePrivate ? target : source;
+				if (plan.kind === "identity" && includePrivate && !(source === viewer || source.identityShown || source.isZhu || source === game.zhu)) {
+					return empty;
+				}
+				const targetHp = Math.max(0, Number(options.hp ?? target.getHp?.() ?? target.hp) || 0);
+				const alive = game.players.filter(current => current && current.isAlive?.() && !current.isOut?.());
+				if (!alive.includes(target)) return empty;
+				const others = alive.filter(current => current !== target);
+				if (plan.kind === "side") {
+					if (typeof target.side !== "boolean" || typeof plan.side !== "boolean") return empty;
+					if (others.some(current => typeof current.side !== "boolean")) return empty;
+					if (others.some(current => current.side === target.side)) return empty;
+					if (others.some(current => current.side !== plan.side)) return empty;
+				} else if (plan.kind === "identity") {
+					const targetKnown = includePrivate || target === game.zhu || Boolean(target.identityShown);
+					if (!targetKnown) return empty;
+					const targetCamp = this.normalizeIdentity(target.identity);
+					if (!targetCamp || targetCamp === plan.identity) return empty;
+					for (const current of others) {
+						const known = current === viewer || current === game.zhu || Boolean(current.identityShown);
+						if (!known) return empty;
+						const camp = this.normalizeIdentity(current.identity);
+						if (!camp) return empty;
+						if (camp === targetCamp) return empty;
+						if (camp !== plan.identity) return empty;
+					}
+				} else if (plan.kind === "guozhan") {
+					const targetKnown = includePrivate || (target.identityShown && !target.isUnseen?.(0) && !target.isUnseen?.(1));
+					if (!targetKnown || !target.identity || !target.group) return empty;
+					if (target.identity === plan.identity && target.group === plan.group) return empty;
+					for (const current of others) {
+						const known = current === viewer || (current.identityShown && !current.isUnseen?.(0) && !current.isUnseen?.(1));
+						if (!known || !current.identity || !current.group) return empty;
+						if (current.identity === target.identity && current.group === target.group) return empty;
+						if (current.identity !== plan.identity || current.group !== plan.group) return empty;
+					}
+				} else {
+					return empty;
+				}
+				const allyPower = this.getCampPower(plan, source, target, true, viewer);
+				const targetPowerAfterHeal = this.getPublicPower(target, viewer, { hp: targetHp });
+				const ratio = allyPower / Math.max(1, targetPowerAfterHeal);
+				const bonus = Math.min(1, Math.max(0, ratio - 1)) * 0.12;
+				return { confirmed: true, bonus, allyPower, targetPowerAfterHeal, ratio };
+			},
+			evaluateSurrender(source, target, includePrivate = false, options = {}) {
 				const plan = this.getJoinPlan(source, target);
 				const empty = {
 					supported: false,
 					same: false,
 					score: 0,
+					baseScore: 0,
 					powerEdge: 0,
 					winEdge: 0,
 					survival: 0,
 					coreEdge: 0,
 					attitude: 0,
+					endgameBonus: 0,
+					endgameConfirmed: false,
+					endgameRatio: 0,
 				};
 				if (!plan) return empty;
 				if (plan.same) {
@@ -3631,16 +3699,21 @@ export const skills = {
 							supported: true,
 							same: true,
 							score: 1,
+							baseScore: 1,
 							powerEdge: 1,
 							winEdge: 1,
 							survival: 1,
 							coreEdge: 0.5,
 							attitude: 1,
+							endgameBonus: 0,
+							endgameConfirmed: false,
+							endgameRatio: 0,
 						};
 					}
 				}
 				const viewer = includePrivate ? target : source;
-				const targetPower = this.getPublicPower(target, viewer);
+				const targetHp = Math.max(0, Number(options.hp ?? target.getHp?.() ?? target.hp) || 0);
+				const targetPower = this.getPublicPower(target, viewer, { hp: targetHp });
 				const joinPower = this.getCampPower(plan, source, target, true, viewer) + targetPower * 0.75;
 				const stayPower = this.getCampPower(plan, source, target, false, viewer) + targetPower;
 				const totalPower = joinPower + stayPower;
@@ -3651,18 +3724,36 @@ export const skills = {
 				const stayWin = stayPower * (0.8 + stayCore * 0.4);
 				const winEdge = joinWin + stayWin > 0 ? joinWin / (joinWin + stayWin) : 0.5;
 				const coreEdge = (joinCore - stayCore + 1) / 2;
-				const survival = includePrivate ? this.getSurvivalPressure(target) : 0.5;
-				const attitude = this.normalizeAttitude(target, source);
-				const score = powerEdge * 0.35 + winEdge * 0.3 + survival * 0.2 + coreEdge * 0.1 + attitude * 0.05;
-				return { supported: true, same: false, score, powerEdge, winEdge, survival, coreEdge, attitude };
+				const survival = this.getSurvivalPressure(target, { includePrivate, hp: targetHp });
+				const attitude = this.getAnalysisAttitude(source, target, plan, includePrivate);
+				const baseScore = powerEdge * 0.35 + winEdge * 0.3 + survival * 0.2 + coreEdge * 0.1 + attitude * 0.05;
+				const endgame = this.getRecruitEndgameContext(source, target, plan, { includePrivate, hp: targetHp });
+				const score = baseScore + endgame.bonus;
+				return {
+					supported: true,
+					same: false,
+					score,
+					baseScore,
+					powerEdge,
+					winEdge,
+					survival,
+					coreEdge,
+					attitude,
+					endgameBonus: endgame.bonus,
+					endgameConfirmed: endgame.confirmed,
+					endgameRatio: endgame.ratio,
+				};
+			},
+			isAcceptable(analysis) {
+				return Boolean(analysis?.supported && !analysis.same && analysis.score >= 0.62 && analysis.powerEdge >= 0.5);
 			},
 			shouldJoin(source, target) {
 				const analysis = this.evaluateSurrender(source, target, true);
 				if (!analysis.supported) return false;
 				if (analysis.same) return true;
-				return analysis.score >= 0.62 && analysis.powerEdge >= 0.5;
+				return this.isAcceptable(analysis);
 			},
-			getRecruitValue(source, target) {
+			getRecruitValue(source, target, options = {}) {
 				if (!source || !target || target === source) return 0;
 				if (!this.isMoonGauss(source)) return 0;
 				const sourceSkills = source.getSkills?.() ?? source.skills ?? [];
@@ -3670,13 +3761,13 @@ export const skills = {
 				if (get.mode() === "doudizhu") return 0;
 				if (!target.isAlive?.() || target.isOut?.()) return 0;
 				if (target === game.zhu || target.identity === "zhu" || target.isZhu) return 0;
-				const analysis = this.evaluateSurrender(source, target, false);
+				const analysis = this.evaluateSurrender(source, target, false, options);
 				if (!analysis.supported || analysis.same) return 0;
-				return analysis.score >= 0.62 && analysis.powerEdge >= 0.5 ? analysis.score : 0;
+				return this.isAcceptable(analysis) ? analysis.score : 0;
 			},
-			getRecruitTargetValue(source, target) {
+			getRecruitTargetValue(source, target, recover = 1) {
 				if (!target?.isDamaged?.()) return 0;
-				return this.getRecruitValue(source, target);
+				return this.getRecruitValue(source, target, { hp: this.getProjectedHp(target, recover) });
 			},
 			getBattlePressure(source) {
 				let allyPower = this.getPublicPower(source, source);
@@ -3700,9 +3791,11 @@ export const skills = {
 					return pressure >= 0.55 || hp <= 2 || damageCards >= 2;
 				}
 				const allies = game.players.filter(current => current !== source && current.isAlive?.() && get.attitude(source, current) > 0);
-				const recruitables = game.players.filter(
-					current => current !== source && current !== target && current.isAlive?.() && this.getRecruitValue(source, current) > 0,
-				);
+				const recruitables = game.players.filter(current => {
+					if (current === source || current === target || !current.isAlive?.() || current.isOut?.()) return false;
+					const value = current.isDamaged?.() ? this.getRecruitTargetValue(source, current) : this.getRecruitValue(source, current);
+					return value > 0;
+				});
 				const damagedAllies = allies.filter(current => current.isDamaged?.());
 				if (recruitables.length >= 2 && pressure < 0.7) return false;
 				if (damagedAllies.length > 0 && pressure < 0.65) return false;

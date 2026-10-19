@@ -226,6 +226,8 @@ function makePlayer(options = {}) {
 		equipment: (options.equipment ?? []).slice(),
 		judge: (options.judge ?? []).slice(),
 		choices: (options.choices ?? []).slice(),
+		aiChoice: options.aiChoice ?? false,
+		aiResults: [],
 		drawCalls: [],
 		recoverCalls: [],
 		onRecover: options.onRecover,
@@ -332,11 +334,21 @@ function makePlayer(options = {}) {
 				player: this,
 				prompt,
 				source: undefined,
+				ai: undefined,
 				set(key, value) {
-					if (key === "source") this.source = value;
+					if (key === "source" || key === "ai") this[key] = value;
 					return this;
 				},
+				getParent() {
+					return undefined;
+				},
 				async forResult() {
+					_status.event = this;
+					if (this.player.aiChoice) {
+						const result = Boolean(this.ai?.(this.getParent(), this.player));
+						this.player.aiResults.push({ prompt: this.prompt, result });
+						return { bool: result };
+					}
 					return { bool: this.player.choices.shift() ?? false };
 				},
 			};
@@ -823,6 +835,293 @@ await check("感化 AI：变身判断不会无条件切换，也不会永远拒�
 	assert(shared.shouldTransform(losingSource, losingEnemy), "劣势局应倾向变身");
 });
 
+function resetRecruitState(mode = "versus") {
+	_status.mode = mode;
+	_status.over = false;
+	game.players = [];
+	game.zhu = null;
+	game.friendZhu = null;
+	game.enemyZhu = null;
+	game.boss = null;
+	game.me = null;
+	for (const key of ["replacelist", "enemyreplacelist", "additionallist", "mylist", "enemylist"]) delete _status[key];
+}
+function repeatCard(count) {
+	return Array.from({ length: count }, () => tao);
+}
+
+await check("感化 AI：残局与治疗预测共用纯计算核心", () => {
+	const shared = skills.ysganhua.shared;
+	const rows = [];
+
+	resetRecruitState();
+	let source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	let ally1 = makePlayer({ name: "友方1", side: true, hp: 3, skills: ["a", "b"] });
+	let ally2 = makePlayer({ name: "友方2", side: true, hp: 3, skills: ["a"] });
+	let target = makePlayer({ name: "敌人", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [source, ally1, ally2, target];
+	game.me = source;
+	let analysis = shared.evaluateSurrender(source, target, false);
+	let recruit = shared.getRecruitTargetValue(source, target);
+	assert(analysis.endgameConfirmed, "3v1 应确认加入后结束战斗");
+	assert(analysis.endgameBonus > 0, "3v1 明显领先应获得残局加分");
+	assert(analysis.score >= 0.62 && analysis.powerEdge >= 0.5, "3v1 评分应过线");
+	assert(shared.shouldJoin(source, target), "3v1 最后敌人应接受");
+	assert(recruit > 0, "3v1 治疗预测应识别为可招降");
+	assert(Array.isArray(skills.ysmanyue.shared.recruitEffect(tao, source, target)), "3v1 应给治疗 AI 四元组招降加权");
+	rows.push(["3v1", analysis, true]);
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	ally1 = makePlayer({ name: "友方1", side: true, hp: 3, skills: ["a", "b"] });
+	target = makePlayer({ name: "敌人", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [source, ally1, target];
+	game.me = source;
+	analysis = shared.evaluateSurrender(source, target, false);
+	recruit = shared.getRecruitTargetValue(source, target);
+	assert(analysis.endgameBonus > 0, "2v1 明显领先应获得残局加分");
+	assert(shared.shouldJoin(source, target), "2v1 最后敌人应接受");
+	assert(recruit > 0, "2v1 治疗预测应识别为可招降");
+	rows.push(["2v1", analysis, true]);
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	target = makePlayer({ name: "敌人", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [source, target];
+	game.me = source;
+	analysis = shared.evaluateSurrender(source, target, false);
+	recruit = shared.getRecruitTargetValue(source, target);
+	assert(analysis.endgameBonus > 0, "1v1 敌人回复后仍落后应获得残局加分");
+	assert(shared.shouldJoin(source, target), "1v1 敌人回复后仍落后应接受");
+	assert(recruit > 0, "1v1 治疗预测应识别为可招降");
+	rows.push(["1v1 落后", analysis, true]);
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 1, hand: [], skills: ["ysmanyue", "ysganhua"] });
+	target = makePlayer({ name: "强敌", side: false, hp: 3, hand: repeatCard(3), equipment: repeatCard(3), skills: ["a", "b", "c"] });
+	game.players = [source, target];
+	game.me = source;
+	analysis = shared.evaluateSurrender(source, target, false);
+	recruit = shared.getRecruitTargetValue(source, target);
+	assert(analysis.endgameConfirmed, "1v1 强敌也属于可确认的残局");
+	equal(analysis.endgameBonus, 0, "高斯阵营不占优时不得获得残局加分");
+	assert(analysis.score < 0.62 && analysis.powerEdge < 0.5, "1v1 强敌评分应低于阈值");
+	assert(!shared.shouldJoin(source, target), "1v1 强敌应拒绝");
+	equal(recruit, 0, "明显拒绝的目标不应被治疗 AI 预判为可招降");
+	equal(skills.ysmanyue.shared.recruitEffect(tao, source, target), undefined, "明显拒绝的目标不应获得治疗 AI 加权");
+	rows.push(["1v1 强敌", analysis, false]);
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 3, skills: ["ysmanyue", "ysganhua"] });
+	ally1 = makePlayer({ name: "友方1", side: true, hp: 3, skills: ["a"] });
+	ally2 = makePlayer({ name: "友方2", side: true, hp: 3, skills: ["a"] });
+	target = makePlayer({ name: "敌人", side: false, hp: 3, skills: ["a"] });
+	const enemy2 = makePlayer({ name: "敌人2", side: false, hp: 3, skills: ["a"] });
+	const enemy3 = makePlayer({ name: "敌人3", side: false, hp: 3, skills: ["a"] });
+	game.players = [source, ally1, ally2, target, enemy2, enemy3];
+	game.me = source;
+	analysis = shared.evaluateSurrender(source, target, false);
+	assert(!analysis.endgameConfirmed, "3v3 目标仍有同阵营角色，不得触发残局");
+	equal(analysis.endgameBonus, 0, "3v3 不得套用残局加分");
+	assert(analysis.score < 0.62, "3v3 接近局评分不应过线");
+	assert(!shared.shouldJoin(source, target), "3v3 接近局不应无理由投降");
+	equal(shared.getRecruitTargetValue(source, target), 0, "3v3 接近局不应鼓励治疗招降");
+	rows.push(["3v3 接近", analysis, false]);
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	ally1 = makePlayer({ name: "友方1", side: true, hp: 3, skills: ["a"] });
+	target = makePlayer({ name: "敌人", side: false, hp: 1, skills: [], hand: [] });
+	const strongAlly = makePlayer({ name: "强敌援军", side: false, hp: 4, hand: repeatCard(3), equipment: repeatCard(3), skills: ["a", "b", "c"] });
+	game.players = [source, ally1, target, strongAlly];
+	game.me = source;
+	analysis = shared.evaluateSurrender(source, target, false);
+	assert(!analysis.endgameConfirmed, "目标仍有强力队友时不得确认残局");
+	equal(analysis.endgameBonus, 0, "目标有强力队友时不得套用残局加分");
+	assert(!shared.shouldJoin(source, target), "目标有强力队友时不应投降");
+	equal(shared.getRecruitTargetValue(source, target), 0, "目标有强力队友时不应鼓励治疗招降");
+	rows.push(["有强力队友", analysis, false]);
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	target = makePlayer({ name: "敌人", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [source, target];
+	game.me = source;
+	_status.replacelist = ["替补"];
+	equal(shared.getJoinPlan(source, target), null, "有替补时不得给出加入计划");
+	equal(shared.getRecruitTargetValue(source, target), 0, "有替补时不得给出治疗招降价值");
+	assert(!shared.shouldJoin(source, target), "有替补时不得判定投降");
+	const pendingEndgame = shared.getRecruitEndgameContext(source, target, { kind: "side", side: true, identity: "zhong", same: false });
+	assert(!pendingEndgame.confirmed && pendingEndgame.bonus === 0, "有替补时不得触发残局加分");
+	delete _status.replacelist;
+
+	resetRecruitState("identity");
+	source = makePlayer({ name: "月神高斯", identity: "zhong", identityShown: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	const zhu = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, hp: 4, skills: [] });
+	target = makePlayer({ name: "未亮身份", identity: "fan", hp: 2, hand: [], skills: [] });
+	game.players = [source, zhu, target];
+	game.zhu = zhu;
+	game.me = source;
+	const publicFan = shared.evaluateSurrender(source, target, false);
+	const actualFan = shared.evaluateSurrender(source, target, true);
+	const recruitFan = shared.getRecruitValue(source, target);
+	assert(!publicFan.endgameConfirmed, "身份未公开时不得触发高斯侧残局加分");
+	target.identity = "zhong";
+	const publicZhong = shared.evaluateSurrender(source, target, false);
+	const actualZhong = shared.evaluateSurrender(source, target, true);
+	const recruitZhong = shared.getRecruitValue(source, target);
+	equal(publicFan.score, publicZhong.score, "高斯侧预测不得因隐藏身份变化");
+	equal(recruitFan, recruitZhong, "高斯侧招降预测不得读取隐藏身份");
+	assert(actualFan.score !== actualZhong.score, "目标自身实际决策可以使用自己的身份");
+	target.identity = "nei";
+	const publicNei = shared.evaluateSurrender(source, target, false);
+	const recruitNei = shared.getRecruitValue(source, target);
+	equal(publicFan.score, publicNei.score, "隐藏内奸身份也不得改变高斯侧预测");
+	equal(recruitFan, recruitNei, "隐藏内奸身份也不得改变招降预测");
+
+	resetRecruitState("identity");
+	source = makePlayer({ name: "月神高斯", identity: "zhong", identityShown: false, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	const hiddenSourceZhu = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, hp: 4, skills: [] });
+	target = makePlayer({ name: "已亮敌人", identity: "fan", identityShown: true, hp: 2, skills: [] });
+	game.players = [source, hiddenSourceZhu, target];
+	game.zhu = hiddenSourceZhu;
+	game.me = source;
+	const hiddenSourcePlan = shared.getJoinPlan(source, target);
+	assert(hiddenSourcePlan, "身份模式仍应给出加入计划");
+	const hiddenSourceActual = shared.evaluateSurrender(source, target, true);
+	const hiddenSourceEndgame = shared.getRecruitEndgameContext(source, target, hiddenSourcePlan, { includePrivate: true });
+	assert(!hiddenSourceActual.endgameConfirmed, "目标看不到高斯身份时不得确认残局");
+	assert(!hiddenSourceEndgame.confirmed && hiddenSourceEndgame.bonus === 0, "目标看不到高斯身份时不得获得残局加分");
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	target = makePlayer({ name: "敌人", side: false, hp: 2, hand: [tao], skills: [] });
+	game.players = [source, target];
+	game.me = source;
+	const publicDefense = shared.evaluateSurrender(source, target, false);
+	const actualDefense = shared.evaluateSurrender(source, target, true);
+	const recruitDefense = shared.getRecruitValue(source, target);
+	assert(Math.abs(publicDefense.survival - 0.5) > 1e-9, "公开生存压力不得再固定为0.5");
+	target.hand = [sha];
+	const publicAttack = shared.evaluateSurrender(source, target, false);
+	const actualAttack = shared.evaluateSurrender(source, target, true);
+	equal(publicDefense.score, publicAttack.score, "高斯侧预测不得读取隐藏手牌内容");
+	equal(recruitDefense, shared.getRecruitValue(source, target), "高斯侧招降预测不得读取隐藏手牌内容");
+	assert(actualDefense.score !== actualAttack.score, "目标实际决策可以使用自己的手牌信息");
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	target = makePlayer({ name: "敌人", side: false, hp: 1, hand: repeatCard(3), skills: [] });
+	game.players = [source, target];
+	game.me = source;
+	assert(shared.getRecruitTargetValue(source, target) > 0, "残局领先时隐藏防御牌不应让预测改判拒绝");
+	assert(shared.shouldJoin(source, target), "残局领先且目标有隐藏防御牌时仍应接受");
+
+	resetRecruitState();
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	target = makePlayer({ name: "敌人", side: false, hp: 1, hand: [], skills: [] });
+	game.players = [source, target];
+	game.me = source;
+	const projectedHp = shared.getProjectedHp(target, 1);
+	equal(projectedHp, 2, "桃应按回复1点体力预测");
+	equal(target.hp, 1, "预测不得临时修改目标体力");
+	const predicted = shared.evaluateSurrender(source, target, false, { hp: projectedHp });
+	const predictedRecruit = shared.getRecruitTargetValue(source, target);
+	equal(target.hp, 1, "治疗预测后不得修改目标体力");
+	assert(Math.abs(predictedRecruit - predicted.score) < 1e-9, "治疗 AI 应使用同一预测评分");
+	target.hp = 2;
+	const actual = shared.evaluateSurrender(source, target, true);
+	assert(Math.abs(predicted.score - actual.score) < 1e-9, "信息一致时治疗前后评分应一致");
+	equal(shared.shouldJoin(source, target), shared.isAcceptable(predicted), "治疗前后决策应一致");
+
+	for (const [label, result, accepted] of rows) {
+		console.log(
+			`    ${label}: score=${result.score.toFixed(4)}, base=${result.baseScore.toFixed(4)}, powerEdge=${result.powerEdge.toFixed(4)}, endgame=${result.endgameBonus.toFixed(4)}, accept=${accepted}`,
+		);
+	}
+});
+
+await check("感化 AI：chooseBool 实际回调接受并在此后判胜", async () => {
+	resetRecruitState();
+	resetCalls();
+	const source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao] });
+	const ally = makePlayer({ name: "友方", side: true, hp: 3, skills: ["a"] });
+	const target = makePlayer({ name: "敌人", side: false, hp: 2, hand: [], skills: [], aiChoice: true });
+	game.players = [source, ally, target];
+	game.me = source;
+	let sideAtVictory = null;
+	const originalOver = game.over;
+	game.over = function (result) {
+		sideAtVictory = target.side;
+		return originalOver.call(this, result);
+	};
+	try {
+		await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	} finally {
+		game.over = originalOver;
+	}
+	equal(target.aiResults.length, 1, "应执行目标 chooseBool 的 AI 回调");
+	equal(target.aiResults[0].result, true, "目标 AI 应接受");
+	assert(target.aiResults[0].prompt.includes("加入"), "应执行加入阵营的 AI 回调");
+	equal(target.side, true, "目标应实际加入");
+	equal(target.chats.join(""), "其实，我早就找回奥特精神了", "加入后应发言");
+	equal(game.overCalls.length, 1, "成功加入后应调用本体侧阵营胜负检查");
+	equal(game.overCalls[0], true, "高斯应判定为胜方");
+	equal(sideAtVictory, true, "胜负检查应发生在加入阵营之后");
+	equal(game.checkResultCalls, 0, "侧阵营不应调用身份胜负检查");
+});
+
+await check("感化 AI：身份模式隐藏目标按自身信息决策并调用 checkResult", async () => {
+	resetRecruitState("identity");
+	resetCalls();
+	const source = makePlayer({ name: "月神高斯", identity: "zhong", identityShown: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	const zhu = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, hp: 4, skills: [] });
+	const target = makePlayer({ name: "未亮身份", identity: "fan", hp: 1, hand: [], skills: [], aiChoice: true });
+	game.players = [source, zhu, target];
+	game.zhu = zhu;
+	game.me = source;
+	assert(skills.ysganhua.shared.getRecruitTargetValue(source, target) > 0, "高斯侧公开预测应认为治疗可招降");
+	target.hp = 2;
+	let identityAtVictory = null;
+	const originalCheckResult = game.checkResult;
+	game.checkResult = function () {
+		identityAtVictory = target.identity;
+		return originalCheckResult.call(this);
+	};
+	try {
+		await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	} finally {
+		game.checkResult = originalCheckResult;
+	}
+	equal(target.aiResults.length, 1, "应执行目标 chooseBool 的 AI 回调");
+	equal(target.aiResults[0].result, true, "目标应使用自身身份信息接受");
+	equal(target.identity, "zhong", "目标应加入忠臣阵营");
+	equal(identityAtVictory, "zhong", "身份胜负检查应发生在身份变更之后");
+	equal(game.checkResultCalls, 1, "成功加入后应调用本体身份胜负检查");
+	equal(game.overCalls.length, 0, "身份模式不应调用 side 胜负检查");
+});
+
+await check("感化 AI：chooseBool 实际回调拒绝后保留变身决策", async () => {
+	resetRecruitState();
+	resetCalls();
+	const source = makePlayer({ name: "月神高斯", side: true, hp: 1, hand: [], skills: ["ysmanyue", "ysganhua"], aiChoice: true });
+	const target = makePlayer({ name: "强敌", side: false, hp: 3, hand: repeatCard(3), equipment: repeatCard(3), skills: ["a", "b", "c"], aiChoice: true });
+	game.players = [source, target];
+	game.me = source;
+	equal(skills.ysganhua.shared.getRecruitTargetValue(source, target), 0, "强敌不应被治疗 AI 预判为可招降");
+	target.hp = 4;
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.aiResults.length, 1, "应执行目标 chooseBool 的 AI 回调");
+	equal(target.aiResults[0].result, false, "目标 AI 应拒绝");
+	equal(target.side, false, "拒绝后不得加入");
+	equal(target.chats.join(""), "但是我拒绝", "拒绝后应发言");
+	equal(source.aiResults.length, 1, "高斯应执行变身 chooseBool 的 AI 回调");
+	equal(source.aiResults[0].result, true, "高斯 AI 应选择变身");
+	equal(source.name1, "日蚀高斯", "拒绝后应保留自主变身逻辑");
+	equal(game.overCalls.length, 0, "拒绝后不得判胜");
+	equal(game.checkResultCalls, 0, "拒绝后不得调用身份胜负检查");
+});
+
 await check("感化：侧阵营尚有敌人时不提前结束", async () => {
 	_status.mode = "versus";
 	resetCalls();
@@ -949,10 +1248,7 @@ function loadHostMethod(source, name) {
 await check("满月 AI：本体 effect_use/effect 实际调用招降权重", () => {
 	_status.mode = "versus";
 	const hostFile = path.join(root, "..", "..", "src", "noname", "get", "index.js");
-	if (!fs.existsSync(hostFile)) {
-		console.log("  skip 本体源码不存在，无法验证 AI 调用路径");
-		return;
-	}
+	assert(fs.existsSync(hostFile), "本体源码不存在，无法验证 AI 调用路径");
 	const contentFile = path.join(root, "..", "..", "src", "noname", "library", "element", "content.ts");
 	const contentSource = fs.readFileSync(contentFile, "utf8");
 	assert(contentSource.includes('next.set("ai", event.ai || get.effect_use);'), "本体使用牌目标选择应走 get.effect_use");
@@ -1059,10 +1355,7 @@ function installHostTargetChain() {
 await check("满月：本体 selectTarget 链路把普通/转换桃限制为单目标", () => {
 	_status.mode = "versus";
 	const chain = installHostTargetChain();
-	if (!chain) {
-		console.log("  skip 本体源码不存在，无法验证目标数量链路");
-		return;
-	}
+	assert(chain, "本体源码不存在，无法验证目标数量链路");
 	const playerFile = path.join(root, "..", "..", "src", "noname", "library", "element", "player.js");
 	assert(fs.readFileSync(playerFile, "utf8").includes("next.selectTarget = lib.filter.selectTarget;"), "chooseToUse 应默认使用 lib.filter.selectTarget");
 	game.zhu = null;
@@ -1111,10 +1404,7 @@ await check("满月：本体 selectTarget 链路把普通/转换桃限制为单�
 await check("满月：三名受伤角色只回复被选中者，感化只跟该目标", async () => {
 	_status.mode = "versus";
 	const chain = installHostTargetChain();
-	if (!chain) {
-		console.log("  skip 本体源码不存在，无法验证目标数量链路");
-		return;
-	}
+	assert(chain, "本体源码不存在，无法验证目标数量链路");
 	game.zhu = null;
 	game.friendZhu = null;
 	game.enemyZhu = null;
