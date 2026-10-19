@@ -27,7 +27,45 @@ function loadExports(file, names) {
 
 function makeCard(name, suit, number, type = "basic", tags = {}) {
 	const color = suit === "heart" || suit === "diamond" ? "red" : suit === "spade" || suit === "club" ? "black" : "none";
-	return { name, suit, number, type, color, tags };
+	const card = {
+		name,
+		suit,
+		number,
+		type,
+		color,
+		tags,
+		gaintag: [],
+		node: { gaintag: { innerHTML: "" } },
+		classList: {
+			values: new Set(),
+			add(...classes) {
+				classes.forEach(className => this.values.add(className));
+			},
+			remove(...classes) {
+				classes.forEach(className => this.values.delete(className));
+			},
+			contains(className) {
+				return this.values.has(className);
+			},
+		},
+		updateGaintagNode() {
+			this.node.gaintag.innerHTML = this.gaintag.map(tag => get.translation(tag)).join(" ");
+		},
+		addGaintag(tag) {
+			if (Array.isArray(tag)) this.gaintag = tag.slice();
+			else if (!this.gaintag.includes(tag)) this.gaintag.push(tag);
+			this.updateGaintagNode();
+		},
+		removeGaintag(tag) {
+			if (tag === true) this.gaintag = [];
+			else this.gaintag = this.gaintag.filter(item => item !== tag);
+			this.updateGaintagNode();
+		},
+		hasGaintag(tag) {
+			return this.gaintag.includes(tag);
+		},
+	};
+	return card;
 }
 
 const _status = { mode: "identity", event: null };
@@ -157,6 +195,12 @@ const get = {
 	priority() {
 		return 0;
 	},
+	owner(card) {
+		for (const player of game.players) {
+			if (player.getCards("hejsx").includes(card)) return player;
+		}
+		return null;
+	},
 };
 let skillTable;
 const lib = {
@@ -203,6 +247,7 @@ const loadMeta = loadExports(path.join(pack, "characters-meta.js"), ["characterT
 const meta = loadMeta(lib, game, ui, get, ai, _status);
 const loadTranslate = loadExports(path.join(pack, "translate.js"), ["skillTranslate"]);
 const skillTranslate = loadTranslate(lib, game, ui, get, ai, _status).skillTranslate;
+Object.assign(lib.translate, skillTranslate, { other_skill_tag: "其他技能标记" });
 
 function makePlayer(options = {}) {
 	const name = options.name ?? "月神高斯";
@@ -231,6 +276,7 @@ function makePlayer(options = {}) {
 		aiResults: [],
 		drawCalls: [],
 		gainCalls: [],
+		gaintagCalls: [],
 		recoverCalls: [],
 		onRecover: options.onRecover,
 		calls: [],
@@ -271,6 +317,7 @@ function makePlayer(options = {}) {
 			if (position === "h") return this.hand;
 			if (position === "e") return this.equipment;
 			if (position === "j") return this.judge;
+			if (position === "hejsx") return [...this.hand, ...this.equipment, ...this.judge];
 			return [...this.hand, ...this.equipment];
 		},
 		hasCards(position, filter) {
@@ -301,6 +348,19 @@ function makePlayer(options = {}) {
 			this.gainCalls.push({ cards: gained, animate });
 			return gained;
 		},
+		addGaintag(cards, tag) {
+			const list = Array.isArray(cards) ? cards : [cards];
+			const owned = this.getCards("hejsx");
+			for (const card of list) {
+				if (owned.includes(card)) card.addGaintag(tag);
+			}
+			this.gaintagCalls.push({ cards: list, tag, action: "add" });
+		},
+		removeGaintag(tag, cards) {
+			const list = cards ? (Array.isArray(cards) ? cards : [cards]) : this.getCards("h");
+			for (const card of list) card.removeGaintag(tag);
+			this.gaintagCalls.push({ cards: list, tag, action: "remove" });
+		},
 		async changeCharacter(names) {
 			this.calls.push(["changeCharacter", names]);
 			this.name1 = names[0];
@@ -310,12 +370,17 @@ function makePlayer(options = {}) {
 		},
 		async removeSkills(skill) {
 			const list = Array.isArray(skill) ? skill : [skill];
-			this.skills = this.skills.filter(item => !list.includes(item));
+			for (const item of list) {
+				if (!this.skills.includes(item)) continue;
+				this.skills = this.skills.filter(current => current !== item);
+				lib.skill[item]?.onremove?.(this, item);
+			}
 		},
 		async addSkills(skill) {
 			const list = Array.isArray(skill) ? skill : [skill];
 			for (const item of list) {
 				if (!this.skills.includes(item)) this.skills.push(item);
+				lib.skill[item]?.init2?.(this, item);
 			}
 		},
 		async changeGroup(group) {
@@ -1684,6 +1749,144 @@ await check("日蚀：准备阶段补齐少类并随机从牌堆获得实体牌"
 		Math.random = originalRandom;
 		ui.cardPile = { childNodes: [] };
 	}
+});
+
+await check("日蚀牌面标记：四花色六效果各自成对并支持多标记", () => {
+	const shared = skills.rsrishi.shared;
+	assert(shared && typeof shared.getCardMarkTags === "function", "应提供牌面标记计算");
+	const tagsFor = suit => shared.getCardMarkTags(makeCard("sha", suit, 1, "basic", { damage: 1 }));
+	equal(JSON.stringify(tagsFor("heart")), JSON.stringify(["rsrishi_mark_red", "rsrishi_mark_heart"]), "红桃牌标记");
+	equal(JSON.stringify(tagsFor("diamond")), JSON.stringify(["rsrishi_mark_red", "rsrishi_mark_diamond"]), "方块牌标记");
+	equal(JSON.stringify(tagsFor("spade")), JSON.stringify(["rsrishi_mark_black", "rsrishi_mark_spade"]), "黑桃牌标记");
+	equal(JSON.stringify(tagsFor("club")), JSON.stringify(["rsrishi_mark_black", "rsrishi_mark_club"]), "梅花牌标记");
+	const labels = {
+		rsrishi_mark_red: "再结算",
+		rsrishi_mark_black: "免响应",
+		rsrishi_mark_heart: "穿甲",
+		rsrishi_mark_diamond: "无距",
+		rsrishi_mark_spade: "伤+1",
+		rsrishi_mark_club: "无限",
+	};
+	for (const [tag, label] of Object.entries(labels)) {
+		equal(skillTranslate[tag], label, `${tag} 应是供本体 gaintag 直接渲染的纯文本`);
+		assert(!String(skillTranslate[tag]).includes("<"), `${tag} 不得内嵌自定义 DOM`);
+	}
+	const modified = makeCard("sha", "spade", 1, "basic", { damage: 1 });
+	modified.color = "red";
+	equal(JSON.stringify(shared.getCardMarkTags(modified)), JSON.stringify(["rsrishi_mark_red", "rsrishi_mark_spade"]), "颜色与花色被修改时分别叠加");
+	const colorless = makeCard("sha", "none", 1, "basic", {});
+	colorless.color = "black";
+	equal(JSON.stringify(shared.getCardMarkTags(colorless)), JSON.stringify(["rsrishi_mark_black"]), "无花色只显示颜色效果");
+	equal(JSON.stringify(shared.getCardMarkTags({ name: "sha", suit: "unsure", color: "unsure", cards: [] })), "[]", "不确定花色与复合虚拟牌不显示标记");
+});
+
+await check("日蚀牌面标记：给予、失去、使用与花色变化后实时刷新", async () => {
+	const shared = skills.rsrishi.shared;
+	const mark = skills.rsrishi.subSkill.mark;
+	assert(mark, "应存在牌面标记子技能");
+	assert(skills.rsrishi.group.includes("rsrishi_mark"), "日蚀组应包含标记子技能");
+	const triggerEvents = [].concat(mark.trigger?.player ?? [], mark.trigger?.global ?? []);
+	for (const eventName of ["gainAfter", "loseAfter", "changeSkillsAfter", "phaseBegin"]) {
+		assert(triggerEvents.includes(eventName), `应在 ${eventName} 后刷新标记`);
+	}
+	const heart = makeCard("tao", "heart", 3, "basic", { recover: 1 });
+	const spade = makeCard("sha", "spade", 5, "basic", { damage: 1 });
+	const club = makeCard("sha", "club", 6, "basic", { damage: 1 });
+	const diamond = makeCard("shan", "diamond", 2, "basic", { respondShan: 1 });
+	heart.addGaintag("other_skill_tag");
+	const player = makePlayer({ name: "日蚀高斯", skills: ["rsrishi"], hand: [heart, spade, club, diamond] });
+	game.players = [player];
+	shared.refreshMarks(player);
+	const expected = new Map([
+		[heart, ["rsrishi_mark_red", "rsrishi_mark_heart"]],
+		[spade, ["rsrishi_mark_black", "rsrishi_mark_spade"]],
+		[club, ["rsrishi_mark_black", "rsrishi_mark_club"]],
+		[diamond, ["rsrishi_mark_red", "rsrishi_mark_diamond"]],
+	]);
+	for (const [card, tags] of expected) {
+		for (const tag of tags) assert(card.hasGaintag(tag), `${card.suit}牌应显示 ${skillTranslate[tag]}`);
+		const ours = card.gaintag.filter(tag => tag.startsWith("rsrishi_mark_"));
+		equal(JSON.stringify(ours), JSON.stringify(tags), `${card.suit}牌不应混入其他日蚀标记`);
+	}
+	assert(heart.hasGaintag("other_skill_tag"), "不得移除其他技能的牌面标记");
+	equal(heart.node.gaintag.innerHTML, heart.gaintag.map(tag => get.translation(tag)).join(" "), "本体 gaintag 应原样拼接多个标记文案");
+	assert(heart.node.gaintag.innerHTML.includes("再结算") && heart.node.gaintag.innerHTML.includes("穿甲"), "多标记文案应同时可见");
+	equal(`${heart.suit}/${heart.color}/${heart.number}`, "heart/red/3", "刷新标记不得改实体牌属性");
+
+	player.hand = player.hand.filter(card => card !== spade);
+	await mark.content({}, {}, player);
+	assert(!spade.hasGaintag("rsrishi_mark_black") && !spade.hasGaintag("rsrishi_mark_spade"), "使用或失去后应清理离手牌标记");
+	assert(!player.rsrishiMarkedCards.includes(spade), "离手牌应移出标记跟踪");
+
+	const gained = makeCard("tao", "heart", 7, "basic", { recover: 1 });
+	player.hand.push(gained);
+	await mark.content({}, {}, player);
+	assert(gained.hasGaintag("rsrishi_mark_red") && gained.hasGaintag("rsrishi_mark_heart"), "获得手牌后应补上标记");
+
+	club.suit = "heart";
+	club.color = "red";
+	await mark.content({}, {}, player);
+	assert(club.hasGaintag("rsrishi_mark_red") && club.hasGaintag("rsrishi_mark_heart"), "花色变化后应换用新标记");
+	assert(!club.hasGaintag("rsrishi_mark_black") && !club.hasGaintag("rsrishi_mark_club"), "花色变化后应移除旧标记");
+
+	club.suit = "none";
+	club.color = "none";
+	await mark.content({}, {}, player);
+	assert(!club.gaintag.some(tag => tag.startsWith("rsrishi_mark_")), "颜色与花色均无效时不应保留标记");
+
+	const receiver = makePlayer({ name: "迪迦", skills: [], hand: [] });
+	diamond.addGaintag("other_skill_tag");
+	game.players = [player, receiver];
+	player.hand = player.hand.filter(card => card !== diamond);
+	receiver.hand.push(diamond);
+	await mark.content({}, {}, player);
+	assert(!diamond.gaintag.some(tag => tag.startsWith("rsrishi_mark_")), "转移给没有日蚀的角色后不得残留标记");
+	assert(diamond.hasGaintag("other_skill_tag"), "转移时不得清除其他技能标记");
+
+	const otherEclipse = makePlayer({ name: "日蚀高斯B", skills: ["rsrishi"], hand: [] });
+	game.players = [player, otherEclipse];
+	player.hand = player.hand.filter(card => card !== heart);
+	otherEclipse.hand.push(heart);
+	await mark.content({}, {}, player);
+	assert(heart.hasGaintag("rsrishi_mark_red") && heart.hasGaintag("rsrishi_mark_heart"), "转移给另一名日蚀时旧持有者不得误清标记");
+	await mark.content({}, {}, otherEclipse);
+	assert(heart.hasGaintag("rsrishi_mark_red") && heart.hasGaintag("rsrishi_mark_heart"), "新持有者应继续显示日蚀标记");
+});
+
+await check("日蚀牌面标记：技能获得、失去与月神变身日蚀后刷新", async () => {
+	const shared = skills.ysganhua.shared;
+	const heart = makeCard("tao", "heart", 8, "basic", { recover: 1 });
+	const spade = makeCard("sha", "spade", 9, "basic", { damage: 1 });
+	const moon = makePlayer({ name: "月神高斯", skills: ["ysmanyue", "ysganhua"], hand: [heart, spade] });
+	game.players = [moon];
+	assert(!heart.gaintag.some(tag => tag.startsWith("rsrishi_mark_")), "变身前的月神不应有日蚀标记");
+	await shared.switchToEclipse(moon);
+	assert(moon.skills.includes("rsrishi"), "变身后应获得日蚀");
+	assert(heart.hasGaintag("rsrishi_mark_red") && heart.hasGaintag("rsrishi_mark_heart"), "变身时红桃牌应立即标记");
+	assert(spade.hasGaintag("rsrishi_mark_black") && spade.hasGaintag("rsrishi_mark_spade"), "变身时黑桃牌应立即标记");
+	heart.addGaintag("other_skill_tag");
+	await moon.removeSkills("rsrishi");
+	assert(!heart.gaintag.some(tag => tag.startsWith("rsrishi_mark_")) && !spade.gaintag.some(tag => tag.startsWith("rsrishi_mark_")), "失去日蚀后应清理全部日蚀标记");
+	assert(heart.hasGaintag("other_skill_tag"), "失去日蚀不得影响其他技能标记");
+
+	const club = makeCard("sha", "club", 10, "basic", { damage: 1 });
+	const eclipse = makePlayer({ name: "日蚀高斯", skills: ["rsrishi"], hand: [club] });
+	game.players = [eclipse];
+	skills.rsrishi.init2(eclipse, "rsrishi");
+	assert(club.hasGaintag("rsrishi_mark_black") && club.hasGaintag("rsrishi_mark_club"), "获得日蚀时应为现有手牌补标记");
+	skills.rsrishi.onremove(eclipse, "rsrishi");
+	assert(!club.gaintag.some(tag => tag.startsWith("rsrishi_mark_")), "onremove 应清理现有手牌标记");
+});
+
+await check("日蚀牌面标记：只调用本体 gaintag，不注入自定义样式或 DOM", () => {
+	const source = fs.readFileSync(path.join(pack, "skills.js"), "utf8");
+	assert(!source.includes("markStyleText"), "不得保留自定义标记样式表");
+	assert(!source.includes("rsrishi-mark"), "不得内嵌自定义标记 DOM 类名");
+	assert(!source.includes("ensureStyles"), "不得注入样式表");
+	assert(!source.includes('document.createElement("style")'), "不得创建自定义样式节点");
+	assert(source.includes("player.addGaintag"), "应通过本体 Player.addGaintag 添加标记");
+	assert(source.includes("player.removeGaintag"), "应通过本体 Player.removeGaintag 清理标记");
+	assert(source.includes("card.hasGaintag"), "更新时应读取本体 gaintag 状态");
 });
 
 await check("日蚀：红/黑、红心/方块/黑桃/梅花效果可叠加", async () => {

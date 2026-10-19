@@ -3812,6 +3812,7 @@ export const skills = {
 				if (player.hasSkill("ysmanyue")) await player.removeSkills("ysmanyue");
 				if (player.hasSkill("ysganhua")) await player.removeSkills("ysganhua");
 				if (!player.hasSkill("rsrishi")) await player.addSkills("rsrishi");
+				lib.skill.rsrishi.shared.refreshMarks(player);
 				game.log(player, "将武将牌切换为【日蚀高斯】");
 				return true;
 			},
@@ -3873,7 +3874,79 @@ export const skills = {
 	},
 	rsrishi: {
 		locked: true,
-		group: ["rsrishi_use", "rsrishi_heart", "rsrishi_spade", "rsrishi_prepare"],
+		group: ["rsrishi_use", "rsrishi_heart", "rsrishi_spade", "rsrishi_prepare", "rsrishi_mark"],
+		shared: {
+			markTags: [
+				"rsrishi_mark_red",
+				"rsrishi_mark_black",
+				"rsrishi_mark_heart",
+				"rsrishi_mark_diamond",
+				"rsrishi_mark_spade",
+				"rsrishi_mark_club",
+			],
+			getCardMarkTags(card) {
+				const marks = [];
+				if (!card) return marks;
+				const color = get.color(card);
+				const suit = get.suit(card);
+				if (color === "red") marks.push("rsrishi_mark_red");
+				else if (color === "black") marks.push("rsrishi_mark_black");
+				if (suit === "heart") marks.push("rsrishi_mark_heart");
+				else if (suit === "diamond") marks.push("rsrishi_mark_diamond");
+				else if (suit === "spade") marks.push("rsrishi_mark_spade");
+				else if (suit === "club") marks.push("rsrishi_mark_club");
+				return marks;
+			},
+			canKeepMarks(player, card) {
+				const owner = get.owner?.(card);
+				return Boolean(owner && owner !== player && owner.hasSkill?.("rsrishi") && (owner.getCards?.("h") ?? []).includes(card));
+			},
+			clearCardMarks(player, card) {
+				if (!player || !card || this.canKeepMarks(player, card)) return;
+				for (const tag of this.markTags) {
+					if (card.hasGaintag?.(tag)) player.removeGaintag(tag, [card]);
+				}
+			},
+			clearMarks(player) {
+				if (!player) return;
+				const cards = [...new Set([...(player.rsrishiMarkedCards ?? []), ...(player.getCards?.("h") ?? [])])];
+				for (const card of cards) this.clearCardMarks(player, card);
+				player.rsrishiMarkedCards = [];
+			},
+			refreshMarks(player) {
+				if (!player) return;
+				if (!player.hasSkill?.("rsrishi")) {
+					this.clearMarks(player);
+					return;
+				}
+				const hand = player.getCards?.("h") ?? [];
+				for (const card of player.rsrishiMarkedCards ?? []) {
+					if (!hand.includes(card)) this.clearCardMarks(player, card);
+				}
+				const marked = [];
+				for (const card of hand) {
+					const desired = this.getCardMarkTags(card);
+					const current = this.markTags.filter(tag => card.hasGaintag?.(tag));
+					if (current.length === desired.length && current.every((tag, index) => tag === desired[index])) {
+						if (desired.length) marked.push(card);
+						continue;
+					}
+					for (const tag of current) player.removeGaintag(tag, [card]);
+					for (const tag of desired) player.addGaintag(card, tag);
+					if (desired.length) marked.push(card);
+				}
+				player.rsrishiMarkedCards = marked;
+			},
+		},
+		init(player) {
+			lib.skill.rsrishi.shared.refreshMarks(player);
+		},
+		init2(player) {
+			lib.skill.rsrishi.shared.refreshMarks(player);
+		},
+		onremove(player) {
+			lib.skill.rsrishi.shared.clearMarks(player);
+		},
 		mod: {
 			targetInRange(card) {
 				if (get.suit(card) === "diamond") return true;
@@ -3883,6 +3956,19 @@ export const skills = {
 			},
 		},
 		subSkill: {
+			mark: {
+				trigger: { player: ["gainAfter", "loseAfter", "changeSkillsAfter", "phaseBegin"] },
+				forced: true,
+				silent: true,
+				popup: false,
+				nopop: true,
+				filter(event, player) {
+					return player.hasSkill("rsrishi");
+				},
+				async content(event, trigger, player) {
+					lib.skill.rsrishi.shared.refreshMarks(player);
+				},
+			},
 			prepare: {
 				trigger: { player: "phaseZhunbeiBegin" },
 				forced: true,

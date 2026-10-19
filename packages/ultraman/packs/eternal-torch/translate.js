@@ -90,4 +90,10 @@ export const skillTranslate = {
 	ysganhua_info: "当你令其他角色回复体力后，若其不为主公或地主，其可以加入你的阵营或将身份牌换为与你一致，若其拒绝，你可以将武将牌切换为日蚀高斯。",
 	rsrishi: "日蚀",
 	rsrishi_info: "锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；红心牌无视防具；方块牌无距离限制；黑桃牌造成的伤害+1；梅花牌不计入次数且无次数限制。准备阶段，若你手牌中的伤害牌与非伤害牌数量不相等，你随机从牌堆中获得数量较少类别的牌，直至两类牌数量相等或牌堆中没有符合条件的牌。",
+	rsrishi_mark_red: "再结算",
+	rsrishi_mark_black: "免响应",
+	rsrishi_mark_heart: "穿甲",
+	rsrishi_mark_diamond: "无距",
+	rsrishi_mark_spade: "伤+1",
+	rsrishi_mark_club: "无限",
 };
