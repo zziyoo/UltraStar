@@ -146,6 +146,16 @@ const get = {
 	card() {
 		return _status.event?._get_card;
 	},
+	copy(value) {
+		return Array.isArray(value) ? value.slice() : value;
+	},
+	itemtype(value) {
+		if (Array.isArray(value) && value.length === 2 && value.every(Number.isFinite)) return "select";
+		return undefined;
+	},
+	priority() {
+		return 0;
+	},
 };
 let skillTable;
 const lib = {
@@ -157,6 +167,13 @@ const lib = {
 	skill: {},
 	card: {
 		tao: {
+			selectTarget: -1,
+			filterTarget(card, player, target) {
+				return target === player && target.isDamaged();
+			},
+			async content(event) {
+				await event.target.recover();
+			},
 			ai: {
 				result: {
 					target_use: () => 2,
@@ -210,6 +227,8 @@ function makePlayer(options = {}) {
 		judge: (options.judge ?? []).slice(),
 		choices: (options.choices ?? []).slice(),
 		drawCalls: [],
+		recoverCalls: [],
+		onRecover: options.onRecover,
 		calls: [],
 		chats: [],
 		stat: { card: { sha: 1 } },
@@ -222,6 +241,14 @@ function makePlayer(options = {}) {
 		},
 		isOut() {
 			return false;
+		},
+		isDead() {
+			return false;
+		},
+		removed: false,
+		async recover() {
+			this.recoverCalls.push(this);
+			if (typeof this.onRecover === "function") await this.onRecover(this);
 		},
 		isUnseen(num) {
 			return Boolean(this.unseen?.[num]);
@@ -368,7 +395,9 @@ await check("角色、技能与替换注册齐全", () => {
 		equal(info.group, "ao", `${name} 势力`);
 		equal(info.hp, 4, `${name} 体力`);
 		equal(info.names, "null|高斯", `${name} names`);
-		assert(!("img" in info), `${name} 不应引用不存在的立绘`);
+		if (info.img?.startsWith("extension/奥特之星/")) {
+			assert(fs.existsSync(path.join(root, info.img.slice("extension/奥特之星/".length))), `${name} 引用的立绘文件应存在`);
+		}
 	}
 	equal(characters["月神高斯"].skills.join(","), "ysmanyue,ysganhua", "月神高斯技能");
 	equal(characters["日蚀高斯"].skills.join(","), "rsrishi", "日蚀高斯技能");
@@ -438,7 +467,14 @@ await check("满月：伤害牌禁止原样使用/打出，桃可对其他角色
 	game.players = [player, other];
 	equal(skills.ysmanyue.mod.cardEnabled(sha, player), false, "伤害牌原样使用");
 	equal(skills.ysmanyue.mod.cardEnabled(tao, player), true, "满血时可对其他受伤角色用桃");
-	equal(JSON.stringify(skills.ysmanyue.mod.selectTarget(tao)), "[1,1]", "桃保持单目标");
+	_status.event = { name: "chooseToUse", type: "phase" };
+	const range = [-1, -1];
+	skills.ysmanyue.mod.selectTarget(tao, player, range);
+	equal(JSON.stringify(range), "[1,1]", "出牌阶段桃应原地改为单目标");
+	_status.event = { name: "chooseToUse", type: "dying" };
+	const dyingRange = [-1, -1];
+	skills.ysmanyue.mod.selectTarget(tao, player, dyingRange);
+	equal(JSON.stringify(dyingRange), "[-1,-1]", "濒死救援不修改本体目标范围");
 	_status.event = { name: "chooseToRespond", type: "sha" };
 	equal(skills.ysmanyue.mod.cardRespondable(sha, player), false, "杀不能原样打出");
 	_status.event = { name: "chooseToRespond", type: "sha", skill: "ysmanyue_backup" };
@@ -877,7 +913,8 @@ function findMatchingBrace(source, open) {
 }
 
 function loadHostMethod(source, name) {
-	const start = source.indexOf(`\n\t${name}(`);
+	const match = source.match(new RegExp(`\\n\\t+${name}\\(`));
+	const start = match ? match.index : -1;
 	if (start < 0) throw new Error(`本体缺少 ${name}`);
 	const open = source.indexOf("{", start);
 	const close = findMatchingBrace(source, open);
@@ -979,6 +1016,141 @@ await check("满月 AI：本体 effect_use/effect 实际调用招降权重", () 
 	_status.event = { player: weakSource, skill: "ysmanyue_backup" };
 	assert(effectUse(strongEnemy, tao, weakSource, weakSource) <= 0, "无招降价值时本体 effect_use 不应鼓励治疗敌人");
 	assert(effect(strongEnemy, tao, weakSource, weakSource) <= 0, "无招降价值时本体 effect 不应鼓励治疗敌人");
+});
+
+function loadSaveFilterTarget(source) {
+	const saveStart = source.indexOf("async _save(");
+	if (saveStart < 0) return null;
+	const saveOpen = source.indexOf("{", saveStart);
+	const saveClose = findMatchingBrace(source, saveOpen);
+	if (saveClose < 0) return null;
+	const saveSource = source.slice(saveStart, saveClose + 1);
+	const marker = "filterTarget(card, player, target) {";
+	const start = saveSource.indexOf(marker);
+	if (start < 0) return null;
+	const open = saveSource.indexOf("{", start);
+	const close = findMatchingBrace(saveSource, open);
+	if (close < 0) return null;
+	const method = saveSource.slice(start, close + 1);
+	return new Function("get", "game", "ui", "_status", "lib", `return (function ${method});`)(get, game, ui, _status, lib);
+}
+
+let hostTargetChain;
+function installHostTargetChain() {
+	if (hostTargetChain) return hostTargetChain;
+	const src = path.join(root, "..", "..", "src", "noname");
+	const gameFile = path.join(src, "game", "index.js");
+	const libFile = path.join(src, "library", "index.js");
+	const getFile = path.join(src, "get", "index.js");
+	if (!fs.existsSync(gameFile) || !fs.existsSync(libFile) || !fs.existsSync(getFile)) return null;
+	const checkMod = loadHostMethod(fs.readFileSync(gameFile, "utf8"), "checkMod");
+	const selectTarget = loadHostMethod(fs.readFileSync(libFile, "utf8"), "selectTarget");
+	const targetEnabled = loadHostMethod(fs.readFileSync(libFile, "utf8"), "targetEnabled");
+	const select = loadHostMethod(fs.readFileSync(getFile, "utf8"), "select");
+	game.checkMod = checkMod;
+	lib.filter.selectTarget = selectTarget;
+	lib.filter.targetEnabled = targetEnabled;
+	get.select = select;
+	hostTargetChain = { checkMod, selectTarget, targetEnabled, select };
+	return hostTargetChain;
+}
+
+await check("满月：本体 selectTarget 链路把普通/转换桃限制为单目标", () => {
+	_status.mode = "versus";
+	const chain = installHostTargetChain();
+	if (!chain) {
+		console.log("  skip 本体源码不存在，无法验证目标数量链路");
+		return;
+	}
+	const playerFile = path.join(root, "..", "..", "src", "noname", "library", "element", "player.js");
+	assert(fs.readFileSync(playerFile, "utf8").includes("next.selectTarget = lib.filter.selectTarget;"), "chooseToUse 应默认使用 lib.filter.selectTarget");
+	game.zhu = null;
+	game.friendZhu = null;
+	game.enemyZhu = null;
+	game.boss = null;
+	const source = makePlayer({ name: "月神高斯", side: true, hp: 2, hand: [tao], skills: ["ysmanyue", "ysganhua"] });
+	const ally = makePlayer({ name: "友方", side: true, hp: 2, hand: [], skills: [] });
+	const enemy = makePlayer({ name: "敌方", side: false, hp: 2, hand: [], skills: [] });
+	game.players = [source, ally, enemy];
+	const converted = { name: "tao", type: "basic", suit: "heart", number: 3, color: "red", tags: {}, cards: [shandian], isCard: false };
+	for (const [label, card] of [
+		["普通桃", tao],
+		["转换桃", converted],
+	]) {
+		_status.event = { name: "chooseToUse", type: "phase", player: source, _get_card: card, selectTarget: lib.filter.selectTarget };
+		const range = get.select(_status.event.selectTarget);
+		equal(range[0], 1, `${label} 目标下限应为1`);
+		equal(range[1], 1, `${label} 目标上限应为1`);
+	}
+	for (const [label, target] of [
+		["自己", source],
+		["友方", ally],
+		["敌方", enemy],
+	]) {
+		assert(chain.targetEnabled.call(lib.filter, converted, source, target), `${label}受伤时应可选`);
+	}
+	const healthyEnemy = makePlayer({ name: "健康敌人", side: false, hp: 4, hand: [], skills: [] });
+	game.players.push(healthyEnemy);
+	assert(!chain.targetEnabled.call(lib.filter, converted, source, healthyEnemy), "未受伤敌人不应可选");
+	const dying = makePlayer({ name: "濒死角色", side: true, hp: 0, hand: [], skills: [] });
+	game.players.push(dying);
+	_status.event = { name: "chooseToUse", type: "dying", player: source, dying, _get_card: converted, selectTarget: lib.filter.selectTarget };
+	const dyingRange = get.select(_status.event.selectTarget);
+	equal(dyingRange[0], -1, "濒死救援保留本体目标下限");
+	equal(dyingRange[1], -1, "濒死救援保留本体目标上限");
+	const contentSource = fs.readFileSync(path.join(root, "..", "..", "src", "noname", "library", "element", "content.ts"), "utf8");
+	const saveFilter = loadSaveFilterTarget(contentSource);
+	assert(saveFilter, "应能读取本体濒死救援 filterTarget");
+	ui.selected = { targets: [] };
+	assert(saveFilter(converted, source, dying), "濒死目标应可被桃救援");
+	assert(!saveFilter(converted, source, ally), "濒死救援不应选择友方");
+	assert(!saveFilter(converted, source, enemy), "濒死救援不应选择敌方");
+});
+
+await check("满月：三名受伤角色只回复被选中者，感化只跟该目标", async () => {
+	_status.mode = "versus";
+	const chain = installHostTargetChain();
+	if (!chain) {
+		console.log("  skip 本体源码不存在，无法验证目标数量链路");
+		return;
+	}
+	game.zhu = null;
+	game.friendZhu = null;
+	game.enemyZhu = null;
+	game.boss = null;
+	const source = makePlayer({ name: "月神高斯", side: true, hp: 2, hand: [tao], skills: ["ysmanyue", "ysganhua"] });
+	const ally = makePlayer({ name: "友方", side: true, hp: 2, hand: [], skills: [] });
+	const enemy = makePlayer({ name: "敌方", side: false, hp: 2, hand: [], skills: [] });
+	game.players = [source, ally, enemy];
+	const converted = { name: "tao", type: "basic", suit: "heart", number: 3, color: "red", tags: {}, cards: [shandian], isCard: false };
+	_status.event = { name: "chooseToUse", type: "phase", player: source, _get_card: converted, selectTarget: lib.filter.selectTarget };
+	const range = get.select(_status.event.selectTarget);
+	equal(range[0], 1, "三名受伤角色时目标下限为1");
+	equal(range[1], 1, "三名受伤角色时目标上限为1");
+	for (const selected of [source, ally, enemy]) {
+		let recoverAfterTargets = [];
+		let ganhuaTargets = [];
+		for (const current of game.players) {
+			current.recoverCalls.length = 0;
+			current.onRecover = current => {
+				recoverAfterTargets.push(current);
+				if (skills.ysganhua.filter({ source, player: current, num: 1 }, source)) ganhuaTargets.push(current);
+			};
+		}
+		await lib.card.tao.content({ target: selected, card: converted, cards: [shandian] }, null, source);
+		equal(selected.recoverCalls.length, 1, `${selected.name} 应回复一次`);
+		for (const other of game.players.filter(current => current !== selected)) {
+			equal(other.recoverCalls.length, 0, `${other.name} 不应被自动治疗`);
+		}
+		equal(recoverAfterTargets.length, 1, "只应产生一个 recoverAfter");
+		equal(recoverAfterTargets[0], selected, "recoverAfter 应只指向被选中者");
+		if (selected === source) {
+			equal(ganhuaTargets.length, 0, "自己回复不应触发感化");
+		} else {
+			equal(ganhuaTargets.length, 1, "被选中的其他角色应只触发一次感化");
+			equal(ganhuaTargets[0], selected, "感化应只指向被选中者");
+		}
+	}
 });
 
 await check("日蚀：红/黑、红心/方块/黑桃/梅花效果可叠加", async () => {

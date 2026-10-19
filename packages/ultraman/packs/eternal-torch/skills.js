@@ -3299,8 +3299,12 @@ export const skills = {
 			},
 		},
 		mod: {
-			selectTarget(card) {
-				if (card.name === "tao") return [1, 1];
+			selectTarget(card, player, range) {
+				if (card.name !== "tao") return;
+				const event = _status.event;
+				if (event?.name !== "chooseToUse" || event.type !== "phase") return;
+				range[0] = 1;
+				range[1] = 1;
 			},
 			cardEnabled(card, player) {
 				const shared = lib.skill.ysmanyue.shared;
