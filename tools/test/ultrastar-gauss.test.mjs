@@ -1444,6 +1444,152 @@ await check("满月：三名受伤角色只回复被选中者，感化只跟该�
 	}
 });
 
+await check("感化 AI：国战阵营使用势力键且不泄露未亮将", () => {
+	const shared = skills.ysganhua.shared;
+
+	resetRecruitState("guozhan");
+	let source = makePlayer({ name: "月神高斯", identity: "wei", group: "wei", identityShown: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	let sourceAlly = makePlayer({ name: "魏友", identity: "wei", group: "wei", identityShown: true, hp: 3, skills: ["a"] });
+	let target = makePlayer({ name: "蜀将", identity: "shu", group: "shu", identityShown: true, hp: 3, skills: ["a"] });
+	let shuAlly1 = makePlayer({ name: "蜀友1", identity: "shu", group: "shu", identityShown: true, hp: 4, skills: ["a", "b"] });
+	let shuAlly2 = makePlayer({ name: "蜀友2", identity: "shu", group: "shu", identityShown: true, hp: 4, skills: ["a"] });
+	game.players = [source, sourceAlly, target, shuAlly1, shuAlly2];
+	game.me = source;
+	let plan = shared.getJoinPlan(source, target);
+	assert(plan && plan.kind === "guozhan", "国战应给出加入计划");
+	const expectedStay = shared.getPublicPower(shuAlly1, source) + shared.getPublicPower(shuAlly2, source);
+	equal(shared.getCampPower(plan, source, target, false, source), expectedStay, "目标原阵营应计入已亮同势力队友");
+	shuAlly2.unseen = [false, true];
+	const partialExpected = shared.getPublicPower(shuAlly1, source) + shared.getPublicPower(shuAlly2, source);
+	equal(shared.getCampPower(plan, source, target, false, source), partialExpected, "单将已亮的同势力队友应按公开实力计入");
+	shuAlly2.unseen = undefined;
+	const expectedJoin = shared.getPublicPower(source, source) + shared.getPublicPower(sourceAlly, source);
+	equal(shared.getCampPower(plan, source, target, true, source), expectedJoin, "加入方应计入已亮同势力队友");
+	equal(shared.getCoreStatus(plan, source, target, false, source), 0.5, "国战无核心角色时应返回中性值");
+	const withAlliesEndgame = shared.getRecruitEndgameContext(source, target, plan);
+	const withAlliesAnalysis = shared.evaluateSurrender(source, target, false);
+	assert(!withAlliesEndgame.confirmed && withAlliesEndgame.bonus === 0, "目标有已亮同势力队友时不得获得残局加分");
+	assert(!shared.shouldJoin(source, target), "目标有强力同势力队友时不应投降");
+	equal(shared.getRecruitTargetValue(source, target), 0, "目标有强力同势力队友时不应鼓励治疗招降");
+	console.log(
+		`    国战有同势力队友: score=${withAlliesAnalysis.score.toFixed(4)}, powerEdge=${withAlliesAnalysis.powerEdge.toFixed(4)}, endgame=${withAlliesAnalysis.endgameBonus.toFixed(4)}, accept=false`,
+	);
+
+	resetRecruitState("guozhan");
+	source = makePlayer({ name: "月神高斯", identity: "wei", group: "wei", identityShown: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	sourceAlly = makePlayer({ name: "魏友", identity: "wei", group: "wei", identityShown: true, hp: 3, skills: ["a"] });
+	target = makePlayer({ name: "蜀将", identity: "shu", group: "shu", identityShown: true, hp: 2, skills: [] });
+	game.players = [source, sourceAlly, target];
+	game.me = source;
+	plan = shared.getJoinPlan(source, target);
+	const lastEnemyEndgame = shared.getRecruitEndgameContext(source, target, plan);
+	const lastEnemyAnalysis = shared.evaluateSurrender(source, target, false);
+	assert(lastEnemyEndgame.confirmed && lastEnemyEndgame.bonus > 0, "国战最后敌方且高斯领先时应获得残局加分");
+	assert(shared.shouldJoin(source, target), "国战最后敌方明显落后时应接受");
+	assert(shared.getRecruitTargetValue(source, target) > 0, "国战最后敌方应被治疗 AI 识别为可招降");
+	assert(Array.isArray(skills.ysmanyue.shared.recruitEffect(tao, source, target)), "国战应给治疗 AI 四元组招降加权");
+	console.log(
+		`    国战最后敌方: score=${lastEnemyAnalysis.score.toFixed(4)}, powerEdge=${lastEnemyAnalysis.powerEdge.toFixed(4)}, endgame=${lastEnemyAnalysis.endgameBonus.toFixed(4)}, accept=true`,
+	);
+
+	resetRecruitState("guozhan");
+	source = makePlayer({ name: "月神高斯", identity: "wei", group: "wei", identityShown: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	sourceAlly = makePlayer({ name: "魏友", identity: "wei", group: "wei", identityShown: true, hp: 3, skills: ["a"] });
+	target = makePlayer({ name: "蜀将", identity: "shu", group: "shu", identityShown: true, hp: 2, skills: [] });
+	const hiddenAlly = makePlayer({ name: "未亮将", identity: "shu", group: "shu", identityShown: false, unseen: [true, true], hp: 4, skills: ["a", "b"] });
+	game.players = [source, sourceAlly, target, hiddenAlly];
+	game.me = source;
+	plan = shared.getJoinPlan(source, target);
+	equal(shared.getCampPower(plan, source, target, false, source), 0, "未亮将队友不得计入势力实力");
+	assert(!shared.getRecruitEndgameContext(source, target, plan).confirmed, "存在未亮将时不得确认残局");
+	const publicShu = shared.evaluateSurrender(source, target, false).score;
+	hiddenAlly.identity = "wei";
+	hiddenAlly.group = "wei";
+	const publicWei = shared.evaluateSurrender(source, target, false).score;
+	equal(publicShu, publicWei, "未亮将的隐藏势力不得影响高斯侧预测");
+	console.log(`    国战未亮将: publicScore=${publicShu.toFixed(4)}, endgame=false`);
+
+	resetRecruitState("identity");
+	source = makePlayer({ name: "月神高斯", identity: "zhong", identityShown: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	const zhu = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, hp: 4, skills: [] });
+	target = makePlayer({ name: "反贼", identity: "fan", identityShown: true, hp: 2, skills: [] });
+	const fanAlly = makePlayer({ name: "反贼友", identity: "fan", identityShown: true, hp: 3, skills: ["a"] });
+	game.players = [source, zhu, target, fanAlly];
+	game.zhu = zhu;
+	game.me = source;
+	const identityPlan = shared.getJoinPlan(source, target);
+	equal(shared.getCampPower(identityPlan, source, target, true, source), shared.getPublicPower(source, source) + shared.getPublicPower(zhu, source), "身份加入方阵营实力");
+	equal(shared.getCampPower(identityPlan, source, target, false, source), shared.getPublicPower(fanAlly, source), "身份原阵营实力");
+
+	resetRecruitState("versus");
+	source = makePlayer({ name: "月神高斯", side: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	sourceAlly = makePlayer({ name: "友方", side: true, hp: 3, skills: ["a"] });
+	target = makePlayer({ name: "敌人", side: false, hp: 3, skills: ["a"] });
+	const enemyAlly = makePlayer({ name: "敌方友", side: false, hp: 3, skills: ["b"] });
+	game.players = [source, sourceAlly, target, enemyAlly];
+	game.me = source;
+	const sidePlan = shared.getJoinPlan(source, target);
+	equal(shared.getCampPower(sidePlan, source, target, true, source), shared.getPublicPower(source, source) + shared.getPublicPower(sourceAlly, source), "side 加入方阵营实力");
+	equal(shared.getCampPower(sidePlan, source, target, false, source), shared.getPublicPower(enemyAlly, source), "side 原阵营实力");
+});
+
+await check("感化 AI：国战 chooseBool 实际回调接受并调用 tryResult", async () => {
+	const shared = skills.ysganhua.shared;
+	resetRecruitState("guozhan");
+	resetCalls();
+	const source = makePlayer({ name: "月神高斯", identity: "wei", group: "wei", identityShown: true, hp: 4, skills: ["ysmanyue", "ysganhua"] });
+	const sourceAlly = makePlayer({ name: "魏友", identity: "wei", group: "wei", identityShown: true, hp: 3, skills: ["a"] });
+	const target = makePlayer({ name: "蜀将", identity: "shu", group: "shu", identityShown: true, hp: 2, skills: [], aiChoice: true });
+	game.players = [source, sourceAlly, target];
+	game.me = source;
+	assert(shared.shouldJoin(source, target), "国战最后敌方应接受");
+	await skills.ysganhua.content({}, { source, player: target, num: 1 }, source);
+	equal(target.aiResults.length, 1, "应执行国战目标 chooseBool 的 AI 回调");
+	equal(target.aiResults[0].result, true, "国战目标 AI 应接受");
+	equal(target.group, "wei", "国战目标势力应变更为魏");
+	equal(target.identity, "wei", "国战目标身份应变更为魏");
+	equal(game.tryResultCalls, 1, "成功加入后应调用本体国战胜负检查");
+	equal(game.checkResultCalls, 0, "国战不应调用身份胜负检查");
+	equal(game.overCalls.length, 0, "国战不应调用 side 胜负检查");
+});
+
+await check("感化 AI：公开防御期望与私人真实防御", () => {
+	const shared = skills.ysganhua.shared;
+	const counts = [0, 1, 3, 5, 8];
+	const perHand = shared.publicDefensePerHand;
+	const cap = shared.publicDefenseCap;
+	assert(perHand > 0 && perHand < 1, "单张手牌防御期望应为正且小于1");
+	assert(cap > 0, "防御期望上限应为正");
+	let previous = -1;
+	for (const count of counts) {
+		const target = makePlayer({ name: `敌人${count}`, side: false, hp: 2, maxHp: 4, hand: repeatCard(count), skills: [] });
+		const estimate = shared.getPublicDefenseEstimate(target);
+		const expected = Math.min(cap, count * perHand);
+		assert(Math.abs(estimate - expected) < 1e-9, `${count} 张手牌的公开防御期望应为 ${expected}`);
+		assert(estimate <= count, "公开防御期望不得把每张手牌都视为防御牌");
+		assert(estimate <= cap && estimate >= previous, "公开防御期望应平滑增长且有上限");
+		previous = estimate;
+		console.log(`    手牌${count}: 公开防御期望=${estimate.toFixed(2)}`);
+	}
+
+	resetRecruitState("versus");
+	const source = makePlayer({ name: "月神高斯", side: true, hp: 4, hand: [tao], skills: ["ysmanyue", "ysganhua"] });
+	const defenseTarget = makePlayer({ name: "防御型敌人", side: false, hp: 2, maxHp: 4, hand: [shan, tao, makeCard("jiu", "spade", 9, "basic", { recover: 1 })], skills: [] });
+	const attackTarget = makePlayer({ name: "攻击型敌人", side: false, hp: 2, maxHp: 4, hand: [sha, sha, sha], skills: [] });
+	game.players = [source, defenseTarget];
+	game.me = source;
+	const publicDefense = shared.evaluateSurrender(source, defenseTarget, false);
+	const actualDefense = shared.evaluateSurrender(source, defenseTarget, true);
+	const expectedEstimate = Math.min(shared.publicDefenseCap, 3 * shared.publicDefensePerHand);
+	assert(Math.abs(shared.getPublicDefenseEstimate(defenseTarget) - expectedEstimate) < 1e-9, "三张手牌的公开防御期望不读取牌名");
+	game.players = [source, attackTarget];
+	const publicAttack = shared.evaluateSurrender(source, attackTarget, false);
+	const actualAttack = shared.evaluateSurrender(source, attackTarget, true);
+	equal(publicDefense.score, publicAttack.score, "相同手牌数量下，高斯预测不得读取隐藏牌名");
+	assert(actualDefense.survival < actualAttack.survival, "目标实际持有闪桃酒时私人防御压力应更低");
+	assert(actualDefense.score < actualAttack.score, "目标实际防御牌应降低其投降倾向");
+});
+
 await check("日蚀：红/黑、红心/方块/黑桃/梅花效果可叠加", async () => {
 	_status.mode = "identity";
 	const source = makePlayer({ name: "日蚀高斯", skills: ["rsrishi"] });

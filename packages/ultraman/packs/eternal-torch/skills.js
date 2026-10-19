@@ -3388,6 +3388,38 @@ export const skills = {
 						return null;
 				}
 			},
+			getCampKey(plan, player, viewer) {
+				if (!plan || !player) return null;
+				if (plan.kind === "side") {
+					return typeof player.side === "boolean" ? `side:${player.side}` : null;
+				}
+				if (plan.kind === "identity") {
+					if (!(player === viewer || player === game.zhu || player.identityShown)) return null;
+					const identity = player === game.zhu ? "zhu" : player.identity;
+					const camp = this.normalizeIdentity(identity);
+					return camp ? `identity:${camp}` : null;
+				}
+				if (plan.kind === "guozhan") {
+					if (!player.identityShown) return null;
+					if (!player.identity || !player.group || ["unknown", "ye"].includes(player.identity)) return null;
+					return `guozhan:${player.identity}:${player.group}`;
+				}
+				return null;
+			},
+			getJoinCampKey(plan, source, viewer) {
+				if (!plan || !source) return null;
+				if (plan.kind === "side") return typeof plan.side === "boolean" ? `side:${plan.side}` : null;
+				if (plan.kind === "identity") {
+					if (!(source === viewer || source === game.zhu || source.identityShown)) return null;
+					return plan.identity ? `identity:${plan.identity}` : null;
+				}
+				if (plan.kind === "guozhan") {
+					const known = source === viewer || source.identityShown;
+					if (!known || !plan.identity || !plan.group) return null;
+					return `guozhan:${plan.identity}:${plan.group}`;
+				}
+				return null;
+			},
 			getModeKind() {
 				const mode = get.mode();
 				if (mode === "doudizhu") return "doudizhu";
@@ -3531,6 +3563,12 @@ export const skills = {
 				const maxHp = Math.max(0, Number(target?.maxHp) || hp);
 				return Math.max(0, Math.min(maxHp, hp + recover));
 			},
+			publicDefensePerHand: 0.3,
+			publicDefenseCap: 3,
+			getPublicDefenseEstimate(target) {
+				const handCount = target?.countCards?.("h") ?? 0;
+				return Math.min(this.publicDefenseCap, handCount * this.publicDefensePerHand);
+			},
 			getPublicPower(player, viewer, options = {}) {
 				if (!player || !player.isAlive?.() || player.isOut?.()) return 0;
 				const hp = Math.max(0, Number(options.hp ?? player.getHp?.() ?? player.hp) || 0);
@@ -3551,54 +3589,29 @@ export const skills = {
 				return power;
 			},
 			getCampPower(plan, source, target, join, viewer) {
-				const sourceCampKnown = plan.kind !== "identity" || source === viewer || source.identityShown || source.isZhu || source === game.zhu;
-				const targetCampKnown = plan.kind !== "identity" || target === viewer || target.identityShown;
-				const campIdentity = join ? plan.identity : this.normalizeIdentity(target.identity);
-				if (plan.kind === "identity" && !join && targetCampKnown && campIdentity === "nei") return 0;
-				const campKnown = join ? sourceCampKnown : targetCampKnown;
+				const campKey = join ? this.getJoinCampKey(plan, source, viewer) : this.getCampKey(plan, target, viewer);
+				if (!join && campKey === "identity:nei") return 0;
 				let total = 0;
 				for (const current of game.players) {
 					if (!current || current === target || !current.isAlive?.() || current.isOut?.()) continue;
-					let inCamp = false;
-					if (plan.kind === "side") {
-						inCamp = current.side === (join ? plan.side : target.side);
-					} else if (current === source) {
-						inCamp = join;
-					} else if (plan.kind === "identity") {
-						if (!campKnown) continue;
-						const identity = this.normalizeIdentity(current.identity);
-						if (current === game.zhu) {
-							inCamp = identity === campIdentity;
-						} else if (current.identityShown) {
-							inCamp = identity === campIdentity;
-						}
-					} else if (plan.kind === "guozhan" && current.identityShown) {
-						inCamp = current.identity === campIdentity;
+					if (join && current === source) {
+						total += this.getPublicPower(current, viewer);
+						continue;
 					}
-					if (inCamp) total += this.getPublicPower(current, viewer);
+					if (!campKey) continue;
+					if (this.getCampKey(plan, current, viewer) === campKey) total += this.getPublicPower(current, viewer);
 				}
 				return total;
 			},
 			getCoreStatus(plan, source, target, join, viewer) {
-				const camp = join ? plan.identity : this.normalizeIdentity(target.identity);
-				let core;
-				if (plan.kind === "side") {
-					const side = join ? plan.side : target.side;
-					core = [game.friendZhu, game.enemyZhu, game.boss].find(current => current && current !== target && current.side === side);
-				} else {
-					const sourceCampKnown = plan.kind !== "identity" || source === viewer || source.identityShown || source.isZhu || source === game.zhu;
-					const targetCampKnown = plan.kind !== "identity" || target === viewer || target.identityShown;
-					if (plan.kind === "identity" && !(join ? sourceCampKnown : targetCampKnown)) return 0.5;
-					core = game.players.find(current => {
-						if (!current || current === target || current.isOut?.()) return false;
-						if (![game.zhu, game.friendZhu, game.enemyZhu].includes(current)) return false;
-						if (current === source) return join;
-						if (current === game.zhu) return this.normalizeIdentity(current.identity) === camp;
-						if (!current.identityShown) return false;
-						return this.normalizeIdentity(current.identity) === camp;
-					});
-					if (!core && join && source.isZhu) core = source;
-				}
+				const campKey = join ? this.getJoinCampKey(plan, source, viewer) : this.getCampKey(plan, target, viewer);
+				if (!campKey) return 0.5;
+				const coreList = plan.kind === "side" ? [game.friendZhu, game.enemyZhu, game.boss] : [game.zhu, game.friendZhu, game.enemyZhu];
+				let core = coreList.find(current => {
+					if (!current || current === target || current.isOut?.()) return false;
+					return this.getCampKey(plan, current, viewer) === campKey;
+				});
+				if (!core && join && source.isZhu) core = source;
 				if (!core) return 0.5;
 				if (!core.isAlive?.()) return 0;
 				const hp = Number(core.getHp?.() ?? core.hp) || 0;
@@ -3610,7 +3623,7 @@ export const skills = {
 				const hpRatio = target.maxHp ? Math.max(0, Math.min(1, hp / target.maxHp)) : 0.5;
 				const defense = options.includePrivate
 					? (target.countCards?.("h", card => ["shan", "tao", "jiu"].includes(card.name)) ?? 0)
-					: Math.min(3, target.countCards?.("h") ?? 0);
+					: this.getPublicDefenseEstimate(target);
 				const guard = Math.min(3, defense) / 3;
 				return Math.max(0, Math.min(1, 1 - hpRatio * 0.72 - guard * 0.28));
 			},
@@ -3630,43 +3643,16 @@ export const skills = {
 				if (this.hasPendingReplacements()) return empty;
 				const includePrivate = Boolean(options.includePrivate);
 				const viewer = includePrivate ? target : source;
-				if (plan.kind === "identity" && includePrivate && !(source === viewer || source.identityShown || source.isZhu || source === game.zhu)) {
-					return empty;
-				}
 				const targetHp = Math.max(0, Number(options.hp ?? target.getHp?.() ?? target.hp) || 0);
 				const alive = game.players.filter(current => current && current.isAlive?.() && !current.isOut?.());
 				if (!alive.includes(target)) return empty;
-				const others = alive.filter(current => current !== target);
-				if (plan.kind === "side") {
-					if (typeof target.side !== "boolean" || typeof plan.side !== "boolean") return empty;
-					if (others.some(current => typeof current.side !== "boolean")) return empty;
-					if (others.some(current => current.side === target.side)) return empty;
-					if (others.some(current => current.side !== plan.side)) return empty;
-				} else if (plan.kind === "identity") {
-					const targetKnown = includePrivate || target === game.zhu || Boolean(target.identityShown);
-					if (!targetKnown) return empty;
-					const targetCamp = this.normalizeIdentity(target.identity);
-					if (!targetCamp || targetCamp === plan.identity) return empty;
-					for (const current of others) {
-						const known = current === viewer || current === game.zhu || Boolean(current.identityShown);
-						if (!known) return empty;
-						const camp = this.normalizeIdentity(current.identity);
-						if (!camp) return empty;
-						if (camp === targetCamp) return empty;
-						if (camp !== plan.identity) return empty;
-					}
-				} else if (plan.kind === "guozhan") {
-					const targetKnown = includePrivate || (target.identityShown && !target.isUnseen?.(0) && !target.isUnseen?.(1));
-					if (!targetKnown || !target.identity || !target.group) return empty;
-					if (target.identity === plan.identity && target.group === plan.group) return empty;
-					for (const current of others) {
-						const known = current === viewer || (current.identityShown && !current.isUnseen?.(0) && !current.isUnseen?.(1));
-						if (!known || !current.identity || !current.group) return empty;
-						if (current.identity === target.identity && current.group === target.group) return empty;
-						if (current.identity !== plan.identity || current.group !== plan.group) return empty;
-					}
-				} else {
-					return empty;
+				const targetKey = this.getCampKey(plan, target, viewer);
+				const joinKey = this.getJoinCampKey(plan, source, viewer);
+				if (!targetKey || !joinKey || targetKey === joinKey) return empty;
+				for (const current of alive) {
+					if (current === target) continue;
+					const key = this.getCampKey(plan, current, viewer);
+					if (!key || key === targetKey || key !== joinKey) return empty;
 				}
 				const allyPower = this.getCampPower(plan, source, target, true, viewer);
 				const targetPowerAfterHeal = this.getPublicPower(target, viewer, { hp: targetHp });
