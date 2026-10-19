@@ -3783,6 +3783,7 @@ export const skills = {
 					}
 					return;
 				}
+				target.chat("但是我拒绝");
 			}
 			const result = await player
 				.chooseBool(`${get.translation("ysganhua")}：是否将武将牌切换为日蚀高斯？`)

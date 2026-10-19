@@ -597,6 +597,7 @@ await check("感化：拒绝后切换为日蚀高斯并保留状态", async () =
 	equal(source.hujia, 1, "护甲应保留");
 	assert(source.calls.some(call => call[0] === "changeCharacter"), "应走本体 changeCharacter");
 	assert(!source.calls.some(call => call[0] === "gameStart"), "不应触发游戏开始");
+	equal(target.chats.join(""), "但是我拒绝", "拒绝加入阵营时目标应发言");
 });
 
 await check("感化：斗地主不伪造地主阵营", async () => {
