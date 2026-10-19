@@ -256,7 +256,11 @@ for (const key of ["card", "skill", "translate", "character", "characterSubstitu
 	// <分包ID>_character_config 为分包框架新增的包显示名键，属预期差异
 	deepEqual(modOld.lib[key], modNew.lib[key], `lib.${key}`, { ignoreKey: /_character_config$/ });
 }
-deepEqual(mapToObj(modOld.lib.namePrefix), mapToObj(modNew.lib.namePrefix), "lib.namePrefix");
+// 月神/日蚀/日冕/宇宙日冕/未来/凤凰/无限 为新版新增的名字前缀，旧基线没有，属预期差异
+const newOnlyPrefixes = /^(月神|日蚀|日冕|宇宙日冕|未来|凤凰|无限)$/;
+deepEqual(mapToObj(modOld.lib.namePrefix), mapToObj(modNew.lib.namePrefix), "lib.namePrefix", {
+	ignoreKey: newOnlyPrefixes,
+});
 deepEqual(modOld.lib.__calls.addGroup, modNew.lib.__calls.addGroup, "game.addGroup calls");
 
 // ---- 输出 ----

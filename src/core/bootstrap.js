@@ -150,6 +150,7 @@ export function precontent() {
 			lib.characterReplace["迪迦"] = ["迪迦", "闪耀迪迦", "黑暗迪迦"];
 			lib.characterReplace["芙宁娜"] = ["芙宁娜", "芙宁娜芙卡洛斯"];
 			lib.characterReplace["盖亚"] = ["盖亚", "至高盖亚"];
+			lib.characterReplace["高斯"] = ["月神高斯", "日蚀高斯"];
 
 			lib.character["死龙"] = ["none", "shen", 34, ["slyanxi", "slyinbi", "slhuiyi"], ["ext:奥特之星/assets/image/死龙.jpg"]];
 			lib.character["死龙"].isHiddenBoss = true;
@@ -160,6 +161,13 @@ export function precontent() {
 			lib.namePrefix.set("闪耀", { color: "#ffd700", nature: "glodenmm" });
 			lib.namePrefix.set("黑暗", { color: "#000000", nature: "blackmm" });
 			lib.namePrefix.set("至高", { color: "#FF0000", nature: "redmm" });
+			lib.namePrefix.set("月神", { color: "#4895FF" });
+			lib.namePrefix.set("日蚀", { color: "#F3B544" });
+			lib.namePrefix.set("日冕", { color: "#FF633F" });
+			lib.namePrefix.set("宇宙日冕", { color: "#A276E8" });
+			lib.namePrefix.set("未来", { color: "#27E6D2" });
+			lib.namePrefix.set("凤凰", { color: "#FF8A45" });
+			lib.namePrefix.set("无限", { color: "#E8F0F8" });
 
 			registerAllEquipment();
 

@@ -3191,4 +3191,382 @@ export const skills = {
 			},
 		},
 	},
+	ysmanyue: {
+		shared: {
+			names: ["shan", "tao", "wuxie"],
+			isDamageCard(card) {
+				return Boolean(card && get.is.damageCard(card));
+			},
+			options(event, player) {
+				if (!event?.filterCard) return [];
+				let names = [];
+				if (event.name === "chooseToRespond") {
+					names = this.names.slice();
+				} else if (event.type === "phase") {
+					names = ["tao"];
+				} else if (event.type === "wuxie") {
+					names = ["wuxie"];
+				} else if (event.type === "respondShan") {
+					names = ["shan"];
+				} else if (["tao", "dying", "save"].includes(event.type)) {
+					names = ["tao"];
+				}
+				return names.filter(name => {
+					const vcard = get.autoViewAs({ name }, "unsure");
+					if (!event.filterCard(vcard, player, event)) return false;
+					if (event.name === "chooseToUse" && event.type === "phase") {
+						return Boolean(lib.filter.cardEnabled(vcard, player, event));
+					}
+					return true;
+				});
+			},
+		},
+		enable: ["chooseToUse", "chooseToRespond"],
+		locked: true,
+		group: ["ysmanyue_draw"],
+		hiddenCard(player, name) {
+			const shared = lib.skill.ysmanyue.shared;
+			return shared.names.includes(name) && player.hasCards("he", card => shared.isDamageCard(card));
+		},
+		filter(event, player) {
+			const shared = lib.skill.ysmanyue.shared;
+			return player.hasCards("he", card => shared.isDamageCard(card)) && shared.options(event, player).length > 0;
+		},
+		chooseButton: {
+			dialog(event, player) {
+				const shared = lib.skill.ysmanyue.shared;
+				const list = shared.options(event, player).map(name => [get.type({ name }), "", name]);
+				return ui.create.dialog("满月", [list, "vcard"]);
+			},
+			check(button) {
+				const player = get.player();
+				const name = button.link[2];
+				const value = player.getUseValue?.({ name }) ?? 0;
+				if (name === "tao") {
+					const friendlyDamaged = game.hasPlayer(
+						target => target !== player && target.isDamaged() && get.attitude(player, target) > 0,
+					);
+					if (!player.isDamaged() && !friendlyDamaged) return 0;
+					return value + 10;
+				}
+				return value + (name === "shan" ? 6 : 5);
+			},
+			backup(links, player) {
+				const name = links[0][2];
+				const shared = lib.skill.ysmanyue.shared;
+				return {
+					filterCard(card) {
+						return shared.isDamageCard(card);
+					},
+					position: "he",
+					selectCard: 1,
+					popname: true,
+					check(card) {
+						return 15 - get.value(card);
+					},
+					viewAs(cards) {
+						const card = cards[0];
+						return {
+							name,
+							suit: get.suit(card),
+							number: get.number(card),
+						};
+					},
+					async onuse(result, player) {
+						player.logSkill("ysmanyue");
+					},
+					async onrespond(event, player) {
+						player.logSkill("ysmanyue");
+					},
+				};
+			},
+			prompt(links, player) {
+				return "将一张伤害牌当【" + get.translation(links[0][2]) + "】使用或打出";
+			},
+		},
+		mod: {
+			selectTarget(card) {
+				if (card.name === "tao") return [1, 1];
+			},
+			cardEnabled(card, player) {
+				const shared = lib.skill.ysmanyue.shared;
+				if (shared.isDamageCard(card)) return false;
+				if (card.name === "tao" && game.hasPlayer(target => target !== player && target.isDamaged())) {
+					return true;
+				}
+			},
+			cardRespondable(card) {
+				const shared = lib.skill.ysmanyue.shared;
+				if (!shared.isDamageCard(card)) return;
+				const event = _status.event;
+				if (event?.skill === "ysmanyue_backup") return;
+				return false;
+			},
+			playerEnabled(card, player, target) {
+				if (target !== player && card.name === "tao" && target.isDamaged()) return true;
+			},
+		},
+		subSkill: {
+			draw: {
+				trigger: { player: "useCard" },
+				forced: true,
+				silent: true,
+				popup: false,
+				filter(event) {
+					return Boolean(event.card);
+				},
+				async content(event, trigger, player) {
+					const shared = lib.skill.ysmanyue.shared;
+					const hand = player.getCards("h");
+					const hasDamage = hand.some(card => shared.isDamageCard(card));
+					const hasOther = hand.some(card => !shared.isDamageCard(card));
+					await player.draw(hasDamage && hasOther ? 1 : 2);
+				},
+			},
+		},
+		ai: {
+			respondShan: true,
+			save: true,
+			skillTagFilter(player, tag) {
+				if (tag !== "respondShan" && tag !== "save") return false;
+				const shared = lib.skill.ysmanyue.shared;
+				return player.hasCards("he", card => shared.isDamageCard(card));
+			},
+			order: 9,
+			result: {
+				player(player) {
+					const shared = lib.skill.ysmanyue.shared;
+					return player.hasCards("he", card => shared.isDamageCard(card)) ? 1 : 0;
+				},
+			},
+		},
+	},
+	ysganhua: {
+		shared: {
+			isMoonGauss(player) {
+				return Boolean(player) && [player.name, player.name1, player.name2].includes("月神高斯");
+			},
+			campIdentity(identity) {
+				switch (identity) {
+					case "zhu":
+						return "zhong";
+					case "ezhu":
+						return "ezhong";
+					case "rZhu":
+						return "rZhong";
+					case "bZhu":
+						return "bZhong";
+					case "zhu_false":
+						return "zhong_false";
+					default:
+						return identity;
+				}
+			},
+			canJoin(source, target) {
+				if (!source || !target) return false;
+				if (target === game.zhu || target.identity === "zhu" || target.isZhu) return false;
+				const mode = get.mode();
+				if (mode === "doudizhu") {
+					return source.identity === "fan" && target.identity === "fan";
+				}
+				if (mode === "identity") {
+					return typeof source.identity === "string" && source.identity.length > 0;
+				}
+				if (mode === "guozhan") {
+					return (
+						typeof source.identity === "string" &&
+						!["unknown", "ye"].includes(source.identity) &&
+						Boolean(source.group)
+					);
+				}
+				if (typeof source.side === "boolean" && typeof target.side === "boolean") {
+					return !(target === game.friendZhu || target === game.enemyZhu || target === game.boss);
+				}
+				return false;
+			},
+			async join(source, target) {
+				if (!this.canJoin(source, target)) return false;
+				const mode = get.mode();
+				if (mode === "doudizhu") {
+					game.log(target, "已与你处于同一阵营");
+					return true;
+				}
+				if (mode === "guozhan") {
+					await target.changeGroup(source.group);
+					game.broadcastAll(
+						(target, identity) => {
+							target.identity = identity;
+							target.identityShown = true;
+							target.setIdentity();
+							target.showIdentity?.();
+						},
+						target,
+						source.identity,
+					);
+					game.log(target, "加入了", source, "的阵营");
+					return true;
+				}
+				const identity = this.campIdentity(source.identity);
+				const side = typeof source.side === "boolean" ? source.side : undefined;
+				game.broadcastAll(
+					(target, source, identity, side) => {
+						if (typeof side === "boolean") target.side = side;
+						if (identity) target.identity = identity;
+						target.identityShown = true;
+						target.setIdentity();
+						target.showIdentity?.();
+						if (target.node?.identity && source.node?.identity) {
+							target.node.identity.dataset.color = source.node.identity.dataset.color;
+						}
+					},
+					target,
+					source,
+					identity,
+					side,
+				);
+				if (mode === "identity") {
+					if (source.identity === "zhu" && identity === "zhong") {
+						game.log(target, "以忠臣身份加入了", source, "的主公阵营");
+					} else {
+						game.log(target, "的身份牌变更为了", get.translation(identity));
+					}
+				} else {
+					game.log(target, "加入了", source, "的阵营");
+				}
+				return true;
+			},
+			async switchToEclipse(player) {
+				if (!player?.isAlive()) return false;
+				const oldNames = [player.name1, player.name2].filter(name => name && lib.character[name]);
+				if (!oldNames.includes("月神高斯") || oldNames.includes("日蚀高斯") || !lib.character["日蚀高斯"]) {
+					return false;
+				}
+				const state = {
+					hp: player.hp,
+					maxHp: player.maxHp,
+					singleHp: player.singleHp,
+					hujia: player.hujia,
+				};
+				const newNames = oldNames.map(name => (name === "月神高斯" ? "日蚀高斯" : name));
+				await player.changeCharacter(newNames, true);
+				player.maxHp = state.maxHp;
+				player.hp = Math.min(state.hp, player.maxHp);
+				player.singleHp = state.singleHp;
+				if (typeof state.hujia === "number") player.hujia = state.hujia;
+				player.update();
+				if (player.hasSkill("ysmanyue")) await player.removeSkills("ysmanyue");
+				if (player.hasSkill("ysganhua")) await player.removeSkills("ysganhua");
+				if (!player.hasSkill("rsrishi")) await player.addSkills("rsrishi");
+				game.log(player, "将武将牌切换为【日蚀高斯】");
+				return true;
+			},
+		},
+		trigger: { global: "recoverAfter" },
+		forced: true,
+		locked: false,
+		filter(event, player) {
+			const shared = lib.skill.ysganhua.shared;
+			if (!shared.isMoonGauss(player) || event.source !== player || event.player === player) return false;
+			if (!event.num || event.num <= 0 || !event.player?.isAlive()) return false;
+			if (event.player === game.zhu || event.player.identity === "zhu") return false;
+			return true;
+		},
+		logTarget(event) {
+			return event.player;
+		},
+		async content(event, trigger, player) {
+			const shared = lib.skill.ysganhua.shared;
+			const target = trigger.player;
+			if (!shared.canJoin(player, target)) {
+				game.log(target, "无法在当前模式安全地变更阵营");
+			} else {
+				const result = await target
+					.chooseBool(`是否加入${get.translation(player)}的阵营？`)
+					.set("source", player)
+					.set("ai", () => {
+						const target = get.player();
+						const source = get.event().source;
+						return get.attitude(target, source) > 0;
+					})
+					.forResult();
+				if (result?.bool) {
+					await shared.join(player, target);
+					return;
+				}
+			}
+			const result = await player
+				.chooseBool(`${get.translation("ysganhua")}：是否将武将牌切换为日蚀高斯？`)
+				.set("ai", () => true)
+				.forResult();
+			if (result?.bool) await shared.switchToEclipse(player);
+		},
+	},
+	rsrishi: {
+		locked: true,
+		group: ["rsrishi_use", "rsrishi_heart", "rsrishi_spade"],
+		mod: {
+			targetInRange(card) {
+				if (get.suit(card) === "diamond") return true;
+			},
+			cardUsable(card) {
+				if (get.suit(card) === "club") return Infinity;
+			},
+		},
+		subSkill: {
+			use: {
+				trigger: { player: "useCard1" },
+				forced: true,
+				locked: true,
+				filter(event) {
+					return Boolean(event.card);
+				},
+				async content(event, trigger, player) {
+					const suit = get.suit(trigger.card);
+					const color = get.color(trigger.card);
+					if (color === "red") {
+						trigger.effectCount++;
+						game.log(trigger.card, "额外结算一次");
+					}
+					if (color === "black") {
+						trigger.directHit.addArray(game.players);
+						game.log(trigger.card, "不可被响应");
+					}
+					if (suit === "club" && trigger.addCount !== false) {
+						trigger.addCount = false;
+						const stat = player.getStat().card;
+						const name = trigger.card.name;
+						if (stat && typeof stat[name] === "number") stat[name]--;
+						game.log(trigger.card, "不计入次数");
+					}
+				},
+			},
+			heart: {
+				trigger: { player: "useCardToPlayered" },
+				forced: true,
+				locked: true,
+				filter(event) {
+					return Boolean(event.card && event.target) && get.suit(event.card) === "heart";
+				},
+				async content(event, trigger, player) {
+					const target = trigger.target;
+					target.addTempSkill("qinggang2");
+					target.storage.qinggang2.add(trigger.card);
+					target.markSkill("qinggang2");
+				},
+			},
+			spade: {
+				trigger: { source: "damageBegin1" },
+				forced: true,
+				locked: true,
+				filter(event, player) {
+					if (event.numFixed || event.source !== player || !event.card) return false;
+					return get.suit(event.card) === "spade";
+				},
+				async content(event, trigger, player) {
+					trigger.num++;
+					game.log(trigger.card, "造成的伤害+1");
+				},
+			},
+		},
+	},
 };

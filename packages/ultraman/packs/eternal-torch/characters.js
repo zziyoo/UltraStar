@@ -155,4 +155,18 @@ export const characters = {
 		img: "extension/奥特之星/assets/image/盖亚.jpg",
 		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
+	月神高斯: {
+		sex: "male",
+		group: "ao",
+		hp: 4,
+		skills: ["ysmanyue", "ysganhua"],
+		names: "null|高斯",
+	},
+	日蚀高斯: {
+		sex: "male",
+		group: "ao",
+		hp: 4,
+		skills: ["rsrishi"],
+		names: "null|高斯",
+	},
 };
