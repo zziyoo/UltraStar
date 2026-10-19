@@ -3478,6 +3478,27 @@ export const skills = {
 				}
 				return null;
 			},
+			isSameCamp(source, target) {
+				if (!source || !target) return false;
+				const kind = this.getModeKind();
+				if (kind === "doudizhu") {
+					const role = player => {
+						if (player === game.zhu || player.identity === "zhu" || player.isZhu) return "zhu";
+						if (player.identity === "fan") return "fan";
+						return null;
+					};
+					const sourceRole = role(source);
+					const targetRole = role(target);
+					return Boolean(sourceRole && targetRole && sourceRole === targetRole);
+				}
+				const plan = this.getJoinPlan(source, target);
+				if (!plan) return false;
+				if (plan.same) return true;
+				if (kind !== "identity") return false;
+				const sourceCamp = this.normalizeIdentity(source === game.zhu ? "zhu" : source.identity);
+				const targetCamp = this.normalizeIdentity(target === game.zhu ? "zhu" : target.identity);
+				return Boolean(sourceCamp && sourceCamp !== "nei" && sourceCamp === targetCamp);
+			},
 			async join(source, target, plan = this.getJoinPlan(source, target)) {
 				if (!plan) return { ok: false, changed: false };
 				if (plan.kind === "identity") {
@@ -3826,6 +3847,7 @@ export const skills = {
 			if (!event.num || event.num <= 0 || !event.player?.isAlive()) return false;
 			if (event.player === game.zhu || event.player.identity === "zhu" || event.player.isZhu) return false;
 			if ([game.friendZhu, game.enemyZhu, game.boss].includes(event.player)) return false;
+			if (shared.isSameCamp(player, event.player)) return false;
 			return true;
 		},
 		logTarget(event) {
@@ -3887,8 +3909,8 @@ export const skills = {
 			getCardMarkTags(card) {
 				const marks = [];
 				if (!card) return marks;
-				const color = get.color(card);
-				const suit = get.suit(card);
+				const color = get.color(card, false);
+				const suit = get.suit(card, false);
 				if (color === "red") marks.push("rsrishi_mark_red");
 				else if (color === "black") marks.push("rsrishi_mark_black");
 				if (suit === "heart") marks.push("rsrishi_mark_heart");

@@ -137,10 +137,12 @@ const get = {
 	name(card) {
 		return card?.name || card;
 	},
-	suit(card) {
+	suit(card, player) {
+		if (player !== false && card?.modSuit) return card.modSuit;
 		return card?.suit;
 	},
-	color(card) {
+	color(card, player) {
+		if (player !== false && card?.modColor) return card.modColor;
 		return card?.color;
 	},
 	number(card) {
@@ -644,6 +646,124 @@ await check("感化：来源、主公与地主过滤", () => {
 	game.zhu = zhu;
 	const landlord = makePlayer({ name: "地主", identity: "zhu", skills: [] });
 	assert(!filter({ source, player: landlord, num: 1 }, source), "地主不能成为目标");
+});
+
+await check("感化：身份模式同阵营在过滤阶段跳过，隐藏身份也生效", async () => {
+	const fire = async (source, target) => {
+		const trigger = { source, player: target, num: 1 };
+		if (!skills.ysganhua.filter(trigger, source)) return false;
+		await skills.ysganhua.content({}, trigger, source);
+		return true;
+	};
+	const assertBlocked = async (source, target, message) => {
+		equal(await fire(source, target), false, message);
+		equal(source.name1, "月神高斯", `${message}：不应提供变身`);
+		equal(source.choices.length, 1, `${message}：不应消耗变身选择`);
+		equal(target.choices.length, 1, `${message}：不应弹出感化询问`);
+	};
+	const shared = skills.ysganhua.shared;
+	resetRecruitState("identity");
+	const zhu = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, skills: [] });
+	game.zhu = zhu;
+
+	let source = makePlayer({ name: "月神高斯", identity: "fan", identityShown: false, choices: [true] });
+	let target = makePlayer({ name: "迪迦", identity: "fan", choices: [false], skills: [] });
+	game.players = [zhu, source, target];
+	const hiddenPlan = shared.getJoinPlan(source, target);
+	assert(hiddenPlan && hiddenPlan.same === false, "隐藏身份下 plan.same 无法识别实际同阵营");
+	await assertBlocked(source, target, "隐藏身份的实际同阵营");
+
+	source = makePlayer({ name: "月神高斯", identity: "fan", identityShown: true, choices: [true] });
+	target = makePlayer({ name: "迪迦", identity: "fan", choices: [false], skills: [] });
+	game.players = [zhu, source, target];
+	await assertBlocked(source, target, "已亮身份的反贼同阵营");
+
+	source = makePlayer({ name: "月神高斯", identity: "zhu", isZhu: true, choices: [true] });
+	target = makePlayer({ name: "迪迦", identity: "zhong", choices: [false], skills: [] });
+	game.zhu = source;
+	game.players = [source, target];
+	await assertBlocked(source, target, "主公与忠臣同阵营");
+
+	resetRecruitState("identity");
+	const zhu2 = makePlayer({ name: "佐菲", identity: "zhu", isZhu: true, skills: [] });
+	game.zhu = zhu2;
+	source = makePlayer({ name: "月神高斯", identity: "fan", identityShown: false, choices: [true] });
+	target = makePlayer({ name: "迪迦", identity: "zhong", choices: [false], skills: [] });
+	game.players = [zhu2, source, target];
+	equal(await fire(source, target), true, "不同阵营应继续触发感化");
+	equal(source.name1, "日蚀高斯", "不同阵营拒绝后仍可变身");
+	equal(target.chats.join(""), "但是我拒绝", "不同阵营拒绝后仍应发言");
+});
+
+await check("感化：国战与对战同阵营在过滤阶段跳过", async () => {
+	const fire = async (source, target) => {
+		const trigger = { source, player: target, num: 1 };
+		if (!skills.ysganhua.filter(trigger, source)) return false;
+		await skills.ysganhua.content({}, trigger, source);
+		return true;
+	};
+	const assertBlocked = async (source, target, message) => {
+		equal(await fire(source, target), false, message);
+		equal(source.name1, "月神高斯", `${message}：不应提供变身`);
+		equal(source.choices.length, 1, `${message}：不应消耗变身选择`);
+		equal(target.choices.length, 1, `${message}：不应弹出感化询问`);
+	};
+
+	resetRecruitState("guozhan");
+	let source = makePlayer({ name: "月神高斯", identity: "wei", group: "wei", identityShown: true, choices: [true] });
+	let target = makePlayer({ name: "魏将", identity: "wei", group: "wei", identityShown: true, choices: [false], skills: [] });
+	game.players = [source, target];
+	await assertBlocked(source, target, "国战已亮同势力");
+
+	resetRecruitState("guozhan");
+	source = makePlayer({ name: "月神高斯", identity: "wei", group: "wei", identityShown: true, choices: [true] });
+	target = makePlayer({ name: "蜀将", identity: "shu", group: "shu", identityShown: true, choices: [false], skills: [] });
+	game.players = [source, target];
+	equal(await fire(source, target), true, "国战不同势力应继续触发感化");
+	equal(source.name1, "日蚀高斯", "国战不同势力拒绝后仍可变身");
+
+	resetRecruitState("versus");
+	source = makePlayer({ name: "月神高斯", identity: "zhong", side: true, choices: [true] });
+	target = makePlayer({ name: "友方", identity: "zhong", side: true, choices: [false], skills: [] });
+	game.players = [source, target];
+	await assertBlocked(source, target, "对战同 side");
+
+	resetRecruitState("versus");
+	source = makePlayer({ name: "月神高斯", identity: "zhong", side: true, choices: [true] });
+	target = makePlayer({ name: "敌方", identity: "fan", side: false, choices: [false], skills: [] });
+	game.players = [source, target];
+	equal(await fire(source, target), true, "对战不同 side 应继续触发感化");
+	equal(source.name1, "日蚀高斯", "对战不同 side 拒绝后仍可变身");
+});
+
+await check("感化：斗地主按角色身份跳过同阵营，不依赖 getJoinPlan", async () => {
+	const fire = async (source, target) => {
+		const trigger = { source, player: target, num: 1 };
+		if (!skills.ysganhua.filter(trigger, source)) return false;
+		await skills.ysganhua.content({}, trigger, source);
+		return true;
+	};
+	const shared = skills.ysganhua.shared;
+	resetRecruitState("doudizhu");
+	const landlord = makePlayer({ name: "地主", identity: "zhu", isZhu: true, skills: [] });
+	game.zhu = landlord;
+	let source = makePlayer({ name: "月神高斯", identity: "fan", choices: [true] });
+	let target = makePlayer({ name: "农民", identity: "fan", choices: [false], skills: [] });
+	game.players = [landlord, source, target];
+	equal(shared.getJoinPlan(source, target), null, "斗地主没有可用的加入计划");
+	equal(await fire(source, target), false, "两名农民同阵营不应触发感化");
+	equal(source.name1, "月神高斯", "农民同阵营不应提供变身");
+	equal(source.choices.length, 1, "农民同阵营不应消耗变身选择");
+	equal(target.choices.length, 1, "农民同阵营不应弹出感化询问");
+
+	resetRecruitState("doudizhu");
+	source = makePlayer({ name: "月神高斯", identity: "zhu", isZhu: true, choices: [true] });
+	target = makePlayer({ name: "农民", identity: "fan", choices: [false], skills: [] });
+	game.zhu = source;
+	game.players = [source, target];
+	equal(await fire(source, target), true, "地主对农民应继续触发感化");
+	equal(source.name1, "日蚀高斯", "地主对农民拒绝后仍可正常变身");
+	equal(target.choices.length, 1, "斗地主不询问目标加入，保持原有变身流程");
 });
 
 await check("感化：身份模式接受后身份与胜利关系真实变更", async () => {
@@ -1513,8 +1633,10 @@ await check("满月：三名受伤角色只回复被选中者，感化只跟该�
 		equal(recoverAfterTargets[0], selected, "recoverAfter 应只指向被选中者");
 		if (selected === source) {
 			equal(ganhuaTargets.length, 0, "自己回复不应触发感化");
+		} else if (selected === ally) {
+			equal(ganhuaTargets.length, 0, "同 side 队友回复不应触发感化");
 		} else {
-			equal(ganhuaTargets.length, 1, "被选中的其他角色应只触发一次感化");
+			equal(ganhuaTargets.length, 1, "被选中的敌方角色应只触发一次感化");
 			equal(ganhuaTargets[0], selected, "感化应只指向被选中者");
 		}
 	}
@@ -1759,21 +1881,17 @@ await check("日蚀牌面标记：四花色六效果各自成对并支持多标�
 	equal(JSON.stringify(tagsFor("diamond")), JSON.stringify(["rsrishi_mark_red", "rsrishi_mark_diamond"]), "方块牌标记");
 	equal(JSON.stringify(tagsFor("spade")), JSON.stringify(["rsrishi_mark_black", "rsrishi_mark_spade"]), "黑桃牌标记");
 	equal(JSON.stringify(tagsFor("club")), JSON.stringify(["rsrishi_mark_black", "rsrishi_mark_club"]), "梅花牌标记");
-	const labels = {
-		rsrishi_mark_red: "再结算",
-		rsrishi_mark_black: "免响应",
-		rsrishi_mark_heart: "穿甲",
-		rsrishi_mark_diamond: "无距",
-		rsrishi_mark_spade: "伤+1",
-		rsrishi_mark_club: "无限",
-	};
-	for (const [tag, label] of Object.entries(labels)) {
-		equal(skillTranslate[tag], label, `${tag} 应是供本体 gaintag 直接渲染的纯文本`);
-		assert(!String(skillTranslate[tag]).includes("<"), `${tag} 不得内嵌自定义 DOM`);
+	for (const tag of shared.markTags) {
+		assert(typeof skillTranslate[tag] === "string" && skillTranslate[tag].length > 0, `${tag} 应有本体翻译文案`);
+		assert(!skillTranslate[tag].includes("<"), `${tag} 应是供本体 gaintag 直接渲染的纯文本`);
 	}
 	const modified = makeCard("sha", "spade", 1, "basic", { damage: 1 });
 	modified.color = "red";
 	equal(JSON.stringify(shared.getCardMarkTags(modified)), JSON.stringify(["rsrishi_mark_red", "rsrishi_mark_spade"]), "颜色与花色被修改时分别叠加");
+	const handOnlyMod = makeCard("sha", "club", 4, "basic", { damage: 1 });
+	handOnlyMod.modSuit = "diamond";
+	handOnlyMod.modColor = "red";
+	equal(JSON.stringify(shared.getCardMarkTags(handOnlyMod)), JSON.stringify(["rsrishi_mark_black", "rsrishi_mark_club"]), "仅在手牌生效的改色改花不得改变标记，应与实体牌离手后的实际结算一致");
 	const colorless = makeCard("sha", "none", 1, "basic", {});
 	colorless.color = "black";
 	equal(JSON.stringify(shared.getCardMarkTags(colorless)), JSON.stringify(["rsrishi_mark_black"]), "无花色只显示颜色效果");
@@ -1810,7 +1928,7 @@ await check("日蚀牌面标记：给予、失去、使用与花色变化后实�
 	}
 	assert(heart.hasGaintag("other_skill_tag"), "不得移除其他技能的牌面标记");
 	equal(heart.node.gaintag.innerHTML, heart.gaintag.map(tag => get.translation(tag)).join(" "), "本体 gaintag 应原样拼接多个标记文案");
-	assert(heart.node.gaintag.innerHTML.includes("再结算") && heart.node.gaintag.innerHTML.includes("穿甲"), "多标记文案应同时可见");
+	assert(heart.node.gaintag.innerHTML.includes(get.translation("rsrishi_mark_red")) && heart.node.gaintag.innerHTML.includes(get.translation("rsrishi_mark_heart")), "多标记文案应同时可见");
 	equal(`${heart.suit}/${heart.color}/${heart.number}`, "heart/red/3", "刷新标记不得改实体牌属性");
 
 	player.hand = player.hand.filter(card => card !== spade);
@@ -1876,6 +1994,12 @@ await check("日蚀牌面标记：技能获得、失去与月神变身日蚀后�
 	assert(club.hasGaintag("rsrishi_mark_black") && club.hasGaintag("rsrishi_mark_club"), "获得日蚀时应为现有手牌补标记");
 	skills.rsrishi.onremove(eclipse, "rsrishi");
 	assert(!club.gaintag.some(tag => tag.startsWith("rsrishi_mark_")), "onremove 应清理现有手牌标记");
+
+	const starterCard = makeCard("shan", "diamond", 2, "basic", { respondShan: 1 });
+	const starter = makePlayer({ name: "日蚀高斯", skills: ["rsrishi"], hand: [starterCard] });
+	game.players = [starter];
+	skills.rsrishi.init(starter, "rsrishi");
+	assert(starterCard.hasGaintag("rsrishi_mark_red") && starterCard.hasGaintag("rsrishi_mark_diamond"), "初始选择日蚀时已有手牌应立即显示标记");
 });
 
 await check("日蚀牌面标记：只调用本体 gaintag，不注入自定义样式或 DOM", () => {
