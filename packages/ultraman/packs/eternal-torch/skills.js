@@ -647,7 +647,7 @@ export const skills = {
 			await new Promise(resolve => setTimeout(resolve, 1200));
 			event.dialog.close();
 			delete event.dialog;
-			const suitList = ["红心", "黑桃", "梅花", "方块"];
+			const suitList = ["heart", "spade", "club", "diamond"];
 			const suitResult = await player
 				.chooseControl(suitList)
 				.set("prompt", "请猜测此牌的花色")
@@ -663,10 +663,8 @@ export const skills = {
 			event.numberChoice = numberResult.index + 1;
 			const cardSuit = get.suit(event.card);
 			const cardNumber = get.number(event.card);
-			const suitMap = { 红心: "heart", 黑桃: "spade", 梅花: "club", 方块: "diamond" };
-			const suitNames = ["红心", "黑桃", "梅花", "方块"];
 			let correctCount = 0;
-			if (suitMap[suitNames[event.suitChoice]] === cardSuit) {
+			if (suitList[event.suitChoice] === cardSuit) {
 				correctCount++;
 			}
 			if (event.numberChoice === cardNumber) {
@@ -2262,22 +2260,22 @@ export const skills = {
 			const card = trigger.card;
 			if (suit === "heart") {
 				await player.useCard({ name: "sha", isCard: true }, target).set("addCount", false);
-				game.log(player, "判定结果为红心，视为对" + get.translation(target) + "使用了一张普通【杀】");
+				game.log(player, "判定结果为" + get.translation(suit) + "，视为对" + get.translation(target) + "使用了一张普通【杀】");
 			} else if (suit === "diamond") {
 				player.setStorage("swbingfu_unrespondable", true);
 				player.setStorage("swbingfu_target", target);
 				trigger.directHit.add(target);
-				game.log(player, "判定结果为方块，" + get.translation(card) + "对" + get.translation(target) + "不可响应");
+				game.log(player, "判定结果为" + get.translation(suit) + "，" + get.translation(card) + "对" + get.translation(target) + "不可响应");
 			} else if (suit === "spade") {
 				if (target.countCards("he") > 0) {
 					await player.discardPlayerCard({ target, position: "he", forced: true });
 				}
-				game.log(player, "判定结果为黑桃，弃置" + get.translation(target) + "一张牌");
+				game.log(player, "判定结果为" + get.translation(suit) + "，弃置" + get.translation(target) + "一张牌");
 			} else if (suit === "club") {
 				if (target.countDiscardableCards(target, "he") > 0) {
 					await target.chooseToDiscard(2, "he", true);
 				}
-				game.log(player, "判定结果为梅花，" + get.translation(target) + "弃置两张牌");
+				game.log(player, "判定结果为" + get.translation(suit) + "，" + get.translation(target) + "弃置两张牌");
 			}
 		},
 		targetprompt2(target) {
@@ -3513,6 +3511,7 @@ export const skills = {
 						target,
 						plan.identity,
 					);
+					game.playSkillBgm("gs");
 					if (plan.fromLord) {
 						game.log(target, "以忠臣身份加入了", source, "的主公阵营");
 					} else {
@@ -3842,6 +3841,7 @@ export const skills = {
 				if (player.hasSkill("ysgsganhua")) await player.removeSkills("ysgsganhua");
 				if (!player.hasSkill("rmgsrimian")) await player.addSkills("rmgsrimian");
 				lib.skill.rmgsrimian.shared.refreshMarks(player);
+				game.playSkillBgm("gs");
 				game.log(player, "将武将牌切换为【日冕高斯】");
 				player.$skill("日冕高斯", "legend", "fire");
 				return true;
@@ -4030,6 +4030,7 @@ export const skills = {
 						gain.push(candidates.splice(index, 1)[0]);
 					}
 					await player.gain(gain, "gain2");
+					game.playSkillBgm("gs");
 				},
 			},
 			use: {

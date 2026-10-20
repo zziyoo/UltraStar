@@ -3850,19 +3850,20 @@ check("储蓄罐与遗忘之石：结算侧两处加成", () => {
 	assertEqual(plain.gained.gold, BASE_GOLD, "没有储蓄罐就只发基础");
 	// 黄金罗盘：概率统一为「百分点累加 + 一次判定」（v13 口径），不再单独掷第二次
 	const compass = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 0, exp: 0 }, curios: ["golden_compass"] };
-	// 基础线 15% + 罗盘 10 个百分点＝25%：0.2 落在两条线之间，只有罗盘能救回来
-	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.2, 0.999]));
-	assert(hitByBonus.run.curioOffers.length > 0, "15%+10 个百分点＝25%，0.2 必须命中（基础线 15% 自己是命不中的）");
+	// 基础线 20% + 罗盘 10 个百分点＝30%：0.25 落在两条线之间，只有罗盘能救回来
+	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.25, 0.999]));
+	assert(hitByBonus.run.curioOffers.length > 0, "20%+10 个百分点＝30%，0.25 必须命中（基础线 20% 自己是命不中的）");
 	assertEqual(hitByBonus.run.curioOfferQueue.length, 0, "一次结算只摇这一批，罗盘不再生产第二批");
 	// 与旧写法的分歧点：以前「基础未中 + 第二次独立判定命中」会凭空多出一批，现在必须整体未命中
-	const noSecondRoll = reward.settleVictory(compass, NOW, seq([0.25, 0]));
+	// 线值取现算结果本身（0.2+0.1 在浮点上是 0.30000000000000004，写死 0.3 会假命中）
+	const noSecondRoll = reward.settleVictory(compass, NOW, seq([curioManager.getCurioShopChance(compass), 0]));
 	assertEqual(noSecondRoll.run.curioOffers.length, 0, "第二个随机数不得再决定一次商店刷新");
 	assertEqual(noSecondRoll.run.curioOfferQueue.length, 0, "同样不留队列");
 	// 没有罗盘时判定线就是基础概率本身：线下一丝出货、恰好压在线上不出货（严格小于）
 	const plainSave = { ...compass, curios: [] };
-	assertEqual(cfg.CURIO_SHOP_RATE, 0.15, "奇物商店基础概率按本轮定为 15%");
-	assert(reward.settleVictory(plainSave, NOW, seq([0.149])).run.curioOffers.length > 0, "0.149 < 15% → 出货");
-	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.15])).run.curioOffers.length, 0, "0.15 正压在线上 → 严格小于才命中");
+	assertEqual(cfg.CURIO_SHOP_RATE, 0.2, "奇物商店基础概率按本轮定为 20%");
+	assert(reward.settleVictory(plainSave, NOW, seq([0.199])).run.curioOffers.length > 0, "0.199 < 20% → 出货");
+	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.2])).run.curioOffers.length, 0, "0.2 正压在线上 → 严格小于才命中");
 	// 遗忘之石：本层基准金币 ×10，没有这块奇物返回 0
 	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["oblivion_stone"] };
 	assertEqual(curioManager.getSkillLossRewardGold(stone), BASE_GOLD * 10, "十倍本层基准金币");

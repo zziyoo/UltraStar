@@ -200,12 +200,12 @@ export const CURIO_OFFER_COUNT = 3;
  * **未命中直接清空**（旧批次不留着，避免同一批货挂十几关不动）；rng 可注入。
  * 一批只卖一个：买到即整批下架（buyCurio 清空 curioOffers），商店分区随之隐藏。
  * 注意这条概率同时决定「商店多久出现一次」——批次不再留存后，平均 1/该值 关才看得到一次
- * （0.15 = 约 7 关一次）。
+ * （0.2 = 约 5 关一次）。
  * 黄金罗盘的 `extraCurioShopChance` 是**百分点累加到本值之上**、由同一个随机数判一次
  * （见 curioManager.getCurioShopChance），不是第二次独立掷骰。
  * 界面上那句「有 N% 概率刷新」与结算判定、读档描述共用同一个函数，改这里就够。
  */
-export const CURIO_SHOP_RATE = 0.15;
+export const CURIO_SHOP_RATE = 0.2;
 
 /**
  * 深渊裂隙的三档赌局（选项顺序即 data/events.js 里写死的顺序）：

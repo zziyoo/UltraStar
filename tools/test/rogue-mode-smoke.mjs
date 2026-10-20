@@ -2696,7 +2696,7 @@ await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的
 		await flush();
 	}
 	try {
-		// 随机钉在 0.5：既不低于事件线（0.4）也不低于奇物商店线（基础 0.15），两样都不触发，
+		// 随机钉在 0.5：既不低于事件线（0.4）也不低于奇物商店线（基础 0.2），两样都不触发，
 		// 于是每场的金币增量都恰好等于该关基准，能逐场精确对账；Boss 判定由两个 click 助手单独钉
 		Math.random = () => 0.5;
 		putRun(0, {
@@ -2974,7 +2974,7 @@ await check("10-06 实机旧档带残留的商店锁（没有橱窗）：读档�
 		assertEqual(slot.curioShopLocked, false, "没有橱窗 → 残留的奇物锁清零");
 		assertEqual(slot.skillShopLocked, false, "没有橱窗 → 残留的技能锁清零");
 		// 打赢这一场：结算里的奇物商店判定照常执行（这一份旧档拥有史诗诅咒金币，
-		// 结算里没有波动项掷骰，奇物商店的判定就是第一次 rng 消费），钉中基础线（现 15%）即整批新货
+		// 结算里没有波动项掷骰，奇物商店的判定就是第一次 rng 消费），钉中基础线（现 20%）即整批新货
 		let calls = 0;
 		Math.random = () => (calls++ === 0 ? 0.05 : 0.5);
 		for (const player of game.players.slice(1)) {

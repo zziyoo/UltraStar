@@ -28,4 +28,5 @@ export default {
 	agr: ["haiyang.mp3"],
 	gy: ["dadi.mp3"],
 	igniz: ["igniz.mp3"],
+	gs: ["gs.mp3"],
 };
