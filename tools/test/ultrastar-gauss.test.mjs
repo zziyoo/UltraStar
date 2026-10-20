@@ -77,11 +77,15 @@ const game = {
 	enemyZhu: null,
 	boss: null,
 	logs: [],
+	bgmCalls: [],
 	checkResultCalls: 0,
 	tryResultCalls: 0,
 	overCalls: [],
 	log(...args) {
 		this.logs.push(args);
+	},
+	playSkillBgm(name) {
+		this.bgmCalls.push(name);
 	},
 	hasPlayer(fn) {
 		return this.players.some(fn);
@@ -814,20 +818,20 @@ await check("感化：出牌阶段开始可主动变身，不询问其他角色"
 	const source = makePlayer({ name: "月神高斯", skills: ["ysgsmanyue", "ysgsganhua"], choices: [true] });
 	const target = makePlayer({ name: "迪迦", skills: [], choices: [true] });
 	game.players = [source, target];
-	const trigger = { name: "phaseUseBegin", player: source };
-	assert(skills.ysgsganhua.filter(trigger, source), "出牌阶段开始时【感化】应可触发");
-	await skills.ysgsganhua.content({}, trigger, source);
+	const trigger = { name: "phaseUse", player: source };
+	assert(skills.ysgsganhua.filter(trigger, source, "phaseUseBegin"), "出牌阶段开始时【感化】应可触发");
+	await skills.ysgsganhua.content({ triggername: "phaseUseBegin" }, trigger, source);
 	equal(source.name1, "日冕高斯", "主动选择后应切换为日冕高斯");
 	assert(source.skills.includes("rmgsrimian"), "变身后应获得日冕");
 	assert(!source.skills.includes("ysgsmanyue") && !source.skills.includes("ysgsganhua"), "变身后应移除满月与感化");
 	equal(JSON.stringify(source.skillAnims), JSON.stringify([["日冕高斯", "legend", "fire"]]), "主动变身应播放变身动画");
 	equal(target.choices.length, 1, "主动变身不得询问其他角色");
 	equal(target.chats.length, 0, "主动变身不得触发阵营发言");
-	assert(!skills.ysgsganhua.filter(trigger, source), "变身后不再满足感化触发条件");
+	assert(!skills.ysgsganhua.filter(trigger, source, "phaseUseBegin"), "变身后不再满足感化触发条件");
 
 	const decliner = makePlayer({ name: "月神高斯", skills: ["ysgsmanyue", "ysgsganhua"], choices: [false] });
 	game.players = [decliner];
-	await skills.ysgsganhua.content({}, { name: "phaseUseBegin", player: decliner }, decliner);
+	await skills.ysgsganhua.content({ triggername: "phaseUseBegin" }, { name: "phaseUse", player: decliner }, decliner);
 	equal(decliner.name1, "月神高斯", "选择不变身应保持月神高斯");
 	assert(decliner.skills.includes("ysgsmanyue") && decliner.skills.includes("ysgsganhua"), "选择不变身应保留满月与感化");
 	equal(decliner.skillAnims.length, 0, "选择不变身不应播放动画");
@@ -1497,6 +1501,13 @@ function loadHostMethod(source, name) {
 			return cache;
 		},
 	};
+	const skillContext = {
+		current: null,
+		set() {},
+		run(context, callback, receiver, args) {
+			return callback.apply(receiver, args);
+		},
+	};
 	return new Function(
 		"get",
 		"game",
@@ -1504,8 +1515,9 @@ function loadHostMethod(source, name) {
 		"_status",
 		"ui",
 		"CacheContext",
+		"skillContext",
 		`return (function ${method});`,
-	)(get, game, lib, _status, ui, CacheContext);
+	)(get, game, lib, _status, ui, CacheContext, skillContext);
 }
 
 await check("满月 AI：本体 effect_use/effect 实际调用招降权重", () => {

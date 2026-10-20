@@ -3850,10 +3850,10 @@ export const skills = {
 		trigger: { global: "recoverAfter", player: "phaseUseBegin" },
 		forced: true,
 		locked: false,
-		filter(event, player) {
+		filter(event, player, triggername) {
 			const shared = lib.skill.ysgsganhua.shared;
 			if (!shared.isMoonGauss(player)) return false;
-			if (event.name === "phaseUseBegin") return true;
+			if (triggername === "phaseUseBegin") return true;
 			if (event.source !== player || event.player === player) return false;
 			if (!event.num || event.num <= 0 || !event.player?.isAlive()) return false;
 			if (event.player === game.zhu || event.player.identity === "zhu" || event.player.isZhu) return false;
@@ -3866,7 +3866,7 @@ export const skills = {
 		},
 		async content(event, trigger, player) {
 			const shared = lib.skill.ysgsganhua.shared;
-			if (trigger.name === "phaseUseBegin") {
+			if (event.triggername === "phaseUseBegin") {
 				await shared.chooseTransform(player);
 				return;
 			}
