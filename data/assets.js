@@ -126,6 +126,7 @@ export default [
 	"assets/audio/fenxi1.mp3",
 	"assets/audio/fenxi2.mp3",
 	"assets/curios/gluttonous_box.png",
+	"assets/audio/gs.mp3",
 	"assets/audio/haiyang.mp3",
 	"assets/curios/hungry_box.png",
 	"assets/curios/collector_showcase.png",
