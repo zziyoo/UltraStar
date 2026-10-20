@@ -3191,7 +3191,7 @@ export const skills = {
 			},
 		},
 	},
-	ysmanyue: {
+	ysgsmanyue: {
 		shared: {
 			names: ["shan", "tao", "wuxie"],
 			isDamageCard(card) {
@@ -3199,7 +3199,7 @@ export const skills = {
 			},
 			recruitEffect(card, player, target) {
 				if (get.name(card) !== "tao" || !target || target === player || get.attitude(player, target) >= 0) return;
-				const score = lib.skill.ysganhua.shared.getRecruitTargetValue(player, target);
+				const score = lib.skill.ysgsganhua.shared.getRecruitTargetValue(player, target);
 				if (score <= 0) return;
 				return [1, 3 + score * 2, 1, -(3 + score * 5)];
 			},
@@ -3229,18 +3229,18 @@ export const skills = {
 		},
 		enable: ["chooseToUse", "chooseToRespond"],
 		locked: true,
-		group: ["ysmanyue_draw"],
+		group: ["ysgsmanyue_draw"],
 		hiddenCard(player, name) {
-			const shared = lib.skill.ysmanyue.shared;
+			const shared = lib.skill.ysgsmanyue.shared;
 			return shared.names.includes(name) && player.hasCards("he", card => shared.isDamageCard(card));
 		},
 		filter(event, player) {
-			const shared = lib.skill.ysmanyue.shared;
+			const shared = lib.skill.ysgsmanyue.shared;
 			return player.hasCards("he", card => shared.isDamageCard(card)) && shared.options(event, player).length > 0;
 		},
 		chooseButton: {
 			dialog(event, player) {
-				const shared = lib.skill.ysmanyue.shared;
+				const shared = lib.skill.ysgsmanyue.shared;
 				const list = shared.options(event, player).map(name => [get.type({ name }), "", name]);
 				return ui.create.dialog("满月", [list, "vcard"]);
 			},
@@ -3252,9 +3252,9 @@ export const skills = {
 					const friendlyDamaged = game.hasPlayer(
 						target => target !== player && target.isDamaged() && get.attitude(player, target) > 0,
 					);
-					const ganhua = lib.skill.ysganhua.shared;
+					const ganhua = lib.skill.ysgsganhua.shared;
 					let recruitValue = 0;
-					if (ganhua.isMoonGauss(player) && player.hasSkill("ysganhua")) {
+					if (ganhua.isMoonGauss(player) && player.hasSkill("ysgsganhua")) {
 						for (const target of game.players) {
 							if (target === player || get.attitude(player, target) >= 0) continue;
 							recruitValue = Math.max(recruitValue, ganhua.getRecruitTargetValue(player, target));
@@ -3267,7 +3267,7 @@ export const skills = {
 			},
 			backup(links, player) {
 				const name = links[0][2];
-				const shared = lib.skill.ysmanyue.shared;
+				const shared = lib.skill.ysgsmanyue.shared;
 				return {
 					filterCard(card) {
 						return shared.isDamageCard(card);
@@ -3287,10 +3287,10 @@ export const skills = {
 						};
 					},
 					async onuse(result, player) {
-						player.logSkill("ysmanyue");
+						player.logSkill("ysgsmanyue");
 					},
 					async onrespond(event, player) {
-						player.logSkill("ysmanyue");
+						player.logSkill("ysgsmanyue");
 					},
 				};
 			},
@@ -3307,17 +3307,17 @@ export const skills = {
 				range[1] = 1;
 			},
 			cardEnabled(card, player) {
-				const shared = lib.skill.ysmanyue.shared;
+				const shared = lib.skill.ysgsmanyue.shared;
 				if (shared.isDamageCard(card)) return false;
 				if (card.name === "tao" && game.hasPlayer(target => target !== player && target.isDamaged())) {
 					return true;
 				}
 			},
 			cardRespondable(card) {
-				const shared = lib.skill.ysmanyue.shared;
+				const shared = lib.skill.ysgsmanyue.shared;
 				if (!shared.isDamageCard(card)) return;
 				const event = _status.event;
-				if (event?.skill === "ysmanyue_backup") return;
+				if (event?.skill === "ysgsmanyue_backup") return;
 				return false;
 			},
 			playerEnabled(card, player, target) {
@@ -3334,7 +3334,7 @@ export const skills = {
 					return Boolean(event.card);
 				},
 				async content(event, trigger, player) {
-					const shared = lib.skill.ysmanyue.shared;
+					const shared = lib.skill.ysgsmanyue.shared;
 					const hand = player.getCards("h");
 					const hasDamage = hand.some(card => shared.isDamageCard(card));
 					const hasOther = hand.some(card => !shared.isDamageCard(card));
@@ -3347,27 +3347,27 @@ export const skills = {
 			save: true,
 			skillTagFilter(player, tag) {
 				if (tag !== "respondShan" && tag !== "save") return false;
-				const shared = lib.skill.ysmanyue.shared;
+				const shared = lib.skill.ysgsmanyue.shared;
 				return player.hasCards("he", card => shared.isDamageCard(card));
 			},
 			effect: {
 				player(card, player, target) {
-					return lib.skill.ysmanyue.shared.recruitEffect(card, player, target);
+					return lib.skill.ysgsmanyue.shared.recruitEffect(card, player, target);
 				},
 				player_use(card, player, target) {
-					return lib.skill.ysmanyue.shared.recruitEffect(card, player, target);
+					return lib.skill.ysgsmanyue.shared.recruitEffect(card, player, target);
 				},
 			},
 			order: 9,
 			result: {
 				player(player) {
-					const shared = lib.skill.ysmanyue.shared;
+					const shared = lib.skill.ysgsmanyue.shared;
 					return player.hasCards("he", card => shared.isDamageCard(card)) ? 1 : 0;
 				},
 			},
 		},
 	},
-	ysganhua: {
+	ysgsganhua: {
 		shared: {
 			isMoonGauss(player) {
 				return Boolean(player) && [player.name, player.name1, player.name2].includes("月神高斯");
@@ -3764,7 +3764,7 @@ export const skills = {
 				if (!source || !target || target === source) return 0;
 				if (!this.isMoonGauss(source)) return 0;
 				const sourceSkills = source.getSkills?.() ?? source.skills ?? [];
-				if (!sourceSkills.includes("ysganhua")) return 0;
+				if (!sourceSkills.includes("ysgsganhua")) return 0;
 				if (get.mode() === "doudizhu") return 0;
 				if (!target.isAlive?.() || target.isOut?.()) return 0;
 				if (target === game.zhu || target.identity === "zhu" || target.isZhu) return 0;
@@ -3792,7 +3792,7 @@ export const skills = {
 				if (!source) return true;
 				const mode = get.mode();
 				const pressure = this.getBattlePressure(source);
-				const damageCards = source.countCards?.("h", card => lib.skill.ysmanyue.shared.isDamageCard(card)) ?? 0;
+				const damageCards = source.countCards?.("h", card => lib.skill.ysgsmanyue.shared.isDamageCard(card)) ?? 0;
 				const hp = Number(source.getHp?.() ?? source.hp) || 0;
 				if (mode === "doudizhu") {
 					return pressure >= 0.55 || hp <= 2 || damageCards >= 2;
@@ -3811,10 +3811,18 @@ export const skills = {
 				if (damageCards >= 2 && pressure >= 0.5) return true;
 				return hp <= 2;
 			},
+			async chooseTransform(player, target) {
+				const result = await player
+					.chooseBool(`${get.translation("ysgsganhua")}：是否将武将牌切换为日冕高斯？`)
+					.set("ai", () => lib.skill.ysgsganhua.shared.shouldTransform(player, target))
+					.forResult();
+				if (result?.bool) return this.switchToEclipse(player);
+				return false;
+			},
 			async switchToEclipse(player) {
 				if (!player?.isAlive()) return false;
 				const oldNames = [player.name1, player.name2].filter(name => name && lib.character[name]);
-				if (!oldNames.includes("月神高斯") || oldNames.includes("日蚀高斯") || !lib.character["日蚀高斯"]) {
+				if (!oldNames.includes("月神高斯") || oldNames.includes("日冕高斯") || !lib.character["日冕高斯"]) {
 					return false;
 				}
 				const state = {
@@ -3823,28 +3831,30 @@ export const skills = {
 					singleHp: player.singleHp,
 					hujia: player.hujia,
 				};
-				const newNames = oldNames.map(name => (name === "月神高斯" ? "日蚀高斯" : name));
+				const newNames = oldNames.map(name => (name === "月神高斯" ? "日冕高斯" : name));
 				await player.changeCharacter(newNames, true);
 				player.maxHp = state.maxHp;
 				player.hp = Math.min(state.hp, player.maxHp);
 				player.singleHp = state.singleHp;
 				if (typeof state.hujia === "number") player.hujia = state.hujia;
 				player.update();
-				if (player.hasSkill("ysmanyue")) await player.removeSkills("ysmanyue");
-				if (player.hasSkill("ysganhua")) await player.removeSkills("ysganhua");
-				if (!player.hasSkill("rsrishi")) await player.addSkills("rsrishi");
-				lib.skill.rsrishi.shared.refreshMarks(player);
-				game.log(player, "将武将牌切换为【日蚀高斯】");
-				player.$skill("日蚀高斯", "legend", "ice");
+				if (player.hasSkill("ysgsmanyue")) await player.removeSkills("ysgsmanyue");
+				if (player.hasSkill("ysgsganhua")) await player.removeSkills("ysgsganhua");
+				if (!player.hasSkill("rmgsrimian")) await player.addSkills("rmgsrimian");
+				lib.skill.rmgsrimian.shared.refreshMarks(player);
+				game.log(player, "将武将牌切换为【日冕高斯】");
+				player.$skill("日冕高斯", "legend", "fire");
 				return true;
 			},
 		},
-		trigger: { global: "recoverAfter" },
+		trigger: { global: "recoverAfter", player: "phaseUseBegin" },
 		forced: true,
 		locked: false,
 		filter(event, player) {
-			const shared = lib.skill.ysganhua.shared;
-			if (!shared.isMoonGauss(player) || event.source !== player || event.player === player) return false;
+			const shared = lib.skill.ysgsganhua.shared;
+			if (!shared.isMoonGauss(player)) return false;
+			if (event.name === "phaseUseBegin") return true;
+			if (event.source !== player || event.player === player) return false;
 			if (!event.num || event.num <= 0 || !event.player?.isAlive()) return false;
 			if (event.player === game.zhu || event.player.identity === "zhu" || event.player.isZhu) return false;
 			if ([game.friendZhu, game.enemyZhu, game.boss].includes(event.player)) return false;
@@ -3855,7 +3865,11 @@ export const skills = {
 			return event.player;
 		},
 		async content(event, trigger, player) {
-			const shared = lib.skill.ysganhua.shared;
+			const shared = lib.skill.ysgsganhua.shared;
+			if (trigger.name === "phaseUseBegin") {
+				await shared.chooseTransform(player);
+				return;
+			}
 			const target = trigger.player;
 			if (get.mode() !== "doudizhu") {
 				const plan = shared.getJoinPlan(player, target);
@@ -3869,7 +3883,7 @@ export const skills = {
 					.set("ai", () => {
 						const target = get.player();
 						const source = get.event().source;
-						return lib.skill.ysganhua.shared.shouldJoin(source, target);
+						return lib.skill.ysgsganhua.shared.shouldJoin(source, target);
 					})
 					.forResult();
 				if (result?.bool) {
@@ -3879,7 +3893,7 @@ export const skills = {
 						return;
 					}
 					if (joined.changed) {
-						player.$skill("感化", "legend", "ice");
+						player.$skill("感化", "legend", "blue");
 						target.chat("其实，我早就找回奥特精神了");
 						await shared.checkVictory(player, target, plan);
 					} else {
@@ -3889,41 +3903,37 @@ export const skills = {
 				}
 				target.chat("但是我拒绝");
 			}
-			const result = await player
-				.chooseBool(`${get.translation("ysganhua")}：是否将武将牌切换为日蚀高斯？`)
-				.set("ai", () => lib.skill.ysganhua.shared.shouldTransform(player, target))
-				.forResult();
-			if (result?.bool) await shared.switchToEclipse(player);
+			await shared.chooseTransform(player, target);
 		},
 	},
-	rsrishi: {
+	rmgsrimian: {
 		locked: true,
-		group: ["rsrishi_use", "rsrishi_heart", "rsrishi_spade", "rsrishi_prepare", "rsrishi_mark"],
+		group: ["rmgsrimian_use", "rmgsrimian_heart", "rmgsrimian_spade", "rmgsrimian_prepare", "rmgsrimian_mark"],
 		shared: {
 			markTags: [
-				"rsrishi_mark_red",
-				"rsrishi_mark_black",
-				"rsrishi_mark_heart",
-				"rsrishi_mark_diamond",
-				"rsrishi_mark_spade",
-				"rsrishi_mark_club",
+				"rmgsrimian_mark_red",
+				"rmgsrimian_mark_black",
+				"rmgsrimian_mark_heart",
+				"rmgsrimian_mark_diamond",
+				"rmgsrimian_mark_spade",
+				"rmgsrimian_mark_club",
 			],
 			getCardMarkTags(card) {
 				const marks = [];
 				if (!card) return marks;
 				const color = get.color(card, false);
 				const suit = get.suit(card, false);
-				if (color === "red") marks.push("rsrishi_mark_red");
-				else if (color === "black") marks.push("rsrishi_mark_black");
-				if (suit === "heart") marks.push("rsrishi_mark_heart");
-				else if (suit === "diamond") marks.push("rsrishi_mark_diamond");
-				else if (suit === "spade") marks.push("rsrishi_mark_spade");
-				else if (suit === "club") marks.push("rsrishi_mark_club");
+				if (color === "red") marks.push("rmgsrimian_mark_red");
+				else if (color === "black") marks.push("rmgsrimian_mark_black");
+				if (suit === "heart") marks.push("rmgsrimian_mark_heart");
+				else if (suit === "diamond") marks.push("rmgsrimian_mark_diamond");
+				else if (suit === "spade") marks.push("rmgsrimian_mark_spade");
+				else if (suit === "club") marks.push("rmgsrimian_mark_club");
 				return marks;
 			},
 			canKeepMarks(player, card) {
 				const owner = get.owner?.(card);
-				return Boolean(owner && owner !== player && owner.hasSkill?.("rsrishi") && (owner.getCards?.("h") ?? []).includes(card));
+				return Boolean(owner && owner !== player && owner.hasSkill?.("rmgsrimian") && (owner.getCards?.("h") ?? []).includes(card));
 			},
 			clearCardMarks(player, card) {
 				if (!player || !card || this.canKeepMarks(player, card)) return;
@@ -3933,18 +3943,18 @@ export const skills = {
 			},
 			clearMarks(player) {
 				if (!player) return;
-				const cards = [...new Set([...(player.rsrishiMarkedCards ?? []), ...(player.getCards?.("h") ?? [])])];
+				const cards = [...new Set([...(player.rmgsrimianMarkedCards ?? []), ...(player.getCards?.("h") ?? [])])];
 				for (const card of cards) this.clearCardMarks(player, card);
-				player.rsrishiMarkedCards = [];
+				player.rmgsrimianMarkedCards = [];
 			},
 			refreshMarks(player) {
 				if (!player) return;
-				if (!player.hasSkill?.("rsrishi")) {
+				if (!player.hasSkill?.("rmgsrimian")) {
 					this.clearMarks(player);
 					return;
 				}
 				const hand = player.getCards?.("h") ?? [];
-				for (const card of player.rsrishiMarkedCards ?? []) {
+				for (const card of player.rmgsrimianMarkedCards ?? []) {
 					if (!hand.includes(card)) this.clearCardMarks(player, card);
 				}
 				const marked = [];
@@ -3959,17 +3969,17 @@ export const skills = {
 					for (const tag of desired) player.addGaintag(card, tag);
 					if (desired.length) marked.push(card);
 				}
-				player.rsrishiMarkedCards = marked;
+				player.rmgsrimianMarkedCards = marked;
 			},
 		},
 		init(player) {
-			lib.skill.rsrishi.shared.refreshMarks(player);
+			lib.skill.rmgsrimian.shared.refreshMarks(player);
 		},
 		init2(player) {
-			lib.skill.rsrishi.shared.refreshMarks(player);
+			lib.skill.rmgsrimian.shared.refreshMarks(player);
 		},
 		onremove(player) {
-			lib.skill.rsrishi.shared.clearMarks(player);
+			lib.skill.rmgsrimian.shared.clearMarks(player);
 		},
 		mod: {
 			targetInRange(card) {
@@ -3987,10 +3997,10 @@ export const skills = {
 				popup: false,
 				nopop: true,
 				filter(event, player) {
-					return player.hasSkill("rsrishi");
+					return player.hasSkill("rmgsrimian");
 				},
 				async content(event, trigger, player) {
-					lib.skill.rsrishi.shared.refreshMarks(player);
+					lib.skill.rmgsrimian.shared.refreshMarks(player);
 				},
 			},
 			prepare: {
@@ -3998,13 +4008,13 @@ export const skills = {
 				forced: true,
 				locked: true,
 				filter(event, player) {
-					const shared = lib.skill.ysmanyue.shared;
+					const shared = lib.skill.ysgsmanyue.shared;
 					const hand = player.getCards("h");
 					const damage = hand.filter(card => shared.isDamageCard(card)).length;
 					return damage !== hand.length - damage;
 				},
 				async content(event, trigger, player) {
-					const shared = lib.skill.ysmanyue.shared;
+					const shared = lib.skill.ysgsmanyue.shared;
 					const hand = player.getCards("h");
 					const damage = hand.filter(card => shared.isDamageCard(card)).length;
 					const nonDamage = hand.length - damage;

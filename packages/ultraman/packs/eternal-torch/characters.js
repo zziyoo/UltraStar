@@ -159,14 +159,18 @@ export const characters = {
 		sex: "male",
 		group: "ao",
 		hp: 4,
-		skills: ["ysmanyue", "ysganhua"],
+		skills: ["ysgsmanyue", "ysgsganhua"],
 		names: "null|高斯",
+		img: "extension/奥特之星/assets/image/月神高斯.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
-	日蚀高斯: {
+	日冕高斯: {
 		sex: "male",
 		group: "ao",
 		hp: 4,
-		skills: ["rsrishi"],
+		skills: ["rmgsrimian"],
 		names: "null|高斯",
+		img: "extension/奥特之星/assets/image/日冕高斯.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
 };
