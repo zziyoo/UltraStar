@@ -2,7 +2,7 @@
 
 import { BOSS_EXP_MULTIPLIER, BOSS_REWARD_MULTIPLIER, CURRENCIES, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getChallengeReward, getEndlessReward } from "./data/rewards.js";
-import { getBonus, getCurioShopChance, isShopLocked, rollCurioOffers } from "./curioManager.js";
+import { getBonus, getCurioShopChance, isShopLocked, rollCurioOffers, takeNextCurioBatch } from "./curioManager.js";
 
 /**
  * 奖励一律按「本次刚刚完成的关卡编号」计算：下面的 run.level 在推进之前就是刚打赢的那一关，
@@ -121,10 +121,18 @@ export function settleVictory(run, now, rng = Math.random) {
 			if (isShopLocked(run, "curio") && (run.curioOffers ?? []).length && !hasUnsold) {
 				next.curioShopLocked = false;
 			}
-			next.curioOffers = rng() < getCurioShopChance(run) ? rollCurioOffers(next, rng) : [];
-			// 队列只服务旧档里已经压着的那批（黄金罗盘改规则前摇出来的）：新的一掷不再生产第二批，
-			// 但货架上那一批照旧能看完、能买（curioManager.buyCurio 会把队列提上货架）
-			next.curioOfferQueue = [];
+			// 旧版黄金罗盘可能已生成后续批次：此前可在同关连续购买，
+			// 新规则一场只能购买一件，因此改成下一次真正胜利才上架，绝不浪费老存档的货。
+			const legacyQueued = (run.curioOfferQueue ?? []).length > 0
+				&& (run.curioBoughtThisRound === true || !hasUnsold);
+			const queued = legacyQueued ? takeNextCurioBatch(run) : null;
+			if (queued?.offers.length) {
+				next.curioOffers = queued.offers;
+				next.curioOfferQueue = queued.queue;
+			} else {
+				next.curioOffers = rng() < getCurioShopChance(run) ? rollCurioOffers(next, rng) : [];
+				next.curioOfferQueue = [];
+			}
 		}
 	} else {
 		next.curioOffers = [];
