@@ -43,7 +43,7 @@
 //                                        与 config.CURIO_SHOP_RATE 相加后只掷一次判定（getCurioShopChance），
 //                                        不是另起一次独立掷骰——两件各 10% 独立掷等于 1-(1-0.1)² = 19%，
 //                                        与任何一处界面文案都对不上，所以概率类加成一律走累加。
-//                     goldOfHeld       战斗结束后额外获得「当前持有金币」的 N 倍（结算，储蓄罐 0.05 = 5%）。
+//                     goldOfHeld       战斗结束后额外获得「当前持有金币」的 N 倍（结算，储蓄罐 0.01 = 1%）。
 //                                        与 goldRate 不是一回事：goldRate 乘的是本关基础奖励，这个乘的是手上总额
 //                     goldOnSkillLoss  每次**真正失去一个技能**时额外获得「本层胜利金币」的 N 倍
 //                                      （v14 起触发点是「失去」而不是「替换技能」：从背包删除才发，
@@ -216,7 +216,7 @@ export const curios = {
 		image: "extension/奥特之星/assets/curios/piggy_bank.png",
 		rarity: "epic",
 		priceMultiplier: 1,
-		effect: { goldOfHeld: 0.05 },
+		effect: { goldOfHeld: 0.01 },
 	},
 	oblivion_stone: {
 		id: "oblivion_stone",

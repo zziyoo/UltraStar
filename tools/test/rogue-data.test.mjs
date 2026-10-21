@@ -658,7 +658,7 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 						problems.push(`${key} 第${index + 1}个选项: 不支持的奖励键 ${field}（可用：${EVENT_REWARD_KEYS.join("/")}）`);
 					}
 				}
-				for (const field of ["gold", "exp", "goldByWin", "expByWin"]) {
+				for (const field of ["gold", "exp", "goldByWin", "expByWin", "goldPct", "goldPayout"]) {
 					const value = reward?.[field];
 					if (value !== undefined && !Number.isFinite(value)) {
 						problems.push(`${key} 第${index + 1}个选项: ${field} 应为数字`);
@@ -759,6 +759,48 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 	// 虫洞页不摆金币/经验余额条（hideBalance）：事件页按这个标记整条不画，标丢了就会退回「显示余额」
 	assert(eventsData.events.wormhole?.hideBalance === true, "虫洞事件必须带 hideBalance: true（事件页据此不画余额条）");
 	return `${ids.length} 个事件、${ids.reduce((sum, id) => sum + eventsData.events[id].choices.length, 0)} 个选项`;
+});
+
+check("许愿池：三档概率与返还倍率对应 +3%/+2%/+1% 的期望", () => {
+	const pool = eventsData.events.wishing_pool;
+	assert(pool, "许愿池事件存在");
+	const tiers = [
+		{ index: 0, pct: 10, chance: 0.1, payout: 13, expected: 1030 },
+		{ index: 1, pct: 20, chance: 0.5, payout: 2.2, expected: 1020 },
+		{ index: 2, pct: 50, chance: 1, payout: 1.02, expected: 1010 },
+	];
+	const held = 1000;
+	for (const tier of tiers) {
+		const choice = pool.choices[tier.index];
+		const outcomes = choice.outcomes ?? [{ chance: 1, reward: choice.reward }];
+		const wins = outcomes.filter(item => Number(item?.reward?.goldPayout) > 0);
+		assertEqual(wins.length, 1, `第 ${tier.index + 1} 档恰有一个中奖结果`);
+		const win = wins[0];
+		assertEqual(win.chance ?? 1, tier.chance, `第 ${tier.index + 1} 档中奖概率`);
+		assertEqual(win.reward.goldPct, tier.pct, `第 ${tier.index + 1} 档投入比例`);
+		assertEqual(win.reward.goldPayout, tier.payout, `第 ${tier.index + 1} 档倍率不得被截断成整数`);
+		if (outcomes.length > 1) {
+			const miss = outcomes.filter(item => item !== win);
+			assertEqual(miss.length, 1, "赌局另一支是落空");
+			assertEqual(miss[0].chance + win.chance, 1, "两档概率合计为 1");
+			assertEqual(miss[0].reward.goldPct, tier.pct, "落空与中奖同档投入");
+			assertEqual(miss[0].reward.goldPayout, 0, "落空返还 0");
+		}
+		// 期望 = Σ 概率 ×（扣除投入 + 返还额），三档分别落在当前金币的 +3% / +2% / +1%
+		const actual = outcomes.reduce((sum, item) => {
+			const chance = item.chance ?? 1;
+			const wager = Math.round(held * Math.abs(item.reward.goldPct) / 100);
+			const payout = Math.round(wager * (item.reward.goldPayout ?? 0));
+			return sum + chance * (held - wager + payout);
+		}, 0);
+		assertEqual(actual, tier.expected, `第 ${tier.index + 1} 档按 1000 金币的期望应为 ${tier.expected}`);
+	}
+	assert(pool.description.includes("10%") && pool.description.includes("50%"), `描述写明中奖概率：${pool.description}`);
+	assert(
+		pool.description.includes("13 倍") && pool.description.includes("2.2 倍") && pool.description.includes("1.02 倍"),
+		`描述写明三档返还倍率：${pool.description}`,
+	);
+	return "13 / 2.2 / 1.02，期望 +3% / +2% / +1%";
 });
 
 check("事件配图：文件存在且已登记进素材清单", () => {

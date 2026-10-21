@@ -141,6 +141,8 @@ export function normalizeEventReward(raw) {
 		const num = Number(value);
 		return Number.isFinite(num) ? Math.floor(num) : 0;
 	};
+	// 倍率允许小数（2.2 / 1.02）：只收敛精度，不能像 gold/exp 那样 floor 成整数
+	const decimal = value => Math.round(Number(value) * 10000) / 10000;
 	for (const key of ["gold", "exp"]) {
 		const value = raw[key];
 		if (Number.isFinite(Number(value))) {
@@ -154,7 +156,7 @@ export function normalizeEventReward(raw) {
 		reward.goldPct = Math.min(100, Math.max(-100, int(raw.goldPct)));
 	}
 	if (Number.isFinite(Number(raw.goldPayout))) {
-		reward.goldPayout = Math.max(0, int(raw.goldPayout));
+		reward.goldPayout = Math.max(0, decimal(raw.goldPayout));
 	}
 	for (const key of ["curio", "skill"]) {
 		const value = raw[key];
@@ -179,6 +181,29 @@ export function normalizeEventReward(raw) {
 		const skip = Math.floor(Number(raw.skipLevels));
 		if (skip > 0) {
 			reward.skipLevels = Math.min(99, skip);
+		}
+	}
+	return reward;
+}
+
+/**
+ * 历史存档兼容：许愿池的中奖结果在生成期就已预掷定死（存档里只剩命中倍率或 0）。
+ * 读档时保留「命中/落空」本身，只把命中项的返还倍率换成当前事件表里同一投入档位的值，
+ * 避免旧档继续按 100 倍结算，也不重新随机。
+ */
+export function migrateEventReward(eventId, reward) {
+	if (eventId !== "wishing_pool" || !(Number(reward?.goldPayout) > 0)) {
+		return reward;
+	}
+	for (const choice of events.wishing_pool?.choices ?? []) {
+		const outcomes = Array.isArray(choice.outcomes) && choice.outcomes.length
+			? choice.outcomes
+			: [{ reward: choice.reward }];
+		for (const item of outcomes) {
+			const candidate = item?.reward;
+			if (candidate?.goldPct === reward.goldPct && Number(candidate.goldPayout) > 0) {
+				return { ...reward, goldPayout: candidate.goldPayout };
+			}
 		}
 	}
 	return reward;

@@ -2038,9 +2038,12 @@ check("事件构建：倍率按胜利奖励换算、outcomes 当场预掷、读�
 	// 赌局选项（outcomes）不把预掷金额写进按钮：写出正负等于剧透结果
 	assertEqual(heads.choices[0].text, "拾取", `正面不剧透：${heads.choices[0].text}`);
 	assertEqual(tails.choices[0].text, "拾取", `反面不剧透：${tails.choices[0].text}`);
-	// 许愿池的投入百分比与结果无关，保留说明
+	// 许愿池的投入百分比与结果无关，保留说明；倍率允许小数，不能被 floor 成整数
 	const pool = eventManager.buildPendingEvent("wishing_pool", 1, () => 0, NOW);
 	assert(pool.choices[0].text.includes("投入 10% 金币"), `许愿池保留投入说明：${pool.choices[0].text}`);
+	assertEqual(pool.choices[0].reward.goldPayout, 13, "小额中奖 13 倍");
+	assertEqual(pool.choices[1].reward.goldPayout, 2.2, "中额中奖 2.2 倍（小数不得被截断）");
+	assertEqual(pool.choices[2].reward.goldPayout, 1.02, "大额中奖 1.02 倍（小数不得被截断）");
 	// 同一 rng 序列下构建两次结果一致（预掷可复现），且能原样写进存档
 	const a = eventManager.buildPendingEvent("unknown_lab", 3, makeRng(9), NOW);
 	const b = eventManager.buildPendingEvent("unknown_lab", 3, makeRng(9), NOW);
@@ -2172,44 +2175,100 @@ check("许愿池：按当前金币百分比投入，赢时按倍率返还", () =
 		run.pendingEvent = { id: "wishing_pool", choices: [{ text: "投入", reward }], createdAt: NOW };
 		return eventManager.resolveEventChoice(run, 0, {}, () => 0);
 	};
-	// 中奖：投 10%（1000→扣 100）拿回 100 倍（+10000）→ 净 10900
-	const hit = wager(1000, { goldPct: 10, goldPayout: 100 });
+	// 中奖：投 10%（1000→扣 100）拿回 13 倍（+1300）→ 净 2200
+	const hit = wager(1000, { goldPct: 10, goldPayout: 13 });
 	assert(hit.ok, hit.error ?? "投入应成功");
-	assertEqual(hit.run.currency.gold, 10900, "10% 投入 ×100 倍");
+	assertEqual(hit.run.currency.gold, 2200, "10% 投入 ×13 倍");
 	assert(hit.lines.some(line => line.includes("投入金币 -100")), `投入文案：${hit.lines.join(" | ")}`);
-	assert(hit.lines.some(line => line.includes("100 倍")), "返还写明倍数");
+	assert(hit.lines.some(line => line.includes("13 倍")), "返还写明倍数");
 	// 落空：投入全额亏掉
 	const miss = wager(1000, { goldPct: 10, goldPayout: 0 });
 	assertEqual(miss.run.currency.gold, 900, "落空只剩 900");
 	assert(miss.lines.some(line => line.includes("落空")), "落空文案");
-	// 必中档：投 50% 拿回 2 倍 → 净赚一倍
-	const sure = wager(1000, { goldPct: 50, goldPayout: 2 });
-	assertEqual(sure.run.currency.gold, 1500, "50% 投入 ×2 倍");
+	// 中额：投 20%（200）拿回 2.2 倍（440）→ 净 1240
+	const mediumHit = wager(1000, { goldPct: 20, goldPayout: 2.2 });
+	assertEqual(mediumHit.run.currency.gold, 1240, "20% 投入 ×2.2 倍");
+	assert(mediumHit.lines.some(line => line.includes("2.2 倍")), `中额返还写明小数倍率：${mediumHit.lines.join(" | ")}`);
+	const mediumMiss = wager(1000, { goldPct: 20, goldPayout: 0 });
+	assertEqual(mediumMiss.run.currency.gold, 800, "中额落空只剩 800");
+	// 必中档：投 50% 拿回 1.02 倍（500 + 510）→ 1010（+1%）
+	const sure = wager(1000, { goldPct: 50, goldPayout: 1.02 });
+	assertEqual(sure.run.currency.gold, 1010, "50% 投入 ×1.02 倍");
+	// 小数倍率不得被截断：2.2 若变成 2、1.02 若变成 1，返还额会少一截
+	assertEqual(wager(10, { goldPct: 100, goldPayout: 2.2 }).run.currency.gold, 22, "10 × 2.2 = 22（截成 2 会只剩 20）");
+	assertEqual(wager(1000, { goldPct: 100, goldPayout: 1.02 }).run.currency.gold, 1020, "1000 × 1.02 = 1020（截成 1 会只剩 1000）");
 	// 投入额按「点击那一刻」的金币算，不是事件生成时：生成后金币变多也要按新余额投
 	const grown = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 2000, exp: 0 } };
 	const pending = eventManager.buildPendingEvent("wishing_pool", 3, () => 0, NOW);
 	const afterGrowth = eventManager.resolveEventChoice({ ...grown, pendingEvent: pending }, 2, {}, () => 0);
-	assertEqual(afterGrowth.run.currency.gold, 3000, "按点击时余额 2000 投 50% 拿 2 倍");
+	assertEqual(afterGrowth.run.currency.gold, 2020, "按点击时余额 2000 投 50% 拿 1.02 倍");
+	// 投入取整：101 的 50% → round(50.5)=51，返还 round(51×1.02)=52 → 102
+	const odd = wager(101, { goldPct: 50, goldPayout: 1.02 });
+	assertEqual(odd.run.currency.gold, 102, "投入与返还都按整数金币结算");
 	// 金币为 0：选项直接不可选、结算被拒，绝不落成负数
-	const empty = wager(0, { goldPct: 50, goldPayout: 2 });
+	const empty = wager(0, { goldPct: 50, goldPayout: 1.02 });
 	assert(!empty.ok, "0 金币时投入被拒");
 	assertEqual(empty.run.currency.gold, 0, "没有金币不落成负数");
 	const poorRun = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 } };
-	assert(!eventManager.isChoiceAffordable(poorRun, { goldPct: 50, goldPayout: 2 }), "0 金币时选项不可选");
-	assert(eventManager.isChoiceAffordable({ ...poorRun, currency: { gold: 1, exp: 0 } }, { goldPct: 50, goldPayout: 2 }), "有 1 块也能投 50%");
+	assert(!eventManager.isChoiceAffordable(poorRun, { goldPct: 50, goldPayout: 1.02 }), "0 金币时选项不可选");
+	assert(eventManager.isChoiceAffordable({ ...poorRun, currency: { gold: 1, exp: 0 } }, { goldPct: 50, goldPayout: 1.02 }), "有 1 块也能投 50%");
 	// 余额小到四舍五入后投不出 1 块：结算不报错、不倒扣，原样返回
-	const dust = wager(1, { goldPct: 10, goldPayout: 100 });
+	const dust = wager(1, { goldPct: 10, goldPayout: 13 });
 	assert(dust.ok, dust.error ?? "小额不该报错");
 	assertEqual(dust.run.currency.gold, 1, "投不出的 1 块不动");
 	assert(dust.lines.some(line => line.includes("金币不足")), `投不出时写明：${dust.lines.join(" | ")}`);
-	// 百分比与倍率都被夹在合法范围，不接受 0 / 负数倍率
+	// 百分比与倍率都被夹在合法范围，不接受负数倍率；小数倍率原样保留
 	const clean = eventManager.normalizeEventReward({ goldPct: -500, goldPayout: -3 });
 	assertEqual(clean.goldPct, -100, "百分比夹到 -100");
 	assertEqual(clean.goldPayout, 0, "负倍率归零");
+	assertEqual(eventManager.normalizeEventReward({ goldPayout: 2.2 }).goldPayout, 2.2, "2.2 不被截断");
+	assertEqual(eventManager.normalizeEventReward({ goldPayout: 1.02 }).goldPayout, 1.02, "1.02 不被截断");
 	// 文案带百分比（金额随余额浮动，此时算不准）
 	const text = eventManager.buildPendingEvent("wishing_pool", 3, () => 0, NOW).choices[0].text;
 	assert(text.includes("10%"), `许愿池选项写明比例：${text}`);
-	return "投入/返还/落空/边界";
+	return "投入/返还/落空/取整/小数倍率/边界";
+});
+
+check("许愿池：历史存档保留预掷结果，只把返还倍率迁到新表", () => {
+	const legacyRun = reward => ({
+		...freshRun(cfg.RUN_MODE.endless),
+		currency: { gold: 1000, exp: 0 },
+		pendingEvent: { id: "wishing_pool", choices: [{ text: "许愿", reward }], createdAt: NOW },
+	});
+	// 旧档里预掷定的「小额命中 + 100 倍」：命中保留，倍率改成现行 13 倍
+	const migrated = state.normalizeRun(legacyRun({ goldPct: 10, goldPayout: 100 }));
+	assertEqual(migrated.pendingEvent.choices[0].reward.goldPayout, 13, "旧 100 倍改为 13 倍");
+	const settled = eventManager.resolveEventChoice(migrated, 0, {}, () => 0);
+	assertEqual(settled.run.currency.gold, 2200, "按新倍率结算，不再发 100 倍");
+	assertEqual(settled.run.pendingEvent, null, "结算后事件清空");
+	// 再读档不会重掷、也不会把奖励再发一遍
+	const reloaded = state.normalizeRun(settled.run);
+	assertEqual(reloaded.pendingEvent, null, "事件不会被重新挂回");
+	assertEqual(reloaded.currency.gold, 2200, "读档不会重复领取奖励");
+	// 三档旧倍率都迁移；落空保持落空
+	for (const [reward, expected] of [
+		[{ goldPct: 10, goldPayout: 100 }, 13],
+		[{ goldPct: 20, goldPayout: 10 }, 2.2],
+		[{ goldPct: 50, goldPayout: 2 }, 1.02],
+		[{ goldPct: 10, goldPayout: 0 }, 0],
+	]) {
+		const loaded = state.normalizeRun(legacyRun(reward));
+		assertEqual(loaded.pendingEvent.choices[0].reward.goldPayout, expected, `旧档迁移：${JSON.stringify(reward)} → ${expected}`);
+	}
+	// 新档预掷结果（已是新倍率）往返存档后小数不丢，可原样结算
+	const built = eventManager.buildPendingEvent("wishing_pool", 3, () => 0, NOW);
+	const saved = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), pendingEvent: built });
+	assertEqual(saved.pendingEvent.choices[1].reward.goldPayout, 2.2, "2.2 在存档往返中保持小数");
+	assertEqual(saved.pendingEvent.choices[2].reward.goldPayout, 1.02, "1.02 在存档往返中保持小数");
+	// 真实落盘走 JSON：序列化往返后小数倍率同样不能被截断
+	const wire = JSON.parse(JSON.stringify(saved));
+	assertEqual(state.normalizeRun(wire).pendingEvent.choices[2].reward.goldPayout, 1.02, "JSON 往返后 1.02 仍不被截断");
+	// 旧档落空仍损失全部投入，不会因为迁移变成命中
+	const legacyMiss = state.normalizeRun(legacyRun({ goldPct: 20, goldPayout: 0 }));
+	const missed = eventManager.resolveEventChoice(legacyMiss, 0, {}, () => 0);
+	assertEqual(missed.run.currency.gold, 800, "旧档落空照旧损失 20% 投入");
+	assert(missed.lines.some(line => line.includes("落空")), "落空文案");
+	return "旧 100/10/2 → 13/2.2/1.02，落空不变，读档不重复入账";
 });
 
 check("循环按钮：每场战斗结束额外补一次技能商城刷新", () => {
@@ -3724,7 +3783,7 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("counter_amulet", "epic")[0], "当你受到伤害后，本局游戏你造成的伤害 +1", "史诗档");
 	assert(lines("golden_compass")[0].includes("10%") && lines("golden_compass")[0].includes("奇物商店的刷新概率提高"), `黄金罗盘要说清是百分点累加：${lines("golden_compass")[0]}`);
 	assert(!lines("golden_compass")[0].includes("额外刷出一批"), "罗盘不再是「另掷一次的一批」，文案不能还这么写");
-	assert(lines("piggy_bank")[0].includes("当前持有金币的 5%"), `储蓄罐要说清乘的是余额：${lines("piggy_bank")[0]}`);
+	assert(lines("piggy_bank")[0].includes("当前持有金币的 1%"), `储蓄罐要说清乘的是余额：${lines("piggy_bank")[0]}`);
 	assert(!lines("piggy_bank")[0].includes("经验获取"), "储蓄罐不能混进 goldRate 那条文案");
 	assertEqual(lines("oblivion_stone")[0], "每次失去技能时获得本层胜利金币的 10 倍", "遗忘之石：失去即结账，不再写「替换技能时」");
 	assert(!lines("oblivion_stone")[0].includes("替换"), "购买不再替换技能，文案不许再提替换");
@@ -3882,12 +3941,15 @@ check("奇物商店队列：旧档存货下一场胜利才上架，保留本场�
 });
 
 check("储蓄罐与遗忘之石：结算侧两处加成", () => {
-	// 储蓄罐乘的是「已经拿到手的总额」，所以必须排在基础奖励入账之后
+	// 储蓄罐乘的是「已经拿到手的总额」，所以必须排在基础奖励入账之后；1% 向下取整
 	const bank = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 1000, exp: 0 }, curios: ["piggy_bank"] };
 	const got = reward.settleVictory(bank, NOW, () => 0.999);
-	const expected = BASE_GOLD + Math.floor((1000 + BASE_GOLD) * 0.05);
+	const expected = BASE_GOLD + Math.floor((1000 + BASE_GOLD) * 0.01);
 	assertEqual(got.gained.gold, expected, `基础 ${BASE_GOLD} + 余额抽成：${got.gained.gold}`);
 	assertEqual(got.run.currency.gold, 1000 + expected, "全部入账");
+	// 旧档里已有储蓄罐的，读档后同样按当前 1% 结算（效果是数据现查，不进存档）
+	const savedBank = state.normalizeRun(bank);
+	assertEqual(reward.settleVictory(savedBank, NOW, () => 0.999).gained.gold, expected, "旧档储蓄罐按现行 1% 结算");
 	const plain = reward.settleVictory({ ...bank, curios: [] }, NOW, () => 0.999);
 	assertEqual(plain.gained.gold, BASE_GOLD, "没有储蓄罐就只发基础");
 	// 黄金罗盘：概率统一为「百分点累加 + 一次判定」（v13 口径），不再单独掷第二次

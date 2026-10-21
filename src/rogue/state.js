@@ -21,7 +21,7 @@ import { getEnemyGroup } from "./data/enemyGroups.js";
 import { getEvent } from "./data/events.js";
 import { getCurio, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 import { getMaxShopRefreshes, canLockShop } from "./curioManager.js";
-import { normalizeEventReward, normalizeEventAction } from "./eventManager.js";
+import { normalizeEventReward, normalizeEventAction, migrateEventReward } from "./eventManager.js";
 import { abyssContextForEnemy, normalizeAbyssIds } from "./endless/abyss.js";
 import { stats } from "./data/stats.js";
 
@@ -291,6 +291,7 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
  * followUp（点了主选项之后追问的那一句，经验泉的「再饮一口」）照同一个形状一起洗，
  * 读档回到事件页后点主选项仍会问出同一句、给的仍是同一口。
  * 只要这里还能还原出合法事件，读档就优先回到事件页——绝不重新触发、绝不重掷。
+ * 许愿池这类已预掷好的赌局只迁移返还倍率：命中/落空保持原样，倍率跟随当前事件表。
  */
 function normalizePendingEvent(raw) {
 	if (!isPlainObject(raw)) {
@@ -302,7 +303,7 @@ function normalizePendingEvent(raw) {
 	}
 	const choices = [];
 	for (const choice of Array.isArray(raw.choices) ? raw.choices : []) {
-		const built = normalizeEventChoice(choice);
+		const built = normalizeEventChoice(choice, false, id);
 		if (built) {
 			choices.push(built);
 		}
@@ -321,7 +322,7 @@ function normalizePendingEvent(raw) {
  * followUp（点了主选项之后追问的那一句，经验泉的「再饮一口」）形状完全相同，只是不再往里嵌第二层——
  * 数据层与构建层都只认一层，这里跟着只认一层。
  */
-function normalizeEventChoice(raw, nested = false) {
+function normalizeEventChoice(raw, nested = false, eventId = "") {
 	if (!isPlainObject(raw)) {
 		return null;
 	}
@@ -329,7 +330,7 @@ function normalizeEventChoice(raw, nested = false) {
 	if (!text) {
 		return null;
 	}
-	const built = { text, reward: normalizeEventReward(raw.reward) };
+	const built = { text, reward: migrateEventReward(eventId, normalizeEventReward(raw.reward)) };
 	const action = normalizeEventAction(raw.action);
 	if (action) {
 		built.action = action;
@@ -347,7 +348,7 @@ function normalizeEventChoice(raw, nested = false) {
 		built.clampLoss = true;
 	}
 	if (!nested) {
-		const followUp = normalizeEventChoice(raw.followUp, true);
+		const followUp = normalizeEventChoice(raw.followUp, true, eventId);
 		if (followUp) {
 			built.followUp = followUp;
 		}

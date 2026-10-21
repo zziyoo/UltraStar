@@ -56,8 +56,8 @@
 //     goldPct         按「点击那一刻持有的金币」的百分比投入（许愿池）：10 = 投入 10%，
 //                     配合 goldPayout 用。百分比依赖结算时的余额，所以不像 goldByWin
 //                     那样在构建时换算成固定值，而是原样存进存档、结算时现算
-//     goldPayout      赢时按投入额的多少倍返还（100 = 一百倍；0 = 落空，投入全损）。
-//                     只有 goldPct 非 0 时才有意义
+//     goldPayout      赢时按投入额的多少倍返还（13 = 十三倍；2.2 / 1.02 这类小数照原样保留；
+//                     0 = 落空，投入全损）。只有 goldPct 非 0 时才有意义
 //     curio           "random" = 随机获得一个未拥有的奇物，直接给予到背包
 //                     （奇物已集齐时整个选项不结算：不扣货币、相当于跳过，写明原因）
 //     skill           "random" = 随机获得一个商店技能（槽满或池空则落空，但其余奖励照常结算）
@@ -146,28 +146,29 @@ export const events = {
 	wishing_pool: {
 		id: "wishing_pool",
 		name: "许愿池",
-		description: "池水映着不属于你的星空。把金币投进去，也许它会还给你更多——小额百之有一，中额二之有一，大额必得偿还。",
+		description: "池水映着不属于你的星空。投进去的金币未必有回音：小额许愿 10% 得偿，返还投入的 13 倍；中额许愿 50% 得偿，返还投入的 2.2 倍；大额许愿必定得偿，返还投入的 1.02 倍。",
 		image: "extension/奥特之星/assets/events/wishing_pool.png",
 		choices: [
 			{
-				// 小额豪赌：10% 概率拿回 100 倍，最坏全丢、最好翻百倍
+				// 小额豪赌：10% 概率拿回 13 倍，最坏全丢；期望 1.3 倍投入（当前金币的 +3%）
 				text: "小额许愿",
 				outcomes: [
-					{ chance: 0.1, reward: { goldPct: 10, goldPayout: 100 } },
+					{ chance: 0.1, reward: { goldPct: 10, goldPayout: 13 } },
 					{ chance: 0.9, reward: { goldPct: 10, goldPayout: 0 } },
 				],
 			},
 			{
+				// 中额：50% 概率拿回 2.2 倍，最坏全丢；期望 1.1 倍投入（当前金币的 +2%）
 				text: "中额许愿",
 				outcomes: [
-					{ chance: 0.5, reward: { goldPct: 20, goldPayout: 10 } },
+					{ chance: 0.5, reward: { goldPct: 20, goldPayout: 2.2 } },
 					{ chance: 0.5, reward: { goldPct: 20, goldPayout: 0 } },
 				],
 			},
 			{
-				// 必中档：100% 拿回 2 倍（净赚一倍），最稳但收益最低
+				// 必中档：100% 拿回 1.02 倍（净赚 2% 投入，即当前金币的 +1%），最稳但收益最低
 				text: "大额许愿",
-				reward: { goldPct: 50, goldPayout: 2 },
+				reward: { goldPct: 50, goldPayout: 1.02 },
 			},
 			{
 				text: "离开",
