@@ -3849,7 +3849,7 @@ check("奇物橱窗：买后可锁定剩余货，跨关逐件购买，售完自�
 	return "买后锁定/跨关逐件买/售完解锁/恢复概率";
 });
 
-check("奇物商店队列：黄金罗盘多出的那批在买完当前批后提上货架", () => {
+check("奇物商店队列：旧档存货下一场胜利才上架，保留本场已购卡", () => {
 	const run = {
 		...freshRun(cfg.RUN_MODE.endless),
 		level: BASE_LEVEL,
@@ -3860,12 +3860,16 @@ check("奇物商店队列：黄金罗盘多出的那批在买完当前批后提�
 	};
 	const bought = curioManager.buyCurio(run, "broken_watch");
 	assert(bought.ok, bought.error);
-	assertEqual(JSON.stringify(bought.run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 20 }]), "第二批提上货架");
-	assertEqual(JSON.stringify(bought.run.curioOfferQueue), JSON.stringify([]), "队列随之清空");
+	assertEqual(JSON.stringify(bought.run.curioOffers), JSON.stringify([{ id: "broken_watch", price: 10, sold: true }]), "购买后先保留已购卡");
+	assertEqual(bought.run.curioOfferQueue.length, 1, "旧档存货队列在胜利之前不消失");
+	const advanced = reward.settleVictory(bought.run, NOW, () => 0.999).run;
+	assertEqual(JSON.stringify(advanced.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 20 }]), "下一场胜利提上旧档第二批");
+	assertEqual(JSON.stringify(advanced.curioOfferQueue), JSON.stringify([]), "队列随之清空");
 	// 刚买掉的那件即使在队列里也必须被过滤掉（已拥有不得再上架）
 	const stale = { ...run, curioOfferQueue: [[{ id: "lucky_stone", price: 20 }, { id: "broken_watch", price: 30 }]] };
 	const bought2 = curioManager.buyCurio(stale, "broken_watch");
-	assertEqual(JSON.stringify(bought2.run.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 20 }]), "刚买掉的那件不得从队列里冒出来");
+	const advanced2 = reward.settleVictory(bought2.run, NOW, () => 0.999).run;
+	assertEqual(JSON.stringify(advanced2.curioOffers), JSON.stringify([{ id: "lucky_stone", price: 20 }]), "刚买掉的奇物不得从队列里冒出来");
 	// 没有队列时行为与原来完全一致
 	const plain = { ...run, curioOfferQueue: [] };
 	assertEqual(JSON.stringify(curioManager.buyCurio(plain, "broken_watch").run.curioOffers), JSON.stringify([{ id: "broken_watch", price: 10, sold: true }]), "无队列 → 留下已购卡供玩家决定是否锁定");
