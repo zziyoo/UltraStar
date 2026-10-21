@@ -2326,7 +2326,7 @@ check("过期候选清理：事件送的奇物撤下候选并补货，读档剔�
 	// 空货架不补：这一关没刷出奇物商店，送奇物不该凭空开出一家店
 	const bare = curioManager.grantRandomCurio({ ...run, curioOffers: [] }, rngForCurio(run, "energy_core"));
 	assertEqual(JSON.stringify(bare.run.curioOffers), "[]", "空货架保持空");
-	// 读档清洗：已拥有 → 一律剔除（买到即下架、事件送出会撤下，这里兜底清洗旧档残留）；未拥有 → 保留
+	// 读档清洗：已拥有但非 sold 的旧过期候选剔除；已购买的 sold 卡保留显示；未拥有候选保留
 	const stored = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
 		curios: ["energy_core"],
@@ -5688,13 +5688,16 @@ check("黄金罗盘：额外候选批次的旧档仍能显示、购买、读档�
 	});
 	assertEqual(legacy.curioOfferQueue.length, 1, "读档洗掉空批与下架货，合法那批原样留着、不重摇");
 	assertEqual(JSON.stringify(legacy.curioOfferQueue[0]), JSON.stringify([{ id: "energy_core", price: 120 }]), "价格随存档定死");
-	// 买完当前这批，队列提上货架（机制没变，只是不再由罗盘生产）
+	// 新规则同场限购：买完继续显示已购卡，旧存档队列改在下一场胜利后提上货架。
 	const bought = curioManager.buyCurio(legacy, "broken_watch");
 	assertEqual(bought.ok, true, "买得掉");
-	assertEqual(JSON.stringify(bought.run.curioOffers), JSON.stringify([{ id: "energy_core", price: 120 }]), "队列提上货架");
-	assertEqual(bought.run.curioOfferQueue.length, 0, "提完即空");
+	assertEqual(JSON.stringify(bought.run.curioOffers), JSON.stringify([{ id: "broken_watch", price: 100, sold: true }]), "购买后原卡继续显示");
+	assertEqual(bought.run.curioOfferQueue.length, 1, "旧队列暂存到下一场胜利");
+	const advanced = reward.settleVictory(bought.run, NOW, () => 0.999).run;
+	assertEqual(JSON.stringify(advanced.curioOffers), JSON.stringify([{ id: "energy_core", price: 120 }]), "下一次胜利后队列提上货架");
+	assertEqual(advanced.curioOfferQueue.length, 0, "提完即空");
 	// 重进页面 / 反复读档都不会凭空多出一批
-	const again = state.cloneRun(bought.run);
+	const again = state.cloneRun(advanced);
 	assertEqual(again.curioOfferQueue.length, 0, "读档不重复生成");
 	// 新一次胜利结算：命中也只留这一批
 	const settled = reward.settleVictory(legacy, NOW, seq([0])).run;
