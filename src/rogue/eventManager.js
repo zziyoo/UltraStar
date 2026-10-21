@@ -112,9 +112,13 @@ export function normalizeEventAction(raw) {
 			};
 		}
 		case "merchant": {
+			if (raw.soldOut === true) {
+				return { kind: "merchant", soldOut: true };
+			}
 			const curioId = typeof raw.curioId === "string" ? raw.curioId.trim() : "";
 			if (!getCurio(curioId)) {
-				return null;
+				// 旧档里的商品定义已失效：保留「点一下提示并结束事件」的空档，不退回普通奖励
+				return { kind: "merchant", soldOut: true };
 			}
 			return { kind: "merchant", curioId, price: toInt(raw.price, 0) };
 		}
@@ -249,7 +253,7 @@ function resolveCurioRarity(reward, base, ownedCurios, rng) {
 }
 
 /** 交互型选项在构建期落地成具体参数（掷货、算钱、按档位表摊开敌人数与奖励倍率） */
-function buildEventAction(raw, base, level, rng) {
+function buildEventAction(raw, base, level, rng, run = null) {
 	if (!isObject(raw)) {
 		return null;
 	}
@@ -286,9 +290,10 @@ function buildEventAction(raw, base, level, rng) {
 			};
 		}
 		case "merchant": {
-			const curioId = rollMerchantCurio(rng);
+			const curioId = rollMerchantCurio(run, rng);
 			if (!curioId) {
-				return null;
+				// 全部奇物都已拥有且满级：不编造商品，留一个只负责提示并结束事件的空档
+				return { kind: "merchant", soldOut: true };
 			}
 			return { kind: "merchant", curioId, price: getMerchantPrice(level) };
 		}
@@ -306,7 +311,7 @@ function buildEventAction(raw, base, level, rng) {
 function withActionText(text, action) {
 	switch (action.kind) {
 		case "merchant":
-			return `${text}（一件货 · 标价 ${action.price} 金币）`;
+			return action.soldOut === true ? text : `${text}（一件货 · 标价 ${action.price} 金币）`;
 		case "curioForge":
 			return `${text}（消耗 ${action.costExp} 经验）`;
 		case "rift":
@@ -418,7 +423,10 @@ function buildEventChoice(choice, env) {
 		delete clean.statUp;
 		clean.curio = "random";
 	}
-	const action = buildEventAction(choice.action, base, level, rng);
+	const action = buildEventAction(choice.action, base, level, rng, {
+		curios: ownedCurios,
+		curioQuality: runLike?.curioQuality,
+	});
 	const built = { text: choice.text.trim(), reward: clean };
 	// 预掷赌局的「最多扣光」安全阀：随存档定死，事件页与结算层都按它放行/收窄（见文件头与 events.js）
 	if (choice.clampLoss === true) {
@@ -561,6 +569,10 @@ export function getBlockedMessage(run, choice) {
 		return getUpgradableCurios(run).length ? null : text;
 	}
 	if (kind === "merchant") {
+		// soldOut（全满/旧档商品失效）没有可卖的东西：点一下只弹这句并收掉事件，绝不进空商品子页
+		if (choice.action.soldOut === true || !getCurio(choice.action.curioId)) {
+			return text;
+		}
 		const curioId = choice.action.curioId;
 		// 已拥有且已经升到最高一档：买回去也升不了级，这才是「没有可作用的对象」；
 		// 已拥有但还能升级正是流浪商人的卖点，绝不能拦

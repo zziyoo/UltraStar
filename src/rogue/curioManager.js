@@ -699,14 +699,18 @@ export function getMerchantPrice(level = 1) {
 }
 
 /**
- * 流浪商人带来的那件货：从**全部**奇物里随机，明确不排除已拥有的——
- * 「买已经有的那件」就是这家商人的卖点（买完自动升一级），所以这里必须允许命中已拥有的。
+ * 流浪商人带来的那件货：从**有效候选池**里等概率随机——
+ * 未拥有的照常出现；已拥有但还能升一级的也出现（买回去升级是这家商人的卖点）；
+ * 已拥有且已到最高品质的买回去无事可做，生成期就排除。
+ * 先过滤再按池子长度一次抽取，不做「抽到满级再重抽」的拒绝采样。
  */
-export function rollMerchantCurio(rng = Math.random) {
-	if (!curioIds.length) {
+export function rollMerchantCurio(run, rng = Math.random) {
+	const owned = new Set(Array.isArray(run?.curios) ? run.curios : []);
+	const pool = curioIds.filter(id => !owned.has(id) || !isCurioMaxQuality(id, run?.curioQuality));
+	if (!pool.length) {
 		return null;
 	}
-	return curioIds[Math.floor(rng() * curioIds.length)] ?? null;
+	return pool[Math.floor(rng() * pool.length)] ?? null;
 }
 
 export { getCurio, curios, curioIds, CURIOSITY_RARITY, CURIOSITY_QUALITY_CHAIN };

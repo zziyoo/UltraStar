@@ -3647,23 +3647,119 @@ check("深渊裂隙：三档参数构建期定死，开战与发奖全部交给�
 	return cfg.RIFT_TIERS.map(tier => `${tier.enemies}人/${tier.multiplier}倍`).join(" ");
 });
 
-check("流浪商人：单件货与恒定售价，只有练满了才拦", () => {
+check("流浪商人：只在有效候选池里抽，单件货与恒定售价，练满了才拦", () => {
 	const price = curioManager.getMerchantPrice(BASE_LEVEL);
 	assertEqual(price, curioManager.getCurioBasePrice(BASE_LEVEL) * cfg.MERCHANT_PRICE_MULTIPLIER, "恒定售价 = 奇物基准价 ×4");
-	// 掷的是全部奇物（含已拥有）——「买已经有的那件」正是这家商人的卖点。
-	// 挑一件初始品质还没到顶的，才能验出「已拥有但还能升 → 照卖」这条分支
-	const upgradable = curiosData.curioIds.find(id => curioManager.getNextCurioQuality(id, null) !== null);
-	const rollFor = id => () => (curiosData.curioIds.indexOf(id) + 0.5) / curiosData.curioIds.length;
+	// 有效池 = 未拥有 + 已拥有但还能升；已拥有且满级的必须排除
+	const allIds = curiosData.curioIds.slice(0);
+	const upgradable = allIds.find(id => curioManager.getNextCurioQuality(id, null) !== null);
+	const unowned = allIds.find(id => id !== upgradable);
+	const ownedIds = allIds.filter(id => id !== unowned);
+	const quality = {};
+	for (const id of ownedIds) {
+		if (id !== upgradable) {
+			quality[id] = "epic";
+		}
+	}
+	const filteredRun = {
+		...freshRun(cfg.RUN_MODE.endless),
+		curios: ownedIds,
+		curioQuality: quality,
+	};
+	const validPool = allIds.filter(id => !ownedIds.includes(id) || id === upgradable);
+	const maxedOwned = ownedIds.filter(id => id !== upgradable);
+	assertEqual(validPool.length, 2, "夹具：只剩一件未拥有 + 一件可升级");
+	assertEqual(curioManager.rollMerchantCurio(filteredRun, () => 0), validPool[0], "rng=0 抽有效池第一件");
+	assertEqual(curioManager.rollMerchantCurio(filteredRun, () => 0.999), validPool[1], "rng→1 抽有效池最后一件");
+	assert(!maxedOwned.includes(curioManager.rollMerchantCurio(filteredRun, () => 0.5)), "已拥有且满级绝不出现");
+	let calls = 0;
+	curioManager.rollMerchantCurio(filteredRun, () => { calls += 1; return 0.5; });
+	assertEqual(calls, 1, "先过滤再抽一次，不做拒绝采样");
+	const maxedRun = {
+		...freshRun(cfg.RUN_MODE.endless),
+		curios: allIds.slice(0),
+		curioQuality: Object.fromEntries(allIds.map(id => [id, "epic"])),
+	};
+	assertEqual(curioManager.rollMerchantCurio(maxedRun, () => 0), null, "全部满级 → 无候选");
+
+	// 构建期同样只在有效池里抽；rng 定位到那件还能升的货（空存档时池子就是全部奇物）
+	const rollFor = id => () => (allIds.indexOf(id) + 0.5) / allIds.length;
 	const merchant = eventManager.buildPendingEvent("wandering_merchant", BASE_LEVEL, rollFor(upgradable), NOW, { curios: [] });
 	assertEqual(JSON.stringify(merchant.choices[0].action), JSON.stringify({ kind: "merchant", curioId: upgradable, price }), "rng 定位到那件还能升的货");
 	assert(merchant.choices[0].text.includes(`${price} 金币`), `标价写进文案：${merchant.choices[0].text}`);
-	const ownedRun = { ...freshRun(cfg.RUN_MODE.endless), curios: curiosData.curioIds.slice(0), pendingEvent: merchant };
+	const filteredMerchant = eventManager.buildPendingEvent("wandering_merchant", BASE_LEVEL, () => 0, NOW, {
+		curios: filteredRun.curios,
+		run: filteredRun,
+	});
+	assertEqual(filteredMerchant.choices[0].action.curioId, validPool[0], "生成期从有效池第一件开始抽");
+	assert(!maxedOwned.includes(filteredMerchant.choices[0].action.curioId), "生成期绝不产出满级奇物");
+
+	// 已拥有但还能升 → 照卖；练满了 → 弹提示
+	const ownedRun = { ...freshRun(cfg.RUN_MODE.endless), curios: allIds.slice(0), pendingEvent: merchant };
 	assertEqual(eventManager.getBlockedMessage(ownedRun, merchant.choices[0]), null, "已拥有但还能升 → 照卖");
 	const maxedOut = { ...ownedRun, curioQuality: { [upgradable]: "epic" } };
 	assertEqual(eventManager.getBlockedMessage(maxedOut, merchant.choices[0]), merchant.choices[0].blockedText, "已拥有且练满 → 弹提示");
+
+	// 全部满级：生成 soldOut 空档，不标价、点击只弹提示并收掉事件，金币与奇物都不动
+	const soldOut = eventManager.buildPendingEvent("wandering_merchant", BASE_LEVEL, () => 0, NOW, {
+		curios: maxedRun.curios,
+		run: maxedRun,
+	});
+	assertEqual(JSON.stringify(soldOut.choices[0].action), JSON.stringify({ kind: "merchant", soldOut: true }), "全满 → soldOut 空档");
+	assertEqual(soldOut.choices[0].text, "和商人交易", `空档不写标价：${soldOut.choices[0].text}`);
+	assertEqual(eventManager.getBlockedMessage(maxedRun, soldOut.choices[0]), soldOut.choices[0].blockedText, "全满点击弹提示");
+	const settledSoldOut = eventManager.resolveEventChoice({ ...maxedRun, currency: { gold: 123, exp: 0 }, pendingEvent: soldOut }, 0, {}, () => 0);
+	assert(settledSoldOut.ok, settledSoldOut.error ?? "空候选应正常结束");
+	assertEqual(settledSoldOut.run.currency.gold, 123, "空候选不扣金币");
+	assertEqual(settledSoldOut.run.pendingEvent, null, "空候选正常结束事件");
+	assertEqual(settledSoldOut.lines[0], soldOut.choices[0].blockedText, "空候选弹作者那句");
+	const savedSoldOut = state.normalizeRun({ ...maxedRun, pendingEvent: soldOut });
+	assertEqual(JSON.stringify(savedSoldOut.pendingEvent.choices[0].action), JSON.stringify({ kind: "merchant", soldOut: true }), "soldOut 经读档清洗仍保留");
+
+	// 旧档已生成、但商品现在满级：不重掷、不扣费、不发放，只弹提示并结束
+	const legacyBlocked = {
+		...freshRun(cfg.RUN_MODE.endless),
+		currency: { gold: 500, exp: 0 },
+		curios: [upgradable],
+		curioQuality: { [upgradable]: "epic" },
+		pendingEvent: {
+			id: "wandering_merchant",
+			choices: [
+				{ text: `和商人交易（一件货 · 标价 ${price} 金币）`, reward: {}, action: { kind: "merchant", curioId: upgradable, price }, blockedText: "他已经把最好的一件卖给你了，这一笔做不成。" },
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: NOW,
+		},
+	};
+	const loadedLegacy = state.normalizeRun(legacyBlocked);
+	assertEqual(loadedLegacy.pendingEvent.choices[0].action.curioId, upgradable, "旧档商品 id 不重掷");
+	const blockedLegacy = eventManager.resolveEventChoice(loadedLegacy, 0, {}, () => 0);
+	assertEqual(blockedLegacy.run.currency.gold, 500, "旧档满级商品不扣费");
+	assertEqual(JSON.stringify(blockedLegacy.run.curios), JSON.stringify([upgradable]), "旧档满级商品不重复发放");
+	assertEqual(blockedLegacy.run.pendingEvent, null, "旧档满级商品安全结束事件");
+	assertEqual(blockedLegacy.lines[0], legacyBlocked.pendingEvent.choices[0].blockedText, "旧档满级商品弹提示");
+
+	// 旧档商品定义已失效：读档标成 soldOut，点击同样只提示并结束
+	const legacyInvalid = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		currency: { gold: 500, exp: 0 },
+		pendingEvent: {
+			id: "wandering_merchant",
+			choices: [
+				{ text: "和商人交易", reward: {}, action: { kind: "merchant", curioId: "不存在的奇物", price: 400 }, blockedText: "这一笔做不成。" },
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: NOW,
+		},
+	});
+	assertEqual(JSON.stringify(legacyInvalid.pendingEvent.choices[0].action), JSON.stringify({ kind: "merchant", soldOut: true }), "失效商品读档标成 soldOut");
+	const blockedInvalid = eventManager.resolveEventChoice(legacyInvalid, 0, {}, () => 0);
+	assertEqual(blockedInvalid.run.currency.gold, 500, "失效商品不扣费");
+	assertEqual(blockedInvalid.run.pendingEvent, null, "失效商品安全结束事件");
+
 	// 商人的价不吃品质倍率与 ±25% 波动：同一关永远同一个数
 	assertEqual(curioManager.getMerchantPrice(BASE_LEVEL), price, "重复调用不掷随机");
-	return `${upgradable} 标价 ${price}`;
+	return `${upgradable} 标价 ${price} / 有效池 ${validPool.join(",")} / 全满 soldOut`;
 });
 
 check("奇物融合炉：融合费 = 本层基准经验 ×5，没有可融合的才弹提示", () => {
@@ -5937,9 +6033,11 @@ check("事件页数字防溢出与锁图标微调：样式判据直读 styles.js
 	assert(/\.wm-rogue-res-num\.wm-rogue-res-xxlong \{ font-size: 14px; \}/.test(css), "十二位数起再降一档（14px）");
 	assert(!/\.wm-rogue-res-num[^{]*\{[^}]*overflow: hidden/.test(css), "不许用 overflow: hidden 裁掉溢出的数字");
 	assert(!/\.wm-rogue-res-num[^{]*\{[^}]*text-overflow/.test(css), "也不许用省略号藏起来");
-	assert(/#wm-rogue-overlay \.wm-rogue-shop-lock \{ [^}]*transform: translateY\(2px\) !important; [^}]*\}/.test(css), "锁图标整体下移 2px");
+	assert(/#wm-rogue-overlay \.wm-rogue-shop-lock \{ [^}]*transform: translateY\(12px\) !important; [^}]*\}/.test(css), "锁图标整体下移 12px（原 2px + 10px）");
+	assert(/#wm-rogue-overlay \.wm-rogue-shop-refresh \{ [^}]*transform: translateY\(10px\) !important; [^}]*\}/.test(css), "刷新按钮整体下移 10px");
+	assert(/#wm-rogue-overlay \.wm-rogue-shop-section-row\.wm-rogue-shop-section-actions \{ [^}]*padding-bottom: 10px !important; [^}]*\}/.test(css), "含按钮的分区标题行预留 10px 底部空间，按钮下移后不压住副标题/卡片");
 	assert(/#wm-rogue-overlay \.wm-rogue-shop-lock \{ [^}]*width: 46px !important; [^}]*height: 40px !important; [^}]*\}/.test(css), "锁图标的尺寸与横向位置不动");
-	return "数字折行 + 三档降字号 + 不裁剪 + 锁图标 2px 下移";
+	return "数字折行 + 三档降字号 + 不裁剪 + 锁/刷新按钮各下移 10px";
 });
 
 check("事件页资源条撑满面板 + 金额单行：样式判据直读 styles.js（只挂事件页作用域）", () => {

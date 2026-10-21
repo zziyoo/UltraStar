@@ -437,7 +437,7 @@ export function showShop(api) {
 
 	const body = ui.create.div(".wm-rogue-shop-body", shop);
 	// 刷新按钮属于「技能商店」这一分区：紧贴标题右侧，不放页面顶部、也不跟右上角的返回挤在一起
-	const offerHead = ui.create.div(".wm-rogue-shop-section-row", body);
+	const offerHead = ui.create.div(".wm-rogue-shop-section-row.wm-rogue-shop-section-actions", body);
 	ui.create.div(".wm-rogue-shop-section-title", "技能商店", offerHead);
 	const refreshButton = addOverlayButton("", offerHead, () => api.refreshSkills(), "wm-rogue-shop-refresh");
 	// 收藏家的橱窗：持有锁定能力时，分区标题右侧多一枚 🔓/🔒 开关（点一下切换；锁住的那一类商店
@@ -459,6 +459,9 @@ export function showShop(api) {
 		const curioHead = ui.create.div(".wm-rogue-shop-section-row", curioSection);
 		ui.create.div(".wm-rogue-shop-section-title", "奇物商店", curioHead);
 		curioLock = buildShopLock(curioHead, run, "curio", "奇物商店", () => api.toggleLock("curio"));
+		if (curioLock) {
+			curioHead.classList.add("wm-rogue-shop-section-actions");
+		}
 		curioHint = ui.create.div(".wm-rogue-shop-subtitle", "", curioSection);
 		curioRow = ui.create.div(".wm-rogue-shop-cards", curioSection);
 	}
@@ -826,10 +829,15 @@ function buildCurioChoiceCard(parent, curioId, buttonLabel, onPick) {
  * 流浪商人：他只带一件货，价恒为奇物基准价 ×4，与奇物商店的区别是**允许买已经拥有的**——
  * 买回去是把那一件升一级品质，不是多一件。已拥有且已经练到最高档才是「没得可作用」，
  * 所以那一档按钮保持可点，交给 mode.js 弹一句并把金币留在口袋里。
+ * 生成期就没有候选（soldOut）时更不进子页：只弹一句并结束事件。
  */
 export function showMerchant(api) {
-	const body = openEventSubPage(api, "wm-rogue-merchant-overlay", "流浪商人", "他只带了一件货，价钱按奇物基准价的四倍咬死，不还价。");
 	const action = api.action;
+	if (!action?.curioId) {
+		showNotice(["商人摊开空手：今天没有能卖给你的货。"], () => api.leave());
+		return;
+	}
+	const body = openEventSubPage(api, "wm-rogue-merchant-overlay", "流浪商人", "他只带了一件货，价钱按奇物基准价的四倍咬死，不还价。");
 	const card = ui.create.div(".wm-rogue-replace-cards", body);
 	const row = buildCurioChoiceCard(card, action.curioId, "买下", target => {
 		const state = paintMerchant(target, api.getRun(), action);

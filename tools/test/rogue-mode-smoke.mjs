@@ -3971,6 +3971,7 @@ await check("收藏家的橱窗：锁图标只在该出现时出现，点一下�
 	session();
 	click("商店");
 	assertEqual(nodesWithClass("wm-rogue-shop-lock").length, 0, "没持有橱窗时没有锁图标");
+	assertEqual(nodesWithClass("wm-rogue-shop-section-actions").length, 1, "没有锁时只有技能标题行（刷新按钮）预留下移空间");
 	// 稀有档：只能锁技能商店
 	putRun(0, { mode: "endless", curios: ["collector_showcase"], currentBattle: null, shopOffers: [{ id: "rogue_extra", price: 10, sold: false }] });
 	session();
@@ -4012,6 +4013,7 @@ await check("收藏家的橱窗：锁图标只在该出现时出现，点一下�
 	session();
 	click("商店");
 	assertEqual(nodesWithClass("wm-rogue-shop-lock").length, 2, "史诗档技能与奇物商店各一枚锁");
+	assertEqual(nodesWithClass("wm-rogue-shop-section-actions").length, 2, "两枚锁所在的标题行都预留下移空间");
 	assertEqual(nodesWithClass("wm-rogue-shop-lock").map(node => textOf(node)).join(","), "🔓,🔓", "两枚锁初始都是开");
 	clickNode(nodesWithClass("wm-rogue-shop-lock")[0]);
 	await flush();
@@ -4644,6 +4646,41 @@ await check("流浪商人：买没买过的入袋，已拥有的买回去升一�
 	assertEqual(refused.currency.gold, 9999, "做不成的买卖不收钱");
 	assertEqual(refused.pendingEvent, null, "事件照样收掉");
 	return "入袋 / 升级 / 满级弹提示 三条分支";
+});
+
+await check("流浪商人：全满时生成 soldOut，点击只提示并结束，不进子页、不扣钱", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 9999, exp: 0 },
+		curios: ["energy_core"],
+		curioQuality: { energy_core: "epic" },
+		pendingEvent: {
+			id: "wandering_merchant",
+			choices: [
+				{
+					text: "和商人交易",
+					reward: {},
+					action: { kind: "merchant", soldOut: true },
+					blockedText: "他已经把最好的一件卖给你了，这一笔做不成。",
+				},
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	click("和商人交易");
+	assertEqual(nodesWithClass("wm-rogue-merchant-overlay").length, 0, "空候选不进商人子页");
+	assert(screenText().includes("他已经把最好的一件卖给你了"), `弹作者那句：${screenText()}`);
+	click("确定");
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.currency.gold, 9999, "空候选不扣金币");
+	assertEqual(JSON.stringify(slot.curios), JSON.stringify(["energy_core"]), "不重复发放奇物");
+	assertEqual(slot.pendingEvent, null, "事件正常收掉");
+	return "soldOut 提示 + 零扣费 + 零发放";
 });
 
 await check("技能熔炉与奇物融合炉：选定那一刻才扣、才发", async () => {

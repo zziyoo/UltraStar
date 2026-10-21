@@ -609,8 +609,8 @@ const CSS = `
 	text-align: center !important;
 }
 /* 商店锁图标：与返回键同一套「写死成固定盒子」的加固——emoji 的字面宽高随字体变，不给死尺寸会被标题行挤变形。
-   整枚图标往下挪 2px：emoji 的墨迹坐在 26.4px 行盒的基线上、下方还有 ~4px 下沉，
-   居中之后看着就是「贴着上面的技能分区」——只挪这一处，尺寸与横向位置都不动 */
+   整枚图标往下挪 12px（在原 2px 的基础上再下移 10px）：emoji 的墨迹坐在行盒基线上、下方还有下沉，
+   居中之后看着偏上——只挪这一处，尺寸与横向位置都不动 */
 #wm-rogue-overlay .wm-rogue-shop-lock {
 	box-sizing: border-box !important;
 	width: 46px !important;
@@ -620,7 +620,16 @@ const CSS = `
 	margin: 0 !important;
 	min-width: 0 !important;
 	min-height: 0 !important;
-	transform: translateY(2px) !important;
+	transform: translateY(12px) !important;
+}
+/* 刷新按钮同步下移 10px；位移不参与排版，标题行底部另留 10px 空间兜住它 */
+#wm-rogue-overlay .wm-rogue-shop-refresh {
+	transform: translateY(10px) !important;
+}
+/* 两个按钮下移后仍落在标题行自己的空间里，不压住下一行的副标题/卡片；
+   只给确实有按钮的标题行加，避免没有锁/刷新的分区白让出 10px */
+#wm-rogue-overlay .wm-rogue-shop-section-row.wm-rogue-shop-section-actions {
+	padding-bottom: 10px !important;
 }
 #wm-rogue-overlay.wm-rogue-shop-overlay { overflow: hidden !important; }
 #wm-rogue-overlay .wm-rogue-shop,
