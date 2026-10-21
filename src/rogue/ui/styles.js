@@ -506,7 +506,7 @@ const CSS = `
 .wm-rogue-curio-next { margin-top: 7px; padding-top: 7px; font-size: 15px; line-height: 1.5;
 	color: #d8a6ff; white-space: pre-line; border-top: 1px dashed rgba(255,255,255,0.18); }
 .wm-rogue-curio-next:empty { display: none; margin: 0; padding: 0; border-top: 0; }
-/* 奇物商店分区容器：无候选时挂 .wm-rogue-hidden 整块隐藏（不留「已购买」残卡） */
+/* 奇物商店分区容器：无候选时隐藏；购买后保留「已购买」残卡，允许再点锁定剩余商品 */
 #wm-rogue-overlay .wm-rogue-curio-section { display: flex !important; flex-direction: column !important; }
 /* 商店资源行第四块「奇物 n」：与「技能 n/3」同一套入口视觉 */
 .wm-rogue-res-cell.wm-rogue-res-curio { cursor: pointer; }

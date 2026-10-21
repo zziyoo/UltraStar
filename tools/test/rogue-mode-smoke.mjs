@@ -3323,7 +3323,7 @@ await check("新事件真机链路：经验商人的价钱写进按钮、置灰�
 	return "第 4 关基准 100/40：扣 100 金币得 120 经验";
 });
 
-await check("奇物商店：候选展示、购买落袋、整批售罄、重载保持", async () => {
+await check("奇物商店：候选展示、购买后保留已购卡、同场限购、重载保持", async () => {
 	freshWorld();
 	putRun(0, {
 		mode: "endless",
@@ -3359,18 +3359,24 @@ await check("奇物商店：候选展示、购买落袋、整批售罄、重载�
 	assertEqual(JSON.stringify(after.curios), JSON.stringify(["energy_core"]), "奇物入袋");
 	assertEqual(JSON.stringify(after.collection.curios), JSON.stringify(["energy_core"]), "图鉴记录");
 	assertEqual(after.currency.gold, 90, "扣款落盘");
-	// 买到即整批下架：候选清空、分区整个隐藏，不留「已购买」残卡
-	assertEqual(JSON.stringify(after.curioOffers), "[]", "买到即清空候选");
-	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 0, "候选卡全部撤下");
-	assert(nodesWithClass("wm-rogue-curio-section")[0].classList.contains("wm-rogue-hidden"), "空批次时奇物商店分区隐藏");
-	// 重载：奇物仍在、分区仍隐藏（旧档里的残卡也会在读档时被清洗掉）
+	// 买后保留全部候选，已购卡显示状态，其余两张当场禁用，仍可打开商店锁。
+	assertEqual(after.curioOffers.length, 3, "保留整批候选");
+	assertEqual(after.curioOffers[0].sold, true, "已购卡标记保存");
+	assertEqual(after.curioBoughtThisRound, true, "本场购买额度用尽");
+	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 3, "候选卡继续显示");
+	assert(!nodesWithClass("wm-rogue-curio-section")[0].classList.contains("wm-rogue-hidden"), "购买后奇物商店仍显示");
+	assert(screenText().includes("已购买"), "已购卡显示已购买");
+	assert(screenText().includes("本场已购买"), "其他卡片同场禁用");
+	// 重载：保留本场已购标记与旧货架，不允许通过重进重复购买
 	putRun(0, {}, after);
 	session();
 	click("商店");
 	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].curios), JSON.stringify(["energy_core"]), "重载后奇物仍在");
-	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].curioOffers), "[]", "重载后无残留候选");
-	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 0, "重载后分区仍无残卡");
-	assert(nodesWithClass("wm-rogue-curio-section")[0].classList.contains("wm-rogue-hidden"), "重载后分区仍隐藏");
+	assertEqual(lib.storage.rogueSlots[0].curioOffers.length, 3, "重载后同批候选保留");
+	assertEqual(lib.storage.rogueSlots[0].curioOffers[0].sold, true, "重载后仍已购买");
+	assertEqual(lib.storage.rogueSlots[0].curioBoughtThisRound, true, "重载后同场限购状态未丢");
+	assertEqual(nodesWithClass("wm-rogue-curio-card").length, 3, "重载后卡片仍显示");
+	assert(screenText().includes("本场已购买"), "重载后其余卡仍禁用");
 	// 顶部「奇物 n」资源块进奇物管理页：与「技能 n/3」同一套入口
 	clickNode(nodesWithClass("wm-rogue-res-curio")[0]);
 	assert(screenText().includes("奇物（1）"), `管理页标题：${screenText()}`);

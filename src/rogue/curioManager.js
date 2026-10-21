@@ -217,7 +217,7 @@ const EFFECT_TEXT = {
 	lockSkillShop: (value, effects) => {
 		const both = (effects?.lockCurioShop ?? 0) > 0;
 		return both
-			? "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选"
+			? "你可以锁定技能或奇物商店；奇物商店锁定后可逐场购买剩余候选，全部售出自动解锁"
 			: "你可以锁定技能商店，锁定后不再刷新它的候选";
 	},
 	// 故人的心：开关式效果，同样合成一条（数值只表示「有这件奇物」，不写进句子）。
@@ -448,10 +448,9 @@ export function getCurioOffer(run, offerId) {
 }
 
 /**
- * 购买奇物：扣金币、写入 run.curios 与图鉴（collection.curios 记录「曾经拥有过」，
- * 之后丢弃也不会从图鉴消失）。一批只卖一个：**买到即整批下架**——curioOffers 清空，
- * 商店里不留「已购买」残卡，下一批要等 CURIO_SHOP_RATE 命中重新摇。
- * 返回 { ok, error, run, curioId }；失败时 run 与传入的 run 是同一份未修改数据。
+ * 购买奇物：一场战斗之后最多购买一件。买过的卡标记 sold 并继续展示，
+ * 玩家仍可在买后锁定剩余候选。下一次正常胜利后可购买锁定批次中的下一件。
+ * 整批售完自动解锁；旧档黄金罗盘预存队列仍在整批售完时接续。
  */
 export function buyCurio(run, offerId) {
 	const fail = error => ({ ok: false, error, run });
@@ -459,24 +458,31 @@ export function buyCurio(run, offerId) {
 	if (!offer) {
 		return fail("该奇物不在本次候选中");
 	}
+	if (offer.sold === true) {
+		return fail("已购买该奇物");
+	}
+	if (run.curioBoughtThisRound === true) {
+		return fail("本次商店已购买奇物");
+	}
 	if (!Number.isFinite(offer.price) || !hasCurrency(run, "gold", offer.price)) {
 		return fail("金币不足");
 	}
 	if ((run.curios ?? []).includes(offerId)) {
 		return fail("已拥有该奇物");
 	}
-	const def = getCurio(offerId);
-	if (!def) {
+	if (!getCurio(offerId)) {
 		return fail("该奇物已下架");
 	}
 
 	const next = {
 		...run,
 		currency: { ...run.currency },
-		curios: (run.curios ?? []).slice(0),
+		curios: (run.curios ?? []).slice(),
+		curioOffers: (run.curioOffers ?? []).map(item => item.id === offerId ? { ...item, sold: true } : { ...item }),
+		curioBoughtThisRound: true,
 		collection: {
-			events: (run.collection?.events ?? []).slice(0),
-			curios: (run.collection?.curios ?? []).slice(0),
+			events: (run.collection?.events ?? []).slice(),
+			curios: (run.collection?.curios ?? []).slice(),
 		},
 	};
 	next.currency.gold = Math.max(0, (next.currency.gold ?? 0) - offer.price);
@@ -484,15 +490,10 @@ export function buyCurio(run, offerId) {
 	if (!next.collection.curios.includes(offerId)) {
 		next.collection.curios.push(offerId);
 	}
-	next.curioOffers = [];
-	next.curioOfferQueue = [];
-	// 黄金罗盘多给的那一批：买到即整批下架后自动提上货架，于是同一关能买两次。
-	// 队列要从传入的 run 里取（next 上刚被我们清成空表），但过滤得用 next.curios——
-	// 刚买掉的这件已经进袋了，不能再从队列里出现在货架上
-	const drained = takeNextCurioBatch({ ...run, curios: next.curios });
-	if (drained.offers.length) {
-		next.curioOffers = drained.offers;
-		next.curioOfferQueue = drained.queue;
+
+	if (next.curioOffers.every(item => item.sold === true)) {
+		// 最后一件售出立即解锁；已购卡保持可见至下一场胜利（旧档队列也延至那时才接续）。
+		next.curioShopLocked = false;
 	}
 	return { ok: true, error: null, run: next, curioId: offerId };
 }
@@ -681,6 +682,9 @@ export function toggleShopLock(run, kind) {
 		return { ok: false, error: `没有能锁定${label}的奇物`, run, locked: false };
 	}
 	const locked = !isShopLocked(run, kind);
+	if (kind === "curio" && locked && !(run?.curioOffers ?? []).some(offer => offer.sold !== true)) {
+		return { ok: false, error: "当前批次已售罄，没有可锁定的奇物", run, locked: false };
+	}
 	return { ok: true, error: null, locked, run: { ...run, [field]: locked } };
 }
 

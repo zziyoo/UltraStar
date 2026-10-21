@@ -2,7 +2,7 @@
 
 import { BOSS_EXP_MULTIPLIER, BOSS_REWARD_MULTIPLIER, CURRENCIES, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getChallengeReward, getEndlessReward } from "./data/rewards.js";
-import { getBonus, getCurioShopChance, isShopLocked, rollCurioOffers } from "./curioManager.js";
+import { getBonus, getCurioShopChance, isShopLocked, rollCurioOffers, takeNextCurioBatch } from "./curioManager.js";
 
 /**
  * 奖励一律按「本次刚刚完成的关卡编号」计算：下面的 run.level 在推进之前就是刚打赢的那一关，
@@ -21,7 +21,8 @@ import { getBonus, getCurioShopChance, isShopLocked, rollCurioOffers } from "./c
  *
  * 闯关：未到总关卡数则进下一关，到达则置 cleared 且关卡不越界（Hub 提供重复挑战）。
  * 无尽：关卡无上限地推进；胜利后先掷奇物商店（概率 = curioManager.getCurioShopChance(本存档)，
- * mode.js 里随后的事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中清空（不留旧批次）。
+ * mode.js 里随后的事件判定排在它之后——先奇物商店、再事件）。未锁定时命中才重摇，未命中清空；
+ * 已锁定时保留同一批已购/未购卡，只有未购卡可在后续关卡继续购买。
  * Boss 战胜利**不再**特殊刷新奇物商店：这一掷与普通胜利同一条概率、同一个分支。
  * 两种玩法都会清掉 currentBattle 与上一次的商店候选；唯一例外是收藏家的橱窗锁住的那一类：
  * 技能商店锁着就保留这批候选（买过的那张继续挂在货架上显示「已购买」，只是打上 carried 不再吃
@@ -67,6 +68,8 @@ export function settleVictory(run, now, rng = Math.random) {
 			: [],
 		// 循环按钮：每场战斗结束额外补一次刷新（只看开战前已持有的奇物，本局换到的不算）
 		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL + getBonus(run.curios, "extraShopRefresh", quality),
+		// 只在真正通关后恢复本次奇物购买机会，裂隙与失败不重置。
+		curioBoughtThisRound: false,
 		currentBattle: null,
 		updatedAt: now,
 	};
@@ -109,16 +112,28 @@ export function settleVictory(run, now, rng = Math.random) {
 	// Boss 战胜利**不再**刷新奇物商店（旧规格是「必刷一次、不吃概率也不吃橱窗锁」）：
 	// 这一掷与普通胜利走完全同一条概率、同一个分支。
 	if (run.mode === RUN_MODE.endless) {
-		// 收藏家的橱窗（史诗档）锁着奇物商店：整批原样留着——不再掷商店刷新概率、不置空，队列里剩下的批次也不动。
-		// 锁着但货架本来就空时不拦：没有货可保，拦了反而把玩家锁在空货架上（分区又随空隐藏，连解锁图标都点不到）
-		if (isShopLocked(run, "curio") && (run.curioOffers ?? []).length) {
+		// 锁定时仅保留尚有未售奇物的批次（已购买卡继续显示，但不会重新出售）。
+		// 全部售罄或空货架时恢复正常概率；购完自动解锁由 buyCurio 当场处理，旧档异常状态在此兜底。
+		const hasUnsold = (run.curioOffers ?? []).some(offer => offer.sold !== true);
+		if (isShopLocked(run, "curio") && hasUnsold) {
 			next.curioOffers = run.curioOffers.map(offer => ({ ...offer }));
 			next.curioOfferQueue = (run.curioOfferQueue ?? []).map(batch => batch.map(offer => ({ ...offer })));
 		} else {
-			next.curioOffers = rng() < getCurioShopChance(run) ? rollCurioOffers(next, rng) : [];
-			// 队列只服务旧档里已经压着的那批（黄金罗盘改规则前摇出来的）：新的一掷不再生产第二批，
-			// 但货架上那一批照旧能看完、能买（curioManager.buyCurio 会把队列提上货架）
-			next.curioOfferQueue = [];
+			if (isShopLocked(run, "curio") && (run.curioOffers ?? []).length && !hasUnsold) {
+				next.curioShopLocked = false;
+			}
+			// 旧版黄金罗盘可能已生成后续批次：此前可在同关连续购买，
+			// 新规则一场只能购买一件，因此改成下一次真正胜利才上架，绝不浪费老存档的货。
+			const legacyQueued = (run.curioOfferQueue ?? []).length > 0
+				&& (run.curioBoughtThisRound === true || !hasUnsold);
+			const queued = legacyQueued ? takeNextCurioBatch(run) : null;
+			if (queued?.offers.length) {
+				next.curioOffers = queued.offers;
+				next.curioOfferQueue = queued.queue;
+			} else {
+				next.curioOffers = rng() < getCurioShopChance(run) ? rollCurioOffers(next, rng) : [];
+				next.curioOfferQueue = [];
+			}
 		}
 	} else {
 		next.curioOffers = [];

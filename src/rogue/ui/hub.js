@@ -448,7 +448,7 @@ export function showShop(api) {
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
 
 	// 奇物商店：无尽模式专属分区。候选由每关胜利按概率生成并连价定死写进存档，进店/重载都不重掷。
-	// 无候选（未刷新/已买完/已集齐）时整个分区隐藏——不留「已购买」残卡
+	// 无候选时整个分区隐藏；买过的候选保留「已购买」卡，以便买后仍能锁住剩余商品
 	let curioSection = null;
 	let curioHint = null;
 	let curioRow = null;
@@ -522,13 +522,12 @@ export function showShop(api) {
 		if (curioSection) {
 			const offers = Array.isArray(current.curioOffers) ? current.curioOffers : [];
 			curioSection.classList[offers.length ? "remove" : "add"]("wm-rogue-hidden");
-			// 队列里可能还压着旧档（罗盘走独立判定那版）摇出来的下一批：买完当前这批会自动提上货架
-			// （curioManager.buyCurio 负责搬运），有货就得说清楚，否则清空后看着像商店出故障了
+			// 队列里可能还压着旧档的额外批次：整批售完才接续，且每次战斗后仍最多购买一件
 			if (curioHint) {
 				const queued = (Array.isArray(current.curioOfferQueue) ? current.curioOfferQueue : []).filter(batch => batch.length).length;
 				curioHint.innerHTML = queued
-					? `${curioRateText(current, "候选")}　每次最多购买 1 个　后面还压着 ${queued} 批，买完这批接着上`
-					: `${curioRateText(current, "候选")}　每次最多购买 1 个`;
+					? `${curioRateText(current, "候选")}　每场胜利后限购 1 个　后面还压着 ${queued} 批，当前批次售罄后接续`
+					: `${curioRateText(current, "候选")}　每场胜利后限购 1 个`;
 			}
 		}
 	};
@@ -564,7 +563,7 @@ function buildShopLock(parent, run, kind, label, onToggle) {
 	// 技能商店那一枚多说一句「连免费刷新也用不了」：奇物商店没有手动刷新按钮，说多了反而绕
 	node.title = kind === "skill"
 		? `锁定${label}：锁定后这一批候选不再换货——战斗结束时不自动刷新，免费刷新也用不了；再点一下解锁`
-		: `锁定${label}：锁定后，下一场战斗结束时不刷新${label}的候选`;
+		: `锁定${label}：锁住剩余候选，可在后续胜利后逐件购买；全部卖完自动解锁`;
 	return node;
 }
 
@@ -689,13 +688,16 @@ function buildCurioCard(parent, offer, api) {
 	return row;
 }
 
-/** 画一张奇物卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buyCurio 返回的是新对象，
- * 买到即整批下架，所以只有「买得起 / 金币不足」两种可展示状态 */
+/** 奇物卡按存档状态显示：买过的卡继续可见，其余卡在本场已购买后禁用。 */
 function paintCurio(row, run) {
 	const offer = getCurioOffer(run, row.id) ?? {};
 	const held = run.currency[SKILL_CURRENCY] ?? 0;
-	const state = held < offer.price ? "poor" : "buy";
+	const state = offer.sold === true ? "sold"
+		: run.curioBoughtThisRound === true ? "soldOut"
+			: held < offer.price ? "poor" : "buy";
 	const text = {
+		sold: { price: `${offer.price} 金币`, button: "已购买" },
+		soldOut: { price: `${offer.price} 金币`, button: "本场已购买" },
 		poor: { price: `${offer.price} 金币（持有 ${held}）`, button: "金币不足" },
 		buy: { price: `${offer.price} 金币`, button: "购买" },
 	}[state];
