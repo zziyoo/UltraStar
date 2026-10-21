@@ -685,6 +685,10 @@ export function toggleShopLock(run, kind) {
 	if (kind === "curio" && locked && !(run?.curioOffers ?? []).some(offer => offer.sold !== true)) {
 		return { ok: false, error: "当前批次已售罄，没有可锁定的奇物", run, locked: false };
 	}
+	// 技能批次同理：全售罄（含 carried 留货）或空货架都不允许重新锁上；解锁始终放行
+	if (kind === "skill" && locked && !(run?.shopOffers ?? []).some(offer => offer?.sold !== true)) {
+		return { ok: false, error: "当前批次已售罄，没有可锁定的技能", run, locked: false };
+	}
 	return { ok: true, error: null, locked, run: { ...run, [field]: locked } };
 }
 

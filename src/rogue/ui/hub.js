@@ -542,6 +542,8 @@ export function showShop(api) {
 /**
  * 刷新按钮的文字与可用性：
  *   · 本局购买额度用光就彻底锁死——重掷会把 sold 换成 false，放行等于绕过一局购买上限；
+ *   · 整批候选已经全部售罄（carried 留货也算）同样锁死：旧档只解除锁定，不在这里提前换货，
+ *     必须等下一场真正胜利；
  *   · 技能商店被收藏家的橱窗 🔒 锁着时同样置灰（真正的拒绝在 shop.js 的 refreshSkillOffers，
  *     判据只在那一处，按钮样式只是把它说给玩家看）；
  *   · 免费次数用完也置灰。
@@ -549,8 +551,9 @@ export function showShop(api) {
  */
 function paintRefresh(node, run, soldOut) {
 	const remaining = getRefreshesRemaining(run);
-	node.innerHTML = soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
-	node.classList[soldOut || remaining <= 0 || isShopLocked(run, "skill") ? "add" : "remove"]("wm-rogue-disabled");
+	const batchSoldOut = (run.shopOffers ?? []).length > 0 && run.shopOffers.every(offer => offer?.sold === true);
+	node.innerHTML = batchSoldOut ? "本批已售罄" : soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
+	node.classList[batchSoldOut || soldOut || remaining <= 0 || isShopLocked(run, "skill") ? "add" : "remove"]("wm-rogue-disabled");
 }
 
 /**
@@ -728,9 +731,12 @@ export function refreshShop(run) {
  * 用光后其余候选一律显示「本次商店已售罄」。改常量即可改上限，不用再动这里。
  * 橱窗留货过来的那张「已购买」不算在本局额度里（记数在 shop.getPurchasedCount），
  * 否则留一张就把整排货架连同刷新按钮一起锁死。
+ * 另外，整批候选已全部 sold（carried 留货也算）也按售罄处理：旧档解锁后不能靠刷新提前换货。
  */
 function isSoldOut(run) {
-	return getPurchasedCount(run) >= SKILL_PURCHASE_COUNT;
+	const offers = Array.isArray(run?.shopOffers) ? run.shopOffers : [];
+	return getPurchasedCount(run) >= SKILL_PURCHASE_COUNT
+		|| (offers.length > 0 && offers.every(offer => offer?.sold === true));
 }
 
 /** 画一张技能卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buySkill 返回的是新对象，握住旧引用会永远读不到 sold */

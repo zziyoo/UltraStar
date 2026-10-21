@@ -707,8 +707,12 @@ export function normalizeRun(raw, options = {}) {
 		// v7：奇物商店的额外批次队列（黄金罗盘给的，买完当前这批才提上货架）
 		curioOfferQueue,
 		// v9：商店锁（收藏家的橱窗）。**只有当前确实持有对应锁定能力**才保留，否则一律清零——
-		// 没有那件奇物时这两个字段对玩家不可见（商店里没有锁图标），留着就是一颗不知道什么时候会响的雷
-		skillShopLocked: canLockShop({ curios, curioQuality }, "skill") && raw.skillShopLocked === true,
+		// 没有那件奇物时这两个字段对玩家不可见（商店里没有锁图标），留着就是一颗不知道什么时候会响的雷。
+		// 技能锁再加一条：批次已全售罄（carried 也算）或为空时读档直接解锁；三张已购买卡原样保留，
+		// 不在这里重掷，等下一场真正胜利后才清空并恢复刷新
+		skillShopLocked: canLockShop({ curios, curioQuality }, "skill")
+			&& raw.skillShopLocked === true
+			&& shopOffers.some(offer => offer.sold !== true),
 		curioShopLocked: canLockShop({ curios, curioQuality }, "curio") && raw.curioShopLocked === true,
 		// v7：经验泉「再饮一口」欠下的债——下一场每名敌人追加几个深渊强化。旧档按「没有债」补齐，不重掷
 		abyssDebt: clampInt(raw.abyssDebt, 0, 10, 0),

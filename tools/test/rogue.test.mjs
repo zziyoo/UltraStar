@@ -4292,11 +4292,14 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	assert(!curioManager.canLockShop(rare, "curio"), "稀有档锁不了奇物商店");
 	assert(curioManager.canLockShop(epic, "curio"), "史诗档能锁奇物商店");
 	assert(!curioManager.canLockShop({ ...rare, curios: [] }, "skill"), "没持有橱窗时没有锁定能力");
-	// 切换：纯函数、不原地改 run；没能力时 ok:false 且零副作用
-	const on = curioManager.toggleShopLock(rare, "skill");
+	// 切换：纯函数、不原地改 run；没能力时 ok:false 且零副作用。
+	// 空技能货架不允许上锁（与奇物同一道闸门），所以先补一张未售候选
+	const lockable = { ...rare, shopOffers: [{ id: SKILL_B, price: 40, sold: false }] };
+	assert(!curioManager.toggleShopLock(rare, "skill").ok, "空技能货架不允许锁定");
+	const on = curioManager.toggleShopLock(lockable, "skill");
 	assert(on.ok && on.locked === true && on.run.skillShopLocked === true, "锁上");
-	assert(on.run !== rare, "返回的是新对象，不与传入的 run 共享引用");
-	assertEqual(rare.skillShopLocked, false, "传入的 run 不被原地改写（还是未锁的旧状态）");
+	assert(on.run !== lockable, "返回的是新对象，不与传入的 run 共享引用");
+	assertEqual(lockable.skillShopLocked, false, "传入的 run 不被原地改写（还是未锁的旧状态）");
 	const off = curioManager.toggleShopLock(on.run, "skill");
 	assert(off.ok && off.locked === false && off.run.skillShopLocked === false, "再切一下解锁");
 	assert(!curioManager.toggleShopLock(rare, "curio").ok, "稀有档切奇物锁被拒");
@@ -4369,13 +4372,28 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	// 锁着但货架本来就空：不拦（否则玩家被锁在空货架上，分区一隐藏连解锁图标都点不到）
 	const emptyLocked = { ...curioLocked, curioOffers: [], curioOfferQueue: [] };
 	assertEqual(reward.settleVictory(emptyLocked, NOW, seq([0, 0])).run.curioOffers.length, cfg.CURIO_OFFER_COUNT, "空货架时照常摇新货");
-	// 存档清洗：只有「当前确实持有对应能力」才保留锁字段
-	const epicCleaned = state.normalizeRun({ ...epic, skillShopLocked: true, curioShopLocked: true });
-	assertEqual(epicCleaned.skillShopLocked, true, "史诗档技能锁保留");
+	// 存档清洗：只有「当前确实持有对应能力」才保留锁字段；技能锁还要求批次里还有未售候选
+	const lockableOffers = [{ id: SKILL_B, price: 40, sold: false }];
+	const epicCleaned = state.normalizeRun({ ...epic, shopOffers: lockableOffers, skillShopLocked: true, curioShopLocked: true });
+	assertEqual(epicCleaned.skillShopLocked, true, "史诗档技能锁保留（还有未售候选）");
 	assertEqual(epicCleaned.curioShopLocked, true, "史诗档奇物锁保留");
-	const rareCleaned = state.normalizeRun({ ...rare, skillShopLocked: true, curioShopLocked: true });
-	assertEqual(rareCleaned.skillShopLocked, true, "稀有档技能锁保留");
+	const rareCleaned = state.normalizeRun({ ...rare, shopOffers: lockableOffers, skillShopLocked: true, curioShopLocked: true });
+	assertEqual(rareCleaned.skillShopLocked, true, "稀有档技能锁保留（还有未售候选）");
 	assertEqual(rareCleaned.curioShopLocked, false, "稀有档奇物锁清零（还锁不了奇物商店）");
+	// 旧档兜底：技能批次全售罄（carried 也算）或空货架时读档解锁，已购买卡片原样保留
+	const soldCleaned = state.normalizeRun({
+		...rare,
+		shopOffers: [
+			{ id: SKILL_A, price: 40, sold: true, carried: true },
+			{ id: SKILL_B, price: 50, sold: true, carried: true },
+			{ id: SKILL_C, price: 60, sold: true },
+		],
+		skillShopLocked: true,
+	});
+	assertEqual(soldCleaned.skillShopLocked, false, "技能批次全售罄 → 读档自动解锁");
+	assertEqual(soldCleaned.shopOffers.length, 3, "三张已购买卡仍保留（读档不提前重掷）");
+	const emptyCleaned = state.normalizeRun({ ...rare, shopOffers: [], skillShopLocked: true });
+	assertEqual(emptyCleaned.skillShopLocked, false, "空技能货架 → 读档自动解锁");
 	const noneCleaned = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), skillShopLocked: true, curioShopLocked: true });
 	assertEqual(noneCleaned.skillShopLocked, false, "没橱窗时技能锁清零");
 	assertEqual(noneCleaned.curioShopLocked, false, "没橱窗时奇物锁清零");
@@ -4393,6 +4411,115 @@ check("收藏家的橱窗：锁的能力闸门、结算保留与存档清洗", (
 	assertEqual(shop.getRefreshesRemaining(shop.refreshSkillOffers(refreshRun, makeRng(23), [], skillsData.pool).run), cfg.SKILL_REFRESH_PER_LEVEL - 1, "解锁状态才放行，并扣掉一次");
 	assert(shop.refreshSkillOffers({ ...refreshRun, curioShopLocked: true }, makeRng(24), [], skillsData.pool).ok, "只锁奇物商店不该拦住技能刷新");
 	return "能力闸门 / 切换不变异 / 两类商店的结算保留（买过的留货并显示已购买） / 清洗按能力闸门 / 🔒 期间刷新被逻辑层拒绝";
+});
+
+check("技能橱窗：整批售罄立即解锁，carried 计入，下一关才刷新", () => {
+	const runBase = {
+		...freshRun(cfg.RUN_MODE.endless),
+		level: BASE_LEVEL,
+		currency: { gold: 9999, exp: 0 },
+		curios: ["collector_showcase"],
+		skillShopLocked: true,
+		shopOffers: [SKILL_A, SKILL_B, SKILL_C].map((id, index) => ({ id, price: 40 + index * 10, sold: false, carried: false })),
+		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+	};
+	const buy = (run, id) => shop.buySkill(run, id, null, { isSkillAllowed: () => true });
+
+	// 第一关买 A：还有两张未售 → 锁保留
+	const first = buy(runBase, SKILL_A);
+	assert(first.ok, first.error ?? "第一关应买到 A");
+	assertEqual(first.run.skillShopLocked, true, "还有两张未买 → 保持锁定");
+	assertEqual(shop.getPurchasedCount(first.run), 1, "本局购买额度用掉");
+	assert(!shop.refreshSkillOffers(first.run, makeRng(1), [], skillsData.pool).ok, "买过后不能刷新");
+	// 下一关：A 留货，B/C 可售
+	const secondLevel = reward.settleVictory(first.run, NOW, () => 0.999).run;
+	assertEqual(secondLevel.skillShopLocked, true, "跨关保留锁定");
+	assertEqual(
+		secondLevel.shopOffers.map(offer => `${offer.id}:${offer.sold ? "已购买" : "可售"}${offer.carried ? "+留货" : ""}`).join(","),
+		`${SKILL_A}:已购买+留货,${SKILL_B}:可售,${SKILL_C}:可售`,
+		"A 留货，B/C 可售",
+	);
+	assertEqual(shop.getPurchasedCount(secondLevel), 0, "留货不算本局额度");
+	// 第二关买 B：还剩 C → 锁保留
+	const second = buy(secondLevel, SKILL_B);
+	assert(second.ok, second.error ?? "第二关应买到 B");
+	assertEqual(second.run.skillShopLocked, true, "还剩 C 未买 → 保持锁定");
+	const thirdLevel = reward.settleVictory(second.run, NOW, () => 0.999).run;
+	assertEqual(
+		thirdLevel.shopOffers.map(offer => `${offer.sold ? "已购买" : "可售"}${offer.carried ? "+留货" : ""}`).join(","),
+		"已购买+留货,已购买+留货,可售",
+		"两关买掉的都留货",
+	);
+	// 第三关买 C：三张（含两张 carried）全部 sold → 立即解锁
+	const third = buy(thirdLevel, SKILL_C);
+	assert(third.ok, third.error ?? "第三关应买到 C");
+	assertEqual(third.run.skillShopLocked, false, "整批（含 carried）售罄 → 立即解锁");
+	assertEqual(third.run.shopOffers.length, cfg.SKILL_OFFER_COUNT, "当前商店仍保留三张卡");
+	assertEqual(third.run.shopOffers.every(offer => offer.sold), true, "三张都显示已购买");
+	assertEqual(shop.getPurchasedCount(third.run), 1, "本局只算 C 这一张");
+	assert(!shop.refreshSkillOffers(third.run, makeRng(2), [], skillsData.pool).ok, "解锁后本局仍不能刷新（购买上限）");
+	const relock = curioManager.toggleShopLock(third.run, "skill");
+	assert(!relock.ok && relock.error.includes("售罄"), "售罄批次不能重新锁定");
+	// 下一次真正胜利：旧批次清空，之后进店现摇新一批
+	const nextVictory = reward.settleVictory(third.run, NOW, () => 0.999).run;
+	assertEqual(nextVictory.shopOffers.length, 0, "下一次胜利后清空旧批次");
+	assertEqual(nextVictory.skillShopLocked, false, "保持解锁");
+	const fresh = shop.rollSkillOffers(nextVictory, makeRng(3), [], skillsData.pool);
+	assertEqual(fresh.length, cfg.SKILL_OFFER_COUNT, "下一关能摇满新候选");
+	assert(fresh.every(offer => !offer.sold), "新候选全是未购买");
+	assertEqual(shop.getPurchasedCount({ ...nextVictory, shopOffers: fresh }), 0, "新的一关额度恢复");
+
+	// 少候选：两张批次买完才算售罄；单张批次买完立即售罄
+	const twoOffers = {
+		...runBase,
+		shopOffers: [
+			{ id: SKILL_A, price: 40, sold: false, carried: false },
+			{ id: SKILL_B, price: 50, sold: false, carried: false },
+		],
+	};
+	const twoFirst = buy(twoOffers, SKILL_A);
+	assertEqual(twoFirst.run.shopOffers.length, 2, "夹具：实际只有两张候选");
+	assertEqual(twoFirst.run.skillShopLocked, true, "两张批次买一张后仍锁着");
+	const twoNext = reward.settleVictory(twoFirst.run, NOW, () => 0.999).run;
+	const twoSecond = buy(twoNext, SKILL_B);
+	assertEqual(twoSecond.run.skillShopLocked, false, "两张批次买完按实际数量判断售罄");
+	const oneOffer = { ...runBase, shopOffers: [{ id: SKILL_A, price: 40, sold: false, carried: false }] };
+	assertEqual(buy(oneOffer, SKILL_A).run.skillShopLocked, false, "单张批次买完立即解锁");
+
+	// 旧档全售罄（全是 carried）只解锁、保留已购买卡；读档后手动刷新不得提前换货
+	const carriedOnly = state.normalizeRun({
+		...runBase,
+		skillShopLocked: true,
+		shopOffers: [SKILL_A, SKILL_B, SKILL_C].map(id => ({ id, price: 40, sold: true, carried: true })),
+	});
+	assertEqual(carriedOnly.skillShopLocked, false, "旧档全售罄 → 读档自动解锁");
+	assertEqual(carriedOnly.shopOffers.length, 3, "旧档三张已购买卡原样保留");
+	assertEqual(shop.getPurchasedCount(carriedOnly), 0, "夹具：全是 carried，本局购买数为 0");
+	const blockedRefresh = shop.refreshSkillOffers(carriedOnly, makeRng(9), [], skillsData.pool);
+	assert(!blockedRefresh.ok, "旧档解锁后不能手动刷新提前换货");
+	assertEqual(blockedRefresh.offers, undefined, "被拒时不返回新候选");
+	assertEqual(shop.getRefreshesRemaining(carriedOnly), cfg.SKILL_REFRESH_PER_LEVEL, "被拒时不扣刷新次数");
+	const carriedNext = reward.settleVictory(carriedOnly, NOW, () => 0.999).run;
+	assertEqual(carriedNext.shopOffers.length, 0, "下一次胜利后才清空售罄批次");
+	assertEqual(carriedNext.skillShopLocked, false, "保持解锁");
+
+	// 结算兜底：旧档仍带 true + 全售罄时，清空批次与解锁必须同时发生
+	const soldOutLocked = {
+		...runBase,
+		skillShopLocked: true,
+		shopOffers: [SKILL_A, SKILL_B, SKILL_C].map(id => ({ id, price: 40, sold: true, carried: true })),
+	};
+	const settledSoldOut = reward.settleVictory(soldOutLocked, NOW, () => 0.999).run;
+	assertEqual(settledSoldOut.shopOffers.length, 0, "结算兜底：售罄批次必须被清空，不能只改锁字段");
+	assertEqual(settledSoldOut.skillShopLocked, false, "结算兜底：售罄批次同时解锁");
+	// 空候选：读档解锁、下一场胜利兜底解锁、不允许上锁
+	const emptyLocked = { ...runBase, shopOffers: [] };
+	assertEqual(state.normalizeRun(emptyLocked).skillShopLocked, false, "空候选读档自动解锁");
+	assert(!curioManager.toggleShopLock({ ...emptyLocked, skillShopLocked: false }, "skill").ok, "空候选不允许锁定");
+	const emptySettled = reward.settleVictory(emptyLocked, NOW, () => 0.999).run;
+	assertEqual(emptySettled.skillShopLocked, false, "空候选下一场胜利兜底解锁");
+	assertEqual(emptySettled.shopOffers.length, 0, "空候选不强行造货");
+	return "三关三买 → 自动解锁 / carried 计入 / 当前卡保留 / 旧档只解锁不重掷 / 下一关刷新";
 });
 
 check("新增四事件：倍率按刚打赢那关的基准换算成固定值，消耗写进文案", () => {

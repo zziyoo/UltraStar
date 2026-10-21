@@ -182,6 +182,10 @@ export function refreshSkillOffers(run, rng = Math.random, characterSkills = [],
 	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
 		return { ok: false, error: "本局已经购买过技能，不能继续刷新" };
 	}
+	// 整批售罄（carried 留货也算）时不允许重掷：旧档读入、重进商店、手动刷新都只能等下一场胜利
+	if (current.length > 0 && current.every(offer => offer?.sold === true)) {
+		return { ok: false, error: "这一批技能已经全部售罄，等下一场胜利后再刷新" };
+	}
 	const previousIds = current.map(offer => offer?.id).filter(id => typeof id === "string" && id);
 	const fresh = (Array.isArray(candidates) ? candidates : []).filter(entry => entry && !previousIds.includes(entry.id));
 	let offers = rollSkillOffers(run, rng, characterSkills, fresh);
@@ -312,6 +316,11 @@ export function buySkill(run, offerId, replaceId = null, options = {}) {
 	const target = next.shopOffers.find(item => item.id === offerId);
 	if (target) {
 		target.sold = true;
+	}
+	// carried 留货也是 sold：整批（含前几关买掉的）售罄时立即解锁；
+	// 当前候选保持原样，下一次真正胜利才清空并恢复刷新
+	if (next.shopOffers.length > 0 && next.shopOffers.every(item => item.sold === true)) {
+		next.skillShopLocked = false;
 	}
 
 	return { ok: true, error: null, run: next, removed };

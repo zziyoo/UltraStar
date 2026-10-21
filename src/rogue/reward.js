@@ -53,6 +53,10 @@ export function settleVictory(run, now, rng = Math.random) {
 		const rate = key === "gold" ? goldRate : key === "exp" ? expRate : 1;
 		gained[key] = Math.max(0, Math.round(value * rate));
 	}
+	// 技能商店：锁着且还有未售候选才保留这一批；全售罄（carried 也算）或空货架时
+	// 同一个判据同时清空候选并解除锁定，绝不留着售罄批次继续挂着锁
+	const skillHasUnsold = (run.shopOffers ?? []).some(offer => offer?.sold !== true);
+	const keepSkillOffers = isShopLocked(run, "skill") && skillHasUnsold;
 	const next = {
 		...run,
 		currency: { ...run.currency },
@@ -62,10 +66,11 @@ export function settleVictory(run, now, rng = Math.random) {
 		// 由 shop.js 的 getPurchasedCount 排除在「本局购买数」之外，别把整排货架锁死
 		// （旧规格原话：免费的刷新次数要刷新，只是三个技能不刷新。v15 起这条只对「解锁」状态成立：
 		//  技能商店锁着时连免费刷新也用不了，见 shop.refreshSkillOffers 的第一道门槛）。
-		// 没锁 / 锁着但候选本来就是空的，一律照旧清空（下次进店现摇），与原来逐字一致
-		shopOffers: isShopLocked(run, "skill") && (run.shopOffers ?? []).length
+		// 全售罄/空货架时不再保留，并当场解锁；下一次真正胜利后由 openShop 现摇新一批
+		shopOffers: keepSkillOffers
 			? run.shopOffers.map(offer => ({ ...offer, carried: offer.sold === true }))
 			: [],
+		skillShopLocked: keepSkillOffers,
 		// 循环按钮：每场战斗结束额外补一次刷新（只看开战前已持有的奇物，本局换到的不算）
 		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL + getBonus(run.curios, "extraShopRefresh", quality),
 		// 只在真正通关后恢复本次奇物购买机会，裂隙与失败不重置。
