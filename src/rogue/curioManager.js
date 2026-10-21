@@ -217,7 +217,7 @@ const EFFECT_TEXT = {
 	lockSkillShop: (value, effects) => {
 		const both = (effects?.lockCurioShop ?? 0) > 0;
 		return both
-			? "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选"
+			? "你可以锁定技能或奇物商店；奇物商店锁定后可逐场购买剩余候选，全部售出自动解锁"
 			: "你可以锁定技能商店，锁定后不再刷新它的候选";
 	},
 	// 故人的心：开关式效果，同样合成一条（数值只表示「有这件奇物」，不写进句子）。
