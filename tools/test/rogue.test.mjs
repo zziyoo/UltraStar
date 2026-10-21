@@ -3744,7 +3744,7 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("hungry_box", "epic")[0], "经验获取 +20%", "史诗档经验 +20%");
 	assertEqual(lines("collector_showcase").join(" / "), "你可以锁定技能商店，锁定后不再刷新它的候选", "橱窗稀有档只锁技能商店");
 	assertEqual(lines("collector_showcase", "epic").length, 1, "橱窗史诗档合成一条");
-	assertEqual(lines("collector_showcase", "epic")[0], "你可以锁定技能或奇物商店，锁定后不再刷新它们的候选", "橱窗史诗档两店都能锁");
+	assertEqual(lines("collector_showcase", "epic")[0], "你可以锁定技能或奇物商店；奇物商店锁定后可逐场购买剩余候选，全部售出自动解锁", "橱窗史诗档两店都能锁");
 	return "十一件文案齐备 + 配套键不出行";
 });
 
