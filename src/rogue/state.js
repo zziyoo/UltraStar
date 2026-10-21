@@ -449,9 +449,9 @@ function normalizeCurioQuality(raw, owned = []) {
 }
 
 /**
- * 奇物商店候选：{ id, price }，无效条目剔除。
- * 已拥有的奇物一律剔除（无论来源：买到即整批下架、事件送出会撤下，这里兜底清洗旧档残留）——
- * 已拥有的奇物不得再以任何形式挂在商店里。
+ * 奇物商店候选：{ id, price, sold? }，无效条目剔除。
+ * 未售候选不得已拥有；sold:true 的已购买卡只用于显示，不得再次购买。
+ * 旧存档没有 sold 字段时保持原状，不补假销售记录。
  */
 function normalizeCurioOffers(raw, owned = []) {
 	const ownedSet = new Set(Array.isArray(owned) ? owned : []);
@@ -461,11 +461,16 @@ function normalizeCurioOffers(raw, owned = []) {
 			continue;
 		}
 		const id = sanitizeString(offer.id);
-		if (!id || !getCurio(id) || ownedSet.has(id)) {
+		const sold = offer.sold === true;
+		if (!id || !getCurio(id) || ownedSet.has(id) !== sold) {
 			continue;
 		}
 		// 负面奇物售价为负（购买反得金币），下界必须放到负数，否则读档后被夹成 0、白送一个奇物
-		offers.push({ id, price: clampInt(offer.price, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 0) });
+		const entry = { id, price: clampInt(offer.price, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 0) };
+		if (sold) {
+			entry.sold = true;
+		}
+		offers.push(entry);
 	}
 	return offers;
 }
@@ -696,6 +701,8 @@ export function normalizeRun(raw, options = {}) {
 		// v6：奇物品质升级。旧档（v5 及更早）没有这个字段时按空表补齐 = 全部停在初始品质
 		curioQuality,
 		curioOffers: normalizeCurioOffers(raw.curioOffers, curios),
+		// 本次胜利后是否已经购买奇物：读档保留，避免已买一件后重载再买第二件。
+		curioBoughtThisRound: raw.curioBoughtThisRound === true,
 		// v7：奇物商店的额外批次队列（黄金罗盘给的，买完当前这批才提上货架）
 		curioOfferQueue,
 		// v9：商店锁（收藏家的橱窗）。**只有当前确实持有对应锁定能力**才保留，否则一律清零——
