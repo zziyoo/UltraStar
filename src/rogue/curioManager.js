@@ -492,14 +492,8 @@ export function buyCurio(run, offerId) {
 	}
 
 	if (next.curioOffers.every(item => item.sold === true)) {
-		// 买光锁定的一批便自动解锁；没有队列时保留「已购买」卡至下一场胜利。
+		// 最后一件售出立即解锁；已购卡保持可见至下一场胜利（旧档队列也延至那时才接续）。
 		next.curioShopLocked = false;
-		// 仅旧存档可能有预生成的下一批；本场限购标记在换批后依然生效。
-		const drained = takeNextCurioBatch({ ...run, curios: next.curios });
-		if (drained.offers.length) {
-			next.curioOffers = drained.offers;
-			next.curioOfferQueue = drained.queue;
-		}
 	}
 	return { ok: true, error: null, run: next, curioId: offerId };
 }
