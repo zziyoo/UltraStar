@@ -21,7 +21,8 @@ import { getBonus, getCurioShopChance, isShopLocked, rollCurioOffers, takeNextCu
  *
  * 闯关：未到总关卡数则进下一关，到达则置 cleared 且关卡不越界（Hub 提供重复挑战）。
  * 无尽：关卡无上限地推进；胜利后先掷奇物商店（概率 = curioManager.getCurioShopChance(本存档)，
- * mode.js 里随后的事件判定排在它之后——先奇物商店、再事件），命中才整批重摇候选，未命中清空（不留旧批次）。
+ * mode.js 里随后的事件判定排在它之后——先奇物商店、再事件）。未锁定时命中才重摇，未命中清空；
+ * 已锁定时保留同一批已购/未购卡，只有未购卡可在后续关卡继续购买。
  * Boss 战胜利**不再**特殊刷新奇物商店：这一掷与普通胜利同一条概率、同一个分支。
  * 两种玩法都会清掉 currentBattle 与上一次的商店候选；唯一例外是收藏家的橱窗锁住的那一类：
  * 技能商店锁着就保留这批候选（买过的那张继续挂在货架上显示「已购买」，只是打上 carried 不再吃
