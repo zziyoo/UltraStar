@@ -3991,7 +3991,7 @@ export const skills = {
 		},
 		subSkill: {
 			mark: {
-				trigger: { player: ["gainAfter", "loseAfter", "changeSkillsAfter", "phaseBegin"] },
+				trigger: { player: ["gainAfter", "loseAfter", "changeSkillsAfter", "phaseBegin"], global: "gameDrawEnd" },
 				forced: true,
 				silent: true,
 				popup: false,

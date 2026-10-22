@@ -2099,6 +2099,83 @@ await check("日冕牌面标记：技能获得、失去与月神变身日冕后�
 	assert(starterCard.hasGaintag("rmgsrimian_mark_red") && starterCard.hasGaintag("rmgsrimian_mark_diamond"), "初始选择日冕时已有手牌应立即显示标记");
 });
 
+await check("日冕开局：本体直接发牌结束后、首个行动前补上四花色标记", async () => {
+	const mark = skills.rmgsrimian.subSkill.mark;
+	assert(mark, "应存在牌面标记子技能");
+	assert(skills.rmgsrimian.group.includes("rmgsrimian_mark"), "日冕组应包含标记子技能");
+	const dealEvents = [].concat(mark.trigger?.global ?? []);
+	assert(dealEvents.includes("gameDrawEnd"), "应在初始发牌结束的 gameDrawEnd 刷新，而不是发牌前的 gameStart");
+	assert(!dealEvents.includes("gameStart"), "不得在初始发牌前触发");
+	const markEvents = [].concat(mark.trigger?.player ?? []);
+	for (const eventName of ["gainAfter", "loseAfter", "changeSkillsAfter", "phaseBegin"]) {
+		assert(markEvents.includes(eventName), `应保留 ${eventName} 的刷新`);
+	}
+
+	const heart = makeCard("tao", "heart", 1, "basic", { recover: 1 });
+	const diamond = makeCard("shan", "diamond", 2, "basic", { respondShan: 1 });
+	const spade = makeCard("sha", "spade", 3, "basic", { damage: 1 });
+	const club = makeCard("sha", "club", 4, "basic", { damage: 1 });
+	const player = makePlayer({ name: "日冕高斯", skills: ["rmgsrimian"], hand: [] });
+	game.players = [player];
+	skills.rmgsrimian.init(player, "rmgsrimian");
+	equal(player.hand.length, 0, "技能初始化时还没有初始手牌");
+
+	// 模拟本体 gameDraw 的 directgain：只进手牌，不触发 gainAfter
+	for (const card of [heart, diamond, spade, club]) player.hand.push(card);
+	assert(![heart, diamond, spade, club].some(card => card.gaintag.some(tag => tag.startsWith("rmgsrimian_mark_"))), "directgain 本身不应产生标记");
+	heart.addGaintag("other_skill_tag");
+	equal(mark.filter({ name: "gameDrawEnd" }, player), true, "日冕角色应响应初始发牌结束");
+	await mark.content({ name: "gameDrawEnd" }, { name: "gameDraw" }, player);
+
+	const expected = new Map([
+		[heart, ["rmgsrimian_mark_red", "rmgsrimian_mark_heart"]],
+		[diamond, ["rmgsrimian_mark_red", "rmgsrimian_mark_diamond"]],
+		[spade, ["rmgsrimian_mark_black", "rmgsrimian_mark_spade"]],
+		[club, ["rmgsrimian_mark_black", "rmgsrimian_mark_club"]],
+	]);
+	const readMarks = card => card.gaintag.filter(tag => tag.startsWith("rmgsrimian_mark_"));
+	for (const [card, tags] of expected) {
+		equal(JSON.stringify(readMarks(card)), JSON.stringify(tags), `${card.suit} 初始手牌应在首个行动前显示颜色与花色标记`);
+		equal(card.node.gaintag.innerHTML, card.gaintag.map(tag => get.translation(tag)).join(" "), "标记应通过本体 gaintag 原样渲染");
+	}
+	assert(heart.hasGaintag("other_skill_tag"), "刷新初始手牌不得清除其他技能标记");
+	assert(!heart.hasGaintag("rmgsrimian_mark_black") && !heart.hasGaintag("rmgsrimian_mark_spade"), "不得混入不符的花色标记");
+
+	await mark.content({ name: "gameDrawEnd" }, { name: "gameDraw" }, player);
+	await mark.content({ name: "gameDrawEnd" }, { name: "gameDraw" }, player);
+	for (const [card, tags] of expected) {
+		equal(JSON.stringify(readMarks(card)), JSON.stringify(tags), `${card.suit} 重复刷新不得叠加标记`);
+	}
+
+	// 首回合内仍沿用原有 gainAfter/loseAfter 刷新
+	const drawn = makeCard("tao", "diamond", 5, "basic", { recover: 1 });
+	player.hand.push(drawn);
+	await mark.content({ name: "gainAfter" }, { name: "gain" }, player);
+	equal(JSON.stringify(readMarks(drawn)), JSON.stringify(["rmgsrimian_mark_red", "rmgsrimian_mark_diamond"]), "首回合获得手牌后应补标记");
+	player.hand = player.hand.filter(card => card !== spade);
+	await mark.content({ name: "loseAfter" }, { name: "lose" }, player);
+	assert(!spade.gaintag.some(tag => tag.startsWith("rmgsrimian_mark_")), "首回合失去手牌后应清理标记");
+
+	// 多名日冕同场：各自刷新自己的手牌，不互相清除
+	const otherHeart = makeCard("tao", "heart", 6, "basic", { recover: 1 });
+	const other = makePlayer({ name: "日冕高斯B", skills: ["rmgsrimian"], hand: [otherHeart] });
+	game.players = [player, other];
+	await mark.content({ name: "gameDrawEnd" }, { name: "gameDraw" }, player);
+	await mark.content({ name: "gameDrawEnd" }, { name: "gameDraw" }, other);
+	equal(JSON.stringify(readMarks(heart)), JSON.stringify(expected.get(heart)), "刷新自己不得清除另一名日冕的标记");
+	equal(JSON.stringify(readMarks(drawn)), JSON.stringify(["rmgsrimian_mark_red", "rmgsrimian_mark_diamond"]), "自己的其余手牌标记应保持");
+	equal(JSON.stringify(readMarks(otherHeart)), JSON.stringify(["rmgsrimian_mark_red", "rmgsrimian_mark_heart"]), "另一名日冕的初始手牌同样应标记");
+
+	// 月神变身与失去日冕仍沿用原有清理/补标机制
+	const moonHeart = makeCard("tao", "heart", 7, "basic", { recover: 1 });
+	const moon = makePlayer({ name: "月神高斯", skills: ["ysgsmanyue", "ysgsganhua"], hand: [moonHeart] });
+	game.players = [moon];
+	await skills.ysgsganhua.shared.switchToEclipse(moon);
+	assert(moonHeart.hasGaintag("rmgsrimian_mark_red") && moonHeart.hasGaintag("rmgsrimian_mark_heart"), "月神变身日冕后应立即标记");
+	await moon.removeSkills("rmgsrimian");
+	assert(!moonHeart.gaintag.some(tag => tag.startsWith("rmgsrimian_mark_")), "失去日冕后应清理标记");
+});
+
 await check("日冕牌面标记：只调用本体 gaintag，不注入自定义样式或 DOM", () => {
 	const source = fs.readFileSync(path.join(pack, "skills.js"), "utf8");
 	assert(!source.includes("markStyleText"), "不得保留自定义标记样式表");
