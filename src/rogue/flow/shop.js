@@ -5,8 +5,8 @@
 import { lib } from "../../../../../noname.js";
 
 import { RUN_MODE, SKILL_SLOTS } from "../config.js";
-import { buySkill, checkStatUpgrade, equipSkill, refreshSkillOffers, rollSkillOffers, unequipSkill, upgradeStat } from "../shop.js";
-import { buyCurio, upgradeCurio, getSkillLossRewardGold, getSkillLossRewardExp, toggleShopLock } from "../curioManager.js";
+import { buySkill, checkStatUpgrade, equipSkill, hasBuyableSkillOffer, refreshSkillOffers, rollSkillOffers, unequipSkill, upgradeStat } from "../shop.js";
+import { buyCurio, upgradeCurio, getSkillLossRewardGold, getSkillLossRewardExp, isShopLocked, toggleShopLock } from "../curioManager.js";
 import { getShopPool } from "../skillPool.js";
 import { commit, context, skillGate } from "../runtime.js";
 import { showNotice } from "../ui/common.js";
@@ -29,6 +29,14 @@ export function createShopFlow(host) {
 				return;
 			}
 		}
+		// 锁定中但整批已无购买价值（全售出/已拥有/失效）：进店即解锁，候选保留到下一场胜利
+		if (isShopLocked(context.run, "skill")
+			&& !hasBuyableSkillOffer(context.run, { isSkillAllowed: skillGate.isSkillAllowed })) {
+			context.run = { ...context.run, skillShopLocked: false };
+			if (!commit()) {
+				return;
+			}
+		}
 		showShop({
 			run: context.run,
 			getRun: () => context.run,
@@ -37,6 +45,7 @@ export function createShopFlow(host) {
 			buySkill: buySkillFlow,
 			refreshSkills: refreshShopFlow,
 			toggleLock: toggleLockFlow,
+			isSkillAllowed: skillGate.isSkillAllowed,
 			openSkills,
 			// 显式钉住商店入口的返回键：奇物页的返回去处按入口记，别把营地进来的那条带过来
 			openCurios: () => openCurios(openShop),
@@ -236,7 +245,9 @@ export function createShopFlow(host) {
 	 * 与其它商店动作同一条路线：先改内存 run → 落盘 → 原位重绘；没持有对应奇物时只弹一句、零副作用。
 	 */
 	function toggleLockFlow(kind) {
-		const result = toggleShopLock(context.run, kind);
+		const result = toggleShopLock(context.run, kind, {
+			canLockSkill: run => hasBuyableSkillOffer(run, { isSkillAllowed: skillGate.isSkillAllowed }),
+		});
 		if (!result.ok) {
 			showNotice([result.error]);
 			return;

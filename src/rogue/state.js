@@ -12,6 +12,7 @@ import {
 	LEGACY_BOSS_PITY_COUNT_MAX,
 	RUN_MODE,
 	RUN_VERSION,
+	SKILL_PURCHASE_COUNT,
 	SKILL_REFRESH_PER_LEVEL,
 	SKILL_SLOTS,
 	SLOT_COUNT,
@@ -22,6 +23,7 @@ import { getEvent } from "./data/events.js";
 import { getCurio, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 import { getMaxShopRefreshes, canLockShop } from "./curioManager.js";
 import { normalizeEventReward, normalizeEventAction, migrateEventReward } from "./eventManager.js";
+import { hasBuyableSkillOffer } from "./shop.js";
 import { abyssContextForEnemy, normalizeAbyssIds } from "./endless/abyss.js";
 import { stats } from "./data/stats.js";
 
@@ -335,6 +337,11 @@ function normalizeEventChoice(raw, nested = false, eventId = "") {
 	if (action) {
 		built.action = action;
 	}
+	// 旧档流浪商人的失效商品：action 已降级成 soldOut，选项文字里残留的历史价签也一并清掉；
+	// 只剥固定后缀，不碰作者写的其他文字
+	if (action?.kind === "merchant" && action.soldOut === true) {
+		built.text = built.text.replace(/（一件货 · 标价 -?\d+ 金币）$/, "");
+	}
 	const blockedText = sanitizeString(raw.blockedText);
 	if (blockedText) {
 		built.blockedText = blockedText;
@@ -590,6 +597,11 @@ export function normalizeRun(raw, options = {}) {
 
 	const curios = normalizeCurios(raw.curios);
 
+	// 旧档的技能购买次数必须在过滤非法/下架候选之前统计：
+	// 候选被清洗掉之后再去数 sold，会把已经付过钱的购买记录一起丢掉
+	const legacySkillPurchased = (Array.isArray(raw.shopOffers) ? raw.shopOffers : [])
+		.filter(offer => offer?.sold && !offer?.carried)
+		.length;
 	const shopOffers = [];
 	for (const offer of Array.isArray(raw.shopOffers) ? raw.shopOffers : []) {
 		const id = sanitizeString(offer?.id);
@@ -691,6 +703,16 @@ export function normalizeRun(raw, options = {}) {
 		stats: statLevels,
 		currentBattle,
 		shopOffers,
+		// 技能商店本局购买次数：独立持久化，候选被清洗/下架过滤也不会丢。
+		// 已有字段即使是 0 也按“已有值”保留；旧档才回退到清洗前候选上的 sold && !carried
+		skillPurchasedThisRound: clampInt(
+			typeof raw.skillPurchasedThisRound === "number" && Number.isFinite(raw.skillPurchasedThisRound)
+				? raw.skillPurchasedThisRound
+				: legacySkillPurchased,
+			0,
+			SKILL_PURCHASE_COUNT,
+			0,
+		),
 		shopRefreshesRemaining,
 		// v4：无尽模式的事件 / 图鉴 / 奇物。旧档（v3 及更早）没有这些字段时按默认值补齐，不影响读取
 		pendingEvent: normalizePendingEvent(raw.pendingEvent),
@@ -708,11 +730,12 @@ export function normalizeRun(raw, options = {}) {
 		curioOfferQueue,
 		// v9：商店锁（收藏家的橱窗）。**只有当前确实持有对应锁定能力**才保留，否则一律清零——
 		// 没有那件奇物时这两个字段对玩家不可见（商店里没有锁图标），留着就是一颗不知道什么时候会响的雷。
-		// 技能锁再加一条：批次已全售罄（carried 也算）或为空时读档直接解锁；三张已购买卡原样保留，
-		// 不在这里重掷，等下一场真正胜利后才清空并恢复刷新
+		// 技能锁再加一条：批次已无购买价值（全售出/已拥有/合法过滤后为空）时读档直接解锁；
+		// 已购买卡与仍在售的卡原样保留，不在这里重掷，等下一场真正胜利后才清空并恢复刷新。
+		// 拿不到技能池上下文（isSkillAllowed 为 null）时不擅自把未知候选判非法。
 		skillShopLocked: canLockShop({ curios, curioQuality }, "skill")
 			&& raw.skillShopLocked === true
-			&& shopOffers.some(offer => offer.sold !== true),
+			&& hasBuyableSkillOffer({ mode, skills, skillInventory, shopOffers }, { isSkillAllowed }),
 		curioShopLocked: canLockShop({ curios, curioQuality }, "curio") && raw.curioShopLocked === true,
 		// v7：经验泉「再饮一口」欠下的债——下一场每名敌人追加几个深渊强化。旧档按「没有债」补齐，不重掷
 		abyssDebt: clampInt(raw.abyssDebt, 0, 10, 0),

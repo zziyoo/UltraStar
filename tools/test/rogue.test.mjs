@@ -4522,6 +4522,171 @@ check("技能橱窗：整批售罄立即解锁，carried 计入，下一关才�
 	return "三关三买 → 自动解锁 / carried 计入 / 当前卡保留 / 旧档只解锁不重掷 / 下一关刷新";
 });
 
+check("技能橱窗：购买价值与当前可购买分离，外部获得不占次数", () => {
+	const base = {
+		...freshRun(cfg.RUN_MODE.endless),
+		level: BASE_LEVEL,
+		currency: { gold: 9999, exp: 0 },
+		curios: ["collector_showcase"],
+		skillShopLocked: true,
+		shopOffers: [SKILL_A, SKILL_B, SKILL_C].map((id, index) => ({ id, price: 40 + index * 10, sold: false, carried: false })),
+		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+	};
+	const buy = (run, id) => shop.buySkill(run, id, null, { isSkillAllowed: () => true });
+
+	// 场景1：买 A 后本局额度用光 + 金币不足，B/C 仍有购买价值 → 锁必须保持
+	const afterA = buy(base, SKILL_A).run;
+	assertEqual(afterA.skillPurchasedThisRound, 1, "成功购买计数 +1");
+	const poorRun = { ...afterA, currency: { ...afterA.currency, gold: 0 } };
+	assertEqual(shop.getSkillOfferState(poorRun, poorRun.shopOffers[1], { isSkillAllowed: () => true }), "poor", "金币不足时当前状态是 poor");
+	assert(shop.canSkillOfferStillBeBought(poorRun, poorRun.shopOffers[1], { isSkillAllowed: () => true }), "B 仍有购买价值");
+	assert(shop.hasBuyableSkillOffer(poorRun, { isSkillAllowed: () => true }), "整批仍有购买价值");
+	assertEqual(poorRun.skillShopLocked, true, "额度用光/金币不足不能解除锁定");
+	const failed = buy({ ...poorRun, skillPurchasedThisRound: 0 }, SKILL_B);
+	assert(!failed.ok && failed.run === undefined, "余额不足购买失败不返回改过的 run");
+	assertEqual(shop.getPurchasedCount(poorRun), 1, "失败购买不增加计数");
+	const nextLevel = reward.settleVictory(poorRun, NOW, () => 0.999).run;
+	assertEqual(nextLevel.skillPurchasedThisRound, 0, "真正胜利后购买次数归零");
+	assertEqual(nextLevel.skillShopLocked, true, "B/C 仍有价值 → 跨关保持锁定");
+	const boughtB = buy({ ...nextLevel, currency: { gold: 9999, exp: 0 } }, SKILL_B);
+	assert(boughtB.ok, boughtB.error ?? "下一关应能购买 B");
+	assertEqual(boughtB.run.skillPurchasedThisRound, 1, "下一关购买计数重新从 1 开始");
+
+	// 场景2：买 A → 外部获得 B → C 未售 → 不得提前解锁；下一关买 C 后自动解锁
+	const externalB = {
+		...afterA,
+		skillInventory: [...(afterA.skillInventory ?? []), SKILL_B],
+	};
+	assertEqual(externalB.shopOffers.find(offer => offer.id === SKILL_B).sold, false, "外部获得不写 sold");
+	assertEqual(externalB.skillPurchasedThisRound, 1, "外部获得不占本局购买次数");
+	assertEqual(shop.getSkillOfferState(externalB, externalB.shopOffers[1], { isSkillAllowed: () => true }), "owned", "B 显示已拥有");
+	assertEqual(shop.getSkillOfferState(externalB, externalB.shopOffers[2], { isSkillAllowed: () => true }), "soldOut", "C 受本局额度限制，当前买不了");
+	assert(shop.hasBuyableSkillOffer(externalB, { isSkillAllowed: () => true }), "C 仍有购买价值");
+	assertEqual(externalB.skillShopLocked, true, "有 C 在售 → 锁保持");
+	const externalNext = reward.settleVictory(externalB, NOW, () => 0.999).run;
+	assertEqual(externalNext.skillShopLocked, true, "跨关仍锁着");
+	const boughtC = buy({ ...externalNext, currency: { gold: 9999, exp: 0 } }, SKILL_C);
+	assert(boughtC.ok, boughtC.error ?? "下一关应能购买 C");
+	assertEqual(boughtC.run.skillPurchasedThisRound, 1, "买 C 计一次");
+	assertEqual(boughtC.run.skillShopLocked, false, "A/C 已购、B 已拥有 → 无购买价值 → 自动解锁");
+	assertEqual(boughtC.run.shopOffers.length, 3, "当前批次仍保留");
+	assertEqual(boughtC.run.shopOffers.find(offer => offer.id === SKILL_B).sold, false, "外部获得的 B 从未被写成已购买");
+	assert(!curioManager.toggleShopLock(boughtC.run, "skill", {
+		canLockSkill: run => shop.hasBuyableSkillOffer(run, { isSkillAllowed: () => true }),
+	}).ok, "已无购买价值时禁止重新锁定");
+
+	// 失去 B：sold 仍是 false；额度可用时恢复可购买，不永久标记已购买
+	const lostB = {
+		...boughtC.run,
+		skillInventory: boughtC.run.skillInventory.filter(id => id !== SKILL_B),
+	};
+	assert(shop.canSkillOfferStillBeBought(lostB, lostB.shopOffers[1], { isSkillAllowed: () => true }), "失去后 B 恢复购买价值");
+	assertEqual(
+		shop.getSkillOfferState({ ...lostB, skillPurchasedThisRound: 0 }, lostB.shopOffers[1], { isSkillAllowed: () => true }),
+		"buy",
+		"失去后额度可用时恢复购买",
+	);
+	assertEqual(lostB.shopOffers.find(offer => offer.id === SKILL_B).sold, false, "失去技能不会把候选写成已购买");
+
+	// 技能合法性：提供 gate 时才判非法；拿不到 gate 不擅自判非法
+	const illegalRun = { ...afterA, currency: { gold: 9999, exp: 0 }, skillShopLocked: true };
+	assert(!shop.canSkillOfferStillBeBought(illegalRun, illegalRun.shopOffers[1], { isSkillAllowed: id => id !== SKILL_B }), "gate 判非法时无购买价值");
+	assert(shop.canSkillOfferStillBeBought(illegalRun, illegalRun.shopOffers[1]), "拿不到 gate 时不判非法");
+	const gateKeep = reward.settleVictory(illegalRun, NOW, () => 0.999).run;
+	assertEqual(gateKeep.skillShopLocked, true, "结算层拿不到 gate → 保守保留锁定");
+	// 闯关满槽但未指定/给错替换技能：购买失败，次数不增加
+	const challengeBase = {
+		...freshRun(cfg.RUN_MODE.challenge),
+		currency: { gold: 500, exp: 0 },
+		skills: [SKILL_A, SKILL_B, SKILL_C],
+		skillInventory: [SKILL_A, SKILL_B, SKILL_C],
+		shopOffers: [{ id: "test_skill_d", price: 10, sold: false, carried: false }],
+	};
+	const canceled = shop.buySkill(challengeBase, "test_skill_d", null, { isSkillAllowed: () => true });
+	assert(!canceled.ok, "闯关满槽未指定替换技能 → 拒绝");
+	assertEqual(shop.getPurchasedCount(challengeBase), 0, "取消/失败不增加购买次数");
+	return "购买价值/当前可购买分离 / 额度金币不足不解锁 / 外部获得不写 sold / 失去恢复 / gate 缺失保守 / 取消不计数";
+});
+
+check("技能商店：独立购买计数迁移与候选清洗", () => {
+	const rawRun = patch => {
+		const run = { ...freshRun(cfg.RUN_MODE.endless) };
+		delete run.skillPurchasedThisRound;
+		return { ...run, ...patch };
+	};
+	// 旧档的已购买候选被 isSkillAllowed 过滤掉，购买次数仍要从过滤前迁移出来
+	const migrated = state.normalizeRun(rawRun({
+		shopOffers: [
+			{ id: "filtered_skill", price: 10, sold: true, carried: false },
+			{ id: SKILL_B, price: 20, sold: false, carried: false },
+		],
+	}), { isSkillAllowed: id => id !== "filtered_skill" });
+	assertEqual(migrated.skillPurchasedThisRound, 1, "旧档在过滤非法候选前统计 sold && !carried");
+	assertEqual(migrated.shopOffers.length, 1, "非法候选被过滤");
+	assertEqual(shop.getPurchasedCount(migrated), 1, "购买计数不因候选被过滤而丢失");
+	assert(!shop.checkSkillPurchase(migrated, SKILL_B).ok, "本局额度仍被占用");
+	// 已有字段为 0 也必须保留，不能误判为缺失
+	const zero = state.normalizeRun(rawRun({
+		shopOffers: [{ id: SKILL_B, price: 20, sold: true, carried: false }],
+		skillPurchasedThisRound: 0,
+	}));
+	assertEqual(zero.skillPurchasedThisRound, 0, "已有字段 0 原样保留");
+	assertEqual(shop.getPurchasedCount(zero), 0, "字段 0 就是 0");
+	// 已有字段 >0，即使候选全被清洗也保留
+	const preserved = state.normalizeRun(rawRun({
+		shopOffers: [],
+		skillPurchasedThisRound: 1,
+	}));
+	assertEqual(preserved.skillPurchasedThisRound, 1, "已有字段 1 原样保留");
+	// carried 历史购买不迁移进本局额度
+	const carried = state.normalizeRun(rawRun({
+		shopOffers: [{ id: SKILL_B, price: 20, sold: true, carried: true }],
+	}));
+	assertEqual(carried.skillPurchasedThisRound, 0, "carried 不计本局购买次数");
+	return "过滤前迁移 / 0 保留 / 候选清空仍保留 / carried 不计";
+});
+
+check("流浪商人旧档：失效商品清掉历史价签，安全结束", () => {
+	const raw = {
+		...freshRun(cfg.RUN_MODE.endless),
+		currency: { gold: 500, exp: 0 },
+		pendingEvent: {
+			id: "wandering_merchant",
+			choices: [
+				{
+					text: "和商人交易（一件货 · 标价 400 金币）",
+					reward: {},
+					action: { kind: "merchant", curioId: "不存在的奇物", price: 400 },
+					blockedText: "这一笔做不成。",
+				},
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: NOW,
+		},
+	};
+	const loaded = state.normalizeRun(raw);
+	assertEqual(loaded.pendingEvent.choices[0].text, "和商人交易", "失效商品的历史价签被清掉");
+	assertEqual(JSON.stringify(loaded.pendingEvent.choices[0].action), JSON.stringify({ kind: "merchant", soldOut: true }), "降级为 soldOut");
+	const settled = eventManager.resolveEventChoice(loaded, 0, {}, () => 0);
+	assertEqual(settled.run.currency.gold, 500, "零扣费");
+	assertEqual(settled.run.pendingEvent, null, "事件正常结束");
+	assertEqual(settled.lines[0], "这一笔做不成。", "保留 soldOut 提示");
+	// 仍有效的商品价签不能误删
+	const valid = state.normalizeRun({
+		...freshRun(cfg.RUN_MODE.endless),
+		pendingEvent: {
+			id: "wandering_merchant",
+			choices: [
+				{ text: "和商人交易（一件货 · 标价 400 金币）", reward: {}, action: { kind: "merchant", curioId: "energy_core", price: 400 }, blockedText: "这一笔做不成。" },
+				{ text: "不买了", reward: {} },
+			],
+			createdAt: NOW,
+		},
+	});
+	assertEqual(valid.pendingEvent.choices[0].text, "和商人交易（一件货 · 标价 400 金币）", "有效商品价签保留");
+	return "失效价签清理 / 有效价签保留 / 零扣费零发放";
+});
+
 check("新增四事件：倍率按刚打赢那关的基准换算成固定值，消耗写进文案", () => {
 	const build = id => eventManager.buildPendingEvent(id, BASE_LEVEL, () => 0, NOW, { curios: [] });
 	// 废弃补给站：两头都按本层胜利奖励换算——翻找金币经验各一倍，仔细搜寻少金币换多经验

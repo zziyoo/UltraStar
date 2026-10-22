@@ -1336,6 +1336,7 @@ await check("闯关满槽购买：弹替换页、取消零扣费、确认后旧�
 	click("返回");
 	assert(screenText().includes("技能商店"), "返回应回到商店");
 	assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "取消替换零副作用");
+	assertEqual(lib.storage.rogueSlots[0].skillPurchasedThisRound, 0, "取消替换不增加购买次数");
 	// 确认替换：新技能进技能栏、旧技能直接失去、不进任何背包
 	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
 	await flush();
@@ -1348,6 +1349,7 @@ await check("闯关满槽购买：弹替换页、取消零扣费、确认后旧�
 	assertEqual(after.skillInventory.length, 3, "背包条目数不增长（没有额外存储）");
 	assertEqual(after.currency.gold, 490, "成交才扣款");
 	assert(after.shopOffers[0].sold, "候选标记已购");
+	assertEqual(after.skillPurchasedThisRound, 1, "确认替换才增加购买次数");
 	assert(screenText().includes("已购买"), `成交后原位标已购买：${screenText().slice(0, 200)}`);
 	return "替换页 / 取消零扣费 / 确认让位";
 });
@@ -4289,6 +4291,124 @@ await check("技能橱窗旧档：全售罄只解锁保留卡片，读档/重进
 		assertEqual(fresh.length, cfg.SKILL_OFFER_COUNT, "胜利后重摇新候选");
 		assert(fresh.every(offer => offer.sold === false), "新候选全是未购买");
 		return "旧档只解锁 / 保留卡片 / 禁刷新 / 胜利后才换货";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("技能橱窗：买A后额度/金币不足仍保留锁定，下一关可买B", async () => {
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		freshWorld();
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			curios: ["collector_showcase"],
+			skillShopLocked: true,
+			currency: { gold: 10, exp: 0 },
+			shopOffers: [
+				{ id: "rogue_extra", price: 10, sold: false, carried: false },
+				{ id: "own_one", price: 50, sold: false, carried: false },
+				{ id: "own_two", price: 50, sold: false, carried: false },
+			],
+			shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+		});
+		session();
+		click("商店");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔒", "初始锁定");
+		clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.skillPurchasedThisRound, 1, "买 A 计一次");
+		assertEqual(slot.currency.gold, 0, "金币已花光");
+		assertEqual(slot.skillShopLocked, true, "B/C 仍有价值，额度/金币不足不解锁");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔒", "锁图标仍是锁定");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-buy")[1]), "金币不足", "B 显示金币不足而不是已售罄");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-buy")[2]), "金币不足", "C 同样只是暂时买不起");
+		// 下一关：额度归零、金币恢复后 B/C 可买，锁仍在
+		click("返回");
+		clickNormalBattle();
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		click("返回营地");
+		session();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.skillPurchasedThisRound, 0, "真正胜利后购买次数归零");
+		assertEqual(slot.skillShopLocked, true, "B/C 仍有价值 → 跨关保留锁定");
+		click("商店");
+		const buttons = nodesWithClass("wm-rogue-shop-buy");
+		assertEqual(textOf(buttons[1]), "购买", "下一关 B 恢复可买");
+		assertEqual(textOf(buttons[2]), "购买", "下一关 C 恢复可买");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔒", "锁仍在");
+		return "额度/金币不足不解锁 / 下一关恢复可买";
+	} finally {
+		Math.random = originalRandom;
+	}
+});
+
+await check("技能橱窗：外部获得B不写sold/不占次数，下一关买C才自动解锁", async () => {
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		freshWorld();
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			curios: ["collector_showcase"],
+			skillShopLocked: true,
+			currency: { gold: 9999, exp: 0 },
+			skillInventory: ["own_one"],
+			shopOffers: [
+				{ id: "own_two", price: 10, sold: true, carried: true },
+				{ id: "own_one", price: 50, sold: false, carried: false },
+				{ id: "rogue_extra", price: 10, sold: false, carried: false },
+			],
+			shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+		});
+		session();
+		click("商店");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔒", "初始锁定");
+		let buttons = nodesWithClass("wm-rogue-shop-buy");
+		assertEqual(textOf(buttons[1]), "已拥有", "外部获得的 B 显示已拥有");
+		assert(buttons[1].classList.contains("wm-rogue-disabled"), "已拥有按钮禁用");
+		assertEqual(textOf(buttons[2]), "购买", "C 仍可买");
+		clickNode(buttons[1]);
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currency.gold, 9999, "点已拥有不扣钱");
+		assertEqual(slot.skillPurchasedThisRound, 0, "外部获得不占购买次数");
+		assertEqual(slot.shopOffers.find(offer => offer.id === "own_one").sold, false, "外部获得不写 sold");
+		assertEqual(slot.skillShopLocked, true, "C 未售 → 不提前解锁");
+		nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+		// 下一关 C 仍未售 → 锁保留；买 C 后 A/C 已购、B 已拥有 → 自动解锁
+		click("返回");
+		clickNormalBattle();
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		click("返回营地");
+		session();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.skillShopLocked, true, "跨关仍锁着（C 仍有价值）");
+		click("商店");
+		clickNode(nodesWithClass("wm-rogue-shop-buy")[2]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.skillPurchasedThisRound, 1, "买 C 计一次");
+		assertEqual(slot.skillShopLocked, false, "A/C 已购、B 已拥有 → 自动解锁");
+		assertEqual(slot.shopOffers.length, 3, "当前批次保留");
+		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔓", "锁图标变开");
+		buttons = nodesWithClass("wm-rogue-shop-buy");
+		assertEqual(textOf(buttons[0]), "已购买", "A 仍显示已购买");
+		assertEqual(textOf(buttons[1]), "已拥有", "B 仍显示已拥有");
+		assertEqual(textOf(buttons[2]), "已购买", "C 已购买");
+		return "外部获得不写 sold/不占次数 / C 未售不解锁 / 买 C 后自动解锁";
 	} finally {
 		Math.random = originalRandom;
 	}

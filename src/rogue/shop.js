@@ -182,9 +182,9 @@ export function refreshSkillOffers(run, rng = Math.random, characterSkills = [],
 	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
 		return { ok: false, error: "本局已经购买过技能，不能继续刷新" };
 	}
-	// 整批售罄（carried 留货也算）时不允许重掷：旧档读入、重进商店、手动刷新都只能等下一场胜利
-	if (current.length > 0 && current.every(offer => offer?.sold === true)) {
-		return { ok: false, error: "这一批技能已经全部售罄，等下一场胜利后再刷新" };
+	// 整批已无购买价值（全售出/已拥有/失效）时不允许重掷：旧档读入、重进商店、手动刷新都只能等下一场胜利
+	if (current.length > 0 && !hasBuyableSkillOffer(run)) {
+		return { ok: false, error: "这一批技能已经没有可购买的候选，等下一场胜利后再刷新" };
 	}
 	const previousIds = current.map(offer => offer?.id).filter(id => typeof id === "string" && id);
 	const fresh = (Array.isArray(candidates) ? candidates : []).filter(entry => entry && !previousIds.includes(entry.id));
@@ -202,11 +202,16 @@ export function refreshSkillOffers(run, rng = Math.random, characterSkills = [],
 }
 
 /**
- * 本局商店（= 本次进店）已经买了几个技能：按候选上的 sold 记数，旧档缺 sold 字段按没买算。
- * 收藏家的橱窗锁着技能商店时，上一关留下的那张带 carried 标记——它继续显示「已购买」，
- * 但不再吃新的一局的额度（否则留一张就把整排货架连同刷新一起锁死了）。
+ * 本局商店（= 本次进店）已经买了几个技能。
+ * 权威来源是独立持久化的 skillPurchasedThisRound：候选卡可能被读档清洗、下架过滤掉，
+ * 只数 sold 会把购买记录一起丢掉。旧档没有该字段时才回退到候选上的 sold && !carried。
+ * 收藏家的橱窗留货的 carried 历史购买不占新一关额度。
  */
 export function getPurchasedCount(run) {
+	const stored = run?.skillPurchasedThisRound;
+	if (typeof stored === "number" && Number.isFinite(stored)) {
+		return Math.max(0, Math.floor(stored));
+	}
 	let count = 0;
 	for (const offer of Array.isArray(run?.shopOffers) ? run.shopOffers : []) {
 		if (offer?.sold && !offer?.carried) {
@@ -222,6 +227,58 @@ export function getOffer(run, offerId) {
 }
 
 /**
+ * 候选是否「仍有购买价值」：只判未售出、未拥有、技能仍合法。
+ * 刻意不看本局购买次数与金币余额——这两项会随关卡/钱包变化，
+ * 不能用来决定收藏家的橱窗要不要继续锁住这批候选。
+ * options.isSkillAllowed 只在调用方拿得到技能池上下文时传入；拿不到就不擅自判非法。
+ */
+export function canSkillOfferStillBeBought(run, offer, options = {}) {
+	if (!offer || offer.sold === true) {
+		return false;
+	}
+	if (!ALLOW_DUPLICATE_SKILLS && getOwnedSkillIds(run).includes(offer.id)) {
+		return false;
+	}
+	const allowed = options.isSkillAllowed;
+	if (typeof allowed === "function" && !allowed(offer.id)) {
+		return false;
+	}
+	return true;
+}
+
+/** 当前批次里是否至少还有一件「仍有购买价值」的候选；空货架返回 false */
+export function hasBuyableSkillOffer(run, options = {}) {
+	return (Array.isArray(run?.shopOffers) ? run.shopOffers : [])
+		.some(offer => canSkillOfferStillBeBought(run, offer, options));
+}
+
+/**
+ * 单张卡的当前状态（UI 与购买前检查共用）：
+ * sold / owned / illegal / soldOut（本局次数用光）/ poor / buy / missing。
+ * 只有 buy 能点；poor、soldOut 只是「现在买不了」，仍有购买价值。
+ */
+export function getSkillOfferState(run, offer, options = {}) {
+	if (!offer) {
+		return "missing";
+	}
+	if (offer.sold === true) {
+		return "sold";
+	}
+	if (!canSkillOfferStillBeBought(run, offer, options)) {
+		return !ALLOW_DUPLICATE_SKILLS && getOwnedSkillIds(run).includes(offer.id) ? "owned" : "illegal";
+	}
+	// 余额不足优先于本局额度，保持商店卡原有的「金币不足」提示；
+	// 两者都只是暂时买不了，是否仍有购买价值由 canSkillOfferStillBeBought 单独判断
+	if (!Number.isFinite(offer.price) || !hasCurrency(run, SKILL_CURRENCY, offer.price)) {
+		return "poor";
+	}
+	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
+		return "soldOut";
+	}
+	return "buy";
+}
+
+/**
  * 买技能前的最后一道合法性与次数校验，与 buySkill 同源，UI 可以先问一次再决定怎么提示。
  * @param {object} run
  * @param {string} offerId
@@ -234,18 +291,23 @@ export function checkSkillPurchase(run, offerId, options = {}) {
 	if (!offer) {
 		return { ok: false, error: "该技能不在本次商店候选中" };
 	}
-	if (offer.sold) {
+	const state = getSkillOfferState(run, offer, options);
+	if (state === "sold") {
 		// 橱窗留着的那批里买过的那张：说清楚是「早先那一关已经买掉了」，不是本次商店的额度问题
 		return { ok: false, error: offer.carried ? "橱窗留着的那件已经买过了" : "本次商店已购买过技能" };
 	}
-	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
+	if (state === "owned") {
+		return { ok: false, error: "已拥有该技能" };
+	}
+	if (state === "illegal") {
+		// 存档里的 shopOffers 可能来自旧版本 / 被改过：技能可能已经下架、被判不兼容、甚至根本不存在。
+		return { ok: false, error: "该技能已下架或不再可售，换个别的吧" };
+	}
+	if (state === "soldOut") {
 		return { ok: false, error: `本局最多只能购买 ${SKILL_PURCHASE_COUNT} 个技能` };
 	}
-	const allowed = options.isSkillAllowed;
-	if (typeof allowed === "function" && !allowed(offerId)) {
-		// 存档里的 shopOffers 可能来自旧版本 / 被改过：技能可能已经下架、被判不兼容、甚至根本不存在。
-		// 这里统一挡掉，避免过期候选绕过技能池规则。
-		return { ok: false, error: "该技能已下架或不再可售，换个别的吧" };
+	if (state === "poor") {
+		return { ok: false, error: `${SKILL_CURRENCY_NAME}不足` };
 	}
 	return { ok: true, error: null, offer };
 }
@@ -271,12 +333,6 @@ export function buySkill(run, offerId, replaceId = null, options = {}) {
 		return { ok: false, error: check.error };
 	}
 	const offer = check.offer;
-	if (!Number.isFinite(offer.price) || !hasCurrency(run, SKILL_CURRENCY, offer.price)) {
-		return { ok: false, error: `${SKILL_CURRENCY_NAME}不足` };
-	}
-	if (getOwnedSkillIds(run).includes(offerId) && !ALLOW_DUPLICATE_SKILLS) {
-		return { ok: false, error: "已拥有该技能" };
-	}
 
 	const next = {
 		...run,
@@ -317,9 +373,11 @@ export function buySkill(run, offerId, replaceId = null, options = {}) {
 	if (target) {
 		target.sold = true;
 	}
-	// carried 留货也是 sold：整批（含前几关买掉的）售罄时立即解锁；
-	// 当前候选保持原样，下一次真正胜利才清空并恢复刷新
-	if (next.shopOffers.length > 0 && next.shopOffers.every(item => item.sold === true)) {
+	// 只有成功购买才增加独立计数；失败/取消替换/余额不足都在前面返回了
+	next.skillPurchasedThisRound = getPurchasedCount(run) + 1;
+	// 还有未售出、未拥有、合法的候选就继续锁着；本局次数与金币不足不解除锁定。
+	// 只剩已购买/已拥有/失效候选时立即解锁，当前候选保留到下一场真正胜利
+	if (!hasBuyableSkillOffer(next)) {
 		next.skillShopLocked = false;
 	}
 

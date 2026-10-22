@@ -3,6 +3,7 @@
 import { BOSS_EXP_MULTIPLIER, BOSS_REWARD_MULTIPLIER, CURRENCIES, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getChallengeReward, getEndlessReward } from "./data/rewards.js";
 import { getBonus, getCurioShopChance, isShopLocked, rollCurioOffers, takeNextCurioBatch } from "./curioManager.js";
+import { hasBuyableSkillOffer } from "./shop.js";
 
 /**
  * 奖励一律按「本次刚刚完成的关卡编号」计算：下面的 run.level 在推进之前就是刚打赢的那一关，
@@ -53,10 +54,10 @@ export function settleVictory(run, now, rng = Math.random) {
 		const rate = key === "gold" ? goldRate : key === "exp" ? expRate : 1;
 		gained[key] = Math.max(0, Math.round(value * rate));
 	}
-	// 技能商店：锁着且还有未售候选才保留这一批；全售罄（carried 也算）或空货架时
-	// 同一个判据同时清空候选并解除锁定，绝不留着售罄批次继续挂着锁
-	const skillHasUnsold = (run.shopOffers ?? []).some(offer => offer?.sold !== true);
-	const keepSkillOffers = isShopLocked(run, "skill") && skillHasUnsold;
+	// 技能商店：锁着且还有「仍有购买价值」的候选才保留这一批；
+	// 已全售出/已拥有/失效时同一个判据同时清空候选并解除锁定。
+	// 本局次数与金币不足不在判据里——它们只是暂时买不了，不能因此丢掉锁着的货。
+	const keepSkillOffers = isShopLocked(run, "skill") && hasBuyableSkillOffer(run);
 	const next = {
 		...run,
 		currency: { ...run.currency },
@@ -73,7 +74,8 @@ export function settleVictory(run, now, rng = Math.random) {
 		skillShopLocked: keepSkillOffers,
 		// 循环按钮：每场战斗结束额外补一次刷新（只看开战前已持有的奇物，本局换到的不算）
 		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL + getBonus(run.curios, "extraShopRefresh", quality),
-		// 只在真正通关后恢复本次奇物购买机会，裂隙与失败不重置。
+		// 只在真正通关后恢复本次技能/奇物购买机会，裂隙与失败不重置。
+		skillPurchasedThisRound: 0,
 		curioBoughtThisRound: false,
 		currentBattle: null,
 		updatedAt: now,

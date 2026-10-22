@@ -16,7 +16,7 @@ import {
 	STAT_CURRENCY,
 	STAT_IDS,
 } from "../config.js";
-import { getPurchasedCount, getRefreshesRemaining } from "../shop.js";
+import { getPurchasedCount, getRefreshesRemaining, getSkillOfferState, hasBuyableSkillOffer } from "../shop.js";
 import { canLockShop, checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getCurioShopChance, getNextCurioQuality, getUpgradableCurios, isShopLocked, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
@@ -509,9 +509,10 @@ export function showShop(api) {
 		for (const cell of resCells) {
 			paintResNum(cell.node, cell.read(current));
 		}
-		const soldOut = isSoldOut(current);
+		const isSkillAllowed = typeof api.isSkillAllowed === "function" ? api.isSkillAllowed : null;
+		const soldOut = isSoldOut(current, isSkillAllowed);
 		for (const row of offerCards) {
-			paintOffer(row, current, soldOut);
+			paintOffer(row, current, isSkillAllowed);
 		}
 		for (const row of curioCards) {
 			paintCurio(row, current);
@@ -519,7 +520,7 @@ export function showShop(api) {
 		for (const row of statCards) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
-		paintRefresh(refreshButton, current, soldOut);
+		paintRefresh(refreshButton, current, soldOut, isSkillAllowed);
 		paintShopLock(skillLock, current, "skill");
 		paintShopLock(curioLock, current, "curio");
 		if (curioSection) {
@@ -542,16 +543,18 @@ export function showShop(api) {
 /**
  * 刷新按钮的文字与可用性：
  *   · 本局购买额度用光就彻底锁死——重掷会把 sold 换成 false，放行等于绕过一局购买上限；
- *   · 整批候选已经全部售罄（carried 留货也算）同样锁死：旧档只解除锁定，不在这里提前换货，
- *     必须等下一场真正胜利；
+ *   · 整批候选已经没有任何购买价值（全售出/已拥有/失效）同样锁死：旧档只解除锁定，
+ *     不在这里提前换货，必须等下一场真正胜利；
  *   · 技能商店被收藏家的橱窗 🔒 锁着时同样置灰（真正的拒绝在 shop.js 的 refreshSkillOffers，
  *     判据只在那一处，按钮样式只是把它说给玩家看）；
  *   · 免费次数用完也置灰。
  * 置灰的按钮照旧可点，点下去由逻辑层弹一句原因、候选与次数一个都不动（与「次数用完」同一套做法）。
+ * 余额不足、本局额度用光只是「现在买不了」，不代表整批没价值，不能让锁提前解除。
  */
-function paintRefresh(node, run, soldOut) {
+function paintRefresh(node, run, soldOut, isSkillAllowed = null) {
 	const remaining = getRefreshesRemaining(run);
-	const batchSoldOut = (run.shopOffers ?? []).length > 0 && run.shopOffers.every(offer => offer?.sold === true);
+	const batchSoldOut = (run.shopOffers ?? []).length > 0
+		&& !hasBuyableSkillOffer(run, { isSkillAllowed });
 	node.innerHTML = batchSoldOut ? "本批已售罄" : soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
 	node.classList[batchSoldOut || soldOut || remaining <= 0 || isShopLocked(run, "skill") ? "add" : "remove"]("wm-rogue-disabled");
 }
@@ -731,27 +734,38 @@ export function refreshShop(run) {
  * 用光后其余候选一律显示「本次商店已售罄」。改常量即可改上限，不用再动这里。
  * 橱窗留货过来的那张「已购买」不算在本局额度里（记数在 shop.getPurchasedCount），
  * 否则留一张就把整排货架连同刷新按钮一起锁死。
- * 另外，整批候选已全部 sold（carried 留货也算）也按售罄处理：旧档解锁后不能靠刷新提前换货。
+ * 另外，整批候选已无购买价值（全售出/已拥有/失效）也按售罄处理：旧档解锁后不能靠刷新提前换货。
+ * 余额不足与本局额度用光不算“无价值”，锁不能因此解除。
  */
-function isSoldOut(run) {
+function isSoldOut(run, isSkillAllowed = null) {
 	const offers = Array.isArray(run?.shopOffers) ? run.shopOffers : [];
-	return getPurchasedCount(run) >= SKILL_PURCHASE_COUNT
-		|| (offers.length > 0 && offers.every(offer => offer?.sold === true));
+	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
+		return true;
+	}
+	return offers.length > 0 && !hasBuyableSkillOffer(run, { isSkillAllowed });
 }
 
-/** 画一张技能卡的状态，返回它当前的状态。offer 按 id 从当前存档里取——buySkill 返回的是新对象，握住旧引用会永远读不到 sold */
-function paintOffer(row, run, soldOut = isSoldOut(run)) {
-	const offer = run.shopOffers.find(item => item.id === row.id);
+/**
+ * 画一张技能卡的状态，返回 buy / poor / soldOut / sold / owned / illegal / missing。
+ * offer 按 id 从当前存档里取——buySkill 返回的是新对象，握住旧引用会永远读不到 sold。
+ * 「已拥有」来自当前 skillInventory/skills，外部获得的技能不写 sold、也不占本局购买次数。
+ */
+function paintOffer(row, run, isSkillAllowed = null) {
+	const offer = run.shopOffers.find(item => item.id === row.id) ?? null;
+	const state = getSkillOfferState(run, offer, { isSkillAllowed });
 	const held = run.currency[SKILL_CURRENCY] ?? 0;
-	const state = offer.sold ? "sold" : held < offer.price ? "poor" : soldOut ? "soldOut" : "buy";
 	const money = moneyName(SKILL_CURRENCY);
+	const price = Number.isFinite(offer?.price) ? `${offer.price} ${money}` : "";
 	const text = {
-		sold: { price: `${offer.price} ${money}`, button: "已购买" },
-		poor: { price: `${offer.price} ${money}（持有 ${held}）`, button: `${money}不足` },
-		soldOut: { price: `${offer.price} ${money}`, button: "本次商店已售罄" },
+		sold: { price, button: "已购买" },
+		owned: { price, button: "已拥有" },
+		illegal: { price, button: "已下架" },
+		soldOut: { price, button: "本次商店已售罄" },
+		poor: { price: `${price}（持有 ${held}）`, button: `${money}不足` },
 		// 价格已经在上一行的价格里，按钮只写动作
-		buy: { price: `${offer.price} ${money}`, button: "购买" },
-	}[state];
+		buy: { price, button: "购买" },
+		missing: { price: "", button: "不可购买" },
+	}[state] ?? { price: "", button: "不可购买" };
 	row.price.innerHTML = text.price;
 	row.button.innerHTML = text.button;
 	setBuyable(row, state === "buy");

@@ -674,8 +674,10 @@ export function isShopLocked(run, kind) {
  * 没持有对应奇物时 ok:false 且零副作用；切换结果 write 进 run.skillShopLocked / run.curioShopLocked，
  * 由调用方落盘。锁挡住的是「这一批候选不再换货」：战斗结束时的自动刷新与玩家的免费刷新都不放行
  * （手动刷新在 shop.js 的 refreshSkillOffers 里拒绝，按钮同时置灰），但手动升级/购买照旧。
+ * options.canLockSkill 只在技能商店用：由调用方注入「仍有购买价值」的判定（含已拥有/合法性），
+ * 不看本局次数与余额；不传时退回「还有未售出候选」的保守判断。
  */
-export function toggleShopLock(run, kind) {
+export function toggleShopLock(run, kind, options = {}) {
 	const field = kind === "curio" ? "curioShopLocked" : "skillShopLocked";
 	const label = kind === "curio" ? "奇物商店" : "技能商店";
 	if (!canLockShop(run, kind)) {
@@ -685,9 +687,15 @@ export function toggleShopLock(run, kind) {
 	if (kind === "curio" && locked && !(run?.curioOffers ?? []).some(offer => offer.sold !== true)) {
 		return { ok: false, error: "当前批次已售罄，没有可锁定的奇物", run, locked: false };
 	}
-	// 技能批次同理：全售罄（含 carried 留货）或空货架都不允许重新锁上；解锁始终放行
-	if (kind === "skill" && locked && !(run?.shopOffers ?? []).some(offer => offer?.sold !== true)) {
-		return { ok: false, error: "当前批次已售罄，没有可锁定的技能", run, locked: false };
+	if (kind === "skill" && locked) {
+		// 全售出/已拥有/失效时不再允许上锁；解锁始终放行
+		const canLockSkill = typeof options.canLockSkill === "function" ? options.canLockSkill : null;
+		const hasValue = canLockSkill
+			? canLockSkill(run)
+			: (run?.shopOffers ?? []).some(offer => offer?.sold !== true);
+		if (!hasValue) {
+			return { ok: false, error: "当前批次已售罄，没有可锁定的技能", run, locked: false };
+		}
 	}
 	return { ok: true, error: null, locked, run: { ...run, [field]: locked } };
 }
