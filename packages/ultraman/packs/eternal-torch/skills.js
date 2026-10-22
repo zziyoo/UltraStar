@@ -4008,28 +4008,19 @@ export const skills = {
 				forced: true,
 				locked: true,
 				filter(event, player) {
-					const shared = lib.skill.ysgsmanyue.shared;
-					const hand = player.getCards("h");
-					const damage = hand.filter(card => shared.isDamageCard(card)).length;
-					return damage !== hand.length - damage;
+					return player.hasSkill("rmgsrimian");
 				},
 				async content(event, trigger, player) {
-					const shared = lib.skill.ysgsmanyue.shared;
-					const hand = player.getCards("h");
-					const damage = hand.filter(card => shared.isDamageCard(card)).length;
-					const nonDamage = hand.length - damage;
-					const gap = Math.abs(damage - nonDamage);
-					if (!gap) return;
-					const needDamage = damage < nonDamage;
-					const candidates = Array.from(ui.cardPile?.childNodes || []).filter(card => shared.isDamageCard(card) === needDamage);
-					if (!candidates.length) return;
-					const gain = [];
-					const count = Math.min(gap, candidates.length);
-					for (let i = 0; i < count; i++) {
-						const index = Math.floor(Math.random() * candidates.length);
-						gain.push(candidates.splice(index, 1)[0]);
+					const suits = ["heart", "diamond", "spade", "club"];
+					const pile = Array.from(ui.cardPile?.childNodes || []);
+					const picked = [];
+					for (const suit of suits) {
+						const candidates = pile.filter(card => !picked.includes(card) && get.suit(card, false) === suit);
+						if (!candidates.length) continue;
+						picked.push(candidates[Math.floor(Math.random() * candidates.length)]);
 					}
-					await player.gain(gain, "gain2");
+					if (!picked.length) return;
+					await player.gain(picked, "gain2");
 					game.playSkillBgm("gs");
 				},
 			},

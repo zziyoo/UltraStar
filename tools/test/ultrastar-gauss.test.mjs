@@ -525,7 +525,7 @@ await check("技能描述与当前规格一致", () => {
 	);
 	equal(
 		skillTranslate.rmgsrimian_info,
-		"锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；♥牌无视防具；♦牌无距离限制；♠牌造成的伤害+1；♣牌不计入次数且无次数限制。准备阶段，若你手牌中的伤害牌与非伤害牌数量不相等，你随机从牌堆中获得数量较少类别的牌，直至两类牌数量相等或牌堆中没有符合条件的牌。",
+		"锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；♥牌无视防具；♦牌无距离限制；♠牌造成的伤害+1；♣牌不计入次数且无次数限制。准备阶段，你从牌堆中获得每种花色的牌各一张。",
 		"日冕描述",
 	);
 });
@@ -1867,9 +1867,10 @@ await check("感化 AI：公开防御期望与私人真实防御", () => {
 	assert(actualDefense.score < actualAttack.score, "目标实际防御牌应降低其投降倾向");
 });
 
-await check("日冕：准备阶段补齐少类并随机从牌堆获得实体牌", async () => {
+await check("日冕：准备阶段从牌堆获得四花色各一张", async () => {
 	const shared = skills.ysgsganhua.shared;
 	const prepare = skills.rmgsrimian.subSkill.prepare;
+	const mark = skills.rmgsrimian.subSkill.mark;
 	assert(prepare, "应存在准备阶段子技能");
 	assert(skills.rmgsrimian.group.includes("rmgsrimian_prepare"), "日冕组应包含准备阶段子技能");
 	equal(prepare.trigger.player, "phaseZhunbeiBegin", "准备阶段触发时机");
@@ -1878,74 +1879,85 @@ await check("日冕：准备阶段补齐少类并随机从牌堆获得实体牌"
 		ui.cardPile = { childNodes: pile };
 		return player;
 	};
-	const countHand = player => {
-		const hand = player.getCards("h");
-		const damage = hand.filter(card => skills.ysgsmanyue.shared.isDamageCard(card)).length;
-		return { damage, nonDamage: hand.length - damage };
-	};
 	const originalRandom = Math.random;
 	try {
-		let player = makeEclipse([sha, tao], [makeCard("sha", "spade", 1, "basic", { damage: 1 })]);
-		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), false, "两类数量相等时不触发");
-		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
-		equal(player.gainCalls.length, 0, "两类数量相等时不获得牌");
-
-		player = makeEclipse([], [makeCard("sha", "spade", 1, "basic", { damage: 1 })]);
-		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), false, "空手牌两类均为0时不触发");
-
-		const damagePile = Array.from({ length: 6 }, (_, i) => makeCard("sha", "spade", i + 1, "basic", { damage: 1 }));
-		player = makeEclipse([sha, tao, tao, tao, tao, tao], damagePile);
-		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), true, "少类为伤害牌时应触发");
+		// 四花色齐全：每种恰好一张，全部来自当前牌堆，不重复
+		const fullPile = [
+			makeCard("sha", "heart", 1, "basic", { damage: 1 }),
+			makeCard("sha", "heart", 2, "basic", { damage: 1 }),
+			makeCard("sha", "diamond", 3, "basic", { damage: 1 }),
+			makeCard("sha", "spade", 4, "basic", { damage: 1 }),
+			makeCard("sha", "club", 5, "basic", { damage: 1 }),
+		];
+		let player = makeEclipse([sha, tao], fullPile);
+		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), true, "准备阶段固定触发（不再比较伤害/非伤害）");
 		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
 		equal(player.gainCalls.length, 1, "应获得一次牌");
-		equal(player.gainCalls[0].cards.length, 4, "应按差值4补牌");
-		assert(player.gainCalls[0].cards.every(card => damagePile.includes(card) && skills.ysgsmanyue.shared.isDamageCard(card)), "应获得牌堆中的实体伤害牌");
-		assert(countHand(player).damage === countHand(player).nonDamage, "补牌后两类数量应相等");
+		equal(player.gainCalls[0].animate, "gain2", "沿用原有获得动画");
+		const gained = player.gainCalls[0].cards;
+		equal(gained.length, 4, "四花色齐全时获得4张");
+		equal(new Set(gained.map(card => get.suit(card, false))).size, 4, "四种花色各一张");
+		assert(gained.every(card => fullPile.includes(card)), "只从当前牌堆获得实体牌");
+		equal(new Set(gained).size, gained.length, "同一张实体牌不重复");
+		// 新牌经既有 gainAfter 标记刷新拿到日冕标记
+		await mark.content({}, {}, player);
+		for (const card of gained) {
+			assert(card.hasGaintag(`rmgsrimian_mark_${card.suit}`), `${card.suit} 新牌应带花色标记`);
+		}
 
-		const bigPile = Array.from({ length: 10 }, (_, i) => makeCard("sha", "club", i + 1, "basic", { damage: 1 }));
-		player = makeEclipse(repeatCard(8), bigPile);
+		// 伤害/非伤害数量相等或不相等都固定执行
+		for (const hand of [[sha, tao], [sha, sha, tao]]) {
+			player = makeEclipse(hand, [makeCard("shan", "diamond", 6, "basic", { respondShan: 1 })]);
+			equal(prepare.filter({ name: "phaseZhunbeiBegin" }, player), true, "手牌构成不影响触发");
+			await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
+			equal(player.gainCalls[0].cards.length, 1, "只有一种花色时获得一张");
+		}
+
+		// 缺少花色：跳过缺的花色，其余照常
+		player = makeEclipse([], [
+			makeCard("sha", "heart", 7, "basic", { damage: 1 }),
+			makeCard("sha", "spade", 8, "basic", { damage: 1 }),
+		]);
 		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
-		equal(player.gainCalls[0].cards.length, 8, "获得数量不设上限，应补满差值8");
-		assert(countHand(player).damage === countHand(player).nonDamage, "大量补牌后两类数量应相等");
+		const partial = player.gainCalls[0].cards;
+		equal(partial.length, 2, "缺两种花色时获得剩下的两张");
+		equal(JSON.stringify(partial.map(card => get.suit(card, false)).sort()), JSON.stringify(["heart", "spade"]), "只获得存在的花色");
 
-		const nonDamagePile = Array.from({ length: 4 }, (_, i) => makeCard("tao", "heart", i + 1, "basic", { recover: 1 }));
-		player = makeEclipse([sha, sha, sha, tao], nonDamagePile);
+		// 空牌堆：不获得、不报错、不播无意义的技能音效
+		const bgmBefore = game.bgmCalls.length;
+		player = makeEclipse([], []);
 		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
-		equal(player.gainCalls[0].cards.length, 2, "少类为非伤害牌时应补2张");
-		assert(player.gainCalls[0].cards.every(card => nonDamagePile.includes(card) && !skills.ysgsmanyue.shared.isDamageCard(card)), "应获得牌堆中的实体非伤害牌");
+		equal(player.gainCalls.length, 0, "空牌堆不获得牌");
+		equal(game.bgmCalls.length, bgmBefore, "空牌堆不播放技能音效");
 
-		const shortPile = [makeCard("sha", "heart", 1, "basic", { damage: 1 }), makeCard("sha", "heart", 2, "basic", { damage: 1 })];
-		player = makeEclipse([sha, tao, tao, tao, tao, tao], shortPile);
-		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
-		equal(player.gainCalls[0].cards.length, 2, "牌堆不足时应获得所有可用牌");
-		assert(player.gainCalls[0].cards.every(card => shortPile.includes(card)), "不足时不得凭空生成牌");
-		assert(countHand(player).damage !== countHand(player).nonDamage, "牌堆不足时允许两类仍不相等");
-
-		const randomPile = [makeCard("sha", "spade", 1, "basic", { damage: 1 }), makeCard("sha", "spade", 2, "basic", { damage: 1 }), makeCard("sha", "spade", 3, "basic", { damage: 1 })];
+		// 同一花色多张时随机，不同 Math.random 取到不同实体牌
+		const randomPile = [
+			makeCard("sha", "heart", 9, "basic", { damage: 1 }),
+			makeCard("sha", "heart", 10, "basic", { damage: 1 }),
+		];
 		Math.random = () => 0;
-		player = makeEclipse([sha, tao, tao], randomPile);
+		player = makeEclipse([], randomPile);
 		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
 		const firstRandom = player.gainCalls[0].cards[0];
 		Math.random = () => 0.99;
-		player = makeEclipse([sha, tao, tao], randomPile);
+		player = makeEclipse([], randomPile);
 		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
 		const lastRandom = player.gainCalls[0].cards[0];
-		assert(firstRandom !== lastRandom, "随机抽取不应固定检索第一张");
+		assert(firstRandom !== lastRandom, "随机抽取不应固定第一张");
+		Math.random = originalRandom;
 
-		const delayPile = [makeCard("fulei", "heart", 5, "delay", { damage: 1, thunderDamage: 1 })];
-		player = makeEclipse([shandian, tao, tao], delayPile);
-		await prepare.content({}, { name: "phaseZhunbeiBegin" }, player);
-		equal(player.gainCalls[0].cards[0], delayPile[0], "伤害延时锦囊按满月口径归为伤害牌");
-
+		// 没有日冕时不触发；月神变身后的下一个准备阶段正常触发
+		const noSkill = makePlayer({ name: "无日冕", skills: [], hand: [] });
+		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, noSkill), false, "没有日冕不触发");
 		const moon = makePlayer({ name: "月神高斯", skills: ["ysgsmanyue", "ysgsganhua"], hand: [sha, tao, tao] });
 		assert(!moon.skills.includes("rmgsrimian"), "变身前的月神没有日冕");
 		await shared.switchToEclipse(moon);
 		equal(moon.name1, "日冕高斯", "变身应切换为日冕高斯");
 		assert(moon.skills.includes("rmgsrimian"), "变身后应获得日冕");
-		ui.cardPile = { childNodes: [makeCard("sha", "spade", 4, "basic", { damage: 1 })] };
+		ui.cardPile = { childNodes: [makeCard("shan", "club", 11, "basic", { respondShan: 1 })] };
 		equal(prepare.filter({ name: "phaseZhunbeiBegin" }, moon), true, "变身后的下一个准备阶段应触发");
 		await prepare.content({}, { name: "phaseZhunbeiBegin" }, moon);
-		equal(moon.gainCalls[0].cards.length, 1, "变身后的准备阶段应正常补牌");
+		equal(moon.gainCalls[0].cards.length, 1, "变身后按现有花色获得");
 	} finally {
 		Math.random = originalRandom;
 		ui.cardPile = { childNodes: [] };
