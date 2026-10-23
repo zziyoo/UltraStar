@@ -142,6 +142,27 @@ function isWagerMiss(reward) {
 }
 
 /**
+ * clampLoss 的图鉴说明：按定义里的负项判断扣的是哪种货币（记忆回廊=经验、幸运硬币=金币），
+ * 不能把「最多扣光经验」原样套到扣金币的事件上。
+ */
+function clampLossNote(choice) {
+	if (choice?.clampLoss !== true) {
+		return null;
+	}
+	const pools = (Array.isArray(choice.outcomes) && choice.outcomes.length
+		? choice.outcomes
+		: [{ reward: choice.reward }]).map(item => item?.reward ?? {});
+	const names = [...new Set(["gold", "exp"].filter(key => pools.some(reward =>
+		Number(reward[key]) < 0 || Number(reward[`${key}ByWin`]) < 0
+	)))].map(key => (key === "gold" ? "金币" : "经验"));
+	if (!names.length) {
+		return null;
+	}
+	const name = names.join("或");
+	return `${name}不足时最多扣光手上持有的${name}，不会扣成负数`;
+}
+
+/**
  * 选项名单独一行，会拿到什么缩进写在下面；固定奖励与赌局的每一支同版式。
  * 概率照写不藏——图鉴是收集册，事件页才讲「不剧透」。
  */
@@ -151,7 +172,7 @@ function choiceLines(choice, mark = "") {
 	// 别让玩家以为真能扣成负数（事件页那边不写它是为了不剧透预掷结果）
 	const note = [
 		actionBrief(choice.action),
-		choice.clampLoss === true ? "经验不足时最多扣光手上持有的经验，不会扣成负数" : null,
+		clampLossNote(choice),
 	].filter(Boolean).join("；");
 	const all = Array.isArray(choice.outcomes) ? choice.outcomes : null;
 	if (!all || !all.length) {

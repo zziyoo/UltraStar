@@ -2388,16 +2388,17 @@ check("过期候选清理：事件送的奇物撤下候选并补货，读档剔�
 	// 读档清洗：已拥有但非 sold 的旧过期候选剔除；已购买的 sold 卡保留显示；未拥有候选保留
 	const stored = state.normalizeRun({
 		...freshRun(cfg.RUN_MODE.endless),
-		curios: ["energy_core"],
+		curios: ["energy_core", "broken_watch"],
 		curioOffers: [
 			{ id: "energy_core", price: 10, sold: true },
-			{ id: "lucky_stone", price: 10 },
 			{ id: "broken_watch", price: 10 },
+			{ id: "lucky_stone", price: 10 },
 			{ id: "幽灵", price: 10 },
 		],
 	});
-	assertEqual(JSON.stringify(stored.curioOffers.map(offer => offer.id)), JSON.stringify(["lucky_stone", "broken_watch"]), "过期条目剔除，其余保留");
-	assertEqual(JSON.stringify(stored.curioOffers[0]), JSON.stringify({ id: "lucky_stone", price: 10 }), "候选只留 id 与定死的价格");
+	assertEqual(JSON.stringify(stored.curioOffers.map(offer => offer.id)), JSON.stringify(["energy_core", "lucky_stone"]), "已购卡保留、过期未售卡剔除、未拥有候选保留");
+	assertEqual(JSON.stringify(stored.curioOffers[0]), JSON.stringify({ id: "energy_core", price: 10, sold: true }), "已购卡连 sold 标记一起保留");
+	assertEqual(JSON.stringify(stored.curioOffers[1]), JSON.stringify({ id: "lucky_stone", price: 10 }), "候选只留 id 与定死的价格");
 	// 重新读档幂等：清洗后的存档再读一遍不变
 	assertEqual(JSON.stringify(state.normalizeRun(stored).curioOffers), JSON.stringify(stored.curioOffers), "清洗幂等");
 	return "撤下 + 剔除 + 幂等";
@@ -4050,20 +4051,20 @@ check("储蓄罐与遗忘之石：结算侧两处加成", () => {
 	assertEqual(plain.gained.gold, BASE_GOLD, "没有储蓄罐就只发基础");
 	// 黄金罗盘：概率统一为「百分点累加 + 一次判定」（v13 口径），不再单独掷第二次
 	const compass = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 0, exp: 0 }, curios: ["golden_compass"] };
-	// 基础线 20% + 罗盘 10 个百分点＝30%：0.25 落在两条线之间，只有罗盘能救回来
-	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.25, 0.999]));
-	assert(hitByBonus.run.curioOffers.length > 0, "20%+10 个百分点＝30%，0.25 必须命中（基础线 20% 自己是命不中的）");
+	// 基础线 25% + 罗盘 10 个百分点＝35%：0.3 落在两条线之间，只有罗盘能救回来
+	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.3, 0.999]));
+	assert(hitByBonus.run.curioOffers.length > 0, "25%+10 个百分点＝35%，0.3 必须命中（基础线 25% 自己是命不中的）");
 	assertEqual(hitByBonus.run.curioOfferQueue.length, 0, "一次结算只摇这一批，罗盘不再生产第二批");
 	// 与旧写法的分歧点：以前「基础未中 + 第二次独立判定命中」会凭空多出一批，现在必须整体未命中
-	// 线值取现算结果本身（0.2+0.1 在浮点上是 0.30000000000000004，写死 0.3 会假命中）
+	// 线值取现算结果本身：以后改 CURIO_SHOP_RATE 时这条仍然钉在「恰好压线 → 不命中」上
 	const noSecondRoll = reward.settleVictory(compass, NOW, seq([curioManager.getCurioShopChance(compass), 0]));
 	assertEqual(noSecondRoll.run.curioOffers.length, 0, "第二个随机数不得再决定一次商店刷新");
 	assertEqual(noSecondRoll.run.curioOfferQueue.length, 0, "同样不留队列");
 	// 没有罗盘时判定线就是基础概率本身：线下一丝出货、恰好压在线上不出货（严格小于）
 	const plainSave = { ...compass, curios: [] };
-	assertEqual(cfg.CURIO_SHOP_RATE, 0.2, "奇物商店基础概率按本轮定为 20%");
-	assert(reward.settleVictory(plainSave, NOW, seq([0.199])).run.curioOffers.length > 0, "0.199 < 20% → 出货");
-	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.2])).run.curioOffers.length, 0, "0.2 正压在线上 → 严格小于才命中");
+	assertEqual(cfg.CURIO_SHOP_RATE, 0.25, "奇物商店基础概率按本轮定为 25%");
+	assert(reward.settleVictory(plainSave, NOW, seq([0.249])).run.curioOffers.length > 0, "0.249 < 25% → 出货");
+	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.25])).run.curioOffers.length, 0, "0.25 正压在线上 → 严格小于才命中");
 	// 遗忘之石：本层基准金币 ×10，没有这块奇物返回 0
 	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["oblivion_stone"] };
 	assertEqual(curioManager.getSkillLossRewardGold(stone), BASE_GOLD * 10, "十倍本层基准金币");
@@ -4796,6 +4797,156 @@ check("记忆回廊：深入记忆的失手分支不置灰、不剧透，扣款�
 	const denied = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 10, exp: 0 }, pendingEvent: merchant }, 0, {}, () => 0);
 	assert(!denied.ok && denied.error.includes("不足"), "没有 clampLoss 的事件支付规则一个字不动");
 	return "预掷不剧透 / 不置灰 / 最多扣光 / 老事件不受影响";
+});
+
+check("事件支付判定：商人标价 / 融合费与 reward 消耗共用一份，恰好够可付", () => {
+	const merchant = eventManager.buildPendingEvent("wandering_merchant", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const price = merchant.choices[0].action.price;
+	assertEqual(price, curioManager.getMerchantPrice(BASE_LEVEL), "商人标价仍按基准价现算");
+	assertEqual(JSON.stringify(eventManager.getChoiceCost(merchant.choices[0])), JSON.stringify({ gold: price }), "商人选项的确定费用 = 标价");
+	const atGold = gold => ({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold, exp: 0 }, curios: [] });
+	assert(!eventManager.isChoiceAffordable(atGold(price - 1), merchant.choices[0]), "差 1 金币 → 付不起");
+	assert(eventManager.isChoiceAffordable(atGold(price), merchant.choices[0]), "恰好够 → 付得起");
+	assert(eventManager.isChoiceAffordable(atGold(price + 1), merchant.choices[0]), "超过标价 → 付得起");
+	assert(!eventManager.canChooseChoice(atGold(price - 1), merchant.choices[0]), "事件页同一判定：不足置灰");
+	assert(eventManager.canChooseChoice(atGold(price), merchant.choices[0]), "事件页同一判定：恰好够可点");
+	assert(eventManager.canChooseChoice(atGold(0), merchant.choices[1]), "出口项永远可点");
+
+	const forge = eventManager.buildPendingEvent("curio_forge", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const cost = forge.choices[0].action.costExp;
+	assertEqual(cost, Math.round(BASE_EXP * cfg.FORGE_EXP_MULTIPLIER), "融合费口径不变");
+	assertEqual(eventManager.getChoiceCost(forge.choices[0]).exp, cost, "融合炉的确定费用 = 经验费");
+	const atExp = exp => ({ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp }, curios: ["energy_core"] });
+	assert(!eventManager.isChoiceAffordable(atExp(cost - 1), forge.choices[0]), "差 1 经验 → 付不起");
+	assert(eventManager.isChoiceAffordable(atExp(cost), forge.choices[0]), "恰好够 → 付得起");
+	assert(!eventManager.canChooseChoice(atExp(cost - 1), forge.choices[0]), "事件页同一判定：不足置灰");
+	// 「没有可作用的对象」优先于「付不起」：0 经验也能点，点下去只弹作者那句
+	assert(eventManager.canChooseChoice({ ...atExp(0), curios: [] }, forge.choices[0]), "没奇物时可点（blocked 优先）");
+	// 不收费的交互型 action 与裸 reward 的旧调用口径都不受影响
+	assertEqual(JSON.stringify(eventManager.getChoiceCost({ reward: {}, action: { kind: "rift", tier: 0 } })), JSON.stringify({}), "裂隙不收费");
+	assertEqual(JSON.stringify(eventManager.getChoiceCost({ reward: {}, action: { kind: "skillForge", grant: "exp" } })), JSON.stringify({}), "技能熔炉不收费");
+	assertEqual(JSON.stringify(eventManager.getChoiceCost({ reward: { gold: -30, exp: -10 } })), JSON.stringify({ gold: 30, exp: 10 }), "reward 负数折算");
+	assert(eventManager.isChoiceAffordable(atGold(0), { gold: 0, exp: 0 }), "裸 reward 旧口径照旧可用");
+	assertEqual(JSON.stringify(eventManager.getChoiceCost({ reward: {}, action: { kind: "merchant", soldOut: true } })), JSON.stringify({}), "soldOut 不产生费用");
+	return `商人 ${price} 金币 / 融合 ${cost} 经验 / 边界均按「恰好够可付」`;
+});
+
+check("交互型收费选项：结算层最终校验，付不起整单拒绝且不进子页", () => {
+	const price = 400;
+	const event = {
+		id: "wandering_merchant",
+		choices: [
+			{ text: `和商人交易（一件货 · 标价 ${price} 金币）`, reward: {}, action: { kind: "merchant", curioId: "energy_core", price }, blockedText: "他已经把最好的一件卖给你了，这一笔做不成。" },
+			{ text: "不买了", reward: {} },
+		],
+		createdAt: NOW,
+	};
+	const base = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: price - 1, exp: 0 }, pendingEvent: event };
+	const denied = eventManager.resolveEventChoice(base, 0, {}, () => 0);
+	assert(!denied.ok, "金币不足必须整单拒绝");
+	assert(denied.error.includes("不足"), `拒绝原因要写明：${denied.error}`);
+	assertEqual(denied.run, base, "被拒时原样返回同一份存档");
+	assertEqual(JSON.stringify(base.currency), JSON.stringify({ gold: price - 1, exp: 0 }), "金币一个不动");
+	assertEqual(JSON.stringify(base.pendingEvent), JSON.stringify(event), "事件仍挂着，不会进无意义的子页");
+	// 恰好够：放行 action，但这一刻不扣钱、不清事件（子页里选定才落地）
+	const exact = { ...base, currency: { gold: price, exp: 0 } };
+	const opened = eventManager.resolveEventChoice(exact, 0, {}, () => 0);
+	assert(opened.ok && opened.action?.kind === "merchant", "恰好够时把 action 交回流程层");
+	assertEqual(JSON.stringify(exact.currency), JSON.stringify({ gold: price, exp: 0 }), "进子页不预先扣费");
+	assertEqual(JSON.stringify(exact.pendingEvent), JSON.stringify(event), "落地前事件不摘");
+	// 融合炉走同一条路
+	const forgeEvent = {
+		id: "curio_forge",
+		choices: [
+			{ text: "把一件奇物投进炉子（消耗 200 经验）", reward: {}, action: { kind: "curioForge", costExp: 200 }, blockedText: "奇物不足，炉子里没有可以融合的东西。" },
+			{ text: "离开", reward: {} },
+		],
+		createdAt: NOW,
+	};
+	const poorForge = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 199 }, curios: ["energy_core"], pendingEvent: forgeEvent };
+	const forgeDenied = eventManager.resolveEventChoice(poorForge, 0, {}, () => 0);
+	assert(!forgeDenied.ok && forgeDenied.error.includes("不足"), "融合炉经验不足整单拒绝");
+	assertEqual(poorForge.pendingEvent, forgeEvent, "融合炉事件仍挂着");
+	assertEqual(poorForge.currency.exp, 199, "经验一个不扣");
+	// 免费出口照常
+	assert(eventManager.resolveEventChoice({ ...base, currency: { gold: 0, exp: 0 } }, 1, {}, () => 0).ok, "出口项照常结算");
+	return "商人 / 融合炉：入口拒绝 + 不预扣 + 事件保留";
+});
+
+check("幸运硬币：失手支带 clampLoss，不置灰不剧透、最多扣光金币", () => {
+	const lose = eventManager.buildPendingEvent("lucky_coin", BASE_LEVEL, () => 0.999, NOW, { curios: [] });
+	const loss = Math.round(BASE_GOLD * 0.5);
+	assertEqual(JSON.stringify(lose.choices[0].reward), JSON.stringify({ gold: -loss }), "rng→1 预掷到失手支");
+	assertEqual(lose.choices[0].clampLoss, true, "失手支写 clampLoss");
+	assertEqual(lose.choices[0].text, "拾取", "按钮不写预掷金额");
+	const broke = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 } };
+	assert(eventManager.canChooseChoice(broke, lose.choices[0]), "0 金币也照常可点（置灰会剧透）");
+	assert(!eventManager.isChoiceAffordable({ ...broke, currency: { gold: loss - 1, exp: 0 } }, lose.choices[0]), "底层判定确实认为付不起（这正是要绕开的那道）");
+	// 最多扣光：手里 10、失手 50 → 只扣 10
+	const paid = eventManager.resolveEventChoice({ ...broke, currency: { gold: 10, exp: 0 }, pendingEvent: lose }, 0, {}, () => 0);
+	assert(paid.ok, paid.error ?? "clampLoss 放行");
+	assertEqual(paid.run.currency.gold, 0, "扣到 0 为止（绝不为负）");
+	assert(paid.lines.includes("金币 -10"), `账目行与余额一致：${paid.lines.join(" / ")}`);
+	// 手里 0：一分不扣，事件照常结束
+	const nothing = eventManager.resolveEventChoice({ ...broke, pendingEvent: lose }, 0, {}, () => 0);
+	assertEqual(nothing.run.currency.gold, 0, "没得扣就不扣");
+	assert(!nothing.lines.some(line => line.startsWith("金币")), "不写假账");
+	assertEqual(nothing.run.pendingEvent, null, "事件照常结束");
+	// 中奖支同样带 clampLoss（两支按钮必须一样），且正常入账
+	const win = eventManager.buildPendingEvent("lucky_coin", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	assertEqual(win.choices[0].clampLoss, true, "中奖支也带（否则置灰同样泄露结果）");
+	const gained = eventManager.resolveEventChoice({ ...broke, pendingEvent: win }, 0, {}, () => 0);
+	assertEqual(gained.run.currency.gold, BASE_GOLD * 2, "中奖照常 +2 倍金币");
+	assertEqual(gained.run.currency.exp, BASE_EXP * 2, "中奖照常 +2 倍经验");
+	// 读档往返
+	const revived = state.normalizeRun({ ...broke, pendingEvent: lose });
+	assertEqual(revived.pendingEvent.choices[0].clampLoss, true, "clampLoss 随存档带回");
+	return "失手不置灰 / 最多扣光 / 中奖正常";
+});
+
+check("事件池自检：随机损失必须 clampLoss，确定收费都能折算成同一份代价", () => {
+	let risky = 0;
+	for (const [id, def] of Object.entries(eventsData.events)) {
+		for (const choice of def.choices ?? []) {
+			const outcomes = Array.isArray(choice.outcomes) ? choice.outcomes : [];
+			const hasLoss = outcomes.some(item => ["gold", "exp", "goldByWin", "expByWin"]
+				.some(key => Number(item?.reward?.[key]) < 0));
+			if (!hasLoss) {
+				continue;
+			}
+			risky++;
+			assertEqual(choice.clampLoss, true, `${id}「${choice.text}」有随机损失，必须 clampLoss（否则置灰会泄露预掷）`);
+		}
+	}
+	assertEqual(risky, 2, "当前只有记忆回廊与幸运硬币两处随机损失");
+	// 所有确定收费都能被 getChoiceCost 折算成 gold/exp，UI 与结算层不会各写一套
+	const costs = [];
+	for (const id of ["lost_robot", "stat_training_ground", "wandering_merchant", "curio_forge"]) {
+		const built = eventManager.buildPendingEvent(id, BASE_LEVEL, () => 0, NOW, { curios: [] });
+		costs.push(...built.choices.map(choice => eventManager.getChoiceCost(choice)));
+	}
+	assert(costs.some(cost => cost.gold > 0), "有金币收费项");
+	assert(costs.some(cost => cost.exp > 0), "有经验收费项");
+	assert(costs.every(cost => Object.values(cost).every(value => value > 0)), "折算值恒为正");
+	return `随机损失 ${risky} 处 / 收费项 ${costs.filter(cost => Object.keys(cost).length).length} 个`;
+});
+
+check("神秘商人集齐奇物：不扣费、直接结束事件（与「付不起」区分）", () => {
+	const merchant = eventManager.buildPendingEvent("mystery_merchant", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const full = {
+		...freshRun(cfg.RUN_MODE.endless),
+		currency: { gold: 0, exp: 0 },
+		curios: curiosData.curioIds.slice(),
+		pendingEvent: merchant,
+	};
+	assert(eventManager.canChooseChoice(full, merchant.choices[0]), "集齐时 0 金币也可点（跳过分支不花钱）");
+	const settled = eventManager.resolveEventChoice(full, 0, {}, () => 0);
+	assert(settled.ok, settled.error ?? "集齐时应正常结束");
+	assertEqual(settled.run.currency.gold, 0, "不扣金币");
+	assertEqual(settled.run.curios.length, curiosData.curioIds.length, "不重复发放奇物");
+	assertEqual(settled.run.pendingEvent, null, "直接结束事件");
+	assert(settled.lines[0].includes("集齐"), `给出理由：${settled.lines[0]}`);
+	return "集齐：可点、零扣费、事件结束";
 });
 
 check("极限模拟训练：极限与终极两档的深渊债按 1 / 2 记档，经验照发；经验泉默认值不受影响", () => {
@@ -7177,9 +7328,9 @@ check("故人的心：没有有效敌方目标时整单拒绝（theirs 空 / 缺
 	return "空数组 / 缺字段 / 全空 ids / 缺 ids 一律拒绝；空目标 + 有效目标正常";
 });
 
-check("故人的心：奇物效果文案明确「每名被指定的角色各失去同样多个技能」", () => {
+check("故人的心：奇物效果文案明确「每名被指定的角色各失去等量个技能」", () => {
 	const text = curioManager.describeCurioEffects({ skillSacrifice: 1 }).join("\n");
-	assert(text.includes("每名被指定的角色各失去同样多个技能"), `文案没有写清每名各失去：${text}`);
+	assert(text.includes("令这些角色各失去等量个技能"), `文案没有写清每名各失去：${text}`);
 	return text;
 });
 
@@ -7278,6 +7429,13 @@ check("故人的心选择页：flex 加固、正文可滚、按钮钉底、描�
 	const pageSource = fs.readFileSync(path.join(root, "src/rogue/ui/skillSacrifice.js"), "utf8");
 	assert(/bindOverlayTap\(row, onToggle\)/.test(pageSource), "技能条目仍走 bindTap 轻触判定");
 	return "flex 加固 + 可滚 + 按钮钉底 + 描述完整 + 同类冲突补回 + 移动端轻触阈值，全部钉在源文本上";
+});
+
+check("商店禁用卡的悬停不发光：样式判据直读 styles.js", () => {
+	const css = fs.readFileSync(path.join(root, "src/rogue/ui/styles.js"), "utf8").replace(/\s+/g, " ");
+	assert(css.includes(".wm-rogue-shop-card:not(.wm-rogue-off):hover"), "置灰卡被排除在悬停高亮之外（桌面悬停与移动端 :hover 残留都不发光）");
+	assert(!css.includes(".wm-rogue-shop-card:hover"), "不允许留下未排除置灰卡的裸 :hover 规则");
+	return "禁用卡无悬停高亮";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

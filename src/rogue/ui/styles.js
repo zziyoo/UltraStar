@@ -144,7 +144,9 @@ const CSS = `
 	background: linear-gradient(rgba(22,22,22,0.80), rgba(0,0,0,0.86));
 	border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
 .wm-rogue-shop-card { cursor: pointer; }
-.wm-rogue-shop-card:hover { border-color: rgba(255,180,80,0.7); }
+/* 置灰的卡（买不起/已购买/已拥有/已下架/售罄）不参与悬停高亮：
+   手机端点完留下的 :hover 残留也不该让禁用卡看起来还能买 */
+.wm-rogue-shop-card:not(.wm-rogue-off):hover { border-color: rgba(255,180,80,0.7); }
 .wm-rogue-shop-card.wm-rogue-off, .wm-rogue-stat-card.wm-rogue-off { opacity: 0.62; }
 .wm-rogue-shop-top { display: flex; align-items: center; gap: 10px; }
 /* 出处头像只做“这技能来自谁”的提示，比选将页的武将牌小得多 */

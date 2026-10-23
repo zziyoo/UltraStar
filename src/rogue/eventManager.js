@@ -17,7 +17,8 @@
 // 但**钱要等玩家真选定才扣**，所以这类选项的 reward 留空，花费记在 action 上并写进选项文案。
 //
 // 两种「不可用」是两回事，不要混：
-//   · 钱不够 → 选项置灰，点了毫无反应（isChoiceAffordable）；
+//   · 钱不够 → 选项置灰，点了毫无反应（isChoiceAffordable 判费用、canChooseChoice 判能否点；
+//     reward 负数、流浪商人标价、融合炉经验费统一折算成 getChoiceCost 一份）；
 //   · 没有可作用的对象（属性已满 / 没技能可熔 / 没奇物可融合）→ 选项照常可点，
 //     点下去只弹作者写的 blockedText 一句话，一个钱都不扣（getBlockedMessage）。
 
@@ -588,31 +589,86 @@ export function getBlockedMessage(run, choice) {
 }
 
 /**
- * 事件页判断某个选项是否可选：负向货币（消耗）超过持有量时置灰。
+ * 选项的**确定费用**（不含随机结果）：reward 里的负数（点了即扣）与交互型 action 上的
+ * 标价/融合费（子页里真选定才扣）统一折算成 { gold?, exp? }，值恒为正。
+ * 交互型选项的钱虽要等子页里真选定才扣，但「付不付得起」在事件主页就该判——
+ * 事件页置灰与结算层最终校验都按这一份，收费规则只有一处。
+ */
+export function getChoiceCost(choice) {
+	const cost = {};
+	const reward = choice?.reward ?? {};
+	for (const key of ["gold", "exp"]) {
+		const value = Number(reward[key]);
+		if (Number.isFinite(value) && value < 0) {
+			cost[key] = (cost[key] ?? 0) - value;
+		}
+	}
+	const action = choice?.action;
+	// 流浪商人的标价与融合炉的经验费：负价/0 一律当不收费（旧档清洗后可能出现 0）
+	if (action?.kind === "merchant" && action.soldOut !== true) {
+		const price = Number(action.price);
+		if (Number.isFinite(price) && price > 0) {
+			cost.gold = (cost.gold ?? 0) + price;
+		}
+	}
+	if (action?.kind === "curioForge") {
+		const exp = Number(action.costExp);
+		if (Number.isFinite(exp) && exp > 0) {
+			cost.exp = (cost.exp ?? 0) + exp;
+		}
+	}
+	return cost;
+}
+
+/**
+ * 事件页判断某个选项是否付得起：确定费用（见 getChoiceCost）超过持有量时置灰。
+ * 兼容两种入参：完整选项（`{ reward, action }`，新口径，含商人标价/融合费）或裸 reward（历史调用）。
  * 「随机给一个奇物」且图鉴已集齐的选项一律可选——它不会扣任何货币（走跳过分支），
  * 否则选项会被置灰且点不动，事件永远关不掉。
- * 带 action 的选项在这里永远可选：它们的价钱不写在 reward 而记在 action 上，
- * 真正确定要付是子页面里点下那一件/那一级的时刻， affordability 由子页面自己判。
- * 写了 clampLoss 的选项（预掷赌局）由调用方**跳过这道判定**——负结果是掷出来的，置灰等于剧透。
+ * 写了 clampLoss 的选项（预掷赌局）不对「付不起」负责：失手是掷出来的，置灰等于剧透，
+ * 调用方用 canChooseChoice / 结算层的 clampLoss 分支放行，扣款按「最多扣光」收窄。
  */
-export function isChoiceAffordable(run, reward) {
-	if (!reward || typeof reward !== "object") {
-		return true;
+export function isChoiceAffordable(run, choiceOrReward) {
+	const isChoice = isObject(choiceOrReward) && ("reward" in choiceOrReward || "action" in choiceOrReward);
+	const choice = isChoice ? choiceOrReward : null;
+	const reward = isChoice ? choice.reward : choiceOrReward;
+	if (reward && typeof reward === "object") {
+		if (reward.curio === "random" && !hasGrantableCurio(run)) {
+			return true;
+		}
+		// 百分比投入（许愿池）：只要手上还有金币就一定能投，10% 投得起、50% 也投得起。
+		// 只拦 0 金币这一头，费用仍要走下面的统一判定（未来若与 action 费用叠加也不会漏）
+		if (Number.isFinite(reward.goldPct) && reward.goldPct && (run?.currency?.gold ?? 0) <= 0) {
+			return false;
+		}
 	}
-	if (reward.curio === "random" && !hasGrantableCurio(run)) {
-		return true;
-	}
-	// 百分比投入（许愿池）：只要手上还有金币就一定能投，10% 投得起、50% 也投得起
-	if (Number.isFinite(reward.goldPct) && reward.goldPct) {
-		return (run.currency?.gold ?? 0) > 0;
-	}
-	for (const key of ["gold", "exp"]) {
-		const cost = reward[key];
-		if (Number.isFinite(cost) && cost < 0 && (run.currency?.[key] ?? 0) < -cost) {
+	const cost = getChoiceCost(choice ?? { reward });
+	for (const [key, value] of Object.entries(cost)) {
+		if ((run?.currency?.[key] ?? 0) < value) {
 			return false;
 		}
 	}
 	return true;
+}
+
+/**
+ * 事件页与结算层共用的「这个选项此刻能不能选」：
+ *   · 没有可作用的对象（属性满 / 没技能 / 没奇物）→ 可点，点下去只弹作者那句话，不花钱；
+ *   · clampLoss 的预掷赌局 → 可点（失手是掷出来的，置灰会剧透），结算最多扣光；
+ *   · 其余按 getChoiceCost 的确定费用判余额。
+ * UI 的按钮状态、点击守卫与 resolveEventChoice 的最终校验都走这一份。
+ */
+export function canChooseChoice(run, choice) {
+	if (!choice) {
+		return false;
+	}
+	if (getBlockedMessage(run, choice)) {
+		return true;
+	}
+	if (choice.clampLoss === true) {
+		return true;
+	}
+	return isChoiceAffordable(run, choice);
 }
 
 /**
@@ -727,6 +783,8 @@ function mergeSips(choice, followUp) {
  * 带 action 的选项是个例外：这里**一律不扣钱、不清事件**，只把参数原样回给调用方，
  * 由 mode.js 编排子页面或裂隙战，玩家真选定那一刻才落地——
  * 中途关游戏时 pendingEvent 还挂着，回来仍是这个事件，不会白点一次。
+ * 唯一的前置是**支付校验**：商人标价 / 融合费付不起就在这里整单拒绝（与事件页同一判定），
+ * 不开子页面、不动存档。
  * @param {object} run 存档
  * @param {number} choiceIndex 玩家点选的选项下标
  * @param {{ candidates?: {id:string}[], characterSkills?: string[], followUpTaken?: boolean }} [ctx]
@@ -758,8 +816,13 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		};
 	}
 	// abyssDebt 不需要玩家再挑东西（就是记一笔债 + 照发 reward），所以它留在这里一起结算；
-	// 其余四类都要开子页面或开战斗，一律原样回给 mode.js，一个钱都不扣
+	// 其余四类都要开子页面或开战斗，一律原样回给 mode.js，一个钱都不扣。
+	// 交互型选项也要做最终支付校验：UI 置灰只是展示，直接调用（或停在旧余额上的子页入口）
+	// 不能绕过——不够就整单拒绝，不扣钱、不清 pendingEvent、也不进子页面。
 	if (choice.action && choice.action.kind !== "abyssDebt") {
+		if (!canChooseChoice(run, choice)) {
+			return { ok: false, error: "货币不足，无法选择该项", run };
+		}
 		return { ok: true, error: null, run, lines: [], skillId: null, curioId: null, action: choice.action };
 	}
 	// 带追问句的选项（经验泉：页面上只有「饮用」，点完才问「再饮一口」）分两趟走：
@@ -788,7 +851,7 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	// 预掷赌局的失手分支（clampLoss）不能用「钱不够」拒绝——负结果是预掷出来的，拒绝/置灰都等于剧透；
 	// 它照常放行，扣款在下面按「最多扣光」收窄（capLossToHeld）
 	const clampLoss = choice.clampLoss === true;
-	if (!clampLoss && !isChoiceAffordable(run, reward)) {
+	if (!clampLoss && !isChoiceAffordable(run, sip)) {
 		return { ok: false, error: "货币不足，无法选择该项", run };
 	}
 

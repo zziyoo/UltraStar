@@ -1753,6 +1753,163 @@ await check("商店刷新：买过技能后按钮变「本局已购买」，点�
 	return "已购买锁死刷新 + 购买上限未破";
 });
 
+// 卡片进 DOM 的那一刻拍快照：首帧就已经带着最终状态，而不是挂载后才补置灰类。
+// 真机上那半秒渐隐来自本体 layout 的 `div{transition:all .5s}` + 挂载后补类，桩里没有样式引擎，
+// 所以这里钉「插入顺序」这条实现契约（buildOfferCard/buildCurioCard 先 paint 再 appendChild）。
+function watchShopCardInsertions() {
+	const snapshots = [];
+	const originalCreate = ui.create.div;
+	ui.create.div = (...args) => {
+		const node = originalCreate.apply(ui.create, args);
+		if (node?.classList?.contains?.("wm-rogue-shop-cards")) {
+			const append = node.appendChild;
+			node.appendChild = child => {
+				if (child?.classList?.contains?.("wm-rogue-shop-card")) {
+					const button = collect(item => item.classList?.contains?.("wm-rogue-shop-buy"), child)[0];
+					snapshots.push({
+						curio: child.classList.contains("wm-rogue-curio-card"),
+						cardOff: child.classList.contains("wm-rogue-off"),
+						buttonOff: !!button?.classList?.contains?.("wm-rogue-disabled"),
+					});
+				}
+				return append(child);
+			};
+		}
+		return node;
+	};
+	return {
+		snapshots,
+		restore: () => {
+			ui.create.div = originalCreate;
+		},
+	};
+}
+
+await check("商店首帧：刷新/重进/读档时技能卡进 DOM 前状态已定，金币 0/不足/恰好/超过都对", async () => {
+	freshWorld();
+	const offers = [
+		{ id: "own_one", price: 50, sold: false },
+		{ id: "own_two", price: 100, sold: false },
+		{ id: "own_three", price: 150, sold: false },
+	];
+	const put = gold => putRun(0, {
+		currentBattle: null,
+		level: 1,
+		skills: [],
+		currency: { gold, exp: 0 },
+		shopOffers: offers.map(offer => ({ ...offer })),
+		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+	});
+	const watcher = watchShopCardInsertions();
+	const expectStates = (label, from, gold, expectedOffers) => {
+		const snaps = watcher.snapshots.slice(from).filter(snap => !snap.curio);
+		assertEqual(snaps.length, expectedOffers.length, `${label}：每张卡进 DOM 各拍一次`);
+		snaps.forEach((snap, index) => {
+			const price = expectedOffers[index].price;
+			const affordable = gold >= price;
+			assertEqual(snap.cardOff, !affordable, `${label} 第 ${index + 1} 张（价 ${price}、持有 ${gold}）首帧卡状态`);
+			assertEqual(snap.buttonOff, !affordable, `${label} 第 ${index + 1} 张首帧按钮状态`);
+		});
+	};
+	try {
+		put(100);
+		session();
+		click("商店");
+		expectStates("首次进店", 0, 100, offers);
+		// 连续刷新：新候选进 DOM 时就该是最终状态（100 金币下按各自售价判）
+		clickNode(nodesWithClass("wm-rogue-shop-refresh")[0]);
+		await flush();
+		expectStates("第一次刷新", 3, 100, lib.storage.rogueSlots[0].shopOffers);
+		clickNode(nodesWithClass("wm-rogue-shop-refresh")[0]);
+		await flush();
+		expectStates("第二次刷新", 6, 100, lib.storage.rogueSlots[0].shopOffers);
+		// 重进商店（同一批候选）同样首帧正确
+		click("返回");
+		click("商店");
+		expectStates("重进商店", 9, 100, lib.storage.rogueSlots[0].shopOffers);
+		// 读档恢复：0 金币三张全灰，且首帧就是灰的
+		putRun(0, { currency: { gold: 0, exp: 0 } }, lib.storage.rogueSlots[0]);
+		session();
+		click("商店");
+		const reloaded = watcher.snapshots.slice(12).filter(snap => !snap.curio);
+		assertEqual(reloaded.length, cfg.SKILL_OFFER_COUNT, "读档后重建三张");
+		assert(reloaded.every(snap => snap.cardOff && snap.buttonOff), "0 金币：三张首帧全置灰");
+		// 置灰卡片仍可点开描述（购买按钮不实际购买）
+		const card = nodesWithClass("wm-rogue-shop-card")[0];
+		clickNode(card);
+		assert(nodesWithClass("wm-rogue-popup").length > 0, "点置灰卡片仍能看完整描述");
+		nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+		assertEqual(lib.storage.rogueSlots[0].currency.gold, 0, "点卡片不会购买");
+		return "首帧状态：首次 / 连续刷新 ×2 / 重进 / 读档（0 金币）";
+	} finally {
+		watcher.restore();
+	}
+});
+
+await check("奇物商店首帧：金币 0 / 恰好 / 超过时奇物卡首帧状态正确", async () => {
+	freshWorld();
+	const curioOffers = [
+		{ id: "energy_core", price: 50 },
+		{ id: "lucky_stone", price: 100 },
+		{ id: "broken_watch", price: 150 },
+	];
+	const watcher = watchShopCardInsertions();
+	try {
+		putRun(0, {
+			mode: "endless",
+			currentBattle: null,
+			level: 1,
+			currency: { gold: 100, exp: 0 },
+			curios: [],
+			curioOffers: curioOffers.map(offer => ({ ...offer })),
+		});
+		session();
+		click("商店");
+		const firstMark = watcher.snapshots.length;
+		const first = watcher.snapshots.slice(0, firstMark).filter(snap => snap.curio);
+		assertEqual(first.length, curioOffers.length, "奇物卡进 DOM 各拍一次");
+		assertEqual(JSON.stringify(first.map(snap => snap.cardOff)), JSON.stringify([false, false, true]), "50/100 可买、150 置灰（恰好 100 可买）");
+		assertEqual(JSON.stringify(first.map(snap => snap.buttonOff)), JSON.stringify([false, false, true]), "按钮同步首帧状态");
+		// 0 金币：整批首帧全灰
+		putRun(0, { currency: { gold: 0, exp: 0 } }, lib.storage.rogueSlots[0]);
+		session();
+		click("商店");
+		const broke = watcher.snapshots.slice(firstMark).filter(snap => snap.curio);
+		assertEqual(broke.length, curioOffers.length, "读档后重建三张");
+		assert(broke.every(snap => snap.cardOff && snap.buttonOff), "0 金币：奇物卡首帧全灰");
+		return "奇物卡首帧：100 金币下 50/100 可买、150 灰；0 金币全灰";
+	} finally {
+		watcher.restore();
+	}
+});
+
+await check("收藏家橱窗锁定中：技能卡仍按余额置灰，锁定不影响禁用态", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		currentBattle: null,
+		level: 1,
+		currency: { gold: 0, exp: 0 },
+		curios: ["collector_showcase"],
+		curioQuality: { collector_showcase: "epic" },
+		skillShopLocked: true,
+		shopOffers: [{ id: "own_one", price: 10, sold: false }],
+		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+	});
+	session();
+	click("商店");
+	const card = nodesWithClass("wm-rogue-shop-card").find(node => !node.classList.contains("wm-rogue-curio-card"));
+	assert(card?.classList?.contains("wm-rogue-off"), "金币不足的卡照常置灰（锁定不改变支付判定）");
+	const buy = nodesWithClass("wm-rogue-shop-buy")[0];
+	assert(buy.classList.contains("wm-rogue-disabled"), "购买按钮置灰");
+	assertEqual(textOf(buy), "金币不足", "按钮写明原因");
+	assert(nodesWithClass("wm-rogue-shop-refresh")[0].classList.contains("wm-rogue-disabled"), "锁定时刷新照旧置灰");
+	clickNode(buy);
+	assertEqual(lib.storage.rogueSlots[0].currency.gold, 0, "禁用购买按钮点不出任何结果");
+	assertEqual(lib.storage.rogueSlots[0].shopOffers[0].sold, false, "点禁用按钮不会把候选标成已购买");
+	return "锁定 + 0 金币：卡与按钮都灰、点了不买";
+});
+
 await check("商店刷新次数：战斗恢复与失败都不补，通关进下一局才补满", async () => {
 	putRun(0, {
 		mode: "challenge",
@@ -2698,7 +2855,7 @@ await check("Boss 判定不跨场：普通场→Boss 场→普通场各判各的
 		await flush();
 	}
 	try {
-		// 随机钉在 0.5：既不低于事件线（0.4）也不低于奇物商店线（基础 0.2），两样都不触发，
+		// 随机钉在 0.5：既不低于事件线（0.4）也不低于奇物商店线（基础 0.25），两样都不触发，
 		// 于是每场的金币增量都恰好等于该关基准，能逐场精确对账；Boss 判定由两个 click 助手单独钉
 		Math.random = () => 0.5;
 		putRun(0, {
@@ -2976,7 +3133,7 @@ await check("10-06 实机旧档带残留的商店锁（没有橱窗）：读档�
 		assertEqual(slot.curioShopLocked, false, "没有橱窗 → 残留的奇物锁清零");
 		assertEqual(slot.skillShopLocked, false, "没有橱窗 → 残留的技能锁清零");
 		// 打赢这一场：结算里的奇物商店判定照常执行（这一份旧档拥有史诗诅咒金币，
-		// 结算里没有波动项掷骰，奇物商店的判定就是第一次 rng 消费），钉中基础线（现 20%）即整批新货
+		// 结算里没有波动项掷骰，奇物商店的判定就是第一次 rng 消费），钉中基础线（现 25%）即整批新货
 		let calls = 0;
 		Math.random = () => (calls++ === 0 ? 0.05 : 0.5);
 		for (const player of game.players.slice(1)) {
@@ -3493,6 +3650,7 @@ await check("图鉴页：已发现事件与曾拥有奇物点亮，未收录显�
 		JSON.stringify(coin),
 		JSON.stringify([
 			"「拾取」",
+			"　金币不足时最多扣光手上持有的金币，不会扣成负数",
 			"　50%：获得 2 倍本层胜利金币，获得 2 倍本层胜利经验",
 			"　50%：消耗 0.5 倍本层胜利金币",
 			"「观察」",
@@ -5478,7 +5636,7 @@ await check("流浪商人成交与读档：一次交易只扣一次钱，事件�
 	assertEqual(again.currency.gold, 900, "读档不再扣第二次");
 	assertEqual(JSON.stringify(again.curios), JSON.stringify(["energy_core"]), "读档不重复发货");
 	assert(!screenText().includes("和商人交易"), "读档不再弹这次已完成的交易");
-	// 另一条既有规则：钱不够时点了只弹一句，事件与金币都不动
+	// 另一条既有规则：钱不够时入口就置灰，点了不进入商品子页，事件与金币都不动
 	putRun(0, {
 		mode: "endless",
 		characterId: "迪迦",
@@ -5487,12 +5645,154 @@ await check("流浪商人成交与读档：一次交易只扣一次钱，事件�
 		pendingEvent: merchantEvent,
 	});
 	session();
-	click("和商人交易");
-	// 钱不够是「置灰、点了毫无反应」那一类（不是「没对象可作用」的弹一句）：按钮文字本身变成金币不足
-	click("金币不足");
+	const entry = nodesWithClass("wm-rogue-event-choice").find(node => textOf(node).includes("和商人交易"));
+	assert(entry, "事件页应有商人入口");
+	assert(entry.classList.contains("wm-rogue-disabled"), "金币不足时入口置灰");
+	assert(textOf(entry).includes("货币不足"), `入口写明货币不足：${textOf(entry)}`);
+	clickNode(entry);
 	const poor = lib.storage.rogueSlots[0];
+	assert(!screenText().includes("买下"), "点了不进入商品子页");
 	assertEqual(poor.currency.gold, 10, "买不成一个钱都不扣");
 	assertEqual(poor.pendingEvent.id, "wandering_merchant", "买不成事件照旧挂着，可以重试");
+	// 余额恰好等于标价：视同付得起，正常进子页并成交（只扣一次）
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 100, exp: 100 },
+		pendingEvent: merchantEvent,
+	});
+	session();
+	click("和商人交易");
+	assert(screenText().includes("买下"), "恰好够时正常进入子页");
+	click("买下");
+	click("确定");
+	const exact = lib.storage.rogueSlots[0];
+	assertEqual(exact.currency.gold, 0, "恰好 100 金币成交、余额归零");
+	assertEqual(JSON.stringify(exact.curios), JSON.stringify(["energy_core"]), "恰好够时正常入袋");
+	assertEqual(exact.pendingEvent, null, "成交后事件结束");
+});
+
+await check("奇物融合炉：经验不足时事件主页就置灰、不进融合页；恰好够才进并成交", async () => {
+	freshWorld();
+	const forgeEvent = {
+		id: "curio_forge",
+		choices: [
+			{ text: "把一件奇物投进炉子（消耗 120 经验）", reward: {}, action: { kind: "curioForge", costExp: 120 }, blockedText: "奇物不足，炉子里没有可以融合的东西。" },
+			{ text: "离开", reward: {} },
+		],
+		createdAt: 1,
+	};
+	const put = exp => putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 0, exp },
+		curios: ["energy_core"],
+		pendingEvent: forgeEvent,
+	});
+	put(119);
+	session();
+	const entry = nodesWithClass("wm-rogue-event-choice").find(node => textOf(node).includes("投进炉子"));
+	assert(entry, "事件页应有融合入口");
+	assert(entry.classList.contains("wm-rogue-disabled"), "经验不足时入口置灰");
+	assert(textOf(entry).includes("货币不足"), `入口写明货币不足：${textOf(entry)}`);
+	clickNode(entry);
+	assertEqual(nodesWithClass("wm-rogue-curio-forge-overlay").length, 0, "点了不进入融合页");
+	const poor = lib.storage.rogueSlots[0];
+	assertEqual(poor.currency.exp, 119, "经验一个不扣");
+	assertEqual(poor.pendingEvent?.id, "curio_forge", "事件照旧挂着");
+	// 恰好 120 经验：可点、进子页、成交
+	put(120);
+	session();
+	click("把一件奇物投进炉子");
+	assertEqual(nodesWithClass("wm-rogue-curio-forge-overlay").length, 1, "恰好够时正常进入融合页");
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[0]);
+	click("确定");
+	const forged = lib.storage.rogueSlots[0];
+	assertEqual(forged.currency.exp, 0, "恰好 120 经验成交、余额归零");
+	assertEqual(JSON.stringify(forged.curioQuality), JSON.stringify({ energy_core: "rare" }), "品质升一级");
+	assertEqual(forged.pendingEvent, null, "成交后事件结束");
+	return "119 置灰不进页 / 120 恰好成交";
+});
+
+await check("幸运硬币：失手支 0 金币也照常可点（不剧透），结算不会扣成负数", async () => {
+	freshWorld();
+	const built = eventManager.buildPendingEvent("lucky_coin", 4, () => 0.999, 1, { curios: [] });
+	assert(built.choices[0].reward.gold < 0, "夹具是失手支");
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 0, exp: 0 },
+		pendingEvent: built,
+	});
+	session();
+	const entry = nodesWithClass("wm-rogue-event-choice").find(node => textOf(node).includes("拾取"));
+	assert(entry, "事件页有拾取");
+	assert(!entry.classList.contains("wm-rogue-disabled"), "失手支不置灰（置灰等于剧透）");
+	assert(!textOf(entry).includes("货币不足"), "不写货币不足");
+	clickNode(entry);
+	click("确定");
+	const settled = lib.storage.rogueSlots[0];
+	assertEqual(settled.currency.gold, 0, "没得扣就不扣，余额不为负");
+	assertEqual(settled.pendingEvent, null, "事件正常结束");
+	return "0 金币失手：可点、不扣、事件结束";
+});
+
+await check("流浪商人：已拥有未满品质仍可买并升级；满品质走原有提示、不扣费", async () => {
+	freshWorld();
+	const merchantEvent = {
+		id: "wandering_merchant",
+		choices: [
+			{ text: "和商人交易（一件货 · 标价 100 金币）", reward: {}, action: { kind: "merchant", curioId: "energy_core", price: 100 }, blockedText: "他已经把最好的一件卖给你了，这一笔做不成。" },
+			{ text: "不买了", reward: {} },
+		],
+		createdAt: 1,
+	};
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 200, exp: 0 },
+		curios: ["energy_core"],
+		curioQuality: {},
+		pendingEvent: merchantEvent,
+	});
+	session();
+	const entry = nodesWithClass("wm-rogue-event-choice").find(node => textOf(node).includes("和商人交易"));
+	assert(entry && !entry.classList.contains("wm-rogue-disabled"), "已拥有未满品质：入口照常可点");
+	clickNode(entry);
+	assertEqual(nodesWithClass("wm-rogue-merchant-overlay").length, 1, "进入商人子页");
+	assertEqual(textOf(nodesWithClass("wm-rogue-replace-btn")[0]), "买下并升级", "按钮写明是升级");
+	clickNode(nodesWithClass("wm-rogue-replace-btn")[0]);
+	click("确定");
+	const upgraded = lib.storage.rogueSlots[0];
+	assertEqual(upgraded.currency.gold, 100, "只扣一次标价");
+	assertEqual(JSON.stringify(upgraded.curios), JSON.stringify(["energy_core"]), "不多一件");
+	assertEqual(JSON.stringify(upgraded.curioQuality), JSON.stringify({ energy_core: "rare" }), "买回去升一级");
+	assertEqual(upgraded.pendingEvent, null, "成交后事件结束");
+	// 满品质：不是「付不起」，入口照常可点，点下去弹作者那句、金币一个不动、事件结束
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		currency: { gold: 200, exp: 0 },
+		curios: ["energy_core"],
+		curioQuality: { energy_core: "epic" },
+		pendingEvent: merchantEvent,
+	});
+	session();
+	const maxedEntry = nodesWithClass("wm-rogue-event-choice").find(node => textOf(node).includes("和商人交易"));
+	assert(maxedEntry && !maxedEntry.classList.contains("wm-rogue-disabled"), "满品质不是付不起，不置灰");
+	assert(!textOf(maxedEntry).includes("货币不足"), "不写货币不足");
+	clickNode(maxedEntry);
+	assert(screenText().includes("他已经把最好的一件卖给你了"), `弹作者写的提示：${screenText().slice(0, 300)}`);
+	click("确定");
+	const maxed = lib.storage.rogueSlots[0];
+	assertEqual(maxed.currency.gold, 200, "满品质不扣费");
+	assertEqual(maxed.pendingEvent, null, "提示后事件结束");
+	return "已拥有未满：买下升级 / 满品质：提示 + 零扣费";
 });
 
 await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「商店刷新」照旧，Boss 判定与奇物商店刷新流程不受影响", async () => {

@@ -621,7 +621,7 @@ function buildStatSummary(parent, run, statId) {
 
 /** 一张技能卡：出处头像 + 技能名 + 描述 + 售价 + 购买按钮 */
 function buildOfferCard(parent, offer, api) {
-	const card = ui.create.div(".wm-rogue-shop-card", parent);
+	const card = ui.create.div(".wm-rogue-shop-card");
 	addSkillHead(card, offer.id);
 	const intro = skillInfo(offer.id);
 	const desc = ui.create.div(".wm-rogue-shop-desc", intro, card);
@@ -637,12 +637,17 @@ function buildOfferCard(parent, offer, api) {
 			api.buySkill(offer.id);
 		}
 	}, "wm-rogue-shop-buy");
+	// 首帧就带着最终状态进 DOM：本体 layout 有一条 `div { transition: all .5s }`，
+	// 先挂载成「可购买」再补置灰类，会被播成半秒渐隐——刷新候选时尤其明显。
+	// paint 里的资源数字会读 clientWidth，那次强制样式解析正好把「可购买」定格成过渡起点
+	paintOffer(row, api.getRun(), typeof api.isSkillAllowed === "function" ? api.isSkillAllowed : null);
+	parent.appendChild(card);
 	return row;
 }
 
 /** 一张属性卡：属性名 + 等级 + 当前累计效果 + 升级价 + 升级按钮 */
 function buildStatCard(parent, statId, api) {
-	const card = ui.create.div(".wm-rogue-stat-card", parent);
+	const card = ui.create.div(".wm-rogue-stat-card");
 	const head = ui.create.div(".wm-rogue-stat-head", card);
 	ui.create.div(".wm-rogue-stat-name", stats[statId].name, head);
 	const level = ui.create.div(".wm-rogue-stat-level", "", head);
@@ -655,6 +660,9 @@ function buildStatCard(parent, statId, api) {
 			api.upgradeStat(statId);
 		}
 	}, "wm-rogue-stat-up");
+	// 与技能卡同一条首帧纪律（见 buildOfferCard 的说明）
+	paintStat(row, api.getRun(), api.checkStatUpgrade);
+	parent.appendChild(card);
 	return row;
 }
 
@@ -669,7 +677,7 @@ function addCurioRarity(parent, def) {
 /** 一张奇物卡：方形图 + 名称 + 稀有度 + 效果 + 售价 + 购买按钮 */
 function buildCurioCard(parent, offer, api) {
 	const def = getCurio(offer.id);
-	const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-curio-card", parent);
+	const card = ui.create.div(".wm-rogue-shop-card.wm-rogue-curio-card");
 	const top = ui.create.div(".wm-rogue-shop-top", card);
 	const art = ui.create.div(".wm-rogue-curio-art", top);
 	if (def?.image) {
@@ -694,6 +702,9 @@ function buildCurioCard(parent, offer, api) {
 			api.buyCurio(offer.id);
 		}
 	}, "wm-rogue-shop-buy");
+	// 与技能卡同一条首帧纪律（见 buildOfferCard 的说明）
+	paintCurio(row, api.getRun());
+	parent.appendChild(card);
 	return row;
 }
 
