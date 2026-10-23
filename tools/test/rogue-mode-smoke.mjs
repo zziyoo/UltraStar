@@ -1626,6 +1626,57 @@ await check("商店：候选池并上全体武将技能，禁用过的武将不�
 	}
 });
 
+await check("商店：非法技能卡点购买按钮不恢复高亮、不触发购买，仍可点开描述", async () => {
+	// 候选入档时合法，进店前武将才被禁用（读档/改配置之后的真实场景）→ 卡片应以「已下架」显示。
+	// 技能要先在 session 里注册好（start 会按 skillGate 清洗候选），禁用放在 session 之后
+	putRun(0, {
+		mode: "endless",
+		currentBattle: null,
+		level: 1,
+		currency: { gold: 1000, exp: 0 },
+		skills: [],
+		shopOffers: [
+			{ id: "rogue_extra", price: 50, sold: false },
+			{ id: "own_one", price: 50, sold: false },
+			{ id: "own_two", price: 50, sold: false },
+		],
+	});
+	session();
+	// session 之后再禁：候选已经在 context.run 里，paint 阶段才会判成「已下架」
+	lib.character["池乙"] = [4, "male", "shu", ["rogue_extra"], 1];
+	lib.config.all.mode.push("identity");
+	lib.config.identity_banned = ["池乙"];
+	try {
+		click("商店");
+		const card = nodesWithClass("wm-rogue-shop-card").find(node => !node.classList.contains("wm-rogue-curio-card") && dump(node).includes("额外"));
+		assert(card, `非法技能的卡片仍在（读档后技能才被禁）：${JSON.stringify(lib.storage.rogueSlots[0]?.shopOffers)}`);
+		const button = collect(node => node.classList?.contains?.("wm-rogue-shop-buy"), card)[0];
+		assertEqual(textOf(button), "已下架", "首帧就是已下架");
+		assert(card.classList.contains("wm-rogue-off"), "首帧置灰");
+		assert(button.classList.contains("wm-rogue-disabled"), "按钮首帧禁用");
+		const before = JSON.stringify(lib.storage.rogueSlots[0].shopOffers);
+		for (let i = 0; i < 3; i++) {
+			clickNode(button);
+			assertEqual(textOf(button), "已下架", `第 ${i + 1} 次点击后仍是已下架`);
+			assert(card.classList.contains("wm-rogue-off"), `第 ${i + 1} 次点击后卡片仍置灰`);
+			assert(button.classList.contains("wm-rogue-disabled"), `第 ${i + 1} 次点击后按钮仍禁用`);
+			assertEqual(nodesWithClass("wm-rogue-popup").length, 0, "点禁用按钮不弹错、不触发购买");
+		}
+		assertEqual(JSON.stringify(lib.storage.rogueSlots[0].shopOffers), before, "候选与 sold 标记一个不动");
+		assertEqual(JSON.stringify(lib.storage.rogueSlots[0].skillInventory), JSON.stringify([]), "没有买到东西");
+		// 卡片本身仍能点开完整描述
+		clickNode(card);
+		assert(nodesWithClass("wm-rogue-popup").length > 0, "禁用卡仍可查看完整描述");
+		assert(screenText().includes("测试用技能"), "弹层里是这条技能的描述");
+		nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+		return "非法卡连点 3 次不恢复高亮 / 不购买 / 描述可看";
+	} finally {
+		lib.config.all.mode = lib.config.all.mode.filter(mode => mode !== "identity");
+		delete lib.config.identity_banned;
+		delete lib.character["池乙"];
+	}
+});
+
 await check("商店：购买一个后本次不能再买第二个", async () => {
 	putRun(0, {
 		currentBattle: null,
@@ -1658,6 +1709,59 @@ await check("商店：购买一个后本次不能再买第二个", async () => {
 	click("商店");
 	assert(screenText().includes("金币不足"), "余额不足显示在购买按钮上");
 	return "买到 rogue_extra";
+});
+
+await check("商店：恰好等于售价时可买；已购买 / 金币不足 / 已拥有的按钮再点都不成交", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		currentBattle: null,
+		level: 1,
+		skills: [],
+		skillInventory: [],
+		currency: { gold: 100, exp: 0 },
+		shopOffers: [
+			{ id: "own_one", price: 100, sold: false },
+			{ id: "own_two", price: 100, sold: false },
+		],
+	});
+	session();
+	click("商店");
+	const buy = () => nodesWithClass("wm-rogue-shop-buy");
+	assertEqual(textOf(buy()[0]), "购买", "恰好够时第一张可买");
+	clickNode(buy()[0]);
+	await flush();
+	let slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.currency.gold, 0, "恰好 100 金币成交、余额归零");
+	assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify(["own_one"]), "技能入袋");
+	assertEqual(textOf(buy()[0]), "已购买", "买过的卡变已购买");
+	assertEqual(textOf(buy()[1]), "金币不足", "第二张金币不足（恰好只够一件）");
+	// 再点已购买 / 金币不足的按钮：不成交、不扣费
+	clickNode(buy()[0]);
+	clickNode(buy()[1]);
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify(["own_one"]), "禁用按钮不再购买");
+	assertEqual(slot.currency.gold, 0, "不再扣费");
+	// 已拥有：背包里已有同名技能 → 显示已拥有，点了不买
+	putRun(0, {
+		mode: "endless",
+		currentBattle: null,
+		level: 1,
+		skills: [],
+		skillInventory: ["own_one"],
+		currency: { gold: 100, exp: 0 },
+		shopOffers: [{ id: "own_one", price: 50, sold: false }],
+	});
+	session();
+	click("商店");
+	assertEqual(textOf(buy()[0]), "已拥有", "已拥有显示已拥有");
+	clickNode(buy()[0]);
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify(["own_one"]), "已拥有的按钮点不动");
+	assertEqual(slot.currency.gold, 100, "不扣费");
+	return "恰好成交 / 已购买 / 金币不足 / 已拥有";
 });
 
 await check("商店刷新：标题右侧按钮，点一次重掷技能与价格、次数 -1 并立即落盘", async () => {
@@ -1846,6 +1950,38 @@ await check("商店首帧：刷新/重进/读档时技能卡进 DOM 前状态已
 	}
 });
 
+await check("商店：金币不足时刷新，新候选进 DOM 首帧就置灰", async () => {
+	freshWorld();
+	const watcher = watchShopCardInsertions();
+	try {
+		putRun(0, {
+			currentBattle: null,
+			level: 1,
+			skills: [],
+			currency: { gold: 0, exp: 0 },
+			shopOffers: [
+				{ id: "own_one", price: 10, sold: false },
+				{ id: "own_two", price: 20, sold: false },
+			],
+			shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+		});
+		session();
+		click("商店");
+		const first = watcher.snapshots.filter(snap => !snap.curio);
+		assert(first.length > 0 && first.every(snap => snap.cardOff && snap.buttonOff), "进店：0 金币首帧全灰");
+		const mark = watcher.snapshots.length;
+		clickNode(nodesWithClass("wm-rogue-shop-refresh")[0]);
+		await flush();
+		const fresh = watcher.snapshots.slice(mark).filter(snap => !snap.curio);
+		assertEqual(fresh.length, cfg.SKILL_OFFER_COUNT, "刷新后重建三张");
+		assert(fresh.every(snap => snap.cardOff && snap.buttonOff), "刷新后新卡首帧全灰");
+		assert(nodesWithClass("wm-rogue-shop-buy").every(node => textOf(node) === "金币不足"), "刷新后按钮都是金币不足");
+		return "0 金币进店与刷新：首帧全灰";
+	} finally {
+		watcher.restore();
+	}
+});
+
 await check("奇物商店首帧：金币 0 / 恰好 / 超过时奇物卡首帧状态正确", async () => {
 	freshWorld();
 	const curioOffers = [
@@ -1881,6 +2017,25 @@ await check("奇物商店首帧：金币 0 / 恰好 / 超过时奇物卡首帧�
 	} finally {
 		watcher.restore();
 	}
+});
+
+await check("奇物商店概率：25% 基础 + 黄金罗盘 10 个百分点 = 35%，UI 与判定同源", async () => {
+	freshWorld();
+	assertEqual(cfg.CURIO_SHOP_RATE, 0.25, "基础概率保持 25%");
+	putRun(0, {
+		mode: "endless",
+		currentBattle: null,
+		level: 1,
+		currency: { gold: 0, exp: 0 },
+		curios: ["golden_compass"],
+		curioOffers: [{ id: "energy_core", price: 50 }],
+	});
+	session();
+	click("商店");
+	const text = screenText();
+	assert(text.includes("有 35% 概率刷新候选"), `罗盘叠加后 UI 显示 35%：${text.slice(0, 400)}`);
+	assertEqual(Math.round((cfg.CURIO_SHOP_RATE + 0.1) * 100), 35, "叠加口径 = 百分点相加（只掷一次，见 rogue.test 的边界用例）");
+	return "基础 25% + 罗盘 10 = UI 35%";
 });
 
 await check("收藏家橱窗锁定中：技能卡仍按余额置灰，锁定不影响禁用态", async () => {

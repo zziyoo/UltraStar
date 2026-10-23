@@ -632,15 +632,18 @@ function buildOfferCard(parent, offer, api) {
 	const foot = ui.create.div(".wm-rogue-shop-foot", card);
 	const price = ui.create.div(".wm-rogue-shop-price", "", foot);
 	const row = { id: offer.id, card, price, button: null };
+	// 初始化、原位刷新与点击守卫必须用同一个合法性判定：漏传 isSkillAllowed 时，
+	// 非法技能（禁将/已下架）点一下购买按钮会被重画成「可购买」，再被 buySkill 拒绝 → 闪一下高亮
+	const isSkillAllowed = typeof api.isSkillAllowed === "function" ? api.isSkillAllowed : null;
 	row.button = addOverlayButton("购买", foot, () => {
-		if (paintOffer(row, api.getRun()) === "buy") {
+		if (paintOffer(row, api.getRun(), isSkillAllowed) === "buy") {
 			api.buySkill(offer.id);
 		}
 	}, "wm-rogue-shop-buy");
 	// 首帧就带着最终状态进 DOM：本体 layout 有一条 `div { transition: all .5s }`，
 	// 先挂载成「可购买」再补置灰类，会被播成半秒渐隐——刷新候选时尤其明显。
 	// paint 里的资源数字会读 clientWidth，那次强制样式解析正好把「可购买」定格成过渡起点
-	paintOffer(row, api.getRun(), typeof api.isSkillAllowed === "function" ? api.isSkillAllowed : null);
+	paintOffer(row, api.getRun(), isSkillAllowed);
 	parent.appendChild(card);
 	return row;
 }

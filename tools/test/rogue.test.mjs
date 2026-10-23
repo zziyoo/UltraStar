@@ -4931,6 +4931,33 @@ check("事件池自检：随机损失必须 clampLoss，确定收费都能折算
 	return `随机损失 ${risky} 处 / 收费项 ${costs.filter(cost => Object.keys(cost).length).length} 个`;
 });
 
+check("事件池自检：付费 action 不与负数 reward 混用（入口判定与实际扣费同源）", () => {
+	const paidKinds = new Set(["merchant", "curioForge"]);
+	for (const [id, def] of Object.entries(eventsData.events)) {
+		for (const choice of def.choices ?? []) {
+			if (!choice.action || !paidKinds.has(choice.action.kind)) {
+				continue;
+			}
+			const hasLoss = ["gold", "exp", "goldByWin", "expByWin"].some(key => Number(choice.reward?.[key]) < 0);
+			assert(!hasLoss, `${id}「${choice.text}」同时写了负数 reward 与付费 action：入口按合计判、子页只扣 action，必然对不上`);
+		}
+	}
+	// 现有两个付费 action：入口折算的费用必须与子页真实扣款完全相同
+	const merchant = eventManager.buildPendingEvent("wandering_merchant", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	assertEqual(
+		JSON.stringify(eventManager.getChoiceCost(merchant.choices[0])),
+		JSON.stringify({ gold: merchant.choices[0].action.price }),
+		"商人：入口费用 = 子页实扣（标价）",
+	);
+	const forge = eventManager.buildPendingEvent("curio_forge", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	assertEqual(
+		JSON.stringify(eventManager.getChoiceCost(forge.choices[0])),
+		JSON.stringify({ exp: forge.choices[0].action.costExp }),
+		"融合炉：入口费用 = 子页实扣（经验费）",
+	);
+	return "付费 action 均未叠加负数 reward";
+});
+
 check("神秘商人集齐奇物：不扣费、直接结束事件（与「付不起」区分）", () => {
 	const merchant = eventManager.buildPendingEvent("mystery_merchant", BASE_LEVEL, () => 0, NOW, { curios: [] });
 	const full = {
