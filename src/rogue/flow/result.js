@@ -36,7 +36,15 @@ export function createResultFlow(host) {
 		// 所以它每场只生效一次，绝不会误伤下一场普通战斗。
 		const penaltyLines = [];
 		if (result.isBossBattle) {
-			const equipped = Array.isArray(run.skills) ? run.skills : [];
+			// 本场开战时装备的技能 = run.skills（最多 SKILL_SLOTS 个）+ 万象武装匣临时装备的那一个。
+			// 临时技能只记在 currentBattle.tempSkill（由 settleVictory 在清空 currentBattle 前取出），
+			// 所以这里必须把它并进失去名单——即使它已经被「故人的心」从战斗角色身上摘掉，
+			// 只要它属于本场开战时装备的技能，也要从背包永久删除。去重后交给统一的 loseSkills，
+			// 遗忘之石 / 贪食魔盒因此按件数（最多 4 件）结算，不会漏也不会重复。
+			const equipped = (Array.isArray(run.skills) ? run.skills : []).slice(0);
+			if (result.tempSkill && !equipped.includes(result.tempSkill)) {
+				equipped.push(result.tempSkill);
+			}
 			// 奖励基准显式传**刚打赢的那一关**（wonLevel）：上面的 settleVictory 已经把 run.level 推进到
 			// 下一关，遗石/魔盒若按 run.level 现算就会多发一份「下一关基准」；基准本身也只用基础奖励，
 			// 不拿结算里乘过 20 倍/8 倍的 Boss 金币经验（那是另一笔账，绝不重复乘）

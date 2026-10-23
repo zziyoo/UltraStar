@@ -95,6 +95,8 @@ const CSS = `
 	padding: 18px 20px; border-radius: 8px;
 	background: linear-gradient(rgba(28,28,28,0.96), rgba(12,12,12,0.98));
 	border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 24px rgba(0,0,0,0.6); }
+.wm-rogue-popup-title { font-size: 22px; font-weight: bold; color: #ffd479; line-height: 1.4; margin-bottom: 10px;
+	letter-spacing: 2px; text-shadow: 0 2px 4px rgba(0,0,0,0.85); }
 .wm-rogue-popup-line { font-size: 17px; color: #fff; line-height: 1.6; margin-bottom: 6px; }
 .wm-rogue-popup-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 
@@ -575,6 +577,7 @@ const CSS = `
 /* 弹层的盒与行必须钉回 block：主题的裸 div{display:inline-block} 会把多行提示挤成一行
    （真机实录：奇物弹层的「名称行」与「效果行」并排成了一句） */
 #wm-rogue-overlay .wm-rogue-popup-box,
+#wm-rogue-overlay .wm-rogue-popup-title,
 #wm-rogue-overlay .wm-rogue-popup-line { display: block !important; }
 #wm-rogue-overlay .wm-rogue-popup-actions { display: flex !important; }
 #wm-rogue-overlay .wm-rogue-card,

@@ -68,6 +68,13 @@
 //                     eventExpRate     从**随机事件中获得的正数经验奖励**额外 +N（事件结算，记忆棱镜 0.25 = +25%）。
 //                                        只加成事件自己发的那笔经验：经验消耗、普通/Boss/裂隙战斗的胜利经验、
 //                                        虫洞跳关汇总的基础奖励都不吃它；存在追问句的事件在合并成一口之后再算一次
+//                     highDamageReduce 当你将受到至少 highDamageMin 点伤害时，令此伤害 -N（战斗内，星穹壁垒 1）。
+//                                        highDamageMin 是配套键（阈值，星穹壁垒写 2），highDamageDraw 也是配套键
+//                                        （同一触发里再摸 N 张牌，史诗档写 2）；两个配套键自己都不出文案行
+//                     battleTempSkill  每场战斗开始时，从背包里随机临时装备 N 个未装备的技能（战斗内，万象武装匣 1）。
+//                                        N 即临时装备位个数，**不占 SKILL_SLOTS**；抽到的技能 id 记在
+//                                        currentBattle.tempSkill，读档/恢复原样沿用、绝不重抽；Boss 胜利时
+//                                        这个临时技能与原有装备技能一起走 loseSkills 永久失去
 //   effect          见上：界面文案一律由这些键自动生成（没有 effectText 这类手写字段），
 //                   同一个奇物各档之间、各奇物之间句式因此是统一的
 //
@@ -308,6 +315,31 @@ export const curios = {
 		rarity: "epic",
 		priceMultiplier: 1,
 		effect: { skillSacrifice: 1 },
+	},
+	// 以下两件先用既有奇物图占位（正式配图后续替换，见 README 的素材清单）。
+	// 星穹壁垒：阈值与减伤分开写，机制技只认数据；史诗档在同一触发里再摸两张。
+	star_dome_barrier: {
+		id: "star_dome_barrier",
+		name: "星穹壁垒",
+		description: "星穹为壁，微光成垒。纵有千钧之势，亦难越此一线。",
+		image: "extension/奥特之星/assets/curios/breath_belt.png",
+		rarity: "rare",
+		priceMultiplier: 1,
+		effect: { highDamageMin: 2, highDamageReduce: 1 },
+		qualityEffects: {
+			epic: { highDamageMin: 2, highDamageReduce: 1, highDamageDraw: 2 },
+		},
+	},
+	// 万象武装匣：battleTempSkill 只是开关与临时装备位个数，真正的随机抽取与 Boss 清算在流程层，
+	// 因为它必须发生在「故人的心」之前、并且随 currentBattle 落盘。
+	myriad_armory: {
+		id: "myriad_armory",
+		name: "万象武装匣",
+		description: "匣藏万象，随取随用。旧刃新锋，皆可为我一战。",
+		image: "extension/奥特之星/assets/curios/hungry_box.png",
+		rarity: "epic",
+		priceMultiplier: 1,
+		effect: { battleTempSkill: 1 },
 	},
 };
 

@@ -14,7 +14,7 @@
 // 结算类效果（expRate/goldRate/goldRateSpread）在 reward.js 胜利结算时用 getBonus 现查。
 // 商店侧：候选与售价在战斗胜利时定死写进存档（curioOffers），本文件负责生成与购买。
 
-import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_SHOP_RATE, CURIO_UPGRADE_PRICE_MULTIPLIER, MERCHANT_PRICE_MULTIPLIER, SKILL_REFRESH_PER_LEVEL } from "./config.js";
+import { CURIO_BASE_PRICE, CURIO_OFFER_COUNT, CURIO_PRICE_SPREAD, CURIO_SHOP_RATE, CURIO_UPGRADE_PRICE_MULTIPLIER, MERCHANT_PRICE_MULTIPLIER, RUN_MODE, SKILL_REFRESH_PER_LEVEL } from "./config.js";
 import { getEndlessReward } from "./data/rewards.js";
 import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE, CURIOSITY_QUALITY_CHAIN } from "./data/curios.js";
 
@@ -36,6 +36,8 @@ export const CURIOSITY_EFFECT_KEYS = [
 	"eventExpRate",
 	"lockSkillShop", "lockCurioShop",
 	"skillSacrifice",
+	"highDamageMin", "highDamageReduce", "highDamageDraw",
+	"battleTempSkill",
 ];
 
 /**
@@ -51,6 +53,10 @@ export const CURIOSITY_BATTLE_KEYS = [
 	"dyingRecallChance",
 	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
 	"skillSacrifice",
+	// 星穹壁垒：主键 highDamageReduce 出整句，阈值与摸牌数是配套键
+	"highDamageMin", "highDamageReduce", "highDamageDraw",
+	// 万象武装匣：临时装备位由 battle.js 在建局时落地，这里只负责面板显示与效果叠加
+	"battleTempSkill",
 ];
 
 /**
@@ -223,6 +229,15 @@ const EFFECT_TEXT = {
 	// 故人的心：开关式效果，同样合成一条（数值只表示「有这件奇物」，不写进句子）。
 	// 说清「每名各失去」而不是「合计失去」，否则会被读成所有敌人分摊同一笔数。
 	skillSacrifice: () => "游戏开始时，你可以失去任意个技能并指定任意名其他角色，令这些角色各失去等量个技能",
+	// 星穹壁垒：阈值和摸牌数是配套键，自己不出行；「至少 N 点」与实现里的 `event.num >= min` 同源
+	highDamageReduce: (value, effects) => {
+		const min = Number.isFinite(effects?.highDamageMin) ? effects.highDamageMin : 2;
+		const draw = effects?.highDamageDraw ?? 0;
+		const head = `当你将受到至少 ${min} 点伤害时，令此伤害 -${value}`;
+		return draw > 0 ? `${head}，并摸 ${draw} 张牌` : head;
+	},
+	// 万象武装匣：数值就是临时装备位的个数；句子按数据生成，以后加临时位不用回来改文案
+	battleTempSkill: value => `每场战斗开始时，随机将背包中${value > 1 ? `${value} 个` : "一个"}未装备的技能临时装备（不占用装备位）`,
 };
 
 /**
@@ -723,6 +738,42 @@ export function rollMerchantCurio(run, rng = Math.random) {
 		return null;
 	}
 	return pool[Math.floor(rng() * pool.length)] ?? null;
+}
+
+/**
+ * 万象武装匣：这一场新战斗要临时装备哪个技能（纯查询，不改 run、不挂技能）。
+ * 候选按构造只可能来自 `skillInventory`（无尽模式的完整背包）里**还没装备**的技能；
+ * `isSkillAllowed` 由流程层注入（与商店/读档同一个合法性闸门），不传就只做形状清洗。
+ *
+ * 只在新战斗创建的那一刻调用一次，结果随 `currentBattle.tempSkill` 落盘：
+ * 读档/恢复/失败重战都原样沿用，绝不重抽（见 flow/battle.js 与 state.js）。
+ * 没有这件奇物、非无尽、或背包里没有未装备的合法技能时返回 null（= 这一场不触发）。
+ * @param {object} run 存档
+ * @param {() => number} [rng] 可注入的随机源
+ * @param {(id: string) => boolean} [isSkillAllowed] 技能合法性闸门
+ */
+export function pickTemporarySkill(run, rng = Math.random, isSkillAllowed = null) {
+	if (run?.mode !== RUN_MODE.endless) {
+		return null;
+	}
+	if (!(getBonus(run?.curios ?? [], "battleTempSkill", run?.curioQuality) > 0)) {
+		return null;
+	}
+	const equipped = new Set(Array.isArray(run?.skills) ? run.skills : []);
+	const candidates = [];
+	for (const raw of Array.isArray(run?.skillInventory) ? run.skillInventory : []) {
+		if (typeof raw !== "string" || !raw || equipped.has(raw) || candidates.includes(raw)) {
+			continue;
+		}
+		if (typeof isSkillAllowed === "function" && !isSkillAllowed(raw)) {
+			continue;
+		}
+		candidates.push(raw);
+	}
+	if (!candidates.length) {
+		return null;
+	}
+	return candidates[Math.floor(rng() * candidates.length)] ?? null;
 }
 
 export { getCurio, curios, curioIds, CURIOSITY_RARITY, CURIOSITY_QUALITY_CHAIN };

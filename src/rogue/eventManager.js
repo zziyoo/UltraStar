@@ -846,7 +846,12 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 			},
 			pendingEvent: null,
 		};
-		return { ok: true, error: null, run: skipped, lines: ["奇物图鉴已集齐，他没有可出售的东西，这次不收货币。"], skillId: null, curioId: null, action: null };
+		// 神秘商人那句「不收货币」只属于它；其它事件（废弃补给站的深入搜寻）照实说没找到，
+		// 避免把商人台词套到别的事件页上。
+		const message = pendingEvent.id === "mystery_merchant"
+			? "奇物图鉴已集齐，他没有可出售的东西，这次不收货币。"
+			: "奇物图鉴已集齐，这次什么也没有找到。";
+		return { ok: true, error: null, run: skipped, lines: [message], skillId: null, curioId: null, action: null };
 	}
 	// 预掷赌局的失手分支（clampLoss）不能用「钱不够」拒绝——负结果是预掷出来的，拒绝/置灰都等于剧透；
 	// 它照常放行，扣款在下面按「最多扣光」收窄（capLossToHeld）
@@ -938,10 +943,19 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 					}
 				}
 				lines.push("获得一个随机技能");
-			} else {
+			} else if (sip.action?.kind !== "abyssDebt") {
+				// 带深渊债的选项由下面的守卫整项拒绝并给出完整提示，这里不重复说一遍
 				lines.push("没有可学的技能");
 			}
 		}
+	}
+
+	// 深空悬赏这类「随机技能 + 下一场深渊债」的选项：没有可学的技能时整项拒绝。
+	// 顺序必须是「先确认技能真的发到手，再记债」——否则玩家会只收到额外难度、没拿到奖励。
+	// next 此刻还没清 pendingEvent（正常出口在函数末尾统一清），这里显式收掉事件，避免反复点。
+	if (sip.action?.kind === "abyssDebt" && sip.reward?.skill === "random" && !skillId) {
+		lines.push("没有可学的技能，这份悬赏接不了，也不会欠下深渊债务。");
+		return { ok: true, error: null, run: { ...next, pendingEvent: null }, lines, skillId: null, curioId, action: null };
 	}
 
 	for (const [key, verb] of [["statUp", 1], ["statDown", -1]]) {

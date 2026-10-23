@@ -231,6 +231,8 @@ function alignBossState(enemies, bossFlags, declaredBossBattle, rift) {
  * 读档原样沿用、绝不重掷；胜利/失败结算与下一场判定都只看它，不再看整局的旧 bossRun 字段。
  * 敌人的 boss 标记在读档时与它对一次账（见 alignBossState）：冲突时既不把明确的普通敌人升级成 Boss，
  * 也不让无效形状（多人阵容、裂隙场）领 Boss 奖励，结算与战斗效果都以**对齐后**的 isBossBattle 为准。
+ * v15 内新增 tempSkill（万象武装匣为这一场临时装备的技能 id）：同样由创建战斗时写死、读档原样沿用，
+ * 旧档缺字段按 null（这一场没有临时技能）处理，绝不因为现在持有武装匣就补抽一次。
  *
  * @param {object} rawBattle 存档里的 currentBattle
  * @param {boolean} [legacyBossRun] 旧档（v11）整局的 bossRun：只用于给「这一场」补标记——
@@ -243,6 +245,10 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 		return null;
 	}
 	const rift = normalizeRift(rawBattle.rift);
+	// 万象武装匣：这一场临时装备的技能 id（创建战斗时定死）。旧档没有这个字段 →
+	// null = 这一场没有临时技能；绝不因为「现在持有武装匣」而在读档时补抽一次（那等于重掷）。
+	const rawTempSkill = sanitizeString(rawBattle.tempSkill);
+	const tempSkill = rawTempSkill && !isDeprecatedSkill(rawTempSkill) ? rawTempSkill : null;
 	const { enemies, bossFlags, rawAbyss } = normalizeBattleEnemies(rawBattle.enemies);
 	if (enemies.length) {
 		// 判定只发生在创建战斗时，这里只做还原：存档里已经写过 isBossBattle 的就以它为准，
@@ -259,7 +265,7 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 		aligned.enemies.forEach((enemy, index) => {
 			enemy.abyss = normalizeAbyssIds(rawAbyss[index], abyssContextForEnemy(enemy.boss === true));
 		});
-		return { status: BATTLE_STATUS.battle, enemies: aligned.enemies, rift, isBossBattle: aligned.isBossBattle };
+		return { status: BATTLE_STATUS.battle, enemies: aligned.enemies, rift, isBossBattle: aligned.isBossBattle, tempSkill };
 	}
 	const legacy = getEnemyGroup(sanitizeString(rawBattle.groupId));
 	if (legacy) {
@@ -280,6 +286,7 @@ function normalizeCurrentBattle(rawBattle, legacyBossRun) {
 			}), {})).enemies,
 			rift,
 			isBossBattle: false,
+			tempSkill,
 		};
 	}
 	return null;

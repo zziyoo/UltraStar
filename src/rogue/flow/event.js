@@ -3,13 +3,13 @@
 // 裂隙的开打不在本文件：这里只把阵容定死落盘并重载，真正的开局由恢复页在全新会话里做。
 
 import { BATTLE_STATUS, RUN_MODE } from "../config.js";
-import { getCurio, getNextCurioQuality, grantCurioById, upgradeCurio, CURIOSITY_RARITY } from "../curioManager.js";
+import { getCurio, getNextCurioQuality, grantCurioById, pickTemporarySkill, upgradeCurio, CURIOSITY_RARITY } from "../curioManager.js";
 import { createEnemyConfigs } from "../enemy.js";
 import { applyEventCurrency, boostEventExp, getEvent, pickRandomSkillId, resolveEventChoice } from "../eventManager.js";
 import { loseSkill } from "../penalty.js";
 import { getShopPool } from "../skillPool.js";
 import { updateBest } from "../state.js";
-import { commit, context, now, reloadNow, saveBest } from "../runtime.js";
+import { commit, context, now, reloadNow, saveBest, skillGate } from "../runtime.js";
 import { closeScreen, showChoice, showNotice, skillName } from "../ui/common.js";
 import { showCurioForge, showMerchant, showSkillForge } from "../ui/hub.js";
 import { showEvent } from "../ui/event.js";
@@ -339,6 +339,8 @@ export function createEventFlow() {
 				rift: { level: action.level, enemies: action.enemies, affixes: action.affixes + debt, gold: action.gold, exp: action.exp },
 				// 裂隙战有自己的独立结算，不参与逐场的 Boss 判定：显式记为普通战斗
 				isBossBattle: false,
+				// 万象武装匣同样在「每场战斗」生效；这一场结束时 currentBattle 整体清空，临时技能自然消失
+				tempSkill: pickTemporarySkill(run, Math.random, skillGate.isSkillAllowed),
 			},
 		};
 		reloadNow(false);

@@ -36,6 +36,9 @@ export function settleVictory(run, now, rng = Math.random) {
 	// 本场是不是 Boss 战：必须在下面把 currentBattle 置空之前取出来。它只属于刚打完的这一场，
 	// 下一场由 flow/battle.js 独立重掷，所以这里绝不能反过来把它写回 next。
 	const isBossBattle = run.currentBattle?.isBossBattle === true;
+	// 万象武装匣：这一场临时装备的技能 id 也必须在 currentBattle 清空前取出。
+	// Boss 胜利时它要和 run.skills 一起走 loseSkills 永久失去；普通胜利则随 currentBattle 丢弃。
+	const tempSkill = typeof run.currentBattle?.tempSkill === "string" ? run.currentBattle.tempSkill : null;
 	const base = run.mode === RUN_MODE.endless
 		? getEndlessReward(run.level, CURRENCIES)
 		: getChallengeReward(run.level);
@@ -147,7 +150,7 @@ export function settleVictory(run, now, rng = Math.random) {
 		next.curioOfferQueue = [];
 	}
 
-	// isBossBattle 一并回传给调用方：next 里的 currentBattle 已经被清空，
-	// 惩罚与结算页标题只能从这里拿本场的标记（见 flow/result.js）
-	return { run: next, gained, isBossBattle };
+	// isBossBattle 与 tempSkill 一并回传给调用方：next 里的 currentBattle 已经被清空，
+	// 惩罚、结算页标题与「本场临时技能也要永久失去」只能从这里拿（见 flow/result.js）
+	return { run: next, gained, isBossBattle, tempSkill };
 }

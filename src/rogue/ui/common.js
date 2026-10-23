@@ -568,13 +568,21 @@ export function skillInfo(id) {
  * 浮层内的弹窗：本体对话框在 #window 里，会被挂在 body 的浮层（z-index 9998）压在下面，
  * 玩家看不到也点不到；所以浮层当前时改用自建弹层，挂在浮层内部（继承同一套加固样式）。
  */
-function overlayPopup(lines, options) {
+function overlayPopup(lines, options, title) {
 	const host = currentScreen && currentScreen.kind === "overlay" ? currentScreen.node : document.body;
 	const popup = document.createElement("div");
 	popup.className = "wm-rogue-popup";
 	const box = document.createElement("div");
 	box.className = "wm-rogue-popup-box";
 	popup.appendChild(box);
+	// 带标题的询问框（营地「未装备任何技能」）：标题单独一行、比正文更醒目；
+	// 不带标题的提示框（showNotice / 旧 showChoice）保持原样，不凭空多一行。
+	if (title) {
+		const head = document.createElement("div");
+		head.className = "wm-rogue-popup-title";
+		head.textContent = title;
+		box.appendChild(head);
+	}
 	for (const line of lines) {
 		const node = document.createElement("div");
 		node.className = "wm-rogue-popup-line";
@@ -662,12 +670,16 @@ export function showNotice(lines, onDone) {
  * 带若干选项的询问框，用于“未完成战斗恢复”“删除确认”这类分叉。
  * @param {string[]} lines 说明文字
  * @param {{ label: string, onClick: Function }[]} options 按钮，按顺序排列
+ * @param {string} [title] 可选标题（营地「未装备任何技能」用）；不传时版式与旧调用完全一致
  */
-export function showChoice(lines, options) {
+export function showChoice(lines, options, title) {
 	if (isOverlayCurrent()) {
-		return overlayPopup(lines, options);
+		return overlayPopup(lines, options, title);
 	}
 	const dialog = new lib.element.Dialog("hidden");
+	if (title) {
+		dialog.addText(title, true);
+	}
 	dialog.addText(lines.map(line => `${line}`).join("<br>"), false);
 	dialog.add(ui.create.div(".placeholder"));
 	for (const option of options) {

@@ -93,6 +93,9 @@ export const COLLECTION_KEY = "rogueCollection";
  *      v14 的存档按 `bossPityLevel = level - 1 - bossPityCount` 折算（旧计数按 v14 自己的合法范围
  *      0..19 清洗，见 LEGACY_BOSS_PITY_COUNT_MAX；档里混进 `bossPityLevel` 也不作数）；
  *      v13 及更早两个字段都不属于它们 → 一律补 0，绝不拿当前关卡反推；版本号缺失/非法按当前版本处理。
+ * v15 内还新增了 currentBattle.tempSkill（万象武装匣为这一场临时装备的技能 id）：它只在**进行中的战斗**
+ *      里才有意义，旧档缺字段按 null 处理 = 那一场没有临时技能；不改变任何既有字段的语义，
+ *      因此**不抬版本号**（与 v9 给 shopOffers 增补 carried 同一处理）。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
 export const RUN_VERSION = 15;

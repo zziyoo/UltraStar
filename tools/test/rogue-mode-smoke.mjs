@@ -38,6 +38,8 @@ const modeModule = await load("src/rogue/mode.js");
 const battleModule = await load("src/rogue/battle.js");
 const enemyModule = await load("src/rogue/enemy.js");
 const stateModule = await load("src/rogue/state.js");
+const curioManager = await load("src/rogue/curioManager.js");
+const abyss = await load("src/rogue/endless/abyss.js");
 const statsData = await load("src/rogue/data/stats.js");
 const common = await load("src/rogue/ui/common.js");
 const bgmSystem = await load("src/systems/bgm.js");
@@ -335,6 +337,12 @@ function clickNormalBattle(label = "开始下一关") {
 	};
 	try {
 		click(label);
+		// 无尽 + 背包有技能但一件都没装备时会先弹「未装备任何技能」提醒（这是本轮的新行为）；
+		// 这些用例要的是「继续开战」，所以把提醒按「仍然出战」走掉。真正的提醒用例不经过这里。
+		// 必须在 finally 还原 Math.random 之前点，开战创建战斗仍吃着这一趟的钉子。
+		if (findNode("未装备任何技能", screenRoot())) {
+			click("仍然出战");
+		}
 	} finally {
 		// startBattle 对随机的一切消费都在这一趟同步调用里完成（beginBattle 不再掷骰），可以立刻还原
 		Math.random = prev;
@@ -357,6 +365,10 @@ function clickBossBattle(label = "开始下一关") {
 	};
 	try {
 		click(label);
+		// 与 clickNormalBattle 同一条：先把「未装备任何技能」提醒按「仍然出战」走掉
+		if (findNode("未装备任何技能", screenRoot())) {
+			click("仍然出战");
+		}
 	} finally {
 		Math.random = prev;
 	}
@@ -4121,8 +4133,13 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 			killDrawToMaxHp: 0,
 			killDrawMaxHp: 1,
 			skillSacrifice: 0,
+			// 本轮新增的战斗内键：这一场没带星穹壁垒 / 万象武装匣，照表写 0，形状保持稳定
+			highDamageMin: 0,
+			highDamageReduce: 0,
+			highDamageDraw: 0,
+			battleTempSkill: 0,
 		}),
-		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；回响之铃的概率键要保留小数 0.5；史诗破碎王冠走「回复至上限 + 摸上限张」；幸运石是结算类不进 storage；故人的心这一场没带所以筹码键是 0）"
+		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；回响之铃的概率键要保留小数 0.5；史诗破碎王冠走「回复至上限 + 摸上限张」；幸运石是结算类不进 storage；故人的心这一场没带所以筹码键是 0；本轮新增的星穹壁垒/万象武装匣键也按 0 写满）"
 	);
 	assertEqual(lib.hookmap.phaseBegin, true, "额外出牌阶段时机已登记");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "摸牌时机已登记");
@@ -7135,6 +7152,627 @@ await check("故人的心：group 伙伴自己的 onremove 抛错 —— 触发�
 		console.error = savedError;
 	}
 	return "连带摘光触发器的伙伴：附加技能 / 觉醒态 / 钩子通知照样补全且不重复";
+});
+
+// ---------------------------------------------------------------- 本轮新增：未装备提醒 / 万象武装匣 / 商店属性区 / 新事件
+
+await check("营地「未装备任何技能」提醒：条件、返回装备零副作用、仍然出战只开一次", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		// 背包有技能、手动装备 0 个，且持有万象武装匣——仍应提醒（临时技能不算手动装备）
+		putRun(0, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			skills: [],
+			skillInventory: ["own_one", "own_two"],
+			curios: ["myriad_armory"],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		const before = JSON.stringify(lib.storage.rogueSlots[0]);
+		click("开始下一关");
+		assertEqual(nodesWithClass("wm-rogue-popup-title").length, 1, "应弹出带标题的提醒");
+		assertEqual(textOf(nodesWithClass("wm-rogue-popup-title")[0]), "未装备任何技能", "标题");
+		assert(screenText().includes("检测到你的背包中拥有技能，但当前没有装备任何技能。是否仍要开始下一关？"), "正文");
+		assert(screenText().includes("返回装备") && screenText().includes("仍然出战"), "两个按钮都在");
+		// 返回装备：只开技能页，绝不提前建阵容 / 扣资源 / 写 currentBattle
+		click("返回装备");
+		assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "返回装备一个字节都不写");
+		assert(!lib.storage.rogueSlots[0].currentBattle, "没有提前创建敌方阵容");
+		assert(screenText().includes("技能（装备 0/3"), "进入技能管理页");
+		clickNode(nodesWithClass("wm-rogue-skill-btn")[0]);
+		await flush();
+		assertEqual(lib.storage.rogueSlots[0].skills.length, 1, "在技能页装备成功");
+		click("返回");
+		assert(screenText().includes("开始下一关") && !nodesWithClass("wm-rogue-popup").length, "返回营地，旧提醒不会再次弹出");
+		clickNormalBattle();
+		await flush();
+		assert(lib.storage.rogueSlots[0].currentBattle, "已手动装备 1 个 → 直接开战");
+		// 仍然出战：背包有技能、0 装备时照常开战，只创建一次
+		putRun(1, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			skills: [],
+			skillInventory: ["own_one"],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		click("开始下一关");
+		assert(textOf(nodesWithClass("wm-rogue-popup-title")[0]) === "未装备任何技能", "第二档同样提醒");
+		click("仍然出战");
+		await flush();
+		assert(lib.storage.rogueSlots[1].currentBattle, "仍然出战正常创建这一场");
+		assert(!nodesWithClass("wm-rogue-popup").length, "弹窗已收掉，不会重复");
+		// 背包为空：不弹窗，直接开战
+		putRun(2, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			skills: [],
+			skillInventory: [],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		clickNormalBattle();
+		await flush();
+		assert(lib.storage.rogueSlots[2].currentBattle, "背包为空不提醒");
+		// 恢复已创建的战斗：不进营地入口，不触发提醒
+		putRun(3, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			skills: [],
+			skillInventory: ["own_one"],
+			currency: { gold: 0, exp: 0 },
+			currentBattle: { status: "battle", enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }], isBossBattle: false },
+		});
+		session();
+		click("重新挑战这一关");
+		await flush();
+		assert(!nodesWithClass("wm-rogue-popup").length, "恢复战斗不再提醒");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "提醒条件 / 返回装备零副作用 / 仍然出战一次 / 背包空与恢复战斗不弹";
+});
+
+await check("万象武装匣：开战前抽定并真实挂上临时技能，装备位仍为 3，读档恢复不重抽", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		putRun(0, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			curios: ["myriad_armory"],
+			skills: ["own_one", "own_two", "own_three"],
+			skillInventory: ["own_one", "own_two", "own_three", "own_four"],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		// 临时技能带一个 group 伙伴：走 grantSkills 时伙伴只登记触发器、不能独立上技能表
+		lib.skill.own_four = { forced: true, group: "own_four_part", trigger: { player: "phaseDrawBegin2" } };
+		lib.skill.own_four_part = { forced: true, trigger: { player: "damageBegin3" } };
+		lib.translate.own_four_part = "临时伙伴";
+		clickNormalBattle();
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		const temp = slot.currentBattle.tempSkill;
+		assertEqual(temp, "own_four", "唯一未装备的合法技能被抽中");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two", "own_three"]), "原装备位一个不增（仍 3 个）");
+		assert(slot.skillInventory.includes(temp), "背包里的该技能仍保留");
+		assert(game.me.hasSkill(temp), "临时技能真的注册到战斗角色身上");
+		assertEqual(game.me.__skills.filter(id => id === "own_four").length, 1, "临时主技能只上技能表一次");
+		assert(!game.me.__skills.includes("own_four_part") && !game.me.getSkills().includes("own_four_part"), "group 伙伴不独立显示在技能表/技能面板");
+		assert(game.me.hasSkill("own_four_part"), "group 伙伴仍按本体展开语义算拥有");
+		assert((lib.hook[`${game.me.playerid}_player_phaseDrawBegin2`] ?? []).includes(temp), "临时技能的触发器已登记");
+		assert((lib.hook[`${game.me.playerid}_player_damageBegin3`] ?? []).includes("own_four_part"), "临时技能的 group 伙伴触发器也登记");
+		// 中途刷新/读档：恢复同一个战斗，绝不重抽
+		session();
+		click("重新挑战这一关");
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.tempSkill, temp, "读档沿用同一个临时技能");
+		assert(game.me.hasSkill(temp), "恢复后照常挂上同一个临时技能");
+		// 没有候选：4 个全装备时 currentBattle.tempSkill 为 null
+		putRun(1, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			curios: ["myriad_armory"],
+			skills: ["own_one", "own_two", "own_three"],
+			skillInventory: ["own_one", "own_two", "own_three"],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		clickNormalBattle();
+		await flush();
+		assertEqual(lib.storage.rogueSlots[1].currentBattle.tempSkill, null, "全装备时没有临时技能，也不报错");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "临时技能挂载 + 装备位不变 + 读档不重抽 + 无候选不触发";
+});
+
+await check("万象武装匣：闯关存档即使混进 tempSkill 也不在战斗里多挂技能", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "challenge",
+		level: 1,
+		characterId: "迪迦",
+		skills: ["own_one"],
+		// 闯关的 skillInventory 是历史残留、不参与判定；这里故意塞一条 + tempSkill
+		skillInventory: ["own_one", "own_two"],
+		currency: { gold: 0, exp: 0 },
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
+			isBossBattle: false,
+			tempSkill: "own_two",
+		},
+	});
+	session();
+	click("重新挑战这一关");
+	await flush();
+	assertEqual(game.me.hasSkill("own_two"), false, "闯关不挂临时技能（技能栏机制不变）");
+	assertEqual(JSON.stringify(lib.storage.rogueSlots[0].skills), JSON.stringify(["own_one"]), "技能栏仍是原来的 1 个");
+	return "闯关忽略 tempSkill";
+});
+
+await check("万象武装匣 × 故人的心：临时技能先挂上、可被牺牲，存档与背包不动", async () => {
+	freshWorld();
+	registerSacrificeProbeSkills(["own_one", "own_two", "own_three", "own_four", "own_five", "own_six", "own_seven", "own_eight"]);
+	lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: [] };
+	lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["own_five", "own_six", "own_seven", "own_eight"] };
+	putRun(0, {
+		mode: "endless",
+		level: 2,
+		characterId: "迪迦",
+		curios: ["myriad_armory", "old_friend_heart"],
+		skills: ["own_one", "own_two", "own_three"],
+		skillInventory: ["own_one", "own_two", "own_three", "own_four"],
+		currency: { gold: 0, exp: 0 },
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
+			isBossBattle: false,
+			tempSkill: "own_four",
+		},
+	});
+	session();
+	click("重新挑战这一关");
+	const overlay = common.currentScreenNode();
+	assert(overlay?.classList?.contains("wm-rogue-heart-overlay"), `万象武装匣先于故人的心挂载，选择页应已打开：${overlay?.className ?? "无页面"}`);
+	assert(screenText().includes("own_four"), "临时技能出现在可牺牲列表里");
+	click("own_four");
+	click("下一步");
+	click("own_five");
+	click("确认");
+	await flush();
+	assertEqual(game.me.hasSkill("own_four"), false, "故人的心把临时技能从战斗角色身上摘掉");
+	assert(game.me.hasSkill("own_one") && game.me.hasSkill("own_two") && game.me.hasSkill("own_three"), "原有装备技能不受影响");
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.currentBattle.tempSkill, "own_four", "本场开战记录不受故人的心影响（Boss 清算仍按它）");
+	assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify(["own_one", "own_two", "own_three", "own_four"]), "背包一个字不动");
+	assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two", "own_three"]), "装备栏一个字不动");
+	assert(log.some(item => item.type === "trigger:gameStart"), "牺牲后照常开局");
+	return "临时技能可被牺牲 / 存档与背包不动 / 记录保留";
+});
+
+await check("万象武装匣 × 故人的心：临时技能被牺牲后，Boss 胜利仍从背包永久删除", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		registerSacrificeProbeSkills(["own_one", "own_two", "own_three", "own_four", "own_five", "own_six", "own_seven", "own_eight"]);
+		lib.character["迪迦"] = { hp: 4, maxHp: 4, skills: [] };
+		lib.character["佐菲"] = { hp: 4, maxHp: 4, skills: ["own_five", "own_six", "own_seven", "own_eight"] };
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			characterId: "迪迦",
+			curios: ["myriad_armory", "old_friend_heart", "energy_core"],
+			skills: ["own_one", "own_two", "own_three"],
+			skillInventory: ["own_one", "own_two", "own_three", "own_four"],
+			currency: { gold: 0, exp: 0 },
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], boss: true, maxHp: 0, hp: 0 }],
+				isBossBattle: true,
+				tempSkill: "own_four",
+			},
+		});
+		session();
+		click("重新挑战这一关");
+		assert(common.currentScreenNode()?.classList?.contains("wm-rogue-heart-overlay"), "故人的心先开选择页（万象武装匣已挂载）");
+		click("own_four");
+		click("下一步");
+		click("own_five");
+		click("确认");
+		await flush();
+		assertEqual(game.me.hasSkill("own_four"), false, "临时技能被故人的心从战斗角色身上摘掉");
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.tempSkill, "own_four", "本场开战记录仍在（Boss 清算按它）");
+		assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify(["own_one", "own_two", "own_three", "own_four"]), "牺牲不动背包");
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(slot.skillInventory), "[]", "即使临时技能已不在角色身上，Boss 胜利仍从背包删除它");
+		assertEqual(JSON.stringify(slot.skills), "[]", "原有 3 个装备技能同样删除");
+		assert(screenText().includes("失去了全部 4 个装备技能"), `代价提示按 4 件现写：${screenText().slice(0, 220)}`);
+		payBossPenalty("能量核心");
+		assertEqual(lib.storage.rogueSlots[0].pendingBossPenalty, null, "奇物惩罚结清");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "故人的心摘掉临时技能 / Boss 仍按本场记录删除 4 件";
+});
+
+await check("万象武装匣：普通战斗胜利只让临时技能消失，背包与原有装备都不删", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		putRun(0, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			curios: ["myriad_armory"],
+			skills: ["own_one", "own_two", "own_three"],
+			skillInventory: ["own_one", "own_two", "own_three", "own_four"],
+			currency: { gold: 0, exp: 0 },
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
+				isBossBattle: false,
+				tempSkill: "own_four",
+			},
+		});
+		session();
+		click("重新挑战这一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		const slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle, null, "战斗结束，临时记录随 currentBattle 清空");
+		assertEqual(JSON.stringify(slot.skills), JSON.stringify(["own_one", "own_two", "own_three"]), "普通胜利不删原有装备技能");
+		assertEqual(JSON.stringify(slot.skillInventory), JSON.stringify(["own_one", "own_two", "own_three", "own_four"]), "临时技能仍在背包里");
+		assertEqual(slot.pendingBossPenalty, null, "普通胜利不挂 Boss 惩罚");
+		click("返回营地");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "临时消失 / 背包保留 / 原装备保留 / 无惩罚";
+});
+
+await check("万象武装匣：Boss 胜利永久删除第 4 个临时技能，遗忘之石/贪食魔盒按 4 件结算", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		const wonLevel = 3;
+		putRun(0, {
+			mode: "endless",
+			level: wonLevel,
+			characterId: "迪迦",
+			skills: ["own_one", "own_two", "own_three"],
+			skillInventory: ["own_one", "own_two", "own_three", "own_four"],
+			curios: ["myriad_armory", "oblivion_stone", "gluttonous_box", "energy_core"],
+			currency: { gold: 0, exp: 0 },
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], boss: true, maxHp: 0, hp: 0 }],
+				isBossBattle: true,
+				tempSkill: "own_four",
+			},
+		});
+		session();
+		click("重新挑战这一关");
+		await flush();
+		assert(game.me.hasSkill("own_four"), "开战时第 4 个技能确实在身上");
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		const base = rewardsData.getEndlessReward(wonLevel, ["gold", "exp"]);
+		const slot = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(slot.skills), "[]", "原有 3 个装备技能全部失去");
+		assertEqual(JSON.stringify(slot.skillInventory), "[]", "第 4 个临时技能也从背包永久删除");
+		assertEqual(slot.currency.gold, base.gold * cfg.BOSS_REWARD_MULTIPLIER + 4 * curioManager.getSkillLossRewardGold(slot, wonLevel), "Boss 金币 + 4 件遗忘之石");
+		assertEqual(slot.currency.exp, base.exp * cfg.BOSS_EXP_MULTIPLIER + 4 * curioManager.getSkillLossRewardExp(slot, wonLevel), "Boss 经验 + 4 件贪食魔盒");
+		const page = screenText();
+		assert(page.includes("Boss 战的代价：失去了全部 4 个装备技能"), `代价提示按 4 件现写：${page.slice(0, 240)}`);
+		assertEqual(page.split("Boss 战的代价").length - 1, 1, "只出现一条代价提示");
+		assertEqual(JSON.stringify(slot.pendingBossPenalty), JSON.stringify({ reason: "bossVictory", needSkill: false, needCurio: true }), "只欠奇物那一项");
+		// 结算行里也写着「遗忘之石」，按文字找会先命中不可点的账目行；直接点那张奇物卡
+		const stoneCard = nodesWithClass("wm-rogue-boss-card").find(node => dump(node).includes("遗忘之石"));
+		assert(stoneCard, "惩罚页应有遗忘之石卡片");
+		clickNode(stoneCard);
+		click("确定");
+		const after = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(after.skillInventory), "[]", "付清奇物惩罚不会复活技能");
+		assert(after.curios.includes("myriad_armory"), "武器匣本身不会被技能清算连带丢掉");
+		assert(!after.curios.includes("oblivion_stone"), "玩家选择失去的是遗忘之石");
+		const snapshot = JSON.stringify({ skills: after.skills, inventory: after.skillInventory, currency: after.currency });
+		session();
+		assertEqual(JSON.stringify({ skills: lib.storage.rogueSlots[0].skills, inventory: lib.storage.rogueSlots[0].skillInventory, currency: lib.storage.rogueSlots[0].currency }), snapshot, "读档不会重复删除或重复发失技奖励");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "第 4 技能永久删除 / 4 件失技奖励 / 一次结算";
+});
+
+await check("万象武装匣：新建的 Boss 战同样把随机到的第 4 个技能纳入永久失去", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		putRun(0, {
+			mode: "endless",
+			level: 3,
+			characterId: "迪迦",
+			skills: ["own_one", "own_two", "own_three"],
+			skillInventory: ["own_one", "own_two", "own_three", "own_four"],
+			curios: ["myriad_armory", "energy_core"],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		// 第一掷钉中 Boss；其余掷 0.999 → 临时技能抽到唯一未装备的 own_four
+		clickBossBattle();
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.currentBattle.isBossBattle, true, "这一场是新建出来的 Boss 战");
+		assertEqual(slot.currentBattle.tempSkill, "own_four", "创建 Boss 战时照样抽定临时技能");
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(JSON.stringify(slot.skills), "[]", "原有 3 个装备技能失去");
+		assertEqual(JSON.stringify(slot.skillInventory), "[]", "新建 Boss 战里随机到的第 4 个技能也永久删除");
+		assert(screenText().includes("失去了全部 4 个装备技能"), `代价提示按 4 件现写：${screenText().slice(0, 220)}`);
+		payBossPenalty("能量核心");
+		assertEqual(lib.storage.rogueSlots[0].pendingBossPenalty, null, "奇物惩罚照常结清");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "新建 Boss 战：创建时抽定 → 胜利时 4 件一起清算";
+});
+
+await check("万象武装匣：Boss 惩罚后再失去武器匣也不影响已经发生的技能损失", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		putRun(0, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			skills: ["own_one"],
+			skillInventory: ["own_one", "own_two"],
+			curios: ["myriad_armory"],
+			currency: { gold: 0, exp: 0 },
+			currentBattle: {
+				status: "battle",
+				enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], boss: true, maxHp: 0, hp: 0 }],
+				isBossBattle: true,
+				tempSkill: "own_two",
+			},
+		});
+		session();
+		click("重新挑战这一关");
+		await flush();
+		for (const player of game.players.slice(1)) {
+			player.__alive = false;
+		}
+		lib.element.player.dieAfter.call(game.players[1]);
+		await flush();
+		payBossPenalty("万象武装匣");
+		const slot = lib.storage.rogueSlots[0];
+		assert(!slot.curios.includes("myriad_armory"), "武器匣按玩家的选择失去");
+		assertEqual(JSON.stringify(slot.skillInventory), "[]", "技能损失在武器匣被罚之前已经落定，不回滚");
+		assertEqual(JSON.stringify(slot.skills), "[]", "装备栏同样保持已清算状态");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "先技能清算、后奇物惩罚，互不回滚";
+});
+
+await check("商店属性强化：三项全满时整区隐藏，最后一项升满立即隐藏，读档/重进/闯关一致", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		// 三项全满：标题与卡片行都挂 hidden
+		putRun(0, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			stats: { defense: 10, draw: 10, attack: 10 },
+			skills: ["own_one"],
+			skillInventory: ["own_one"],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		click("商店");
+		assertEqual(nodesWithClass("wm-rogue-shop-card").length, 3, "技能候选照常显示");
+		const titles = nodesWithClass("wm-rogue-shop-section-title");
+		const statTitle = titles.find(node => textOf(node) === "属性强化");
+		assert(statTitle && statTitle.classList.contains("wm-rogue-hidden"), "三项全满时「属性强化」标题隐藏");
+		const statRows = nodesWithClass("wm-rogue-stat-cards");
+		assert(statRows.length && statRows.every(node => node.classList.contains("wm-rogue-hidden")), "三张属性卡与占位一起隐藏");
+		assert(nodesWithClass("wm-rogue-res-cell").length >= 3, "资源栏照常");
+		// 读档重进：保持一致
+		session();
+		click("商店");
+		assert(nodesWithClass("wm-rogue-stat-cards").every(node => node.classList.contains("wm-rogue-hidden")), "读档后仍隐藏");
+		// 最后一项升满：原位刷新立即隐藏
+		putRun(1, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			stats: { defense: 10, draw: 10, attack: 9 },
+			skills: ["own_one"],
+			skillInventory: ["own_one"],
+			currency: { gold: 0, exp: 99999 },
+		});
+		session();
+		click("商店");
+		let row = nodesWithClass("wm-rogue-stat-cards")[0];
+		assert(!row.classList.contains("wm-rogue-hidden"), "未全满时属性区可见");
+		const attackButton = nodesWithClass("wm-rogue-stat-up")[2];
+		assert(!attackButton.classList.contains("wm-rogue-disabled"), "最后一项可升级");
+		clickNode(attackButton);
+		await flush();
+		assertEqual(lib.storage.rogueSlots[1].stats.attack, 10, "攻击升满");
+		row = nodesWithClass("wm-rogue-stat-cards")[0];
+		assert(row.classList.contains("wm-rogue-hidden"), "最后一项升满后原位隐藏（无需退出商店）");
+		const titleAfter = nodesWithClass("wm-rogue-shop-section-title").find(node => textOf(node) === "属性强化");
+		assert(titleAfter.classList.contains("wm-rogue-hidden"), "标题同步隐藏");
+		// 闯关模式同样适用
+		putRun(2, {
+			mode: "challenge",
+			level: 2,
+			characterId: "迪迦",
+			stats: { defense: 10, draw: 10, attack: 10 },
+			skills: ["own_one"],
+			currency: { gold: 0, exp: 0 },
+		});
+		session();
+		click("商店");
+		assert(nodesWithClass("wm-rogue-stat-cards")[0].classList.contains("wm-rogue-hidden"), "闯关三项全满同样隐藏");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "全满隐藏 / 即时刷新 / 读档一致 / 两模式一致";
+});
+
+await check("废弃补给站「深入搜寻」：四档预掷与 UI 如实展示技能/金币/空奖池", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		// 60% 金币经验档：预掷定死后按钮不剧透，结算账目如实
+		const moneyEvent = eventManager.buildPendingEvent("abandoned_supply", 2, () => 0.5, 1, { curios: [] });
+		putRun(0, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			currency: { gold: 0, exp: 0 },
+			pendingEvent: moneyEvent,
+		});
+		session();
+		assert(screenText().includes("深入搜寻"), "事件页显示新选项");
+		click("深入搜寻");
+		await flush();
+		const notice = screenText();
+		assert(notice.includes("金币 +") && notice.includes("经验 +"), `UI 如实展示金币与经验：${notice.slice(0, 200)}`);
+		const money = lib.storage.rogueSlots[0].currency;
+		assert(money.gold > 0 && money.exp > 0, "金币与经验都入账");
+		// 12% 技能档：技能进背包，UI 报出技能名
+		const skillEvent = eventManager.buildPendingEvent("abandoned_supply", 2, () => 0, 1, { curios: [] });
+		putRun(1, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			currency: { gold: 0, exp: 0 },
+			pendingEvent: skillEvent,
+		});
+		session();
+		click("深入搜寻");
+		await flush();
+		const skillNotice = screenText();
+		assert(skillNotice.includes("获得技能："), `UI 报出获得的技能：${skillNotice.slice(0, 200)}`);
+		const skillSlot = lib.storage.rogueSlots[1];
+		assertEqual(skillSlot.skillInventory.length, 1, "随机技能进入背包");
+		assertEqual(skillSlot.skills.length, 0, "不会自动占用装备位");
+		// 8% 奇物档且图鉴集齐：如实提示没找到，不生成不存在的奇物
+		const curioEvent = eventManager.buildPendingEvent("abandoned_supply", 2, () => 0.2, 1, { curios: [] });
+		const allCurios = [...curiosData.curioIds];
+		putRun(2, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			curios: allCurios,
+			currency: { gold: 0, exp: 0 },
+			pendingEvent: curioEvent,
+		});
+		session();
+		click("深入搜寻");
+		await flush();
+		assert(screenText().includes("什么也没有找到"), `空奖池给出失败提示：${screenText().slice(0, 200)}`);
+		assertEqual(lib.storage.rogueSlots[2].curios.length, allCurios.length, "不会生成重复/不存在的奇物");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "金币档入账 / 技能档进背包 / 空奖池如实失败";
+});
+
+await check("深空悬赏：技能与深渊债同时生效，下一场普通/Boss 各消费一次并清零", async () => {
+	freshWorld();
+	const originalRandom = Math.random;
+	try {
+		Math.random = () => 0.999;
+		// 普通战斗：接受 → 技能进背包 + 债 1 → 下一场每名敌人至少多 1 条词缀，债清零
+		const bounty = eventManager.buildPendingEvent("deep_space_bounty", 2, () => 0, 1, { curios: [] });
+		putRun(0, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			currency: { gold: 0, exp: 0 },
+			pendingEvent: bounty,
+		});
+		session();
+		click("接受悬赏");
+		await flush();
+		let slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.skillInventory.length, 1, "技能立即进背包");
+		assertEqual(slot.abyssDebt, 1, "下一场债记账 1");
+		assert(screenText().includes("深渊强化") && screenText().includes("获得技能："), `UI 同时报技能与债：${screenText().slice(0, 240)}`);
+		click("确定");
+		clickNormalBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[0];
+		assertEqual(slot.abyssDebt, 0, "普通战斗创建后债清零");
+		assert(slot.currentBattle.enemies.every(enemy => enemy.abyss.length >= 1), "每名敌人都拿到额外词缀");
+		assert(slot.currentBattle.enemies.every(enemy => abyss.normalizeAbyssIds(enemy.abyss, abyss.abyssContextForEnemy(false)).length === enemy.abyss.length), "词缀都合法");
+		// Boss 战斗：另起一局接受悬赏 → 下一场抽中 Boss，Boss 专属词缀与债务叠加且不破坏合法性
+		putRun(1, {
+			mode: "endless",
+			level: 2,
+			characterId: "迪迦",
+			currency: { gold: 0, exp: 0 },
+			pendingEvent: eventManager.buildPendingEvent("deep_space_bounty", 2, () => 0, 1, { curios: [] }),
+		});
+		session();
+		click("接受悬赏");
+		await flush();
+		click("确定");
+		clickBossBattle();
+		await flush();
+		slot = lib.storage.rogueSlots[1];
+		assertEqual(slot.currentBattle.isBossBattle, true, "下一场抽中 Boss");
+		assertEqual(slot.currentBattle.enemies.length, 1, "Boss 单人");
+		assert(slot.currentBattle.enemies[0].abyss.length >= 1 + cfg.BOSS_EXTRA_AFFIXES, "Boss 专属词缀与债务叠加");
+		assertEqual(abyss.normalizeAbyssIds(slot.currentBattle.enemies[0].abyss, abyss.abyssContextForEnemy(true)).length, slot.currentBattle.enemies[0].abyss.length, "Boss 合法性清洗后一条不丢");
+		assertEqual(slot.abyssDebt, 0, "Boss 战斗同样消费一次并清零");
+	} finally {
+		Math.random = originalRandom;
+	}
+	return "技能+债同时生效 / 普通与 Boss 各消费一次 / Boss 词缀合法";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

@@ -214,7 +214,7 @@ export const helpers = {
 			// damageBegin1 加伤、damage 用来认出「本回合的首次造成伤害」。
 			// useCard = 回响之铃的账本（只记「使用」，打出/响应走 respond 事件，不记账）；
 			// source: die = 破碎王冠认「我杀死了谁」（自伤致死不算，见 filter）。
-			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd", "useCard"],
+			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd", "damageBegin3", "useCard"],
 			source: ["damageBegin1", "damage", "die"],
 			global: "roundEnd",
 		},
@@ -282,6 +282,14 @@ export const helpers = {
 				// 所以「不累加」天然成立；反复受伤也只是把同一层重新按上
 				return event.num > 0
 					&& (storage.hurtDamageNext || 0) + (storage.hurtDamageRound || 0) + (storage.hurtDamageGame || 0) > 0;
+			}
+			if (triggername === "damageBegin3") {
+				// 星穹壁垒：只认「实际伤害结算中的数值」（damageBegin3 时别的减伤/加伤都已算过），
+				// 至少 highDamageMin 点才减，绝不把 1 点减成 0。固定伤害（numFixed）不参与改写，
+				// 与本体其它改伤害的技能同一条纪律。没有次数限制：每次符合条件的伤害都触发。
+				const reduce = storage.highDamageReduce || 0;
+				const min = Number.isFinite(storage.highDamageMin) ? storage.highDamageMin : 2;
+				return reduce > 0 && !event.numFixed && event.num >= min;
 			}
 			if (triggername === "damage") {
 				// 狂战徽章要的是「首次造成伤害**后**」，所以第一下之前不该武装——已经武装过本回合就不再重复
@@ -355,6 +363,21 @@ export const helpers = {
 				await player.recover(storage.roundHeal || 0);
 			} else if (event.triggername === "phaseEnd") {
 				await player.recover(storage.turnHeal || 0);
+			} else if (event.triggername === "damageBegin3") {
+				// 星穹壁垒：先减伤，再按同一档的配套键摸牌——两件事必须在同一次触发里完成。
+				// 进到这里时 event.num 已经过前面的加减伤，减少量按当前品质的效果表取；
+				// Math.max(0, …) 只是兜底，阈值保证 2 点以上才会进来，所以最小也会留下 1 点。
+				const reduce = Math.max(0, storage.highDamageReduce || 0);
+				const draw = Math.max(0, storage.highDamageDraw || 0);
+				const min = Number.isFinite(storage.highDamageMin) ? storage.highDamageMin : 2;
+				// 与 filter 同一判据再守一道：绝不在 1 点伤害或固定伤害上动手。
+				// （引擎正常路径只会调 content 前先过 filter；这里防的是被其它路径直接调用。）
+				if (reduce > 0 && !trigger.numFixed && trigger.num >= min) {
+					trigger.num = Math.max(0, trigger.num - reduce);
+					if (draw > 0) {
+						await player.draw(draw);
+					}
+				}
 			} else if (event.triggername === "damageEnd") {
 				// 反击护符上 buff：三个记号都是「赋值」而不是「累加」，所以挨多少次打都只有一层
 				const phase = phaseOf(trigger);

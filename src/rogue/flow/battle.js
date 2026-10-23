@@ -19,7 +19,8 @@ import { getChallengeStageConfig } from "../data/challengeStages.js";
 import { getChallengeComboConfig } from "../data/challengeCombos.js";
 import { beginBattle, resolveBattle } from "../battle.js";
 import { perfCount, perfEnd, perfMark, perfStart } from "../perf.js";
-import { commit, context } from "../runtime.js";
+import { pickTemporarySkill } from "../curioManager.js";
+import { commit, context, skillGate } from "../runtime.js";
 import { playBattleBgm, stopBattleBgm, stopLobbyBgm } from "../bgm.js";
 import { closeScreen, showNotice } from "../ui/common.js";
 
@@ -75,7 +76,15 @@ export function createBattleFlow(host) {
 			}
 			context.run = {
 				...run,
-				currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null, isBossBattle: true },
+				currentBattle: {
+					status: BATTLE_STATUS.battle,
+					enemies,
+					rift: null,
+					isBossBattle: true,
+					// 万象武装匣：临时技能与阵容一起定死落盘。抽放在敌方生成之后，避免多消费一次随机
+					// 打乱既有的敌方随机序列；这一场恢复/重打都只认它，绝不重抽。
+					tempSkill: pickTemporarySkill(run, Math.random, skillGate.isSkillAllowed),
+				},
 				abyssDebt: 0,
 				// Boss 出现就把本关记成保底的起点：距这一场再满 BOSS_PITY_BATTLES 关才又必出
 				bossPityLevel: bossLevel,
@@ -202,7 +211,14 @@ export function createBattleFlow(host) {
 			// 普通战斗也显式记下「本场不是 Boss 战」，绝不沿用上一场的状态。
 			// bossPityLevel 这里一个字都不写：保底只认「上一次 Boss 落在哪一关」，
 			// 普通场不推进关卡（推进的是胜利结算），所以既不加也不清零。
-			currentBattle: { status: BATTLE_STATUS.battle, enemies, rift: null, isBossBattle: false },
+			currentBattle: {
+				status: BATTLE_STATUS.battle,
+				enemies,
+				rift: null,
+				isBossBattle: false,
+				// 同 Boss 分支：万象武装匣的临时技能在创建战斗时抽一次，随战斗落盘、不重抽
+				tempSkill: pickTemporarySkill(run, Math.random, skillGate.isSkillAllowed),
+			},
 			abyssDebt: 0,
 		};
 		if (!commit()) {

@@ -28,6 +28,7 @@ import {
 	currentScreenNode,
 	openOverlay,
 	paintResNum,
+	showChoice,
 	showNotice,
 	skillInfo,
 	skillName,
@@ -93,7 +94,28 @@ export function showHub(api) {
 	const mainRow = ui.create.div(".wm-rogue-hub-row", actions);
 	const exitRow = ui.create.div(".wm-rogue-hub-row", actions);
 	const fightLabel = run.mode === RUN_MODE.challenge && run.cleared ? "重复挑战" : canFight ? "开始下一关" : "开始战斗";
-	addOverlayButton(fightLabel, mainRow, () => api.startBattle(), "wm-rogue-hub-primary");
+	// 无尽模式「零技能出战」的营地提醒：只拦手动装备为 0、背包里却有技能的情况；
+	// 万象武装匣给的临时技能不算手动装备，仍按这条提醒（它只在战斗里生效，不进 run.skills）。
+	// 「返回装备」只打开技能管理页，不建阵容、不扣资源、不写 currentBattle；
+	// 「仍然出战」直接走 api.startBattle（同一入口的 battleLive 闸门保证只开一次）。
+	const startOrWarn = () => {
+		const needsEquip = run.mode === RUN_MODE.endless
+			&& (Array.isArray(run.skillInventory) ? run.skillInventory : []).length > 0
+			&& (Array.isArray(run.skills) ? run.skills : []).length === 0;
+		if (!needsEquip) {
+			api.startBattle();
+			return;
+		}
+		showChoice(
+			["检测到你的背包中拥有技能，但当前没有装备任何技能。是否仍要开始下一关？"],
+			[
+				{ label: "返回装备", onClick: () => api.openSkills() },
+				{ label: "仍然出战", onClick: () => api.startBattle() },
+			],
+			"未装备任何技能",
+		);
+	};
+	addOverlayButton(fightLabel, mainRow, startOrWarn, "wm-rogue-hub-primary");
 	addOverlayButton("商店", mainRow, () => api.openShop(), "wm-rogue-hub-shop");
 	// 技能管理页在营地也有一等入口：装备/卸下是打之前要定的事，不该只在商店里点得到
 	addOverlayButton("技能", mainRow, () => api.openSkills(), "wm-rogue-hub-skills");
@@ -466,7 +488,9 @@ export function showShop(api) {
 		curioRow = ui.create.div(".wm-rogue-shop-cards", curioSection);
 	}
 
-	ui.create.div(".wm-rogue-shop-section-title", "属性强化", body);
+	// 属性强化整区：三项全满时连同标题与卡片一起拿掉（不留空行/占位）。
+	// 判据每次 paint 现读存档，所以最后一项升满后原位刷新就会立即隐藏。
+	const statTitle = ui.create.div(".wm-rogue-shop-section-title", "属性强化", body);
 	const statRow = ui.create.div(".wm-rogue-stat-cards", body);
 	const statCards = STAT_IDS.map(statId => buildStatCard(statRow, statId, api));
 
@@ -520,6 +544,11 @@ export function showShop(api) {
 		for (const row of statCards) {
 			paintStat(row, current, api.checkStatUpgrade);
 		}
+		// 三项属性全部满级 → 整个「属性强化」区域（标题 + 三张卡 + 占位）一起隐藏；
+		// 尚有任一项未满就保持原样。两种模式共用这一条判据，读档/重进商店都由首次 paint 复现。
+		const allStatsMaxed = STAT_IDS.every(statId => (current.stats?.[statId] ?? 0) >= (stats[statId]?.maxLevel ?? 0));
+		statTitle.classList[allStatsMaxed ? "add" : "remove"]("wm-rogue-hidden");
+		statRow.classList[allStatsMaxed ? "add" : "remove"]("wm-rogue-hidden");
 		paintRefresh(refreshButton, current, soldOut, isSkillAllowed);
 		paintShopLock(skillLock, current, "skill");
 		paintShopLock(curioLock, current, "curio");

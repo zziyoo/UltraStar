@@ -377,13 +377,22 @@ export const events = {
 		image: "extension/奥特之星/assets/events/abandoned_supply.png",
 		choices: [
 			{
-				// 两头都按本层胜利奖励换算：翻找偏金币、仔细搜寻偏经验，缺哪样挑哪样
+				// 稳定档：两头都按本层胜利奖励换算，金币与经验各一倍
 				text: "翻找补给箱",
 				reward: { goldByWin: 1, expByWin: 1 },
 			},
 			{
-				text: "仔细搜寻",
-				reward: { goldByWin: 0.5, expByWin: 2 },
+				// 深入搜寻：四档互斥、概率合计 100%，生成期预掷定死（读档不重掷）。
+				// 12% 技能 / 8% 奇物 / 60% 半倍金币 + 一倍经验 / 20% 落空。
+				// 技能与奇物都走既有的随机奖励结算（技能进背包、奇物按自身初始品质入袋）；
+				// 奖池为空时不会生造技能或奇物，由结算层给出「没有可学/可找到」的失败提示。
+				text: "深入搜寻",
+				outcomes: [
+					{ chance: 0.12, reward: { skill: "random" } },
+					{ chance: 0.08, reward: { curio: "random" } },
+					{ chance: 0.6, reward: { goldByWin: 0.5, expByWin: 1 } },
+					{ chance: 0.2, reward: {} },
+				],
 			},
 		],
 	},
@@ -572,6 +581,32 @@ export const events = {
 				text: "终极训练",
 				reward: { expByWin: 10 },
 				action: { kind: "abyssDebt", perEnemy: 2 },
+			},
+			{
+				text: "离开",
+				reward: {},
+			},
+		],
+	},
+	// 本轮唯一新增事件（追加在末尾：rollEventId 按下标抽事件，既有事件的位置不能漂移）。
+	// 配图暂用既有事件图占位，正式插画后续替换（192×192，见 README 的素材清单）。
+	deep_space_bounty: {
+		id: "deep_space_bounty",
+		name: "深空悬赏",
+		description: "一份来自星际组织的高危悬赏正在招募战士。接受任务可以立即获得新的战斗技巧，但下一场战斗将更加危险。",
+		image: "extension/奥特之星/assets/events/interstellar_exchange.png",
+		choices: [
+			{
+				// 技能与深渊债必须同时生效：reward 先按通用流程随机发一个未拥有的合法技能（进背包），
+				// action 再记下一场的债。没有可学技能时结算层会整项拒绝（不发技能、不欠债），
+				// 绝不会让玩家无奖励地承担额外难度。债在下一场创建时消费一次并清零，与其它来源叠加。
+				text: "接受悬赏",
+				reward: { skill: "random" },
+				action: { kind: "abyssDebt", perEnemy: 1 },
+			},
+			{
+				text: "领取普通报酬",
+				reward: { goldByWin: 0.5 },
 			},
 			{
 				text: "离开",

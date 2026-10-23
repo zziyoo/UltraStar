@@ -936,6 +936,8 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		dyingRecallChance: "dying",
 		killGainMaxHp: "die",
 		killHeal: "die",
+		// 星穹壁垒：damageBegin3 才看得到前面所有加减伤后的实际数值
+		highDamageReduce: "damageBegin3",
 	};
 	for (const [key, timing] of Object.entries(need)) {
 		const used = Object.values(curiosData.curios).some(curio => curio.effect?.[key]);
@@ -947,7 +949,8 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 	// 战斗面板按 CURIOSITY_BATTLE_KEYS 把效果切成两组，漏在栏外会被整块切掉——
 	// 血怒核心就踩过这条，体力条件与「此牌伤害 +1」整段消失。新增带配套键的奇物时回来补一行
 	const companionKeys = ["dyingRecoverToRatio", "unrespondableLowHp", "unrespondableCardDamage",
-		"killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp"];
+		"killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
+		"highDamageMin", "highDamageDraw"];
 	for (const key of companionKeys) {
 		assert(curioManager.CURIOSITY_BATTLE_KEYS.includes(key), `配套键 ${key} 漏在 CURIOSITY_BATTLE_KEYS 栏外`);
 	}

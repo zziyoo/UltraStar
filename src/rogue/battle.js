@@ -3,7 +3,7 @@
 // 绝不写 lib.character / lib.skill。
 
 import { lib, game, _status } from "../../../../noname.js";
-import { ROSTER_WHITE_LIST } from "./config.js";
+import { ROSTER_WHITE_LIST, RUN_MODE } from "./config.js";
 import { sumStatEffects } from "./data/stats.js";
 import { COPY_MARK_SKILL } from "./data/skills.js";
 import { sumCurioEffects, CURIOSITY_BATTLE_KEYS, CURIOSITY_STORAGE_KEYS } from "./curioManager.js";
@@ -329,6 +329,18 @@ export async function beginBattle(event, run, enemies) {
 	const bonuses = sumStatEffects(run.stats);
 	applyEffects(game.me, bonuses, true);
 	applyCurioEffects(game.me, run.curios, run.curioQuality);
+	// 万象武装匣：临时技能必须在**原有装备技能之后、故人的心之前**挂上（故人的心要能选中它）。
+	// 抽选已在新战斗创建时完成并写进 currentBattle.tempSkill，这里只挂、绝不重抽；
+	// addSkill 会一并登记它的触发器与 group 伙伴，所以它在技能面板里是一个正常可发动的技能。
+	// 它只活在当前 Player 上：不写 run.skills、不占 SKILL_SLOTS，普通战斗结束随 currentBattle 一起消失。
+	// 只属于无尽：闯关存档即使被塞进 tempSkill（异常/改档）也不在这里多挂一个技能，
+	// 不能绕过「技能栏最多 3 个、满槽必须替换」的旧机制。
+	const tempSkill = run.mode === RUN_MODE.endless && typeof run.currentBattle?.tempSkill === "string"
+		? run.currentBattle.tempSkill
+		: "";
+	if (tempSkill) {
+		grantSkills(game.me, [tempSkill], "万象武装匣的临时技能未注册");
+	}
 	bindMarkTap(game.me.marks?.[STAT_BUFF_SKILL], () => game.me.rogueStatRun.openPanel());
 	bindMarkTap(game.me.marks?.[CURIO_SKILL], () => game.me.rogueCurioRun.openPanel());
 	game.zhu = game.me;
