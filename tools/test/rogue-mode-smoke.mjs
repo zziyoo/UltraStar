@@ -7721,6 +7721,82 @@ await check("废弃补给站「深入搜寻」：四档预掷与 UI 如实展示
 	return "金币档入账 / 技能档进背包 / 空奖池如实失败";
 });
 
+await check("星穹壁垒：damageBegin4 载体随 rogue_curio 的 group 登记，不额外显示技能", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		level: 2,
+		characterId: "迪迦",
+		curios: ["star_dome_barrier"],
+		curioQuality: { star_dome_barrier: "epic" },
+		currency: { gold: 0, exp: 0 },
+		currentBattle: {
+			status: "battle",
+			enemies: [{ characterId: "佐菲", stats: { defense: 0, draw: 0, attack: 0 }, skills: [], maxHp: 0, hp: 0 }],
+			isBossBattle: false,
+		},
+	});
+	session();
+	click("重新挑战这一关");
+	await flush();
+	assertEqual(game.me.storage.rogue_curio.highDamageReduce, 1, "史诗星穹壁垒写入减伤键");
+	assertEqual(game.me.storage.rogue_curio.highDamageDraw, 2, "史诗星穹壁垒写入摸牌键");
+	assertEqual(lib.hookmap.damageBegin4, true, "damageBegin4 载体触发时机已登记");
+	assert(game.me.getSkills().includes("rogue_curio"), "奇物主载体仍在技能面板的数据源里");
+	assert(!game.me.getSkills().includes("rogue_barrier"), "group 伙伴不进入技能面板（不重复显示）");
+	assert(!game.me.__skills.includes("rogue_barrier"), "group 伙伴不独立写入技能表");
+	assert(game.me.hasSkill("rogue_barrier"), "group 伙伴按本体展开语义算拥有（触发器可用）");
+	assert(!game.me.marks.rogue_barrier, "星穹壁垒不额外建第二枚徽记");
+	return "storage 写入 / damageBegin4 登记 / 技能面板不重复";
+});
+
+await check("深空悬赏：无技能失败时保留事件页，读档后仍可改领普通报酬", async () => {
+	freshWorld();
+	const bounty = eventManager.buildPendingEvent("deep_space_bounty", 2, () => 0, 1, { curios: [] });
+	putRun(0, {
+		mode: "endless",
+		level: 2,
+		characterId: "迪迦",
+		currency: { gold: 300, exp: 300 },
+		pendingEvent: bounty,
+	});
+	session();
+	assert(screenText().includes("接受悬赏"), "事件页先正常打开");
+	const savedLib = { skill: lib.skill, character: lib.character };
+	try {
+		// 把商店候选池清空：getShopPool 读 lib.character/lib.skill，两个都空即没有合法技能
+		lib.skill = {};
+		lib.character = {};
+		const before = JSON.stringify(lib.storage.rogueSlots[0]);
+		click("接受悬赏");
+		await flush();
+		assert(screenText().includes("没有可学的技能，无法接受悬赏"), `应弹出失败提示：${screenText().slice(0, 240)}`);
+		assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "失败不写档，事件原样保留");
+		const pending = lib.storage.rogueSlots[0];
+		assert(pending.pendingEvent && pending.pendingEvent.id === "deep_space_bounty", "pendingEvent 未被清空");
+		assertEqual(pending.abyssDebt, 0, "失败不增加深渊债");
+		assertEqual(pending.skillInventory.length, 0, "失败不发技能");
+		assertEqual(JSON.stringify(pending.currency), JSON.stringify({ gold: 300, exp: 300 }), "失败不扣/不加货币");
+		click("确定");
+		// 读档：pendingEvent 仍在，应重新回到事件页；恢复商店池后改领普通报酬
+		lib.skill = savedLib.skill;
+		lib.character = savedLib.character;
+		session();
+		assert(screenText().includes("领取普通报酬") && screenText().includes("离开"), `读档后仍在同一事件页：${screenText().slice(0, 240)}`);
+		click("领取普通报酬");
+		await flush();
+		assert(screenText().includes("金币 +"), `领报酬应有账目提示：${screenText().slice(0, 200)}`);
+		click("确定");
+		const after = lib.storage.rogueSlots[0];
+		assertEqual(after.pendingEvent, null, "领报酬后事件结束");
+		assert(after.currency.gold > 300, "普通报酬到账");
+	} finally {
+		lib.skill = savedLib.skill;
+		lib.character = savedLib.character;
+	}
+	return "失败保留 pendingEvent / 读档回事件页 / 改领报酬正常";
+});
+
 await check("深空悬赏：技能与深渊债同时生效，下一场普通/Boss 各消费一次并清零", async () => {
 	freshWorld();
 	const originalRandom = Math.random;

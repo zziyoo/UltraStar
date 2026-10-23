@@ -214,7 +214,7 @@ export const helpers = {
 			// damageBegin1 加伤、damage 用来认出「本回合的首次造成伤害」。
 			// useCard = 回响之铃的账本（只记「使用」，打出/响应走 respond 事件，不记账）；
 			// source: die = 破碎王冠认「我杀死了谁」（自伤致死不算，见 filter）。
-			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd", "damageBegin3", "useCard"],
+			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd", "useCard"],
 			source: ["damageBegin1", "damage", "die"],
 			global: "roundEnd",
 		},
@@ -234,6 +234,10 @@ export const helpers = {
 				return false;
 			},
 		},
+		// 星穹壁垒的最终伤害载体：作为 group 伙伴随 rogue_curio 一起登记触发器，
+		// 但不进 player.skills、不额外显示技能。它必须排在普通 damageBegin4 之后（lastDo），
+		// 才能看到坚壁等 damageBegin4 减伤后的最终值。
+		group: "rogue_barrier",
 		forced: true,
 		mark: true,
 		marktext: "奇物",
@@ -283,14 +287,6 @@ export const helpers = {
 				return event.num > 0
 					&& (storage.hurtDamageNext || 0) + (storage.hurtDamageRound || 0) + (storage.hurtDamageGame || 0) > 0;
 			}
-			if (triggername === "damageBegin3") {
-				// 星穹壁垒：只认「实际伤害结算中的数值」（damageBegin3 时别的减伤/加伤都已算过），
-				// 至少 highDamageMin 点才减，绝不把 1 点减成 0。固定伤害（numFixed）不参与改写，
-				// 与本体其它改伤害的技能同一条纪律。没有次数限制：每次符合条件的伤害都触发。
-				const reduce = storage.highDamageReduce || 0;
-				const min = Number.isFinite(storage.highDamageMin) ? storage.highDamageMin : 2;
-				return reduce > 0 && !event.numFixed && event.num >= min;
-			}
 			if (triggername === "damage") {
 				// 狂战徽章要的是「首次造成伤害**后**」，所以第一下之前不该武装——已经武装过本回合就不再重复
 				return event.num > 0
@@ -298,7 +294,8 @@ export const helpers = {
 					&& !samePhase(player.rogueCurioRagePhase, phaseOf(event));
 			}
 			if (triggername === "damageBegin1") {
-				// 加伤一律排在 damageBegin1（damageBegin4 本体没有 await，改数会赶上结算的读取）；
+				// 加伤一律排在 damageBegin1（damageBegin4 是最后一档减伤/改值；本技能不参与那一档，
+				// 避免与星穹壁垒/坚壁抢顺序）；
 				// 固定伤害不参与
 				return !event.numFixed && curioDealtDamageBonus(player, event) > 0;
 			}
@@ -363,21 +360,6 @@ export const helpers = {
 				await player.recover(storage.roundHeal || 0);
 			} else if (event.triggername === "phaseEnd") {
 				await player.recover(storage.turnHeal || 0);
-			} else if (event.triggername === "damageBegin3") {
-				// 星穹壁垒：先减伤，再按同一档的配套键摸牌——两件事必须在同一次触发里完成。
-				// 进到这里时 event.num 已经过前面的加减伤，减少量按当前品质的效果表取；
-				// Math.max(0, …) 只是兜底，阈值保证 2 点以上才会进来，所以最小也会留下 1 点。
-				const reduce = Math.max(0, storage.highDamageReduce || 0);
-				const draw = Math.max(0, storage.highDamageDraw || 0);
-				const min = Number.isFinite(storage.highDamageMin) ? storage.highDamageMin : 2;
-				// 与 filter 同一判据再守一道：绝不在 1 点伤害或固定伤害上动手。
-				// （引擎正常路径只会调 content 前先过 filter；这里防的是被其它路径直接调用。）
-				if (reduce > 0 && !trigger.numFixed && trigger.num >= min) {
-					trigger.num = Math.max(0, trigger.num - reduce);
-					if (draw > 0) {
-						await player.draw(draw);
-					}
-				}
 			} else if (event.triggername === "damageEnd") {
 				// 反击护符上 buff：三个记号都是「赋值」而不是「累加」，所以挨多少次打都只有一层
 				const phase = phaseOf(trigger);
@@ -405,6 +387,42 @@ export const helpers = {
 			}
 		},
 	},
+	// 星穹壁垒：作为 rogue_curio 的 group 伙伴登记，只做 damageBegin4 的最终伤害判定。
+	// 本体伤害链（content.js 的 damage 步骤）：damageBegin1/2/3 都 await，damageBegin4 的
+	// trigger 虽未 await，但 game.createEvent(..., event) 会把 arrangeTrigger 挂进 event.next，
+	// 下一步开始前的 GameEvent.waitNext() 会 await 它，所以 damageBegin4 的改值在读取
+	// `const { num } = event`、changeHp 之前生效。lastDo 让本技能排在普通 damageBegin4
+	// 技能（如深渊·坚壁）之后，读到的是所有普通减伤算完后的最终 num。
+	rogue_barrier: {
+		trigger: { player: "damageBegin4" },
+		lastDo: true,
+		charlotte: true,
+		forced: true,
+		popup: false,
+		nopop: true,
+		filter(event, player, triggername) {
+			if (triggername !== "damageBegin4") {
+				return false;
+			}
+			const storage = player.storage.rogue_curio ?? {};
+			const reduce = storage.highDamageReduce || 0;
+			const min = Number.isFinite(storage.highDamageMin) ? storage.highDamageMin : 2;
+			return reduce > 0 && !event.numFixed && event.num >= min;
+		},
+		async content(event, trigger, player) {
+			const storage = player.storage.rogue_curio ?? {};
+			const reduce = Math.max(0, storage.highDamageReduce || 0);
+			const draw = Math.max(0, storage.highDamageDraw || 0);
+			const min = Number.isFinite(storage.highDamageMin) ? storage.highDamageMin : 2;
+			// 与 filter 同一判据再守一道：绝不在 1 点伤害或固定伤害上动手。
+			if (reduce > 0 && !trigger.numFixed && trigger.num >= min) {
+				trigger.num = Math.max(0, trigger.num - reduce);
+				if (draw > 0) {
+					await player.draw(draw);
+				}
+			}
+		},
+	},
 };
 
 export const helperTranslate = {
@@ -412,4 +430,5 @@ export const helperTranslate = {
 	rogue_curio: "奇物",
 	rogue_copy: "复制技能",
 	rogue_copy_info: "Boss 从另外两名角色抄来的技能，点徽记查看。",
+	rogue_barrier: "星穹壁垒",
 };

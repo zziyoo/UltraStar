@@ -860,6 +860,23 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		return { ok: false, error: "货币不足，无法选择该项", run };
 	}
 
+	// 深空悬赏这类「随机技能 + 下一场深渊债」的选项：先把技能候选定下来。
+	// 没有可学技能时按**失败**返回（而不是成功地把事件收掉）：flow/event.js 的 !ok 路径
+	// 只弹 showNotice、不 commit、不关事件，玩家关掉提示后仍能在同一页改选「领取普通报酬」或「离开」。
+	// 这一步在 applyEventCurrency 之前，确保失败时货币、技能、abyssDebt 一个字节都不动。
+	const needsSkillForDebt = sip.action?.kind === "abyssDebt" && reward.skill === "random";
+	let plannedSkillId = null;
+	if (needsSkillForDebt) {
+		// 与后面实际发技能同一条判据（无尽无装备位上限；闯关满槽视为学不会）
+		if (!isEndlessRun(run) && (run.skills?.length ?? 0) >= SKILL_SLOTS) {
+			return { ok: false, error: "没有可学的技能，无法接受悬赏", run };
+		}
+		plannedSkillId = pickRandomSkillId(run, ctx, rng);
+		if (!plannedSkillId) {
+			return { ok: false, error: "没有可学的技能，无法接受悬赏", run };
+		}
+	}
+
 	// 收窄只对 clampLoss 选项生效；记忆棱镜在这里给事件自己发的正数经验加成一次
 	// （另一条路是技能熔炉子页的 skillForgeFlow），账目行与余额吃的是同一份加成后的数字
 	const paid = clampLoss ? capLossToHeld(run, reward) : reward;
@@ -931,7 +948,9 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 			// 闯关（旧版机制）：技能栏就是全部持有，满了就学不会——不替换、不进任何背包
 			lines.push("技能槽已满，未能学会技能");
 		} else {
-			skillId = pickRandomSkillId(next, ctx, rng);
+			// needsSkillForDebt 时复用上面已经掷定的那一个：不二次消费随机源，也保证
+			// 「候选检查」与「真正发放」始终是同一个技能。
+			skillId = plannedSkillId ?? pickRandomSkillId(next, ctx, rng);
 			if (skillId) {
 				if (isEndlessRun(next)) {
 					// 无尽：技能一律进背包，装备位满也不落空、也不自动装备
@@ -943,19 +962,10 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 					}
 				}
 				lines.push("获得一个随机技能");
-			} else if (sip.action?.kind !== "abyssDebt") {
-				// 带深渊债的选项由下面的守卫整项拒绝并给出完整提示，这里不重复说一遍
+			} else {
 				lines.push("没有可学的技能");
 			}
 		}
-	}
-
-	// 深空悬赏这类「随机技能 + 下一场深渊债」的选项：没有可学的技能时整项拒绝。
-	// 顺序必须是「先确认技能真的发到手，再记债」——否则玩家会只收到额外难度、没拿到奖励。
-	// next 此刻还没清 pendingEvent（正常出口在函数末尾统一清），这里显式收掉事件，避免反复点。
-	if (sip.action?.kind === "abyssDebt" && sip.reward?.skill === "random" && !skillId) {
-		lines.push("没有可学的技能，这份悬赏接不了，也不会欠下深渊债务。");
-		return { ok: true, error: null, run: { ...next, pendingEvent: null }, lines, skillId: null, curioId, action: null };
 	}
 
 	for (const [key, verb] of [["statUp", 1], ["statDown", -1]]) {

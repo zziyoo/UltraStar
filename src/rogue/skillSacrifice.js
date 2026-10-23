@@ -35,6 +35,7 @@ const XUWU_AFFIX = "abyss_xuwu";
 const UNSELECTABLE_SKILLS = new Set([
 	"rogue_stat",
 	"rogue_curio",
+	"rogue_barrier",
 	"rogue_copy",
 	ABYSS_MARK_SKILL,
 	"abyss_xuwu_blocker",

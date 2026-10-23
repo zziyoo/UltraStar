@@ -4794,10 +4794,12 @@ check("四件新事件：能从事件池抽到、构建器全部认，既有事�
 	assertEqual(accepted.run.abyssDebt, 3, "深渊债与其他来源叠加（2 + 1），不是覆盖");
 	assertEqual(accepted.run.pendingEvent, null, "事件收掉");
 	const noSkillBounty = eventManager.resolveEventChoice({ ...bountyRun, pendingEvent: bounty }, 0, { candidates: [], characterSkills: [] }, () => 0);
+	assert(!noSkillBounty.ok, "没有技能时应按失败返回，而不是成功结束事件");
+	assertEqual(noSkillBounty.error, "没有可学的技能，无法接受悬赏", "失败提示");
 	assertEqual(noSkillBounty.run.abyssDebt, 2, "没有技能时绝不能只加债");
 	assertEqual(noSkillBounty.run.skillInventory.length, 0, "也不会发无效技能");
-	assert(noSkillBounty.lines.some(line => line.includes("接不了")), `要明确提示接不了：${noSkillBounty.lines.join(" / ")}`);
-	assertEqual(noSkillBounty.run.pendingEvent, null, "接不了也收掉事件（不会反复刷）");
+	assert(noSkillBounty.run.pendingEvent, "失败后事件保持待处理，玩家可以改选其他选项");
+	assertEqual(noSkillBounty.run.pendingEvent.id, "deep_space_bounty", "保留的是原来那个事件");
 	// 读档往返：技能来源与债的个数都按存档原样还原
 	const bountyRound = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), pendingEvent: bounty });
 	assertEqual(JSON.stringify(bountyRound.pendingEvent.choices[0].action), JSON.stringify({ kind: "abyssDebt", perEnemy: 1 }), "读档不重掷债的个数");
@@ -7522,8 +7524,8 @@ check("商店禁用卡的悬停不发光：样式判据直读 styles.js", () => 
 
 // ---------------------------------------------------------------- 本轮新增：星穹壁垒 / 万象武装匣
 
-await checkAsync("星穹壁垒：至少 2 点才减 1，同一触发里摸牌，多次受伤每次触发，固定伤害不参与", async () => {
-	const info = skillsData.helpers.rogue_curio;
+await checkAsync("星穹壁垒：damageBegin4 至少 2 点才减 1，同一触发里摸牌，多次受伤每次触发，固定伤害不参与", async () => {
+	const info = skillsData.helpers.rogue_barrier;
 	const carrier = storage => {
 		const player = { storage: { rogue_curio: storage }, hp: 10, maxHp: 10, drawn: 0 };
 		player.draw = async num => {
@@ -7532,39 +7534,39 @@ await checkAsync("星穹壁垒：至少 2 点才减 1，同一触发里摸牌，
 		return player;
 	};
 	const trigger = num => ({ num, numFixed: false });
-	const event = { triggername: "damageBegin3" };
+	const event = { triggername: "damageBegin4" };
 	// 稀有档：2 → 1、3 → 2；1 点不触发（绝不能被减成 0）
 	const rare = carrier({ highDamageMin: 2, highDamageReduce: 1, highDamageDraw: 0 });
 	const two = trigger(2);
-	assert(info.filter(two, rare, "damageBegin3"), "2 点伤害应触发");
+	assert(info.filter(two, rare, "damageBegin4"), "2 点伤害应触发");
 	await info.content(event, two, rare);
 	assertEqual(two.num, 1, "2 点减为 1 点");
 	assertEqual(rare.drawn, 0, "稀有档不摸牌");
 	const one = trigger(1);
-	assert(!info.filter(one, rare, "damageBegin3"), "1 点伤害不触发");
+	assert(!info.filter(one, rare, "damageBegin4"), "1 点伤害不触发");
 	await info.content(event, one, rare);
 	assertEqual(one.num, 1, "1 点原样保留，绝不减成 0");
 	const three = trigger(3);
-	assert(info.filter(three, rare, "damageBegin3"), "3 点同样触发");
+	assert(info.filter(three, rare, "damageBegin4"), "3 点同样触发");
 	await info.content(event, three, rare);
 	assertEqual(three.num, 2, "3 点减为 2 点");
 	// 连续多次：每次都是独立触发，没有次数限制
 	let total = 0;
 	for (let i = 0; i < 5; i++) {
 		const hit = trigger(2);
-		assert(info.filter(hit, rare, "damageBegin3"), `第 ${i + 1} 次 2 点伤害仍触发`);
+		assert(info.filter(hit, rare, "damageBegin4"), `第 ${i + 1} 次 2 点伤害仍触发`);
 		await info.content(event, hit, rare);
 		total += hit.num;
 	}
 	assertEqual(total, 5, "连续 5 次 2 点伤害各减 1（共 5 点），没有每轮/每回合/每场限制");
-	assert(!info.filter({ num: 2, numFixed: true }, rare, "damageBegin3"), "固定伤害（numFixed）不参与改写");
+	assert(!info.filter({ num: 2, numFixed: true }, rare, "damageBegin4"), "固定伤害（numFixed）不参与改写");
 	// 其它减伤技能先把它降到 1：按实际结算数值判断，不再触发
 	const alreadyReduced = trigger(1);
-	assert(!info.filter(alreadyReduced, rare, "damageBegin3"), "前置减伤后只剩 1 点时不触发（判据是实际结算数值）");
+	assert(!info.filter(alreadyReduced, rare, "damageBegin4"), "前置减伤后只剩 1 点时不触发（判据是实际结算数值）");
 	// 史诗档：减伤与摸两张在同一次触发里完成
 	const epic = carrier({ highDamageMin: 2, highDamageReduce: 1, highDamageDraw: 2 });
 	const epicHit = trigger(4);
-	assert(info.filter(epicHit, epic, "damageBegin3"), "史诗档 4 点应触发");
+	assert(info.filter(epicHit, epic, "damageBegin4"), "史诗档 4 点应触发");
 	await info.content(event, epicHit, epic);
 	assertEqual(epicHit.num, 3, "史诗档同样只减 1 点");
 	assertEqual(epic.drawn, 2, "同一次触发摸两张");
@@ -7674,6 +7676,107 @@ check("万象武装匣：胜利结算带回本场 tempSkill，Boss 失去名单�
 	assertEqual(JSON.stringify(stillThere.run.skillInventory), "[]", "即使临时技能已被故人的心从 Player 摘掉，仍从背包删除");
 	assertEqual(stillThere.removed.length, 4, "按本场开战名单计 4 件失技奖励");
 	return "tempSkill 回传 / 4 件删除 / 遗石与魔盒各 4 份";
+});
+
+// ---------------------------------------------------------------- 补修：深空悬赏失败保留事件 / 星穹壁垒最终伤害时机
+
+check("深空悬赏：没有可学技能时失败返回并保留事件，可继续领报酬或离开", () => {
+	const bounty = eventManager.buildPendingEvent("deep_space_bounty", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const run = {
+		...freshRun(cfg.RUN_MODE.endless),
+		abyssDebt: 2,
+		currency: { gold: 300, exp: 300 },
+		pendingEvent: bounty,
+	};
+	const fail = eventManager.resolveEventChoice(run, 0, { candidates: [], characterSkills: [] }, () => 0);
+	assert(!fail.ok, "无技能时应按失败返回，而不是成功结束事件");
+	assertEqual(fail.error, "没有可学的技能，无法接受悬赏", "失败提示");
+	assertEqual(fail.run, run, "失败必须原样返回存档（零副作用）");
+	assert(fail.run.pendingEvent, "事件仍然挂着，玩家可以重选");
+	assertEqual(fail.run.abyssDebt, 2, "不增加深渊债");
+	assertEqual(JSON.stringify(fail.run.skillInventory), "[]", "不发技能");
+	assertEqual(JSON.stringify(fail.run.currency), JSON.stringify({ gold: 300, exp: 300 }), "不扣/不加货币");
+	// 连续点两次失败：仍是同一个事件、同样的存档
+	const failAgain = eventManager.resolveEventChoice(fail.run, 0, { candidates: [], characterSkills: [] }, () => 0);
+	assert(!failAgain.ok && failAgain.run === run, "连续点击失败不改变任何状态");
+	// 失败后改领普通报酬：正常入账并结束事件
+	const paid = eventManager.resolveEventChoice(fail.run, 1, {}, () => 0);
+	assert(paid.ok, paid.error ?? "领报酬应成功");
+	assertEqual(paid.run.pendingEvent, null, "领报酬后事件结束");
+	assertEqual(paid.run.currency.gold, 300 + Math.round(BASE_GOLD * 0.5), "只发 0.5 倍本层金币");
+	assertEqual(paid.run.abyssDebt, 2, "领报酬不加债");
+	// 失败后离开：无奖励、无惩罚、事件结束
+	const left = eventManager.resolveEventChoice(fail.run, 2, {}, () => 0);
+	assert(left.ok, left.error ?? "离开应成功");
+	assertEqual(left.run.pendingEvent, null, "离开后事件结束");
+	assertEqual(JSON.stringify(left.run.currency), JSON.stringify({ gold: 300, exp: 300 }), "离开不发货币");
+	assertEqual(left.run.abyssDebt, 2, "离开不加债");
+	// 有合法技能：技能与债务同时结算
+	const successRun = { ...run, skillInventory: [], skills: [] };
+	const success = eventManager.resolveEventChoice(successRun, 0, { candidates: [{ id: "own_four" }], characterSkills: [] }, () => 0);
+	assert(success.ok, success.error ?? "有技能时应成功");
+	assertEqual(JSON.stringify(success.run.skillInventory), JSON.stringify(["own_four"]), "技能进背包");
+	assertEqual(success.run.abyssDebt, 3, "债务与原有 2 叠加为 3");
+	assertEqual(success.run.pendingEvent, null, "成功后事件结束");
+	// 不影响废弃补给站：技能池空时仍按原有「没有可学的技能」结束，不进深渊债分支
+	const supply = eventManager.buildPendingEvent("abandoned_supply", BASE_LEVEL, () => 0, NOW, { curios: [] });
+	const supplyRun = { ...freshRun(cfg.RUN_MODE.endless), pendingEvent: supply };
+	const supplyEmpty = eventManager.resolveEventChoice(supplyRun, 1, { candidates: [], characterSkills: [] }, () => 0);
+	assert(supplyEmpty.ok, "废弃补给站不走悬赏的失败返回");
+	assertEqual(supplyEmpty.run.pendingEvent, null, "废弃补给站照旧结束事件");
+	assert(supplyEmpty.lines.includes("没有可学的技能"), "废弃补给站仍给原有失败提示");
+	return "失败保留事件 / 重选报酬与离开 / 成功同时发技能+债 / 废弃补给站不受影响";
+});
+
+await checkAsync("星穹壁垒 × 深渊·坚壁：按最终伤害决定是否触发，lastDo 排在普通减伤之后", async () => {
+	const barrier = skillsData.helpers.rogue_barrier;
+	assert(barrier, "helpers 里应有 rogue_barrier（星穹壁垒的最终伤害载体）");
+	assertEqual(skillsData.helpers.rogue_curio.group, "rogue_barrier", "rogue_curio 用 group 挂载，不额外占技能表");
+	assertEqual(barrier.lastDo, true, "必须排在普通 damageBegin4 技能之后");
+	assertEqual(barrier.charlotte, true, "内部载体不出现在技能面板/不可被故人的心选中");
+	const trigger = barrier.trigger?.player;
+	assertEqual(Array.isArray(trigger) ? trigger.join(",") : trigger, "damageBegin4", "载体挂在 damageBegin4");
+	const make = storage => {
+		const player = { storage: { rogue_curio: storage }, hp: 10, maxHp: 10, drawn: 0 };
+		player.draw = async num => {
+			player.drawn += num;
+		};
+		return player;
+	};
+	const jianbi = abyssAffixes.affix.abyss_jianbi;
+	assert(jianbi, "深渊·坚壁定义应存在");
+	// 3 点：坚壁先 3→1（ceil(3/2)=2），星穹壁垒看到最终 1 点，不触发也不摸牌
+	const three = make({ highDamageMin: 2, highDamageReduce: 1, highDamageDraw: 2 });
+	const e3 = { num: 3, numFixed: false };
+	assert(jianbi.filter(e3, three, "damageBegin4"), "坚壁在普通 damageBegin4 触发");
+	await jianbi.content({ triggername: "damageBegin4" }, e3, three);
+	assertEqual(e3.num, 1, "坚壁把 3 点减到 1 点");
+	assert(!barrier.filter(e3, three, "damageBegin4"), "最终 1 点不满足至少 2 点 → 星穹壁垒不触发");
+	await barrier.content({ triggername: "damageBegin4" }, e3, three);
+	assertEqual(e3.num, 1, "没触发就不改伤害");
+	assertEqual(three.drawn, 0, "没触发就不摸牌");
+	// 4 点：坚壁 4→2；星穹壁垒看到 2，减到 1 并摸 2
+	const four = make({ highDamageMin: 2, highDamageReduce: 1, highDamageDraw: 2 });
+	const e4 = { num: 4, numFixed: false };
+	await jianbi.content({ triggername: "damageBegin4" }, e4, four);
+	assertEqual(e4.num, 2, "坚壁把 4 点减到 2 点");
+	assert(barrier.filter(e4, four, "damageBegin4"), "最终 2 点满足条件");
+	await barrier.content({ triggername: "damageBegin4" }, e4, four);
+	assertEqual(e4.num, 1, "星穹壁垒再减 1");
+	assertEqual(four.drawn, 2, "史诗同触发摸 2");
+	// 2 点：没有后续减伤时正常触发；连续 3 次各摸 2，不重复叠加
+	const plain = make({ highDamageMin: 2, highDamageReduce: 1, highDamageDraw: 2 });
+	for (let i = 0; i < 3; i++) {
+		const hit = { num: 2, numFixed: false };
+		assert(barrier.filter(hit, plain, "damageBegin4"), `第 ${i + 1} 次 2 点应触发`);
+		await barrier.content({ triggername: "damageBegin4" }, hit, plain);
+		assertEqual(hit.num, 1, "每次只减 1");
+	}
+	assertEqual(plain.drawn, 6, "三次各摸 2，共 6 张");
+	// 1 点 / 固定伤害不触发
+	assert(!barrier.filter({ num: 1, numFixed: false }, plain, "damageBegin4"), "1 点不触发");
+	assert(!barrier.filter({ num: 2, numFixed: true }, plain, "damageBegin4"), "固定伤害不参与");
+	return "坚壁 3→1 不触发 / 4→2 触发 / 连续 3 次各摸 2 / 1 点与固定伤害不触发";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

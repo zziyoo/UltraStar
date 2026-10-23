@@ -936,8 +936,6 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		dyingRecallChance: "dying",
 		killGainMaxHp: "die",
 		killHeal: "die",
-		// 星穹壁垒：damageBegin3 才看得到前面所有加减伤后的实际数值
-		highDamageReduce: "damageBegin3",
 	};
 	for (const [key, timing] of Object.entries(need)) {
 		const used = Object.values(curiosData.curios).some(curio => curio.effect?.[key]);
@@ -955,6 +953,19 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		assert(curioManager.CURIOSITY_BATTLE_KEYS.includes(key), `配套键 ${key} 漏在 CURIOSITY_BATTLE_KEYS 栏外`);
 	}
 	assertEqual(curioManager.CURIOSITY_STORAGE_KEYS, curioManager.CURIOSITY_BATTLE_KEYS, "storage 写入表应与战斗内表同一条");
+	// 星穹壁垒：主效果由 rogue_curio 的 group 伙伴承载，必须挂在 damageBegin4 并用 lastDo
+	// 排在普通 damageBegin4 减伤（深渊·坚壁）之后；charlotte 让它不进技能面板/不可被故人的心选中
+	const barrier = skillsData.helpers.rogue_barrier;
+	assert(barrier, "helpers 里应有 rogue_barrier（星穹壁垒最终伤害载体）");
+	assertEqual(skillsData.helpers.rogue_curio.group, "rogue_barrier", "rogue_curio 应以 group 挂载星穹壁垒载体");
+	const barrierTriggers = [].concat(...Object.values(barrier.trigger ?? {}));
+	assert(barrierTriggers.includes("damageBegin4"), "rogue_barrier 应监听 damageBegin4");
+	assertEqual(barrier.lastDo, true, "rogue_barrier 必须用 lastDo 排在普通 damageBegin4 之后");
+	assertEqual(barrier.charlotte, true, "rogue_barrier 是内部载体，不应出现在技能面板/筹码列表");
+	assertEqual(skillsData.helperTranslate.rogue_barrier, "星穹壁垒", "rogue_barrier 应有翻译");
+	const modeConfig = modeModule.createModeConfig();
+	assert(modeConfig.skill.rogue_barrier, "rogue_barrier 应随模式注册");
+	assert(modeConfig.translate.rogue_barrier, "rogue_barrier 的翻译应随模式注册");
 	// 血怒核心「无法被响应」必须挂两个标签：本体问「能不能响应」和问「能不能无懈」是两条分开的路，
 	// 只挂一个会出现「杀必中但锦囊照样被无懈」。标签为真时本体才调 skillTagFilter，缺了就变成无条件生效。
 	const usesUnrespondable = Object.values(curiosData.curios).some(curio => (curio.effect?.unrespondable || 0) > 0
