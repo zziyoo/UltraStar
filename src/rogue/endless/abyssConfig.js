@@ -57,5 +57,15 @@ export const AFFIX_POOL = [
  */
 export const ABYSS_MAX_AFFIXES = null;
 
+/**
+ * 深渊债务（经验泉「再饮一口」/ 极限模拟训练 / 深空悬赏 / 黑市契约·深渊契约共用）最多记多少个
+ * 「每名敌人追加」：通用词缀池 9 条 − 满层（ABYSS_FULL_LEVEL）之前常规随机最多 1 条 = 8。
+ * 记下的债在生成层**优先落位**（enemy.rollEnemyAffixes 先给债留足座位，常规随机让出超出池子的
+ * 部分），所以 ≤ 8 的债在任何层数都必然足额兑现，同时低层常规随机本该有的那 1 个也不会被挤掉。
+ * 事件结算、存档清洗、action.perEnemy 清洗与图鉴提示统一读这一个常量——不许任何一处另写数字，
+ * 否则就会出现「内存 11 层、读档变 10 层」这类静默丢债。
+ */
+export const ABYSS_DEBT_MAX = 8;
+
 /** 敌人身上「深渊强化」标记的显示文字（与玩家的「强化」标记同一套机制） */
 export const ABYSS_MARK_TEXT = "深渊";

@@ -7890,16 +7890,23 @@ await check("黑市契约·鲜血契约：稀有奇物立即入袋，进场体�
 	// 读档重进：血债仍在存档上（写进档的代价不会丢）
 	session();
 	assertEqual(lib.storage.rogueSlots[0].bloodDebt, true, "重进后血债仍在");
-	// 下一场正式战斗：进场当前体力直接是 1，上限一个不动（迪迦 4）
+	// 下一场正式战斗：gameStart 触发那一刻（初始化全部完成之后、任何开局技能读到它之前）
+	// 当前体力就已经是 1，起手发牌时仍是 1，进回合循环后同样是 1；上限一个不动（迪迦 4）
+	const firstBattleLog = log.length;
 	clickNormalBattle();
 	await flush();
+	const firstEntries = log.slice(firstBattleLog);
+	assertEqual(firstEntries.find(item => item.type === "trigger:gameStart")?.meHp, 1, "gameStart 触发那一刻体力已是 1");
+	assertEqual(firstEntries.find(item => item.type === "gameDraw")?.meHp, 1, "起手发牌时体力仍是 1");
 	assertEqual(game.me.hp, 1, "进场体力 = 1");
 	assertEqual(game.me.maxHp, 4, "体力上限不动");
 	assertEqual(lib.storage.rogueSlots[0].bloodDebt, true, "开战不清债（恢复/重试还要靠它）");
 	// 中途退出重进 → 恢复页原样重打：进场仍是 1，不能靠重开规避
 	session();
+	const resumeLog = log.length;
 	clickNode(nodesWithClass("wm-rogue-resume-primary")[0]);
 	await flush();
+	assertEqual(log.slice(resumeLog).find(item => item.type === "trigger:gameStart")?.meHp, 1, "恢复重打的 gameStart 读到的也是 1");
 	assertEqual(game.me.hp, 1, "恢复重打进场仍是 1");
 	// 打赢：血债在正式胜利此刻解除
 	for (const player of game.players.slice(1)) {
@@ -8053,6 +8060,69 @@ await check("黑市契约·血债不进裂隙：裂隙战不吃 1 体力、也�
 	assertEqual(slot.bloodDebt, true, "血债没有被裂隙消费");
 	assert(slot.currentBattle.rift, "这一场确实是裂隙");
 	return "裂隙不吃不清 / 血债留给下一场正式战斗";
+});
+
+await check("黑市契约·血债：Boss 战同样进场置 1（gameStart 读到的也是 1），无契约的战斗照常满体力", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 2,
+		bloodDebt: true,
+	});
+	session();
+	// Boss 判定钉中：Boss 战的体力 ×2 只作用敌人，玩家的置 1 与普通战同一条路径
+	const bossLog = log.length;
+	clickBossBattle();
+	await flush();
+	const bossEntries = log.slice(bossLog);
+	assertEqual(bossEntries.find(item => item.type === "trigger:gameStart")?.meHp, 1, "Boss 战 gameStart 读到的体力是 1");
+	assertEqual(game.me.hp, 1, "Boss 战进场体力 = 1");
+	assertEqual(game.me.maxHp, 4, "体力上限不动（Boss ×2 只作用敌人）");
+	assertEqual(lib.storage.rogueSlots[0].bloodDebt, true, "开战不清债");
+	// 无契约对照：普通战斗的 gameStart 与进场都是角色基础体力 4，置 1 分支一个字节都不碰它
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 2,
+	});
+	session();
+	const plainLog = log.length;
+	clickNormalBattle();
+	await flush();
+	const plainEntries = log.slice(plainLog);
+	assertEqual(plainEntries.find(item => item.type === "trigger:gameStart")?.meHp, 4, "无契约 gameStart 读到满体力");
+	assertEqual(game.me.hp, 4, "无契约进场体力不变");
+	return "Boss 战生效 / gameStart 读到 1 / 上限不动 / 无契约照常";
+});
+
+await check("黑市契约·深渊契约：债记不满额（+2 装不下）整单拒签，事件保留可改签鲜血契约", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 1,
+		abyssDebt: 7,
+		pendingEvent: eventManager.buildPendingEvent("mystery_merchant", 1, () => 0, 1, { curios: [] }),
+	});
+	session();
+	click("深渊契约");
+	await flush();
+	assert(screenText().includes("记不下了"), `弹出明确提示：${screenText().slice(0, 240)}`);
+	click("确定");
+	let slot = lib.storage.rogueSlots[0];
+	assert(slot.pendingEvent && slot.pendingEvent.id === "mystery_merchant", "事件保留（不丢失、不误关）");
+	assertEqual(slot.abyssDebt, 7, "债务分文不动");
+	assertEqual(slot.curios.length, 0, "奇物未发");
+	// 改签鲜血契约照常成交：血债是布尔，不占深渊债务的额度
+	click("鲜血契约");
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.curios), JSON.stringify(["lucky_stone"]), "改签鲜血契约成交");
+	assertEqual(slot.bloodDebt, true, "血债照记");
+	assertEqual(slot.pendingEvent, null, "成交后事件结束");
+	return "拒签提示明确 / 事件保留 / 债务不动 / 改签照常";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

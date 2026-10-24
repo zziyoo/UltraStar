@@ -373,19 +373,22 @@ export async function beginBattle(event, run, enemies) {
 	}
 
 	const startHand = BASE_START_HAND + bonuses.startHand;
-	// 与身份模式一致：先 gameStart，再起手牌，最后进回合循环
-	await event.trigger("gameStart");
-	perfMark("触发 gameStart");
-	game.gameDraw(game.me, player => (player === game.me ? startHand : BASE_START_HAND));
-	perfMark("起手发牌 gameDraw");
 	// 黑市契约·鲜血契约：进场把当前体力直接置为 1（上限一个字不动，战斗内照常回复）。
-	// 放在全部初始化效果（属性/奇物/临时技能）与 gameStart 之后，前面任何体力修正都盖不过它；
+	// 时机按本体建局顺序选在**全部会碰体力的初始化**（角色 init / 属性效果 / 奇物 / 临时技能 /
+	// 敌方挂载 / 故人的心）之后、`gameStart` 触发**之前**——这是开局前最后一个初始化点，
+	// gameStart 与其后的回合循环读到的当前体力都是 1，任何初始化修正都盖不过它；
+	// gameStart 之后若被玩家自己的技能回复，那是战斗内的正常回复，契约语义本就允许。
 	// 深渊裂隙不是正式战斗，不吃这笔代价、也不在这里清债（正式胜利才解除，见 reward.settleVictory），
 	// 所以失败重试、中途退出的恢复进场时照样是 1，不能靠重开规避
 	if (run.bloodDebt === true && !run.currentBattle?.rift) {
 		game.me.hp = 1;
 		game.me.update();
 	}
+	// 与身份模式一致：先 gameStart，再起手牌，最后进回合循环
+	await event.trigger("gameStart");
+	perfMark("触发 gameStart");
+	game.gameDraw(game.me, player => (player === game.me ? startHand : BASE_START_HAND));
+	perfMark("起手发牌 gameDraw");
 	game.phaseLoop(game.me);
 	perfEnd("已进入回合循环");
 	return { enemies: enemies.length };

@@ -25,6 +25,7 @@ import { getMaxShopRefreshes, canLockShop } from "./curioManager.js";
 import { normalizeEventReward, normalizeEventAction, migrateEventReward } from "./eventManager.js";
 import { hasBuyableSkillOffer } from "./shop.js";
 import { abyssContextForEnemy, normalizeAbyssIds } from "./endless/abyss.js";
+import { ABYSS_DEBT_MAX } from "./endless/abyssConfig.js";
 import { stats } from "./data/stats.js";
 
 const RUN_MODE_KEYS = Object.keys(RUN_MODE);
@@ -744,8 +745,10 @@ export function normalizeRun(raw, options = {}) {
 			&& raw.skillShopLocked === true
 			&& hasBuyableSkillOffer({ mode, skills, skillInventory, shopOffers }, { isSkillAllowed }),
 		curioShopLocked: canLockShop({ curios, curioQuality }, "curio") && raw.curioShopLocked === true,
-		// v7：经验泉「再饮一口」欠下的债——下一场每名敌人追加几个深渊强化。旧档按「没有债」补齐，不重掷
-		abyssDebt: clampInt(raw.abyssDebt, 0, 10, 0),
+		// v7：经验泉「再饮一口」欠下的债——下一场每名敌人追加几个深渊强化。旧档按「没有债」补齐，不重掷。
+		// 上限读 abyssConfig.ABYSS_DEBT_MAX（通用池大小 − 满层前常规随机最多 1 个），与事件结算、
+		// 生成层、图鉴提示同一条边界——结算已经按它封顶，这里夹的只是手改档，内存与读档永一致
+		abyssDebt: clampInt(raw.abyssDebt, 0, ABYSS_DEBT_MAX, 0),
 		// 黑市契约·鲜血契约欠下的债：下一场**正式**战斗开始时当前体力直接置为 1（上限不动）。
 		// 只记账不消费：每次正式进场都按它初始化体力，正式胜利才解除（见 reward.settleVictory）。
 		// 纯增量字段、不改任何既有字段语义：旧档缺字段按「没有债」补齐，不抬版本号

@@ -704,10 +704,11 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 				} else if (action.kind === "skillForge" && !["exp", "skill"].includes(action.grant)) {
 					problems.push(`${key} 第${index + 1}个选项: skillForge 的 grant 应为 exp 或 skill`);
 				} else if (action.kind === "abyssDebt" && action.perEnemy !== undefined
-					&& !(Number.isInteger(action.perEnemy) && action.perEnemy >= 1 && action.perEnemy <= 10)) {
+					&& !(Number.isInteger(action.perEnemy) && action.perEnemy >= 1 && action.perEnemy <= abyssConfig.ABYSS_DEBT_MAX)) {
 					// 不写 perEnemy 的（经验泉）由 config.SPRING_DEBT_AFFIXES 在构建期注入；
-					// 写了的（极限模拟训练的 1 / 2）必须是正整数，构建期与读档清洗都按 0..10 夹
-					problems.push(`${key} 第${index + 1}个选项: abyssDebt.perEnemy 应为 1~10 的整数（不写则用 config.SPRING_DEBT_AFFIXES）`);
+					// 写了的（极限模拟训练的 1 / 2、深渊契约的 2）必须是正整数，构建期与读档清洗都按
+					// 1..ABYSS_DEBT_MAX 夹——通用池就 9 条，记更多必然兑现不了
+					problems.push(`${key} 第${index + 1}个选项: abyssDebt.perEnemy 应为 1~ABYSS_DEBT_MAX(${abyssConfig.ABYSS_DEBT_MAX}) 的整数（不写则用 config.SPRING_DEBT_AFFIXES）`);
 				} else if (action.kind === "bloodDebt" && action.requireCurio === false) {
 					// 黑市契约·鲜血契约只服务于「拿体力换稀有奇物」：脱钩了标的就变成无代价的白得体力债
 					problems.push(`${key} 第${index + 1}个选项: bloodDebt 不能写 requireCurio: false（鲜血契约的代价以奇物真发到手为前提）`);

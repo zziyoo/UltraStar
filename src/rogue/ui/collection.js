@@ -7,6 +7,7 @@ import { events, eventIds } from "../data/events.js";
 import { curioIds, getCurio, CURIOSITY_RARITY } from "../data/curios.js";
 import { describeCurio, getCurioUpgradeTrack } from "../curioManager.js";
 import { FORGE_EXP_MULTIPLIER, MERCHANT_PRICE_MULTIPLIER, RIFT_EXTRA_AFFIXES, RIFT_TIERS, SPRING_DEBT_AFFIXES } from "../config.js";
+import { ABYSS_DEBT_MAX } from "../endless/abyssConfig.js";
 import { stats } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
 import { addOverlayButton, bindOverlayTap, openDetailPopup, openOverlay, showNotice, skillName } from "./common.js";
@@ -120,9 +121,13 @@ function actionBrief(action) {
 		case "curioForge":
 			return `选一件奇物升一级品质，融合费 = 本层胜利经验 ×${FORGE_EXP_MULTIPLIER}`;
 		case "abyssDebt": {
-			// 个数优先读事件自己写的 perEnemy（极限模拟训练的 1 / 2），不写的照旧吃 config 默认值（经验泉）
+			// 个数优先读事件自己写的 perEnemy（极限模拟训练的 1 / 2），不写的照旧吃 config 默认值（经验泉）；
+			// 债的记账上限同口径写在行尾：结算封顶、存档清洗、生成都读 ABYSS_DEBT_MAX 这一个数
 			const perEnemy = Number.isFinite(action.perEnemy) ? action.perEnemy : SPRING_DEBT_AFFIXES;
-			return perEnemy > 0 ? `下一场战斗每名敌人追加 ${perEnemy} 个深渊强化` : null;
+			if (!(perEnemy > 0)) {
+				return null;
+			}
+			return `下一场战斗每名敌人追加 ${perEnemy} 个深渊强化（债务最多记 ${ABYSS_DEBT_MAX} 个，记不下时结算会明说）`;
 		}
 		case "bloodDebt":
 			// 黑市契约·鲜血契约：只作用于下一场**正式**战斗（裂隙不算），体力上限不动、

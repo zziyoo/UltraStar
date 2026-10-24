@@ -36,6 +36,7 @@ import { events, getEvent, eventIds } from "./data/events.js";
 import { getCurio, CURIOSITY_RARITY } from "./data/curios.js";
 import { getEndlessReward, sumEndlessRewards } from "./data/rewards.js";
 import { stats } from "./data/stats.js";
+import { ABYSS_DEBT_MAX } from "./endless/abyssConfig.js";
 import {
 	getBonus,
 	getCurioQuality,
@@ -85,7 +86,9 @@ export function normalizeEventAction(raw) {
 	}
 	switch (raw.kind) {
 		case "abyssDebt": {
-			const built = { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
+			// perEnemy 的上限读 abyssConfig.ABYSS_DEBT_MAX（= 通用池大小 − 满层前常规随机最多 1 个）：
+			// 记下更多也兑现不了，构建期就按同一条边界收口（与存档清洗、结算封顶同一常量）
+			const built = { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, ABYSS_DEBT_MAX, SPRING_DEBT_AFFIXES) };
 			// requireCurio（黑市契约·深渊契约）：这笔债以同选项 curioRarity 掷定的奇物真发到手为前提，
 			// 只认 true——写了才是契约，别的深渊债（经验泉/悬赏/极限训练）照旧无条件兑现
 			if (raw.requireCurio === true) {
@@ -273,7 +276,7 @@ function buildEventAction(raw, base, level, rng, run = null) {
 		case "abyssDebt": {
 			// perEnemy：事件可以显式指定每名敌人追加几个（极限模拟训练的 1 / 2）；
 			// 不写的（经验泉）照旧吃 config.SPRING_DEBT_AFFIXES 的默认值。清洗口径与 normalizeEventAction 一致
-			const built = { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
+			const built = { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, ABYSS_DEBT_MAX, SPRING_DEBT_AFFIXES) };
 			// requireCurio（黑市契约·深渊契约）随存档定死：读档后结算层仍按它判「标的没发出去整单作废」
 			if (raw.requireCurio === true) {
 				built.requireCurio = true;
@@ -911,6 +914,18 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		if (!target || !getCurio(target) || (run.curios ?? []).includes(target)) {
 			return { ok: false, error: "该品质的奇物已全部集齐，这份契约无法签订。", run };
 		}
+		// 深渊契约的代价是债：已有债加上契约要记的个数超出 ABYSS_DEBT_MAX（记不满额）就不签——
+		// 半份债等于改了契约条款，整单作废让玩家改选，与「标的发不出去」同一条失败纪律
+		if (sip.action.kind === "abyssDebt") {
+			const before = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
+			if (before + sip.action.perEnemy > ABYSS_DEBT_MAX) {
+				return {
+					ok: false,
+					error: `深渊债务最多记 ${ABYSS_DEBT_MAX} 个，这份契约的 ${sip.action.perEnemy} 个强化记不下了，无法签订。`,
+					run,
+				};
+			}
+		}
 	}
 
 	// 收窄只对 clampLoss 选项生效；记忆棱镜在这里给事件自己发的正数经验加成一次
@@ -1023,10 +1038,21 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 
 	// 经验泉「再饮一口」欠下的债：只记在存档上，开战那一刻消费并清零（见 mode.js:startBattle）。
 	// 累加而不是覆盖——连着喝两次的债不该被后一次抹掉。黑市契约·深渊契约走的就是这一条（perEnemy 2），
-	// 与其它来源的债自然累加，绝不互相覆盖
+	// 与其它来源的债自然累加，绝不互相覆盖。
+	// 上限口径只有一份（abyssConfig.ABYSS_DEBT_MAX，= 通用池大小 − 满层前常规随机最多 1 个）：
+	// 结算按它封顶并**明说**记了几个，存档清洗夹同一条边界——内存与读档永远是同一个数，
+	// 绝不出现「内存 9 层读档变 8 层」这类静默丢债（这类债是生成层承诺必给的，超出的部分兑现不了）
 	if (sip.action?.kind === "abyssDebt" && sip.action.perEnemy > 0) {
-		next.abyssDebt = (Number(run.abyssDebt) || 0) + sip.action.perEnemy;
-		lines.push(`下一场战斗每个敌人获得 ${next.abyssDebt} 个随机深渊强化`);
+		const before = Math.min(ABYSS_DEBT_MAX, Math.max(0, Math.floor(Number(run.abyssDebt) || 0)));
+		const after = Math.min(ABYSS_DEBT_MAX, before + sip.action.perEnemy);
+		next.abyssDebt = after;
+		if (after === before + sip.action.perEnemy) {
+			lines.push(`下一场战斗每个敌人获得 ${after} 个随机深渊强化`);
+		} else if (after > before) {
+			lines.push(`深渊债务最多记 ${ABYSS_DEBT_MAX} 个：本次只能再记 ${after - before} 个（下一场每个敌人共 ${after} 个）`);
+		} else {
+			lines.push(`深渊债务已记满 ${ABYSS_DEBT_MAX} 个，本次没有新增`);
+		}
 	}
 
 	// 黑市契约·鲜血契约：下一场**正式**战斗开始时当前体力直接置为 1（上限不动，战斗内照常回复）。

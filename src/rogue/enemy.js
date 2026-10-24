@@ -22,7 +22,7 @@ import { lib } from "../../../../noname.js";
 
 import { packages } from "../core/loader.js";
 import { perfCount, perfMark } from "./perf.js";
-import { appendAbyssAffixes, isAbyssStage, rollAbyssAffixes } from "./endless/abyss.js";
+import { appendAbyssAffixes, getAbyssPoolIds, isAbyssStage, rollAbyssAffixes } from "./endless/abyss.js";
 import { BOSS_AFFIX_TAG } from "./endless/abyssConfig.js";
 import { BOSS_EXTRA_AFFIXES, BOSS_PITY_BATTLES, BOSS_RUN_RATE, BOSS_SKILL_DONOR_COUNT, CHALLENGE_COMBO_LEVELS, CHALLENGE_STAGE_LEVELS, CHALLENGE_TOTAL_LEVELS, RUN_MODE, STAT_IDS } from "./config.js";
 import { drawChallengeStageIds } from "./data/challengeStages.js";
@@ -172,13 +172,20 @@ function sampleCharacters(pool, count, rng) {
  * 追加与常规随机同一条不放回规则，所以深渊裂隙「额外自带一个」一定是**新**的一条强化，
  * 不会把已经随到的那条重复计数。词缀总开关关着时池子是空的，追加一个也加不上——
  * 裂隙与泉水都不会绕过 ABYSS_ENABLED。
+ * **债务优先落位**：追加的个数里有玩家被明确承诺过的债（经验泉/极限训练/深空悬赏/深渊契约），
+ * 所以先按「通用池大小 − 追加个数」给债留足座位，常规随机让出超出池子的部分——
+ * 常规随机的**数量口径**一个字不改，只是池子被债占满时兑现几个让位；
+ * 被挤掉的永远不是玩家被承诺的那笔债。债 ≤ abyssConfig.ABYSS_DEBT_MAX 时必然足额兑现，
+ * 且追加与常规合计仍 ≤ 池子大小（不重复规则原样：谁也不会拿到重复词缀）。
  */
 function rollEnemyAffixes(level, mode, abyssStage, extra, rng) {
 	const rolled = abyssStage ? rollAbyssAffixes(level, rng, { mode }) : [];
 	if (!(extra > 0)) {
 		return rolled;
 	}
-	return appendAbyssAffixes(rolled, extra, rng, { mode });
+	const room = getAbyssPoolIds({ mode }).length - Math.floor(extra);
+	const kept = room > 0 ? rolled.slice(0, room) : [];
+	return appendAbyssAffixes(kept, extra, rng, { mode });
 }
 
 /**
@@ -404,6 +411,8 @@ export function createBossEnemyConfig(level, mode, rng = Math.random, options = 
 	const extra = Math.floor(Number(options?.extraAffixes));
 	// 常规随机（含经验泉的债）照走正常关卡口径，**不带** boss 标签：带上它 Boss 就只能从专属强化里挑，
 	// 常规那一份的数量与概率口径也会跟着变。Boss 自带的那个在此之外单独追加，那一份才带标签。
+	// 债务优先落位（见 rollEnemyAffixes）：债把通用池占满时，Boss 固定追加的这一个会让位——
+	// 玩家被明确承诺的债足额兑现，引擎自带的加成在池子排空时少给，绝不造重复词缀。
 	const abyssStage = isAbyssStage(level, mode);
 	let abyss = rollEnemyAffixes(level, mode, abyssStage, extra, rng);
 	abyss = appendAbyssAffixes(abyss, BOSS_EXTRA_AFFIXES, rng, { mode, tags: [BOSS_AFFIX_TAG] });

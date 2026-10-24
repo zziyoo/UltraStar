@@ -732,7 +732,9 @@ export const game = {
 				return event;
 			},
 			async trigger(triggerName) {
-				log({ type: `trigger:${triggerName}` });
+				// meHp：gameStart 等时机点上主控角色的当前体力——供冒烟用例断言
+				// 「黑市契约·鲜血契约在 gameStart 之前已生效」这类初始化时序，不影响既有按 type 的断言
+				log({ type: `trigger:${triggerName}`, meHp: game.me?.hp });
 			},
 			// 本体 GameEvent 的触发器缓存接口（arrangeTrigger 链上用）；桩里不跑真触发链，给同形状的空实现
 			addTrigger: () => event,
@@ -787,7 +789,7 @@ export const game = {
 	gameDraw(player, num, targets) {
 		const list = targets ?? game.players;
 		const counts = list.map(current => (typeof num === "function" ? num(current) : num));
-		log({ type: "gameDraw", from: player === game.me ? "me" : player?.__char, counts });
+		log({ type: "gameDraw", from: player === game.me ? "me" : player?.__char, counts, meHp: game.me?.hp });
 		return game.createEvent("gameDraw");
 	},
 	phaseLoop(player) {

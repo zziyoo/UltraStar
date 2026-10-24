@@ -7883,8 +7883,10 @@ check("黑市契约：血债随存档往返、旧档按没有债补齐，纯增�
 	const revived = state.normalizeRun(JSON.parse(JSON.stringify(run)));
 	assertEqual(revived.bloodDebt, true, "血债在存档往返后仍是 true");
 	assertEqual(revived.abyssDebt, 2, "深渊债照旧保留");
-	// 深渊债上限清洗不动：与既有 0..10 夹同一条
-	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 12 }).abyssDebt, 10, "深渊债仍按 0..10 清洗");
+	// 深渊债上限清洗与结算同一条 ABYSS_DEBT_MAX（通用池 9 − 满层前常规随机最多 1 = 8）：
+	// 手改的超额债读档回到 8，绝不出现「内存 11 层读档变 10 层」的静默丢债
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 12 }).abyssDebt, 8, "超额债清洗到 ABYSS_DEBT_MAX");
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 8 }).abyssDebt, 8, "上限内的债原样保留");
 	return "true 保留 / 缺失与非法补 false / 与版本号无关 / 深渊债清洗不变";
 });
 
@@ -7931,6 +7933,95 @@ check("黑市契约：金币契约沿用原交易逻辑——付得起源价成�
 	const trained = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), pendingEvent: extreme }, 2, {}, () => 0);
 	assert(trained.ok && trained.run.abyssDebt === 2, "极限训练照旧无条件记账 2");
 	return "源价成交 / 集齐跳过不扣钱 / 其它事件的债不受标的耦合影响";
+});
+
+check("深渊债务：结算按 ABYSS_DEBT_MAX 封顶且明说，内存与读档永一致", () => {
+	const trained = eventManager.buildPendingEvent("extreme_training", 4, () => 0, NOW, { curios: [] });
+	// 6 + 2 = 8：恰好装满，走原有全额文案
+	const full = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 6, pendingEvent: trained }, 2, {}, () => 0);
+	assert(full.ok, full.error ?? "应成交");
+	assertEqual(full.run.abyssDebt, 8, "6 + 2 = 8 恰好到上限");
+	assert(full.lines.some(line => line.includes("8 个随机深渊强化")), `全额文案：${full.lines.join("；")}`);
+	// 7 + 2 = 9 > 8：只能再记 1 个，账目明说，绝不静默截断
+	const partial = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 7, pendingEvent: trained }, 2, {}, () => 0);
+	assert(partial.ok, partial.error ?? "部分入账也应成交");
+	assertEqual(partial.run.abyssDebt, 8, "封顶在 ABYSS_DEBT_MAX");
+	assert(partial.lines.some(line => line.includes("只能再记 1 个") && line.includes("共 8 个")), `部分入账要明说：${partial.lines.join("；")}`);
+	// 8 + 2：一个都记不进去，同样明说；经验奖励照常入账（债只是代价，不该连坐奖励）
+	const capped = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 8, pendingEvent: trained }, 2, {}, () => 0);
+	assert(capped.ok, capped.error ?? "满上限时也应成交");
+	assertEqual(capped.run.abyssDebt, 8, "满上限不再增加");
+	assert(capped.lines.some(line => line.includes("已记满 8 个") && line.includes("没有新增")), `满上限要明说：${capped.lines.join("；")}`);
+	assert(capped.run.currency.exp > 0, "经验奖励不因债满而丢失");
+	// 内存里的数读档后一个都不变：结算封顶与存档清洗是同一条 ABYSS_DEBT_MAX
+	assertEqual(state.normalizeRun(JSON.parse(JSON.stringify(partial.run))).abyssDebt, 8, "封顶值随存档往返一致");
+	return "6+2=8 全额 / 7+2 只记 1 / 8+2 明说不新增 / 存档往返一致";
+});
+
+check("深渊契约：已有债记不满额（+2 装不下）整单拒签，事件保留可改签", () => {
+	const built = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, { curios: [] });
+	// 已有 7 层：7 + 2 装不进 8 → 拒签，分文不动
+	const refuse = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 7, pendingEvent: built }, 2, {}, () => 0);
+	assert(!refuse.ok, "记不满额应拒签");
+	assert(refuse.error.includes("记不下了"), `拒签提示：${refuse.error}`);
+	assertEqual(refuse.run.abyssDebt, 7, "债务分文不动");
+	assertEqual(refuse.run.curios.length, 0, "奇物未发");
+	assert(refuse.run.pendingEvent, "事件保留可改选");
+	// 已有 8 层（顶格）：同样拒签
+	const refuseFull = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 8, pendingEvent: built }, 2, {}, () => 0);
+	assert(!refuseFull.ok && refuseFull.run.abyssDebt === 8, "顶格时同样拒签且零副作用");
+	// 已有 6 层：6 + 2 = 8 恰好装满 → 照常签订
+	const sign = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 6, pendingEvent: built }, 2, {}, () => 0);
+	assert(sign.ok, sign.error ?? "装得下应照常签订");
+	assertEqual(sign.run.abyssDebt, 8, "签订后债到上限");
+	assertEqual(sign.curioId, "broken_watch", "史诗奇物照发");
+	// 深空悬赏（+1）在 7 层时 7 + 1 = 8 装得下 → 照常签订，全额文案（悬赏的债不是全部代价，不走拒签）
+	const bounty = eventManager.buildPendingEvent("deep_space_bounty", 4, () => 0, NOW, { curios: [] });
+	const accepted = eventManager.resolveEventChoice(
+		{ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 7, pendingEvent: bounty },
+		0, { candidates: [{ id: SKILL_A }], characterSkills: [] }, () => 0,
+	);
+	assert(accepted.ok, accepted.error ?? "悬赏 +1 装得下应成交");
+	assertEqual(accepted.run.abyssDebt, 8, "7 + 1 = 8");
+	assert(accepted.lines.some(line => line.includes("8 个随机深渊强化")), `全额文案：${accepted.lines.join("；")}`);
+	return "7+2 拒签 / 6+2 签到 8 / 悬赏 +1 装得下照常";
+});
+
+check("深渊债务优先落位：承诺的追加个数足额兑现，常规随机让位且永不重复", () => {
+	// 把角色塞进桩里的 lib.character（空池会让断言假绿）：本体侧至少一个、用完即删
+	const added = [];
+	for (const id of [...enemy.getExtensionCharacterIds(), "本体测试将"]) {
+		if (!lib.character[id]) {
+			lib.character[id] = { hp: 4, maxHp: 4, skills: [] };
+			added.push(id);
+		}
+	}
+	try {
+		// 第 4 层 rng=0.999：常规随机掷 0 个，欠 8 记 8 → 恰好 8 条
+		const low = enemy.createEnemyConfigs(4, cfg.RUN_MODE.endless, () => 0.999, { enemies: 1, extraAffixes: 8 });
+		assertEqual(low[0].abyss.length, 8, "无常规随机时债务足额");
+		assertEqual(new Set(low[0].abyss).size, 8, "不重复");
+		// 234 层 rng=0：常规随机掷 3 个，但池子只剩 1 个座位 → 常规让位、债足额 8，合计 9 = 池满
+		const high = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0, { enemies: 1, extraAffixes: 8 });
+		assertEqual(high[0].abyss.length, 9, "234 层：常规让位后 1 + 债 8 = 池满 9");
+		assertEqual(high[0].abyss[0], "abyss_buqu", "常规随机让位后剩下的那 1 个留在最前");
+		assertEqual(new Set(high[0].abyss).size, 9, "合计 9 条互不重复");
+		// 每名敌人独立：多人各自足额、互不重复
+		const multi = enemy.createEnemyConfigs(4, cfg.RUN_MODE.endless, () => 0.999, { enemies: 3, extraAffixes: 8 });
+		assertEqual(multi.length, 3, "3 名敌人");
+		for (const entry of multi) {
+			assertEqual(entry.abyss.length, 8, "每人各自足额 8 条");
+			assertEqual(new Set(entry.abyss).size, 8, "每人身上不重复");
+		}
+		// 对照：不欠债时 234 层照旧 3 条（常规随机的数量口径一个字没改）
+		const plain = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0, { enemies: 1 });
+		assertEqual(plain[0].abyss.length, 3, "不欠债时常规随机照旧");
+	} finally {
+		for (const id of added) {
+			delete lib.character[id];
+		}
+	}
+	return "债足额 / 常规让位 / 池满 9 不重复 / 不欠债口径不变";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);
