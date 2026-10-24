@@ -854,12 +854,32 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	}
 	// 带追问句的选项（经验泉：页面上只有「饮用」，点完才问「再饮一口」）分两趟走：
 	// 第一趟 ctx.followUpTaken 是 undefined，这里一个钱都不扣、事件照旧挂着，只把追问那一句回给流程层；
-	// 玩家答了再进来一次，ctx.followUpTaken 带布尔值才真落地。与商人/熔炉/裂隙「未落地前事件挂着」同一条纪律
+	// 玩家答了再进来一次，ctx.followUpTaken 带布尔值才真落地。与商人/熔炉/裂隙「未落地前事件挂着」同一条纪律。
+	// **例外**：追问那一口的深渊债已经记不下（已达 ABYSS_DEBT_MAX）时**不问这一句**——
+	// 问了玩家答应也只会喝到第一口，直接按第一口结算并在账目里写明（见 followUpDebtSkipped），
+	// 省一次必落空的问答；第一口的奖励是玩家点主选项那一刻就应得的，绝不被第二口的代价连坐取消
+	let followUpDebtSkipped = false;
 	if (isObject(choice.followUp) && ctx?.followUpTaken === undefined) {
-		return { ok: true, error: null, run, lines: [], skillId: null, curioId: null, action: null, followUp: choice.followUp };
+		const followUp = choice.followUp;
+		const debtBlocked = followUp.action?.kind === "abyssDebt"
+			&& followUp.action.perEnemy > 0
+			&& Math.max(0, Math.floor(Number(run.abyssDebt) || 0)) + followUp.action.perEnemy > ABYSS_DEBT_MAX;
+		if (!debtBlocked) {
+			return { ok: true, error: null, run, lines: [], skillId: null, curioId: null, action: null, followUp: choice.followUp };
+		}
+		// 追问那一口装不下：跳过追问，只结第一口（followUpDebtSkipped 在结算账目里说明）
+		followUpDebtSkipped = true;
 	}
-	// 答应了就把两口并成一次结算：货币相加、深渊债照原路径兑现，一条账只走一遍 applyEventCurrency
-	const sip = ctx?.followUpTaken === true && isObject(choice.followUp) ? mergeSips(choice, choice.followUp) : choice;
+	// 答应了就把两口并成一次结算：货币相加、深渊债照原路径兑现，一条账只走一遍 applyEventCurrency。
+	// 双保险：合并后的债若仍记不下（第一趟已拦住，债在事件页挂着的期间不可能变化），退回只结第一口
+	let sip = ctx?.followUpTaken === true && isObject(choice.followUp) ? mergeSips(choice, choice.followUp) : choice;
+	if (sip !== choice && sip.action?.kind === "abyssDebt" && sip.action.perEnemy > 0) {
+		const before = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
+		if (before + sip.action.perEnemy > ABYSS_DEBT_MAX) {
+			sip = choice;
+			followUpDebtSkipped = true;
+		}
+	}
 	const reward = sip.reward ?? {};
 	// 随机奇物不可得（图鉴已集齐）时整个选项落空：不扣任何货币、不入袋，
 	// 只提示一句并照常关闭事件（神秘商人「拥有所有奇物则不扣金币直接跳过」走的就是这条）。
@@ -887,6 +907,21 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		return { ok: false, error: "货币不足，无法选择该项", run };
 	}
 
+	// 深渊债的统一前置校验（**所有** abyssDebt 选项一条：经验泉追问 / 极限训练 / 深空悬赏 / 深渊契约）：
+	// 已有债加上本次要记的个数装不进 ABYSS_DEBT_MAX（记不满额）就整项拒绝——债是这些选项的代价，
+	// 半份债等于白拿奖励，与「货币不足」「没有可学技能」同一条失败纪律：不发金币/经验/技能/奇物、
+	// 不动已有债务、不清 pendingEvent，玩家关掉提示仍留在事件页可改选别的选项
+	if (sip.action?.kind === "abyssDebt" && sip.action.perEnemy > 0) {
+		const before = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
+		if (before + sip.action.perEnemy > ABYSS_DEBT_MAX) {
+			return {
+				ok: false,
+				error: `深渊债务最多记 ${ABYSS_DEBT_MAX} 个，本次的 ${sip.action.perEnemy} 个强化记不下了，无法选择该项。`,
+				run,
+			};
+		}
+	}
+
 	// 深空悬赏这类「随机技能 + 下一场深渊债」的选项：先把技能候选定下来。
 	// 没有可学技能时按**失败**返回（而不是成功地把事件收掉）：flow/event.js 的 !ok 路径
 	// 只弹 showNotice、不 commit、不关事件，玩家关掉提示后仍能在同一页改选「领取普通报酬」或「离开」。
@@ -907,24 +942,13 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	// 黑市契约（鲜血/深渊）的标的校验：奇物发不出去整单作废——不给奇物、不施加任何代价、
 	// 事件留着可改选别的契约（与深空悬赏「没有可学技能」同一条失败纪律，run 原样返回零副作用）。
 	// 标的在构建期就按品质掷定了（品质池空时 reward 里根本没有 curio 键），所以这里拦住的
-	// 几乎只剩「该品质已集齐」一种情况；bloodDebt 是契约本尊，标的耦合默认就带
+	// 几乎只剩「该品质已集齐」一种情况；bloodDebt 是契约本尊，标的耦合默认就带。
+	// 深渊契约「债装不下」的拒绝在上面那条统一前置校验里，这里不再另写一份
 	const contractCurio = sip.action?.requireCurio === true || sip.action?.kind === "bloodDebt";
 	if (contractCurio) {
 		const target = reward.curio;
 		if (!target || !getCurio(target) || (run.curios ?? []).includes(target)) {
 			return { ok: false, error: "该品质的奇物已全部集齐，这份契约无法签订。", run };
-		}
-		// 深渊契约的代价是债：已有债加上契约要记的个数超出 ABYSS_DEBT_MAX（记不满额）就不签——
-		// 半份债等于改了契约条款，整单作废让玩家改选，与「标的发不出去」同一条失败纪律
-		if (sip.action.kind === "abyssDebt") {
-			const before = Math.max(0, Math.floor(Number(run.abyssDebt) || 0));
-			if (before + sip.action.perEnemy > ABYSS_DEBT_MAX) {
-				return {
-					ok: false,
-					error: `深渊债务最多记 ${ABYSS_DEBT_MAX} 个，这份契约的 ${sip.action.perEnemy} 个强化记不下了，无法签订。`,
-					run,
-				};
-			}
 		}
 	}
 
@@ -945,6 +969,11 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	const lines = credited.lines;
 	let skillId = null;
 	let curioId = null;
+
+	// 经验泉「再饮一口」因债务上限没喝上时的说明行：紧跟第一口的经验账目，让玩家知道少喝了哪一口
+	if (followUpDebtSkipped) {
+		lines.push(`深渊债务最多记 ${ABYSS_DEBT_MAX} 个，「${choice.followUp.text}」记不下了，本次只结算第一口。`);
+	}
 
 	// 许愿池：按「点击那一刻」的金币数算投入额，所以必须在这里（而不是生成事件时）换算。
 	// 先扣掉投入，再按 goldPayout 倍返还——赢了净赚 (倍率-1)×投入，输了全丢。
@@ -1039,20 +1068,12 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	// 经验泉「再饮一口」欠下的债：只记在存档上，开战那一刻消费并清零（见 mode.js:startBattle）。
 	// 累加而不是覆盖——连着喝两次的债不该被后一次抹掉。黑市契约·深渊契约走的就是这一条（perEnemy 2），
 	// 与其它来源的债自然累加，绝不互相覆盖。
-	// 上限口径只有一份（abyssConfig.ABYSS_DEBT_MAX，= 通用池大小 − 满层前常规随机最多 1 个）：
-	// 结算按它封顶并**明说**记了几个，存档清洗夹同一条边界——内存与读档永远是同一个数，
-	// 绝不出现「内存 9 层读档变 8 层」这类静默丢债（这类债是生成层承诺必给的，超出的部分兑现不了）
+	// 上限口径只有一份（abyssConfig.ABYSS_DEBT_MAX）：**上面的统一前置校验已保证装得下**
+	// （已有债 + perEnemy ≤ 上限，装不下的选项整项被拒），所以这里必然全额兑现，
+	// 不存在「部分入账/满上限硬记」的分支；存档清洗夹同一条边界，内存与读档永一致
 	if (sip.action?.kind === "abyssDebt" && sip.action.perEnemy > 0) {
-		const before = Math.min(ABYSS_DEBT_MAX, Math.max(0, Math.floor(Number(run.abyssDebt) || 0)));
-		const after = Math.min(ABYSS_DEBT_MAX, before + sip.action.perEnemy);
-		next.abyssDebt = after;
-		if (after === before + sip.action.perEnemy) {
-			lines.push(`下一场战斗每个敌人获得 ${after} 个随机深渊强化`);
-		} else if (after > before) {
-			lines.push(`深渊债务最多记 ${ABYSS_DEBT_MAX} 个：本次只能再记 ${after - before} 个（下一场每个敌人共 ${after} 个）`);
-		} else {
-			lines.push(`深渊债务已记满 ${ABYSS_DEBT_MAX} 个，本次没有新增`);
-		}
+		next.abyssDebt = (Number(run.abyssDebt) || 0) + sip.action.perEnemy;
+		lines.push(`下一场战斗每个敌人获得 ${next.abyssDebt} 个随机深渊强化`);
 	}
 
 	// 黑市契约·鲜血契约：下一场**正式**战斗开始时当前体力直接置为 1（上限不动，战斗内照常回复）。

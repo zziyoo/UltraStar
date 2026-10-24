@@ -7935,27 +7935,88 @@ check("黑市契约：金币契约沿用原交易逻辑——付得起源价成�
 	return "源价成交 / 集齐跳过不扣钱 / 其它事件的债不受标的耦合影响";
 });
 
-check("深渊债务：结算按 ABYSS_DEBT_MAX 封顶且明说，内存与读档永一致", () => {
+check("深渊债务装不下：所有 abyssDebt 选项整项拒绝，奖励与代价一分不动", () => {
 	const trained = eventManager.buildPendingEvent("extreme_training", 4, () => 0, NOW, { curios: [] });
-	// 6 + 2 = 8：恰好装满，走原有全额文案
+	// 6 + 2 = 8：恰好装满 → 照常全额兑现（原有文案不变）
 	const full = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 6, pendingEvent: trained }, 2, {}, () => 0);
-	assert(full.ok, full.error ?? "应成交");
+	assert(full.ok, full.error ?? "装得下应成交");
 	assertEqual(full.run.abyssDebt, 8, "6 + 2 = 8 恰好到上限");
 	assert(full.lines.some(line => line.includes("8 个随机深渊强化")), `全额文案：${full.lines.join("；")}`);
-	// 7 + 2 = 9 > 8：只能再记 1 个，账目明说，绝不静默截断
-	const partial = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 7, pendingEvent: trained }, 2, {}, () => 0);
-	assert(partial.ok, partial.error ?? "部分入账也应成交");
-	assertEqual(partial.run.abyssDebt, 8, "封顶在 ABYSS_DEBT_MAX");
-	assert(partial.lines.some(line => line.includes("只能再记 1 个") && line.includes("共 8 个")), `部分入账要明说：${partial.lines.join("；")}`);
-	// 8 + 2：一个都记不进去，同样明说；经验奖励照常入账（债只是代价，不该连坐奖励）
-	const capped = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 8, pendingEvent: trained }, 2, {}, () => 0);
-	assert(capped.ok, capped.error ?? "满上限时也应成交");
-	assertEqual(capped.run.abyssDebt, 8, "满上限不再增加");
-	assert(capped.lines.some(line => line.includes("已记满 8 个") && line.includes("没有新增")), `满上限要明说：${capped.lines.join("；")}`);
-	assert(capped.run.currency.exp > 0, "经验奖励不因债满而丢失");
-	// 内存里的数读档后一个都不变：结算封顶与存档清洗是同一条 ABYSS_DEBT_MAX
-	assertEqual(state.normalizeRun(JSON.parse(JSON.stringify(partial.run))).abyssDebt, 8, "封顶值随存档往返一致");
-	return "6+2=8 全额 / 7+2 只记 1 / 8+2 明说不新增 / 存档往返一致";
+	// 7 + 2 = 9 > 8 与 8 + 2：整项拒绝——不发经验、不动债务、不清事件、存档原样返回（零副作用）
+	for (const debt of [7, 8]) {
+		const run = { ...freshRun(cfg.RUN_MODE.endless), abyssDebt: debt, pendingEvent: trained };
+		const refused = eventManager.resolveEventChoice(run, 2, {}, () => 0);
+		assert(!refused.ok, `${debt} + 2 装不下应拒`);
+		assert(refused.error.includes("记不下了"), `拒绝提示：${refused.error}`);
+		assertEqual(refused.run, run, "拒绝原样返回存档（零副作用）");
+		assert(refused.run.pendingEvent, "事件保留，可改选别的选项");
+		assertEqual(refused.run.abyssDebt, debt, "债务分文不动");
+	}
+	// 内存里的数读档后一个都不变：结算上限与存档清洗是同一条 ABYSS_DEBT_MAX
+	assertEqual(state.normalizeRun(JSON.parse(JSON.stringify(full.run))).abyssDebt, 8, "上限值随存档往返一致");
+	return "6+2=8 全额 / 7+2 与 8+2 整项拒绝零副作用 / 存档往返一致";
+});
+
+check("经验泉：第二口因债务上限喝不下时，第一口照常结算且不再追问", () => {
+	const spring = eventManager.buildPendingEvent("spring_of_wisdom", 4, () => 0, NOW, { curios: [] });
+	// 债 8：点「饮用」不再追问「再饮一口」，第一口的经验照常到账、账目写明第二口没喝上
+	const drank = eventManager.resolveEventChoice(
+		{ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 8, currency: { gold: 0, exp: 5 }, pendingEvent: spring },
+		0, {}, () => 0,
+	);
+	assert(drank.ok, drank.error ?? "第一口应照常结算");
+	assert(!drank.followUp, "债满时不再追问第二口");
+	assertEqual(drank.run.abyssDebt, 8, "不加债");
+	assertEqual(drank.run.currency.exp, 5 + Math.round(BASE_EXP * 3), "第一口经验到账");
+	assert(drank.lines.some(line => line.includes("只结算第一口")), `账目说明：${drank.lines.join("；")}`);
+	// 双保险：即使带着 followUpTaken=true 直接进来（正常流程到不了），也退回只结第一口，绝不连坐
+	const guard = eventManager.resolveEventChoice(
+		{ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 8, currency: { gold: 0, exp: 5 }, pendingEvent: spring },
+		0, { followUpTaken: true }, () => 0,
+	);
+	assert(guard.ok && guard.run.abyssDebt === 8, "合并路径的债记不下也退回第一口");
+	assertEqual(guard.run.currency.exp, 5 + Math.round(BASE_EXP * 3), "双保险同样只结第一口");
+	// 债 7：7 + 1 = 8 装得下 → 照常追问；答「要」两口一起到账
+	const askable = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 7, pendingEvent: spring }, 0, {}, () => 0);
+	assert(askable.ok && askable.followUp, "装得下时照常追问");
+	const both = eventManager.resolveEventChoice(askable.run, 0, { followUpTaken: true }, () => 0);
+	assert(both.ok && both.run.abyssDebt === 8, "两口并结算，债 7 + 1 = 8");
+	assertEqual(both.run.currency.exp, 20 + Math.round(BASE_EXP * 3) + Math.round(BASE_EXP * 2), "两口的经验一起到账");
+	// 答「不了」：只第一口，债不动
+	const one = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 7, pendingEvent: spring }, 0, { followUpTaken: false }, () => 0);
+	assertEqual(one.run.currency.exp, 20 + Math.round(BASE_EXP * 3), "只拿第一口");
+	assertEqual(one.run.abyssDebt, 7, "不了就不加债");
+	return "债满不追问只结第一口 / 双保险 / 7+1 照常追问并结 / 不了不动债";
+});
+
+check("Boss 固定强化不被债务挤占：债 8 + Boss 固定 1 全兑现，常规随机让位且互不重复", () => {
+	const added = [];
+	for (const id of [...enemy.getExtensionCharacterIds(), "本体测试将"]) {
+		if (!lib.character[id]) {
+			lib.character[id] = { hp: 4, maxHp: 4, skills: [] };
+			added.push(id);
+		}
+	}
+	try {
+		// 债 8：234 层常规随机本可掷 3 个，座位只留给债 8 + Boss 固定 1 → 常规 0，合计 9 = 池满
+		const boss = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 8 });
+		assertEqual(boss.length, 1, "Boss 单人");
+		assert(boss[0].boss === true, "boss 标记照旧");
+		assertEqual(boss[0].abyss.length, 9, "债 8 + Boss 固定 1 = 9 个强化");
+		assertEqual(new Set(boss[0].abyss).size, 9, "互不重复");
+		// 无债务：常规 3 + Boss 固定 1 = 4——词缀池充足时随机结果与旧口径一致
+		const plain = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 0 });
+		assertEqual(plain[0].abyss.length, 4, "无债务时常规 3 + Boss 1");
+		assertEqual(new Set(plain[0].abyss).size, 4, "不重复");
+		// 债务优先落位对普通敌人不变：234 层债 8 = 常规让位后 1 + 债 8 = 9
+		const normal = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0, { enemies: 1, extraAffixes: 8 });
+		assertEqual(normal[0].abyss.length, 9, "普通敌人债 8 足额 + 常规让位 1");
+	} finally {
+		for (const id of added) {
+			delete lib.character[id];
+		}
+	}
+	return "Boss 1 + 债 8 全兑现 / 无债务口径不变 / 普通敌人不变";
 });
 
 check("深渊契约：已有债记不满额（+2 装不下）整单拒签，事件保留可改签", () => {

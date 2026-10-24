@@ -172,18 +172,22 @@ function sampleCharacters(pool, count, rng) {
  * 追加与常规随机同一条不放回规则，所以深渊裂隙「额外自带一个」一定是**新**的一条强化，
  * 不会把已经随到的那条重复计数。词缀总开关关着时池子是空的，追加一个也加不上——
  * 裂隙与泉水都不会绕过 ABYSS_ENABLED。
- * **债务优先落位**：追加的个数里有玩家被明确承诺过的债（经验泉/极限训练/深空悬赏/深渊契约），
- * 所以先按「通用池大小 − 追加个数」给债留足座位，常规随机让出超出池子的部分——
- * 常规随机的**数量口径**一个字不改，只是池子被债占满时兑现几个让位；
- * 被挤掉的永远不是玩家被承诺的那笔债。债 ≤ abyssConfig.ABYSS_DEBT_MAX 时必然足额兑现，
- * 且追加与常规合计仍 ≤ 池子大小（不重复规则原样：谁也不会拿到重复词缀）。
+ * **座位预留的优先级：玩家被明确承诺的债 > reserve（Boss 固定追加）> 常规随机**。
+ * 先按「通用池大小 − 追加个数 − reserve」给债与预留留足座位，常规随机让出超出池子的部分——
+ * 常规随机的**数量口径**一个字不改，只是池子被占满时兑现几个让位，被挤掉的永远不是
+ * 承诺过的那几笔（债 ≤ abyssConfig.ABYSS_DEBT_MAX、Boss 固定 = BOSS_EXTRA_AFFIXES，
+ * 两者之和必不超池，故必然足额兑现），且合计仍 ≤ 池子大小（不重复规则原样）。
+ * reserve 不传（普通敌人/裂隙/闯关配置）时行为与「只预留债」完全一致；
+ * 词缀池充足（常规随机 ≤ 池 − 债 − reserve）时本函数掷出的结果与 rng 消耗顺序逐字节不变。
+ * @param {number} [reserve] 除追加个数之外还要预留的座位数（只有 Boss 战传 BOSS_EXTRA_AFFIXES）
  */
-function rollEnemyAffixes(level, mode, abyssStage, extra, rng) {
+function rollEnemyAffixes(level, mode, abyssStage, extra, rng, reserve = 0) {
 	const rolled = abyssStage ? rollAbyssAffixes(level, rng, { mode }) : [];
-	if (!(extra > 0)) {
+	const total = Math.floor(extra) + reserve;
+	if (!(total > 0)) {
 		return rolled;
 	}
-	const room = getAbyssPoolIds({ mode }).length - Math.floor(extra);
+	const room = getAbyssPoolIds({ mode }).length - total;
 	const kept = room > 0 ? rolled.slice(0, room) : [];
 	return appendAbyssAffixes(kept, extra, rng, { mode });
 }
@@ -369,7 +373,9 @@ export function pickBossSkillDonors(bossId, rng = Math.random, count = BOSS_SKIL
  *     （来源角色的两道闸：forbidai / isAiForbidden 的角色不当来源（Boss 由 AI 操控），
  *      禁将角色同样不当来源；每条技能还要过 isRogueSkillAllowed——禁将只卡来源武将本身）
  *   · 深渊强化 = 当前关卡正常计算的那一份 + Boss 固定追加的 BOSS_EXTRA_AFFIXES 个
- *     （appendAbyssAffixes 不放回，追加的永远是新的强化，也不占正常计算的数量）；
+ *     （appendAbyssAffixes 不放回，追加的永远是新的强化）；
+ *     座位优先级：玩家欠下的债 > Boss 固定追加 > 常规随机——债务把通用池占满时让位的是
+ *     常规随机，Boss 固定的那 1 个经 rollEnemyAffixes 的 reserve 提前占座、照常落地；
  *   · 体力 ×2 不在这里做：存档只记 boss 标记，battle.js 建局初始化该 Player 时翻倍一次。
  * 结果随 currentBattle.enemies 一起写进存档，重载/恢复绝不重掷。
  * 池子为空（全体禁用）返回空数组，由调用方提示。
@@ -410,11 +416,13 @@ export function createBossEnemyConfig(level, mode, rng = Math.random, options = 
 	const points = Math.max(0, Math.min(ENEMY_TOTAL_MAX, Math.floor(Number(level) || 0)));
 	const extra = Math.floor(Number(options?.extraAffixes));
 	// 常规随机（含经验泉的债）照走正常关卡口径，**不带** boss 标签：带上它 Boss 就只能从专属强化里挑，
-	// 常规那一份的数量与概率口径也会跟着变。Boss 自带的那个在此之外单独追加，那一份才带标签。
-	// 债务优先落位（见 rollEnemyAffixes）：债把通用池占满时，Boss 固定追加的这一个会让位——
-	// 玩家被明确承诺的债足额兑现，引擎自带的加成在池子排空时少给，绝不造重复词缀。
+	// 常规那一份的数量与概率口径也会跟着变。
+	// 座位预留的优先级：玩家欠下的债 > Boss 固定追加 > 常规随机——reserve 把 Boss 固定的那 1 个
+	// 也提前占住，债务把通用池占满时被让位的是常规随机，Boss 固定强化照常落地（债 8 + Boss 1 = 池满 9）。
+	// 词缀池被关掉（ABYSS_ENABLED=false）或合法候选不足时沿既有的「少加、不造非法词缀」处理，
+	// 不重抽、不造重复——那几笔承诺兑现不了多少算多少。
 	const abyssStage = isAbyssStage(level, mode);
-	let abyss = rollEnemyAffixes(level, mode, abyssStage, extra, rng);
+	let abyss = rollEnemyAffixes(level, mode, abyssStage, extra, rng, BOSS_EXTRA_AFFIXES);
 	abyss = appendAbyssAffixes(abyss, BOSS_EXTRA_AFFIXES, rng, { mode, tags: [BOSS_AFFIX_TAG] });
 	perfMark("深渊强化结算");
 	// 属性分配与深渊强化是同一条 rng 序列上的先后两步（先词缀后属性，顺序不能换）

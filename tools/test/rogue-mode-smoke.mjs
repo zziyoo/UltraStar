@@ -8125,6 +8125,53 @@ await check("黑市契约·深渊契约：债记不满额（+2 装不下）整�
 	return "拒签提示明确 / 事件保留 / 债务不动 / 改签照常";
 });
 
+await check("深渊债务 × Boss：债 8 与 Boss 固定 1 全部兑现，常规随机让位，恢复重打不重掷", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		abyssDebt: 8,
+	});
+	session();
+	clickBossBattle();
+	await flush();
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.abyssDebt, 0, "开战即兑现并清零");
+	assertEqual(slot.currentBattle.isBossBattle, true, "本场是 Boss 战");
+	assertEqual(slot.currentBattle.enemies[0].abyss.length, 9, "债 8 + Boss 固定 1 = 9 个强化");
+	assertEqual(new Set(slot.currentBattle.enemies[0].abyss).size, 9, "互不重复");
+	// 恢复重打：词缀随存档阵容原样挂回（读档清洗按池序重排，条数与集合不变），绝不重掷
+	session();
+	clickNode(nodesWithClass("wm-rogue-resume-primary")[0]);
+	await flush();
+	assertEqual(game.players[1].storage.abyss_affix?.length, 9, "恢复后 Boss 身上 9 条词缀原样挂回");
+	return "债 8 + Boss 1 全兑现 / 开战清零 / 恢复原样";
+});
+
+await check("经验泉 × 债务上限：第二口喝不下时不再追问，第一口照常到账", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		abyssDebt: 8,
+		pendingEvent: eventManager.buildPendingEvent("spring_of_wisdom", 4, () => 0, 1, { curios: [] }),
+	});
+	session();
+	click("饮用");
+	await flush();
+	// 直接结算第一口：没有追问弹层，账目写明第二口没喝上
+	assert(screenText().includes("只结算第一口"), `账目说明：${screenText().slice(0, 260)}`);
+	assert(!screenText().includes("还要再饮一口吗"), "不应再出现追问弹层");
+	click("确定");
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.abyssDebt, 8, "债满不加债");
+	assertEqual(slot.pendingEvent, null, "第一口结算完事件收掉");
+	assertEqual(slot.currency.exp, 20 + Math.round(40 * 3), "第一口经验到账");
+	return "不追问 / 第一口到账 / 债满不加";
+});
+
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);
 if (failures.length) {
 	console.log(`失败用例：${failures.join("、")}`);
