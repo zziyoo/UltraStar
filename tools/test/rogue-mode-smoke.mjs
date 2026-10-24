@@ -314,8 +314,8 @@ async function newRunByUi(modeLabel) {
  * 点「创建一场新战斗」的按钮，并让**这一场判为普通战斗**。
  *
  * v12 起 Boss 判定改成逐场独立：无尽的 `flow/battle.js` startBattle 在创建新战斗时消费的第一掷
- * `Math.random()` 就是这一场的判定（BOSS_RUN_RATE，当前 0.0625）。冒烟用例绝大多数要的是普通链路，
- * 若放任真随机，整套流程会变成「每场 6.25% 概率突然换成 Boss 关」的抖动测试。
+ * `Math.random()` 就是这一场的判定（BOSS_RUN_RATE，当前 0.06666）。冒烟用例绝大多数要的是普通链路，
+ * 若放任真随机，整套流程会变成「每场 6.666% 概率突然换成 Boss 关」的抖动测试。
  * 这里只把「第一掷」钉成 0.999999（≥ 判定线 → 不抽中），其余各掷原样交回当前钉好的随机
  * （没钉就是真随机），所以角色/词缀/事件的随机口径一概不受影响。
  * Boss 链路由专门的用例覆盖：它们自己把 Math.random 钉到 < BOSS_RUN_RATE。
@@ -5128,14 +5128,15 @@ await check("属性训练场（还能升、经验够）：按钮只显示「接�
 await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记录记到跳过的最后一关", async () => {
 	freshWorld();
 	const base = stateModule.createRun("endless", "迪迦", 1);
-	// 摆在第 6 关（刚打赢第 5 关）：跳过十关落到第 16 关，正好把 Boss 保底的关卡差（16）攒满
-	const pending = eventManager.buildPendingEvent("wormhole", 5, () => 0, 1, {
-		level: 6, statLevels: base.stats, curios: [], run: { ...base, level: 6 },
+	// 摆在第 (保底阈值-10) 关：跳过十关正好落在保底阈值那一关（跳过的关也计入保底）
+	const jumpFrom = cfg.BOSS_PITY_BATTLES - 10;
+	const pending = eventManager.buildPendingEvent("wormhole", jumpFrom - 1, () => 0, 1, {
+		level: jumpFrom, statLevels: base.stats, curios: [], run: { ...base, level: jumpFrom },
 	});
 	const expect = { gold: pending.choices[0].reward.gold, exp: pending.choices[0].reward.exp };
-	// 这一局是从存档页进来的（读档优先回事件页）：先把纪录摆在第 5 关，好验「记到跳过的最后一关」
-	lib.storage.rogueBestEndless = { level: 5, characterId: "迪迦", updatedAt: 1 };
-	putRun(0, { mode: "endless", level: 6, currency: { gold: 0, exp: 0 }, pendingEvent: pending });
+	// 这一局是从存档页进来的（读档优先回事件页）：先把纪录摆在前一关，好验「记到跳过的最后一关」
+	lib.storage.rogueBestEndless = { level: jumpFrom - 1, characterId: "迪迦", updatedAt: 1 };
+	putRun(0, { mode: "endless", level: jumpFrom, currency: { gold: 0, exp: 0 }, pendingEvent: pending });
 	session();
 	const text = screenText();
 	assert(text.includes("虫洞") && text.includes("蔚蓝色的虫洞引人注目"), `事件页应展示虫洞：${text.slice(0, 240)}`);
@@ -5147,15 +5148,15 @@ await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记�
 	assertEqual(nodesWithClass("wm-rogue-popup").length, 1, "结果走浮层内弹层");
 	assert(screenText().includes("跳过 10 关"), `要写明跳了几关：${screenText()}`);
 	click("确定");
-	// 事件办完回营地：关卡已经跳到第 16 关
-	assert(screenText().includes("第 16 关"), `营地应显示第 16 关：${screenText()}`);
+	// 事件办完回营地：关卡已经跳到保底阈值那一关
+	assert(screenText().includes(`第 ${cfg.BOSS_PITY_BATTLES} 关`), `营地应显示第 ${cfg.BOSS_PITY_BATTLES} 关：${screenText()}`);
 	const slot = lib.storage.rogueSlots[0];
-	assertEqual(slot.level, 16, "存档里的关卡推进十关");
+	assertEqual(slot.level, cfg.BOSS_PITY_BATTLES, "存档里的关卡推进十关");
 	assertEqual(slot.currency.gold, expect.gold, "期间金币一次性入账");
 	assertEqual(slot.currency.exp, expect.exp, "期间经验一次性入账");
 	assertEqual(slot.pendingEvent, null, "事件收掉");
-	assertEqual(lib.storage.rogueBestEndless.level, 15, "最高记录记到跳过的最后一关");
-	// v15：跳过的这十关照样计入 Boss 保底——这一局从没出过 Boss（记录 0），落到第 16 关时
+	assertEqual(lib.storage.rogueBestEndless.level, cfg.BOSS_PITY_BATTLES - 1, "最高记录记到跳过的最后一关");
+	// v15：跳过的这十关照样计入 Boss 保底——这一局从没出过 Boss（记录 0），落到保底阈值那一关时
 	// 关卡差刚好满 BOSS_PITY_BATTLES，下一场即使掷不中也必须是 Boss（老口径会漏掉跳过的关）
 	const originalRandom = Math.random;
 	try {
@@ -5167,9 +5168,9 @@ await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记�
 		Math.random = originalRandom;
 	}
 	const jumped = lib.storage.rogueSlots[0];
-	assertEqual(jumped.currentBattle.isBossBattle, true, "跳到的第 16 关：保底照常触发（跳关也算进度）");
-	assertEqual(jumped.bossPityLevel, 16, "Boss 记在第 16 关");
-	return `第 6 关 → 第 16 关（${expect.gold} 金币 / ${expect.exp} 经验，记录 15）→ 第 16 关保底 Boss`;
+	assertEqual(jumped.currentBattle.isBossBattle, true, "跳到的保底阈值关：保底照常触发（跳关也算进度）");
+	assertEqual(jumped.bossPityLevel, cfg.BOSS_PITY_BATTLES, "Boss 记在保底阈值那一关");
+	return `第 ${jumpFrom} 关 → 第 ${cfg.BOSS_PITY_BATTLES} 关（${expect.gold} 金币 / ${expect.exp} 经验，记录 ${cfg.BOSS_PITY_BATTLES - 1}）→ 保底 Boss`;
 });
 
 await check("流浪商人：买没买过的入袋，已拥有的买回去升一级，练满了才弹提示", async () => {
@@ -6054,7 +6055,7 @@ await check("10-06 实机旧档在流浪商人处成交后：撤货补货的「�
 	}
 });
 
-await check("Boss 判定边界与保底：只判无尽、严格小于、距上次 Boss 满 16 关必出、恢复不重掷、下一场各掷各的", async () => {
+await check("Boss 判定边界与保底：只判无尽、严格小于、距上次 Boss 满 15 关必出、恢复不重掷、下一场各掷各的", async () => {
 	freshWorld();
 	const originalRandom = Math.random;
 	try {

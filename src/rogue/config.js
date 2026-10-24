@@ -234,7 +234,7 @@ export const FORGE_EXP_MULTIPLIER = 5;
 // 替换为 Boss 战；闯关模式的每一场新战斗恒判为普通战斗，一个随机数都不消费（见 enemy.js
 // shouldBossBattle 的模式闸门）。历史版本曾让两个模式共用这条判定，那是错的口径，已收掉。
 // 判定不看整局、也不看上一场的结果，所以既不连续锁定、也不因之前没抽中而抬高单次概率；
-// 连续没命中只由下面的 BOSS_PITY_BATTLES 兜底（距上一次 Boss 满 16 关必定是 Boss 战）。
+// 连续没命中只由下面的 BOSS_PITY_BATTLES 兜底（距上一次 Boss 满 15 关必定是 Boss 战）。
 
 /**
  * Boss 战替换概率：无尽模式即将创建一场新的常规关卡战斗时 Math.random() < BOSS_RUN_RATE 即本场为 Boss 战。
@@ -244,12 +244,12 @@ export const FORGE_EXP_MULTIPLIER = 5;
  * 战斗状态清掉后标记随之消失，下一场重新独立判定。
  * 深渊裂隙那一场不走这里（它有独立结算，创建时显式记为普通战斗）。
  */
-export const BOSS_RUN_RATE = 0.0625;
+export const BOSS_RUN_RATE = 0.06666;
 
 /**
  * Boss 战保底（只作用于无尽模式）：距「上一次 Boss 战实际触发的关卡」满 BOSS_PITY_BATTLES 关之后，
  * 下一场新建的常规战斗必定是 Boss 战——与 BOSS_RUN_RATE 相互独立的第二道保证：
- * 概率 0.0625 连着掷不中也好，第 16 关一定出。
+ * 概率 0.06666 连着掷不中也好，第 15 关一定出。
  * 口径（run.bossPityLevel = 上一次 Boss 战实际触发的关卡；0 = 这一局还没出过 Boss）：
  *   · 创建新战斗时 `run.level - bossPityLevel ≥ 本值` → 判定为 Boss 战、**不掷骰**，
  *     并且不消费随机源（保底路径与概率路径互不干扰）；
@@ -258,9 +258,9 @@ export const BOSS_RUN_RATE = 0.0625;
  *   · Boss 战创建成功时把这一场的关卡写进 bossPityLevel，随战斗同一次 commit 落盘；
  *   · 创建失败（阵容生成/校验不过）一个字节都不写，保底留到下次；
  *   · 深渊裂隙战与恢复未完成的战斗都不改关卡，天然不参与保底；失败后重打同一关同样不推进。
- * 例如：第 5 关提前命中 Boss → 记下 5，之后一路没抽中就在第 21 关保底触发。
+ * 例如：第 5 关提前命中 Boss → 记下 5，之后一路没抽中就在第 20 关保底触发。
  */
-export const BOSS_PITY_BATTLES = 16;
+export const BOSS_PITY_BATTLES = 15;
 
 /**
  * v14 时代 `bossPityCount` 的合法上界：那一版的 `BOSS_PITY_BATTLES` 是 20（计数到 19 时下一场必出、

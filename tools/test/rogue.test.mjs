@@ -5085,9 +5085,9 @@ check("记忆棱镜：只加成事件自己发的正数经验（稀有 +25% / �
 });
 
 check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBattle 往返且读档不重掷", () => {
-	// Boss 判定是逐场独立的 1/16，保底是独立的第二道保证（不吃这个概率），两条线各测各的
-	assertEqual(cfg.BOSS_RUN_RATE, 0.0625, "单次判定概率与规格一致（1/16）");
-	assertEqual(cfg.BOSS_PITY_BATTLES, 16, "保底关卡差与规格一致（距上次 Boss 满 16 关必出）");
+	// Boss 判定是逐场独立的 0.06666，保底是独立的第二道保证（不吃这个概率），两条线各测各的
+	assertEqual(cfg.BOSS_RUN_RATE, 0.06666, "单次判定概率与规格一致（0.06666）");
+	assertEqual(cfg.BOSS_PITY_BATTLES, 15, "保底关卡差与规格一致（距上次 Boss 满 15 关必出）");
 	assertEqual(cfg.RUN_VERSION, 15, "存档版本抬到 v15（bossPityCount 退役、改记关卡 bossPityLevel）");
 	// 新档不再带整局的 bossRun：这个字段一旦还能被读到，就可能继续影响后面的关卡
 	const fresh = freshRun(cfg.RUN_MODE.endless);
@@ -5138,10 +5138,10 @@ check("Boss 标记归场：整局 bossRun 已移除，isBossBattle 随 currentBa
 	return "字段移除 / true·false 原样往返 / v11 三态迁移 / v10 补齐";
 });
 
-check("Boss 保底：只判无尽、距上次 Boss 满 16 关必出、虫洞跳关计入进度、受保底时不掷骰、v14 旧档折算与越界夹住", () => {
+check("Boss 保底：只判无尽、距上次 Boss 满 15 关必出、虫洞跳关计入进度、受保底时不掷骰、v14 旧档折算与越界夹住", () => {
 	const endless = cfg.RUN_MODE.endless;
 	const pity = cfg.BOSS_PITY_BATTLES;
-	assertEqual(pity, 16, "保底关卡差按规格定为 16");
+	assertEqual(pity, 15, "保底关卡差按规格定为 15");
 	// 未到保底：仍按生产概率正常判定（严格小于），判定线一律读 BOSS_RUN_RATE，改旋钮不用改用例
 	assertEqual(enemy.shouldBossBattle(endless, 1, 0, () => 0.999), false, "0.999 未命中");
 	assertEqual(enemy.shouldBossBattle(endless, 1, 0, () => cfg.BOSS_RUN_RATE - 1e-9), true, "低于判定线命中");
@@ -5255,16 +5255,17 @@ check("Boss 保底：只判无尽、距上次 Boss 满 16 关必出、虫洞跳�
 
 check("虫洞跳关计入 Boss 保底：跳过的关照样推进关卡差，补满阈值那一关即保底", () => {
 	const endless = cfg.RUN_MODE.endless;
-	const from = BASE_LEVEL + 1;
+	// 起跳点摆在「保底阈值前一关 - 10」：跳完十关正好落在阈值前一关，再推进一关就保底
+	const from = cfg.BOSS_PITY_BATTLES - 11;
 	const boom = () => {
 		throw new Error("受保底保护时不应掷骰");
 	};
 	const run = { ...freshRun(cfg.RUN_MODE.endless), level: from, bossPityLevel: 0, currency: { gold: 0, exp: 0 }, curios: [] };
-	// 进洞前：第 5 关距上一次 Boss 才 5 关，掷不中就是普通场（数场次的老口径在这里也一样）
+	// 进洞前：距上一次 Boss 才 from 关，掷不中就是普通场（数场次的老口径在这里也一样）
 	assertEqual(enemy.shouldBossBattle(endless, from, run.bossPityLevel, () => 0.999), false, `第 ${from} 关仍按概率`);
-	const pending = eventManager.buildPendingEvent("wormhole", BASE_LEVEL, () => 0, NOW, { level: run.level, statLevels: run.stats, curios: run.curios, run });
+	const pending = eventManager.buildPendingEvent("wormhole", from - 1, () => 0, NOW, { level: run.level, statLevels: run.stats, curios: run.curios, run });
 	const settled = eventManager.resolveEventChoice({ ...run, pendingEvent: pending }, 0, {}, () => 0).run;
-	assertEqual(settled.level, 15, "进洞把关卡推到第 15 关");
+	assertEqual(settled.level, cfg.BOSS_PITY_BATTLES - 1, "进洞把关卡推到保底阈值前一关");
 	assertEqual(settled.bossPityLevel, 0, "跳关本身不改保底记录（记录只在 Boss 真的触发时才写）");
 	// 保底只读关卡：跳过的十关照样计入，所以离保底只剩「阈值 − 关卡差」场，而不是从头再数一整个阈值
 	const toPity = cfg.BOSS_PITY_BATTLES - (settled.level - settled.bossPityLevel);
@@ -5280,9 +5281,9 @@ check("虫洞跳关计入 Boss 保底：跳过的关照样推进关卡差，补�
 	assertEqual(enemy.shouldBossBattle(endless, settled.level + cfg.BOSS_PITY_BATTLES - 1, afterBoss.bossPityLevel, () => 0.999), false, "阈值前一关仍按概率");
 	assertEqual(enemy.shouldBossBattle(endless, settled.level + cfg.BOSS_PITY_BATTLES, afterBoss.bossPityLevel, boom), true, `第 ${settled.level + cfg.BOSS_PITY_BATTLES} 关回到保底`);
 	assertEqual(enemy.shouldBossBattle(cfg.RUN_MODE.challenge, settled.level + toPity, 0, boom), false, "同样到保底的关卡，闯关照样不判 Boss");
-	assertEqual(state.cloneRun(afterBoss).bossPityLevel, 15, "cloneRun 原样带回记录");
-	assertEqual(state.normalizeRun(afterBoss).bossPityLevel, 15, "读档仍认这一关（恢复存档不丢保底进度）");
-	return `进洞前按概率 / 跳到第 15 关（差 ${toPity} 关）/ 补满即保底 / Boss 后记录翻新`;
+	assertEqual(state.cloneRun(afterBoss).bossPityLevel, settled.level, "cloneRun 原样带回记录");
+	assertEqual(state.normalizeRun(afterBoss).bossPityLevel, settled.level, "读档仍认这一关（恢复存档不丢保底进度）");
+	return `进洞前按概率 / 跳到第 ${settled.level} 关（差 ${toPity} 关）/ 补满即保底 / Boss 后记录翻新`;
 });
 
 check("10-06 实机旧档（v9，无尽 45 关）与新建存档归一化后对比：字段集合一致、判定字段全中性、进度原样保留、再读幂等", () => {
