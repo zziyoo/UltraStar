@@ -76,7 +76,7 @@ export const affixText = {
 	abyss_jianbi: { name: "深渊·坚壁", desc: "受到的伤害减半（向上取整），且至少减免2点。" },
 	abyss_kuangre: { name: "深渊·狂热", desc: "每轮开始时进行一次判定，若判定结果为黑色，立即执行一个额外的回合。" },
 	abyss_liesha: { name: "深渊·猎杀", desc: "攻击范围无限，造成的伤害×2。" },
-	abyss_xuwu: { name: "深渊·虚无", desc: "受到玩家非实体牌造成的伤害后，本回合该玩家的所有技能失效。" },
+	abyss_xuwu: { name: "深渊·虚无", desc: "受到玩家非实体牌造成的伤害后，本回合玩家的所有技能失效。" },
 	abyss_jingxiang: { name: "深渊·镜像", desc: "受到伤害后，对伤害来源造成等量的伤害。" },
 	abyss_wuran: { name: "深渊·污染", desc: "玩家对你使用牌后，随机令其一张手牌不能使用、打出或弃置。" },
 	abyss_yongheng: { name: "深渊·永恒", desc: "任意角色回合开始时，恢复体力至上限。" },
