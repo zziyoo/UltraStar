@@ -8019,6 +8019,68 @@ check("Boss 固定强化不被债务挤占：债 8 + Boss 固定 1 全兑现，�
 	return "Boss 1 + 债 8 全兑现 / 无债务口径不变 / 普通敌人不变";
 });
 
+check("Boss 固定强化来源可区分：可控词缀池验证债务足额、固定追加落地、常规让位", () => {
+	// 9 条通用词缀在内容上分不出「哪条是谁给的」——把 abyss_fuchou 临时标成 Boss 专属
+	// （常规随机与债务走通用上下文永远抽不到它，只有 Boss 追加那份带 boss 标签的上下文够得着），
+	// 用完即还原：来源归属从此可逐条断言，正式词缀池的 id / 权重 / 概率一个字不改
+	const fuchou = abyssConfig.AFFIX_POOL.find(item => item.id === "abyss_fuchou");
+	const savedTags = fuchou.tags;
+	fuchou.tags = [abyssConfig.BOSS_AFFIX_TAG];
+	const added = [];
+	for (const id of [...enemy.getExtensionCharacterIds(), "本体测试将"]) {
+		if (!lib.character[id]) {
+			lib.character[id] = { hp: 4, maxHp: 4, skills: [] };
+			added.push(id);
+		}
+	}
+	try {
+		// 900 层 rng=0：常规随机本可占满 8 条通用池，座位预留让位后只留 7 条，Boss 追加从
+		// 「剩余通用 + fuchou」的包里取首条（yongheng）——共 8 条。若预留因 NaN 失效（整段早退
+		// 不裁常规），这里是 9 条且以 fuchou 收尾，长度本身就把两条路分开
+		const high = enemy.createBossEnemyConfig(900, cfg.RUN_MODE.endless, () => 0);
+		assertEqual(JSON.stringify(high[0].abyss), JSON.stringify([
+			"abyss_buqu", "abyss_jianbi", "abyss_kuangre", "abyss_liesha",
+			"abyss_xuwu", "abyss_jingxiang", "abyss_wuran", "abyss_yongheng",
+		]), "900 层：常规让位 1 席（7 条常规），第 8 条是 Boss 追加的落点");
+		// 234 层欠债 5：座位 = 2 常规 + 5 债务（足额）+ 1 Boss 追加，逐条可辨
+		const mid = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 5 });
+		assertEqual(JSON.stringify(mid[0].abyss), JSON.stringify([
+			"abyss_buqu", "abyss_jianbi",
+			"abyss_kuangre", "abyss_liesha", "abyss_xuwu", "abyss_jingxiang", "abyss_wuran",
+			"abyss_yongheng",
+		]), "常规 2 + 债务 5 足额 + Boss 追加 1；不给 Boss 让位这里只有 7 条");
+		// 234 层欠债 8：8 条通用全部由债务兑现，Boss 追加的包里只剩 fuchou——
+		// 它被临时标成 boss 专属，常规与债务的通用上下文永远抽不到，在场即证明追加执行成功
+		const full = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 8 });
+		assertEqual(JSON.stringify(full[0].abyss), JSON.stringify([
+			"abyss_buqu", "abyss_jianbi", "abyss_kuangre", "abyss_liesha",
+			"abyss_xuwu", "abyss_jingxiang", "abyss_wuran", "abyss_yongheng", "abyss_fuchou",
+		]), "债 8 全兑现（8 条通用在场）+ Boss 固定追加 fuchou，合计 9");
+		// 默认参数安全：缺失 / 0 / NaN / 无穷 / 负数一律按 0 收口，Boss 追加照常落地（第 4 条）
+		for (const extra of [undefined, 0, NaN, Infinity, -1]) {
+			const boss = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0,
+				extra === undefined ? {} : { extraAffixes: extra });
+			assertEqual(boss[0].abyss.length, 4, `extra=${String(extra)}：常规 3 + Boss 追加 1`);
+			assertEqual(boss[0].abyss[3], "abyss_liesha", `extra=${String(extra)}：第 4 条是 Boss 追加的落点`);
+		}
+		// 合法小数沿用既有 floor 口径：2.9 → 债 2，常规 3 + 债 2 + Boss 追加 1 = 6
+		const fractional = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 2.9 });
+		assertEqual(JSON.stringify(fractional[0].abyss), JSON.stringify([
+			"abyss_buqu", "abyss_jianbi", "abyss_kuangre", "abyss_liesha", "abyss_xuwu", "abyss_jingxiang",
+		]), "2.9 按 floor 收成债 2，来源依旧逐条可辨");
+	} finally {
+		if (savedTags === undefined) {
+			delete fuchou.tags;
+		} else {
+			fuchou.tags = savedTags;
+		}
+		for (const id of added) {
+			delete lib.character[id];
+		}
+	}
+	return "fuchou 只能来自 Boss 上下文 / 900 层让位可证 / 债务足额逐条可辨 / 非法参数安全";
+});
+
 check("深渊契约：已有债记不满额（+2 装不下）整单拒签，事件保留可改签", () => {
 	const built = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, { curios: [] });
 	// 已有 7 层：7 + 2 装不进 8 → 拒签，分文不动

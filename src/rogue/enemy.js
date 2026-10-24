@@ -183,13 +183,19 @@ function sampleCharacters(pool, count, rng) {
  */
 function rollEnemyAffixes(level, mode, abyssStage, extra, rng, reserve = 0) {
 	const rolled = abyssStage ? rollAbyssAffixes(level, rng, { mode }) : [];
-	const total = Math.floor(extra) + reserve;
+	// 入参安全网：缺失 / NaN / 无穷 / 负数一律按 0 收口（合法非负数照旧 floor 取整）——
+	// 调用方的 `Math.floor(Number(options?.extraAffixes))` 在缺参时会给 NaN，若放进来
+	// total 就是 NaN、`!(total > 0)` 恒真而整段早退，Boss 战的 reserve 预留随之失效
+	//（极高层数下常规随机占满池子，Boss 固定强化被挤掉）
+	const demanded = Number.isFinite(extra) ? Math.max(0, Math.floor(extra)) : 0;
+	const seats = Number.isFinite(reserve) ? Math.max(0, Math.floor(reserve)) : 0;
+	const total = demanded + seats;
 	if (!(total > 0)) {
 		return rolled;
 	}
 	const room = getAbyssPoolIds({ mode }).length - total;
 	const kept = room > 0 ? rolled.slice(0, room) : [];
-	return appendAbyssAffixes(kept, extra, rng, { mode });
+	return appendAbyssAffixes(kept, demanded, rng, { mode });
 }
 
 /**

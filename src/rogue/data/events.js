@@ -620,7 +620,7 @@ export const events = {
 		id: "deep_space_bounty",
 		name: "深空悬赏",
 		description: "一份来自星际组织的高危悬赏正在招募战士。接受任务可以立即获得新的战斗技巧，但下一场战斗将更加危险。",
-		image: "extension/奥特之星/assets/events/interstellar_exchange.png",
+		image: "extension/奥特之星/assets/events/deep_space_bounty.png",
 		choices: [
 			{
 				// 技能与深渊债必须同时生效：reward 先按通用流程随机发一个未拥有的合法技能（进背包），
