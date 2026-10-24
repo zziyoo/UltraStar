@@ -14,10 +14,17 @@
 //     outcomes  随机奖励列表 [{ chance, reward }, ...]，chance 合计应为 1（第二种写法）；
 //               生成事件时就地预掷并把结果定死写进存档，读档恢复绝不重掷
 //     action    交互型选项（第三种写法）：本层不自己处理，交回 mode.js 编排子页面/子战斗
-//                 { kind: "abyssDebt", perEnemy? }  下一场战斗每名敌人追加 N 个随机深渊强化
+//                 { kind: "abyssDebt", perEnemy?, requireCurio? }
+//                                        下一场战斗每名敌人追加 N 个随机深渊强化
 //                                        （落在 run.abyssDebt 上，开那一场时消费并清零）
 //                                        perEnemy 不写就用 config.SPRING_DEBT_AFFIXES 的默认值
-//                                        （经验泉就是）；要换个数才显式写，别在文案里另抄一份
+//                                        （经验泉就是）；要换个数才显式写，别在文案里另抄一份。
+//                                        requireCurio 写 true（黑市契约·深渊契约）表示这笔债以**同选项
+//                                        curioRarity 掷定的那件奇物真发到手**为前提：标的发不出去整单作废
+//                 { kind: "bloodDebt", requireCurio? }
+//                                        黑市契约·鲜血契约：下一场**正式**战斗开始时当前体力直接置为 1
+//                                        （上限不动，战斗内照常回复；失败重试/中途退出恢复进场照样生效，
+//                                          正式战斗胜利才解除）。requireCurio 含义同上，且 bloodDebt 默认就带
 //                 { kind: "skillForge", grant, subtitle?, pickLabel? }
 //                                        先弹「选一个已有技能」页；grant:"exp" 只按 reward 发经验，
 //                                        grant:"skill" 在失去之后再随机补一个新技能。
@@ -75,12 +82,15 @@
 //                     按**初始品质**掷一件「还没拥有」的奇物（"common" / "rare" / "epic" / "negative"）：
 //                     掷得到就把那个具体 id 写进 curio（构建期定死，读档不重掷）；
 //                     掷不到就把 expIfNoCurioByWin 倍的基准经验并进 exp，两者都写回固定值。
-//                     古代遗迹三扇门用的就是它——所以 curio 从此支持写具体 id，结算层会照单发放
+//                     古代遗迹三扇门用的就是它——所以 curio 从此支持写具体 id，结算层会照单发放。
+//                     **例外**：同选项的 action 带 requireCurio 的（神秘商人的鲜血/深渊契约）不写
+//                     expIfNoCurioByWin 也不折经验——品质池空了整个选项作废，结算层按失败返回、
+//                     事件留着，绝不会空手把契约的代价施加出去
 //     空对象 {} 表示无奖励
 //
 // 自检会查：id 与键名一致、name/description/image 齐备、choices 非空且 text 非空、
 // 每个选项恰有 reward 或 outcomes 之一、outcomes 的 chance 合计为 1、货币与效果键合法、
-// clampLoss / abyssDebt.perEnemy / skillForge 文案参数形状合法、图片文件存在。
+// clampLoss / abyssDebt.perEnemy / bloodDebt.requireCurio / skillForge 文案参数形状合法、图片文件存在。
 //
 // 填完跑：node tools/test/rogue-data.test.mjs（会校验上面的每一条约束，不用开游戏）
 
@@ -109,13 +119,29 @@ export const events = {
 	mystery_merchant: {
 		id: "mystery_merchant",
 		name: "神秘商人",
-		description: "一个戴面具的人在营地边缘支起摊位，出售来路不明的奇怪物品。",
+		description: "戴着面具的商人向你展示了三份契约。这里不只有金币可以买到东西，有些代价，甚至要等到下一场战斗才能偿还……",
 		image: "extension/奥特之星/assets/events/mystery_merchant.png",
 		choices: [
 			{
-				// 花 5 倍胜利金币换一个随机奇物（贵，但奇物是肉鸽的核心成长）
-				text: "购买奇怪物品",
+				// 金币契约：花 5 倍胜利金币换一个随机奇物（原「购买奇怪物品」的交易逻辑原样保留）
+				text: "金币契约",
 				reward: { goldByWin: -5, curio: "random" },
+			},
+			{
+				// 鲜血契约：立刻拿一件**初始品质为稀有**的未拥有奇物（构建期掷定，读档不重掷）；
+				// 代价是下一场**正式**战斗开始时当前体力直接置为 1（上限不动，战斗内照常回复）。
+				// requireCurio：奇物是契约的标的，标的发不出去（该品质已集齐）整单作废——
+				// 一个代价都不施加，事件留着可改选别的契约
+				text: "鲜血契约",
+				reward: { curioRarity: "rare" },
+				action: { kind: "bloodDebt", requireCurio: true },
+			},
+			{
+				// 深渊契约：立刻拿一件**初始品质为史诗**的未拥有奇物；代价走经验泉同一套深渊债，
+				// 下一场正式战斗每名敌人追加 2 个深渊强化，与其它来源的债累加、不覆盖
+				text: "深渊契约",
+				reward: { curioRarity: "epic" },
+				action: { kind: "abyssDebt", perEnemy: 2, requireCurio: true },
 			},
 			{
 				text: "拒绝交易",

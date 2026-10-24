@@ -604,7 +604,7 @@ const EVENT_REWARD_KEYS = [
 	"curioRarity", "expIfNoCurioByWin",
 ];
 /** 交互型选项的 kind 白名单，参数判据见 eventManager.normalizeEventAction */
-const EVENT_ACTION_KINDS = ["abyssDebt", "skillForge", "rift", "merchant", "curioForge"];
+const EVENT_ACTION_KINDS = ["abyssDebt", "bloodDebt", "skillForge", "rift", "merchant", "curioForge"];
 
 check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 	const ids = Object.keys(eventsData.events);
@@ -708,6 +708,18 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 					// 不写 perEnemy 的（经验泉）由 config.SPRING_DEBT_AFFIXES 在构建期注入；
 					// 写了的（极限模拟训练的 1 / 2）必须是正整数，构建期与读档清洗都按 0..10 夹
 					problems.push(`${key} 第${index + 1}个选项: abyssDebt.perEnemy 应为 1~10 的整数（不写则用 config.SPRING_DEBT_AFFIXES）`);
+				} else if (action.kind === "bloodDebt" && action.requireCurio === false) {
+					// 黑市契约·鲜血契约只服务于「拿体力换稀有奇物」：脱钩了标的就变成无代价的白得体力债
+					problems.push(`${key} 第${index + 1}个选项: bloodDebt 不能写 requireCurio: false（鲜血契约的代价以奇物真发到手为前提）`);
+				}
+				// requireCurio（黑市契约的标的耦合）：只认 true，且只允许出现在两种债务上——
+				// 别的交互选项没有「奖励奇物」可等，写了等于永远不生效
+				if (action?.requireCurio !== undefined) {
+					if (action.requireCurio !== true) {
+						problems.push(`${key} 第${index + 1}个选项: requireCurio 只认 true（标的发不出去整单作废）`);
+					} else if (!["abyssDebt", "bloodDebt"].includes(action.kind)) {
+						problems.push(`${key} 第${index + 1}个选项: requireCurio 只能配 abyssDebt / bloodDebt（黑市契约）`);
+					}
 				}
 				// skillForge 的子页文案（可选）：写了就必须是非空字符串，读档清洗 trim 后随存档带回
 				if (action?.kind === "skillForge") {

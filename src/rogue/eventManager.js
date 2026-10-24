@@ -84,8 +84,19 @@ export function normalizeEventAction(raw) {
 		return null;
 	}
 	switch (raw.kind) {
-		case "abyssDebt":
-			return { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
+		case "abyssDebt": {
+			const built = { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
+			// requireCurio（黑市契约·深渊契约）：这笔债以同选项 curioRarity 掷定的奇物真发到手为前提，
+			// 只认 true——写了才是契约，别的深渊债（经验泉/悬赏/极限训练）照旧无条件兑现
+			if (raw.requireCurio === true) {
+				built.requireCurio = true;
+			}
+			return built;
+		}
+		case "bloodDebt":
+			// 黑市契约·鲜血契约：下一场正式战斗开始时当前体力置 1。它只服务于这份契约，
+			// 标的耦合是它的本义，所以 requireCurio 默认就带（显式写 false 才脱钩）
+			return { kind: "bloodDebt", requireCurio: raw.requireCurio !== false };
 		case "skillForge": {
 			const built = { kind: "skillForge", grant: raw.grant === "skill" ? "skill" : "exp" };
 			// 子页那两句话随存档定死：读档回到事件页再点子页，显示的还是构建期那一份
@@ -259,10 +270,19 @@ function buildEventAction(raw, base, level, rng, run = null) {
 		return null;
 	}
 	switch (raw.kind) {
-		case "abyssDebt":
+		case "abyssDebt": {
 			// perEnemy：事件可以显式指定每名敌人追加几个（极限模拟训练的 1 / 2）；
 			// 不写的（经验泉）照旧吃 config.SPRING_DEBT_AFFIXES 的默认值。清洗口径与 normalizeEventAction 一致
-			return { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
+			const built = { kind: "abyssDebt", perEnemy: clampInt(raw.perEnemy, 0, 10, SPRING_DEBT_AFFIXES) };
+			// requireCurio（黑市契约·深渊契约）随存档定死：读档后结算层仍按它判「标的没发出去整单作废」
+			if (raw.requireCurio === true) {
+				built.requireCurio = true;
+			}
+			return built;
+		}
+		case "bloodDebt":
+			// 黑市契约·鲜血契约：与读档清洗同一口径，requireCurio 默认就带
+			return { kind: "bloodDebt", requireCurio: raw.requireCurio !== false };
 		case "skillForge": {
 			const built = { kind: "skillForge", grant: raw.grant === "skill" ? "skill" : "exp" };
 			// 子页的两句话：标题恒为事件名（UI 侧现读），subtitle / pickLabel 作者写了才带上，
@@ -316,9 +336,13 @@ function withActionText(text, action) {
 		case "curioForge":
 			return `${text}（消耗 ${action.costExp} 经验）`;
 		case "rift":
-			return `${text}（${action.enemies} 名敌人 · 胜利 ${action.gold} 金币 ${action.exp} 经验）`;
+			// 敌人数已写在按钮文案里（打一个/五个/十个），括号里只留胜利奖励
+			return `${text}（胜利 ${action.gold} 金币 ${action.exp} 经验）`;
 		case "abyssDebt":
 			return action.perEnemy > 0 ? `${text}（下一场每个敌人 +${action.perEnemy} 个深渊强化）` : text;
+		case "bloodDebt":
+			// 黑市契约·鲜血契约：把后果写在按钮上，点之前就看得见要拿体力换什么
+			return `${text}（下一场正式战斗开始时体力变为 1）`;
 		default:
 			return text;
 	}
@@ -815,11 +839,11 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 			action: null,
 		};
 	}
-	// abyssDebt 不需要玩家再挑东西（就是记一笔债 + 照发 reward），所以它留在这里一起结算；
-	// 其余四类都要开子页面或开战斗，一律原样回给 mode.js，一个钱都不扣。
+	// abyssDebt 与 bloodDebt（黑市契约·鲜血契约）不需要玩家再挑东西（就是记一笔债 + 照发 reward），
+	// 所以它们留在这里一起结算；其余四类都要开子页面或开战斗，一律原样回给 mode.js，一个钱都不扣。
 	// 交互型选项也要做最终支付校验：UI 置灰只是展示，直接调用（或停在旧余额上的子页入口）
 	// 不能绕过——不够就整单拒绝，不扣钱、不清 pendingEvent、也不进子页面。
-	if (choice.action && choice.action.kind !== "abyssDebt") {
+	if (choice.action && choice.action.kind !== "abyssDebt" && choice.action.kind !== "bloodDebt") {
 		if (!canChooseChoice(run, choice)) {
 			return { ok: false, error: "货币不足，无法选择该项", run };
 		}
@@ -874,6 +898,18 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 		plannedSkillId = pickRandomSkillId(run, ctx, rng);
 		if (!plannedSkillId) {
 			return { ok: false, error: "没有可学的技能，无法接受悬赏", run };
+		}
+	}
+
+	// 黑市契约（鲜血/深渊）的标的校验：奇物发不出去整单作废——不给奇物、不施加任何代价、
+	// 事件留着可改选别的契约（与深空悬赏「没有可学技能」同一条失败纪律，run 原样返回零副作用）。
+	// 标的在构建期就按品质掷定了（品质池空时 reward 里根本没有 curio 键），所以这里拦住的
+	// 几乎只剩「该品质已集齐」一种情况；bloodDebt 是契约本尊，标的耦合默认就带
+	const contractCurio = sip.action?.requireCurio === true || sip.action?.kind === "bloodDebt";
+	if (contractCurio) {
+		const target = reward.curio;
+		if (!target || !getCurio(target) || (run.curios ?? []).includes(target)) {
+			return { ok: false, error: "该品质的奇物已全部集齐，这份契约无法签订。", run };
 		}
 	}
 
@@ -986,10 +1022,19 @@ export function resolveEventChoice(run, choiceIndex, ctx = {}, rng = Math.random
 	}
 
 	// 经验泉「再饮一口」欠下的债：只记在存档上，开战那一刻消费并清零（见 mode.js:startBattle）。
-	// 累加而不是覆盖——连着喝两次的债不该被后一次抹掉。
+	// 累加而不是覆盖——连着喝两次的债不该被后一次抹掉。黑市契约·深渊契约走的就是这一条（perEnemy 2），
+	// 与其它来源的债自然累加，绝不互相覆盖
 	if (sip.action?.kind === "abyssDebt" && sip.action.perEnemy > 0) {
 		next.abyssDebt = (Number(run.abyssDebt) || 0) + sip.action.perEnemy;
 		lines.push(`下一场战斗每个敌人获得 ${next.abyssDebt} 个随机深渊强化`);
+	}
+
+	// 黑市契约·鲜血契约：下一场**正式**战斗开始时当前体力直接置为 1（上限不动，战斗内照常回复）。
+	// 只记账不消费：开战（含失败重试、中途退出的恢复）每次正式进场都按它初始化体力，
+	// 正式战斗胜利结算时才解除（见 reward.settleVictory）；深渊裂隙不是正式战斗，不吃也不清
+	if (sip.action?.kind === "bloodDebt") {
+		next.bloodDebt = true;
+		lines.push("下一场正式战斗开始时，你的体力将变为 1");
 	}
 
 	// 虫洞跳关：关数在结算这一刻一次性推进——跳过的那几关不落任何账、也不触发事件与奇物商店；

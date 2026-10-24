@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
+﻿﻿﻿﻿﻿﻿﻿// 奥特之星·肉鸽：模式流程冒烟夹具。node tools/test/rogue-mode-smoke.mjs
 //
 // 用 loader hooks 把各模块顶部的 noname.js 换成桩，从而在 Node 里真实执行
 // registerRogueMode / start / 页面路由 / 商店 / 结算，并记录本体 API 的调用顺序。
@@ -3983,7 +3983,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	putRun(0, {
 		mode: "endless",
 		collection: {
-			events: ["abyss_rift", "ancient_ruins", "wandering_merchant", "curio_forge", "skill_forge", "spring_of_wisdom", "stat_training_ground", "wormhole", "memory_corridor", "extreme_training", "lost_database"],
+			events: ["abyss_rift", "ancient_ruins", "wandering_merchant", "curio_forge", "skill_forge", "spring_of_wisdom", "stat_training_ground", "wormhole", "memory_corridor", "extreme_training", "lost_database", "mystery_merchant"],
 			curios: [],
 		},
 	});
@@ -4059,6 +4059,16 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	assert(database.includes("「免费读取」") && database.includes("　获得 2 倍本层胜利经验"), `免费档：${database.join(" / ")}`);
 	assert(database.some(line => line.includes("消耗 2 倍本层胜利金币，获得 8 倍本层胜利经验")), `付费档：${database.join(" / ")}`);
 	assert(database.some(line => line.includes("50%：获得 12 倍本层胜利经验")), `搏一把命中支：${database.join(" / ")}`);
+	// 神秘商人（黑市契约）：金币契约照原价规则写；鲜血/深渊契约写品质、作废规则与两笔债的完整口径
+	const blackMarket = openDetail("神秘商人");
+	assert(blackMarket.some(line => line.includes("消耗 5 倍本层胜利金币") && line.includes("获得一个随机奇物")),
+		`金币契约照实写：${blackMarket.join(" / ")}`);
+	assert(blackMarket.some(line => line.includes("获得一件稀有奇物（该品质已集齐时这份契约作废：不给奇物、也不承担代价）")),
+		`鲜血契约写明作废规则：${blackMarket.join(" / ")}`);
+	assert(blackMarket.some(line => line.includes("下一场正式战斗开始时你的体力变为 1") && line.includes("战败重试仍生效")),
+		`血债口径写全：${blackMarket.join(" / ")}`);
+	assert(blackMarket.some(line => line.includes("获得一件史诗奇物") && line.includes("下一场战斗每名敌人追加 2 个深渊强化")),
+		`深渊契约品质与债同行列全：${blackMarket.join(" / ")}`);
 	click("返回");
 	return "裂隙 3 档 + 遗迹 3 门 + 5 个交互选项 + 三件新事件的逐行说明";
 });
@@ -5595,7 +5605,7 @@ await check("深渊裂隙：先确认再进场，敌人数与词缀按事件参�
 		pendingEvent: {
 			id: "abyss_rift",
 			choices: [
-				{ text: "打五个（5 名敌人 · 胜利 800 金币 320 经验）", reward: {}, action: { kind: "rift", tier: 1, level: 4, enemies: 5, affixes: 1, gold: 800, exp: 320 } },
+				{ text: "打五个（胜利 800 金币 320 经验）", reward: {}, action: { kind: "rift", tier: 1, level: 4, enemies: 5, affixes: 1, gold: 800, exp: 320 } },
 				{ text: "我不打扰了，我走了哈", reward: {} },
 			],
 			createdAt: 1,
@@ -7850,6 +7860,199 @@ await check("深空悬赏：技能与深渊债同时生效，下一场普通/Bos
 		Math.random = originalRandom;
 	}
 	return "技能+债同时生效 / 普通与 Boss 各消费一次 / Boss 词缀合法";
+});
+
+// ---------------------------------------------------------------- 黑市契约：神秘商人改造
+
+await check("黑市契约·鲜血契约：稀有奇物立即入袋，进场体力置 1、恢复重打仍生效、正式胜利解除", async () => {
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 1,
+		currency: { gold: 0, exp: 0 },
+		pendingEvent: eventManager.buildPendingEvent("mystery_merchant", 1, () => 0, 1, { curios: [] }),
+	});
+	session();
+	assert(screenText().includes("三份契约"), `新描述上页面：${screenText().slice(0, 200)}`);
+	for (const label of ["金币契约", "鲜血契约", "深渊契约", "拒绝交易"]) {
+		assert(screenText().includes(label), `应有选项「${label}」：${screenText().slice(0, 240)}`);
+	}
+	// 签鲜血契约：稀有奇物立即入袋 + 血债落盘，成交即结束事件
+	click("鲜血契约");
+	await flush();
+	let slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.curios), JSON.stringify(["lucky_stone"]), "稀有池第一件立即入袋");
+	assertEqual(slot.bloodDebt, true, "血债写进存档（刷新/重进都还在）");
+	assertEqual(slot.pendingEvent, null, "成交后事件结束");
+	assert(screenText().includes("体力将变为 1"), `账目里说明代价：${screenText().slice(0, 240)}`);
+	click("确定");
+	// 读档重进：血债仍在存档上（写进档的代价不会丢）
+	session();
+	assertEqual(lib.storage.rogueSlots[0].bloodDebt, true, "重进后血债仍在");
+	// 下一场正式战斗：进场当前体力直接是 1，上限一个不动（迪迦 4）
+	clickNormalBattle();
+	await flush();
+	assertEqual(game.me.hp, 1, "进场体力 = 1");
+	assertEqual(game.me.maxHp, 4, "体力上限不动");
+	assertEqual(lib.storage.rogueSlots[0].bloodDebt, true, "开战不清债（恢复/重试还要靠它）");
+	// 中途退出重进 → 恢复页原样重打：进场仍是 1，不能靠重开规避
+	session();
+	clickNode(nodesWithClass("wm-rogue-resume-primary")[0]);
+	await flush();
+	assertEqual(game.me.hp, 1, "恢复重打进场仍是 1");
+	// 打赢：血债在正式胜利此刻解除
+	for (const player of game.players.slice(1)) {
+		player.__alive = false;
+	}
+	lib.element.player.dieAfter.call(game.players[1]);
+	await flush();
+	assertEqual(lib.storage.rogueSlots[0].bloodDebt, false, "正式胜利解除血债");
+	return "入袋 + 进场=1 / 上限不动 / 开战不清债 / 恢复仍=1 / 胜利解除";
+});
+
+await check("黑市契约·深渊契约：史诗奇物入袋，下一场每名敌人 +2 词缀且与既有债累加", async () => {
+	freshWorld();
+	// 欠着经验泉的 1 点债再签契约：1 + 2 = 3，累加不覆盖
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 1,
+		abyssDebt: 1,
+		pendingEvent: eventManager.buildPendingEvent("mystery_merchant", 1, () => 0, 1, { curios: [] }),
+	});
+	session();
+	click("深渊契约");
+	await flush();
+	let slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.curios), JSON.stringify(["broken_watch"]), "史诗池第一件立即入袋");
+	assertEqual(slot.abyssDebt, 3, "既有 1 + 契约 2 = 3");
+	assert(screenText().includes("3 个随机深渊强化"), `账目说明总债：${screenText().slice(0, 240)}`);
+	click("确定");
+	// 深渊起始层=1：第 1 层本有 1% 概率随机到常规词缀，钉住随机（0.999 不命中）好做等值断言；
+	// 欠的三点照旧由债务追加
+	const originalRandom = Math.random;
+	Math.random = () => 0.999;
+	try {
+		clickNormalBattle();
+	} finally {
+		Math.random = originalRandom;
+	}
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.abyssDebt, 0, "开战即兑现并清零");
+	assertEqual(slot.currentBattle.enemies.length, 1, "第 1 关 1 名敌人");
+	assertEqual(slot.currentBattle.enemies[0].abyss.length, 3, "每名敌人恰好追加 3 个词缀");
+	assertEqual(new Set(slot.currentBattle.enemies[0].abyss).size, 3, "追加的词缀不重复");
+	return "史诗入袋 / 债累加 3 / 开战兑现并清零 / 词缀逐个落地";
+});
+
+await check("黑市契约·品质池空：点了只弹提示，事件保留、代价分文不施，改签其它契约照常", async () => {
+	freshWorld();
+	const rareIds = curiosData.curioIds.filter(id => curiosData.getCurio(id).rarity === "rare");
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 1,
+		pendingEvent: eventManager.buildPendingEvent("mystery_merchant", 1, () => 0, 1, { curios: rareIds }),
+	});
+	session();
+	click("鲜血契约");
+	await flush();
+	assert(screenText().includes("已全部集齐"), `弹出明确提示：${screenText().slice(0, 240)}`);
+	click("确定");
+	let slot = lib.storage.rogueSlots[0];
+	assert(slot.pendingEvent && slot.pendingEvent.id === "mystery_merchant", "事件保留（不丢失、不误关）");
+	assertEqual(slot.bloodDebt ?? false, false, "血债未记账");
+	assertEqual(slot.curios.length, 0, "奇物未发");
+	// 事件页还在：改签深渊契约照常成交（史诗池没空）
+	click("深渊契约");
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(JSON.stringify(slot.curios), JSON.stringify(["broken_watch"]), "改签深渊契约成交");
+	assertEqual(slot.abyssDebt, 2, "代价照记");
+	assertEqual(slot.pendingEvent, null, "成交后事件结束");
+	return "提示明确 / 事件不丢 / 代价不施 / 改签照常";
+});
+
+await check("黑市契约·金币契约与拒绝交易：付不起置灰且点了没反应，付得起照旧成交，拒绝安静收场", async () => {
+	freshWorld();
+	const merchant = eventManager.buildPendingEvent("mystery_merchant", 1, () => 0, 1, { curios: [] });
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 1,
+		currency: { gold: 100, exp: 0 },
+		pendingEvent: merchant,
+	});
+	session();
+	// 第 1 关 5 倍胜利金币 = 250：100 付不起，按钮置灰并写明，点了毫无反应
+	const goldBtn = findNode("金币契约", screenRoot());
+	assert(goldBtn, "应有金币契约按钮");
+	assert(dump(goldBtn).includes("货币不足"), `不足要标明：${dump(goldBtn)}`);
+	const before = JSON.stringify(lib.storage.rogueSlots[0]);
+	click("金币契约");
+	await flush();
+	assertEqual(JSON.stringify(lib.storage.rogueSlots[0]), before, "付不起点了不扣款、不关事件");
+	// 拒绝交易：不拿东西也不担代价，事件正常收场
+	click("拒绝交易");
+	await flush();
+	let slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.pendingEvent, null, "拒绝后事件结束");
+	assertEqual(JSON.stringify(slot.currency), JSON.stringify({ gold: 100, exp: 0 }), "拒绝不扣款");
+	assertEqual(slot.curios.length, 0, "拒绝不给货");
+	assertEqual(slot.bloodDebt ?? false, false, "拒绝不欠债");
+	assertEqual(slot.abyssDebt ?? 0, 0, "拒绝不欠深渊债");
+	// 付得起：250 源价成交，扣款与奇物一次到账（原神秘商人交易逻辑）
+	freshWorld();
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 1,
+		currency: { gold: 300, exp: 0 },
+		pendingEvent: eventManager.buildPendingEvent("mystery_merchant", 1, () => 0, 1, { curios: [] }),
+	});
+	session();
+	click("金币契约");
+	await flush();
+	slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.currency.gold, 50, "扣掉 250");
+	assertEqual(slot.curios.length, 1, "随机奇物入袋");
+	assertEqual(slot.pendingEvent, null, "成交后事件结束");
+	return "置灰不扣款 / 拒绝零副作用 / 源价成交";
+});
+
+await check("黑市契约·血债不进裂隙：裂隙战不吃 1 体力、也不清债，正式战斗才生效", async () => {
+	freshWorld();
+	// 现实流程里「签契约→下一场必是正式战斗」到不了这一步；直接构造，把实现纪律钉死
+	putRun(0, {
+		mode: "endless",
+		characterId: "迪迦",
+		level: 4,
+		bloodDebt: true,
+		pendingEvent: {
+			id: "abyss_rift",
+			choices: [
+				{ text: "打一个", reward: {}, action: { kind: "rift", tier: 0, level: 4, enemies: 1, affixes: 1, gold: 500, exp: 200 } },
+				{ text: "我不打扰了，我走了哈", reward: {} },
+			],
+			createdAt: 1,
+		},
+	});
+	session();
+	click("打一个");
+	click("进去");
+	await flush();
+	// 裂隙落盘后整页重载，从恢复页进场
+	session();
+	assert(screenText().includes("深渊裂隙已开启"), `恢复页认得裂隙：${screenText().slice(0, 200)}`);
+	clickNode(nodesWithClass("wm-rogue-resume-primary")[0]);
+	await flush();
+	assertEqual(game.me.hp, 4, "裂隙战不吃血债（体力照常满）");
+	const slot = lib.storage.rogueSlots[0];
+	assertEqual(slot.bloodDebt, true, "血债没有被裂隙消费");
+	assert(slot.currentBattle.rift, "这一场确实是裂隙");
+	return "裂隙不吃不清 / 血债留给下一场正式战斗";
 });
 
 console.log(`\nrogue-mode-smoke: passed=${passed} failed=${failures.length}`);

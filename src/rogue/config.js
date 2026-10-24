@@ -96,6 +96,8 @@ export const COLLECTION_KEY = "rogueCollection";
  * v15 内还新增了 currentBattle.tempSkill（万象武装匣为这一场临时装备的技能 id）：它只在**进行中的战斗**
  *      里才有意义，旧档缺字段按 null 处理 = 那一场没有临时技能；不改变任何既有字段的语义，
  *      因此**不抬版本号**（与 v9 给 shopOffers 增补 carried 同一处理）。
+ * v15 内还新增了 run.bloodDebt（黑市契约·鲜血契约欠下的体力债）：纯增量布尔，旧档缺字段按「没有债」
+ *      补齐，同样**不抬版本号**。
  * 各版本新增字段旧档一律按空值补齐，绝不重掷。
  */
 export const RUN_VERSION = 15;

@@ -378,6 +378,14 @@ export async function beginBattle(event, run, enemies) {
 	perfMark("触发 gameStart");
 	game.gameDraw(game.me, player => (player === game.me ? startHand : BASE_START_HAND));
 	perfMark("起手发牌 gameDraw");
+	// 黑市契约·鲜血契约：进场把当前体力直接置为 1（上限一个字不动，战斗内照常回复）。
+	// 放在全部初始化效果（属性/奇物/临时技能）与 gameStart 之后，前面任何体力修正都盖不过它；
+	// 深渊裂隙不是正式战斗，不吃这笔代价、也不在这里清债（正式胜利才解除，见 reward.settleVictory），
+	// 所以失败重试、中途退出的恢复进场时照样是 1，不能靠重开规避
+	if (run.bloodDebt === true && !run.currentBattle?.rift) {
+		game.me.hp = 1;
+		game.me.update();
+	}
 	game.phaseLoop(game.me);
 	perfEnd("已进入回合循环");
 	return { enemies: enemies.length };

@@ -25,6 +25,9 @@ function percentText(chance) {
 	return `${Math.round(chance * 1000) / 10}%`;
 }
 
+/** 这个选项的 action 是否把「奖励的奇物真发到手」当作生效前提（黑市契约·鲜血/深渊契约） */
+const isContractChoice = choice => choice?.action?.requireCurio === true || choice?.action?.kind === "bloodDebt";
+
 /**
  * 把一项奖励定义念成人话：读的是事件里的原始键，goldByWin 倍率与 "random" 都还没换算。
  * 第二参是该选项（可省）：statUp 的「全满改送奇物」只在没有 blockedText 的选项上发生，
@@ -56,13 +59,16 @@ function rewardBrief(reward, choice = null) {
 		parts.push(Number.isFinite(payout) && payout > 0 ? `${wager}，愿望达成按 ${payout} 倍返还` : `${wager}，愿望落空、投入全丢`);
 	}
 	// 古代遗迹三扇门：按初始品质掷一件没拥有的奇物，掷不到折成胜利经验（构建期定死，折算含原 expByWin）。
-	// 只在定义里真的写了 expIfNoCurioByWin 时才写「改为」——黑门没写，收集齐了也只是照拿原经验
+	// 只在定义里真的写了 expIfNoCurioByWin 时才写「改为」——黑门没写，收集齐了也只是照拿原经验。
+	// 黑市契约（requireCurio）不折经验：品质池空了整份契约作废，图鉴要把这条说在明处
 	if (reward.curioRarity && CURIOSITY_RARITY[reward.curioRarity]) {
 		const keep = Number.isFinite(reward.expByWin) ? reward.expByWin : 0;
 		const extra = Number.isFinite(reward.expIfNoCurioByWin) ? reward.expIfNoCurioByWin : 0;
-		const note = Number.isFinite(reward.expIfNoCurioByWin) && keep + extra > 0
-			? `（该品质已集齐时改为获得 ${keep + extra} 倍本层胜利经验）`
-			: "";
+		const note = isContractChoice(choice)
+			? "（该品质已集齐时这份契约作废：不给奇物、也不承担代价）"
+			: (Number.isFinite(reward.expIfNoCurioByWin) && keep + extra > 0
+				? `（该品质已集齐时改为获得 ${keep + extra} 倍本层胜利经验）`
+				: "");
 		parts.push(`获得一件${CURIOSITY_RARITY[reward.curioRarity]}奇物${note}`);
 	} else if (Number.isFinite(reward.expIfNoCurioByWin)) {
 		parts.push(byWin(reward.expIfNoCurioByWin, "经验"));
@@ -118,6 +124,10 @@ function actionBrief(action) {
 			const perEnemy = Number.isFinite(action.perEnemy) ? action.perEnemy : SPRING_DEBT_AFFIXES;
 			return perEnemy > 0 ? `下一场战斗每名敌人追加 ${perEnemy} 个深渊强化` : null;
 		}
+		case "bloodDebt":
+			// 黑市契约·鲜血契约：只作用于下一场**正式**战斗（裂隙不算），体力上限不动、
+			// 战斗内照常回复；失败重试仍然生效，打赢下一场才解除
+			return "下一场正式战斗开始时你的体力变为 1（体力上限不变；战败重试仍生效，打赢后解除）";
 		case "skillForge":
 			// 换经验档的两个入口（技能熔炉 / 记忆回廊的「遗忘过去」）都写明是「自己选一个失去」；
 			// 选谁、以及装备中的技能也能选，都不许含糊

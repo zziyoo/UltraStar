@@ -3638,7 +3638,7 @@ check("深渊裂隙：三档参数构建期定死，开战与发奖全部交给�
 			kind: "rift", tier: i, level: BASE_LEVEL, enemies: conf.enemies, affixes: cfg.RIFT_EXTRA_AFFIXES,
 			gold: BASE_GOLD * conf.multiplier, exp: BASE_EXP * conf.multiplier,
 		}), `第 ${i + 1} 档参数`);
-		assert(rift.choices[i].text.includes(`${conf.enemies} 名敌人`), `敌人数写进文案：${rift.choices[i].text}`);
+		assert(rift.choices[i].text.startsWith(["打一个", "打五个", "打十个"][i]), `档位按钮保留作者原话：${rift.choices[i].text}`);
 		assert(rift.choices[i].text.includes(`${BASE_GOLD * conf.multiplier} 金币`), "胜利可得也写进文案");
 		assertEqual(JSON.stringify(rift.choices[i].reward), JSON.stringify({}), "裂隙绝不在选项里发钱（打赢才算）");
 	}
@@ -7778,6 +7778,159 @@ await checkAsync("星穹壁垒 × 深渊·坚壁：按最终伤害决定是否�
 	assert(!barrier.filter({ num: 1, numFixed: false }, plain, "damageBegin4"), "1 点不触发");
 	assert(!barrier.filter({ num: 2, numFixed: true }, plain, "damageBegin4"), "固定伤害不参与");
 	return "坚壁 3→1 不触发 / 4→2 触发 / 连续 3 次各摸 2 / 1 点与固定伤害不触发";
+});
+
+// ---------------------------------------------------------------- 黑市契约：神秘商人改造（三种契约 + 标的耦合 + 血债）
+
+check("黑市契约：四选项构建期定死，稀有/史诗按初始品质掷标的，读档不重掷", () => {
+	const built = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, { curios: [] });
+	assertEqual(built.choices.length, 4, "金币/鲜血/深渊/拒绝四个选项");
+	// 金币契约：5 倍本层胜利金币（第 4 关 100×5=500）换随机奇物，原交易逻辑不变
+	assertEqual(JSON.stringify(built.choices[0].reward), JSON.stringify({ gold: -500, curio: "random" }), "金币契约 = -500 金币 + 随机奇物");
+	assert(built.choices[0].text.includes("-500 金币"), `价钱写进按钮：${built.choices[0].text}`);
+	// 鲜血契约：初始品质为稀有的未拥有奇物（rng=0 掷稀有池第一件），后果写在按钮上
+	assertEqual(built.choices[1].reward.curio, "lucky_stone", "稀有池第一件被掷定成具体 id");
+	assertEqual(curiosData.getCurio("lucky_stone").rarity, "rare", "标的按定义里的初始品质筛");
+	assertEqual(JSON.stringify(built.choices[1].action), JSON.stringify({ kind: "bloodDebt", requireCurio: true }), "血债动作带标的耦合");
+	assert(built.choices[1].text.includes("体力变为 1"), `后果写进按钮：${built.choices[1].text}`);
+	// 深渊契约：初始品质为史诗的未拥有奇物 + 每名敌人 2 个深渊强化
+	assertEqual(built.choices[2].reward.curio, "broken_watch", "史诗池第一件被掷定成具体 id");
+	assertEqual(curiosData.getCurio("broken_watch").rarity, "epic", "标的按定义里的初始品质筛");
+	assertEqual(JSON.stringify(built.choices[2].action), JSON.stringify({ kind: "abyssDebt", perEnemy: 2, requireCurio: true }), "深渊债动作带 perEnemy 与标的耦合");
+	assert(built.choices[2].text.includes("+2 个深渊强化"), `后果写进按钮：${built.choices[2].text}`);
+	assertEqual(JSON.stringify(built.choices[3].reward), JSON.stringify({}), "拒绝交易无奖励");
+	// 同一 rng 构建两次完全一致，且连契约动作一起原样写进存档（读档不重掷、requireCurio 随存档定死）
+	const again = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, { curios: [] });
+	assertEqual(JSON.stringify(again), JSON.stringify(built), "同种子构建一致");
+	const saved = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), pendingEvent: built });
+	assertEqual(JSON.stringify(saved.pendingEvent), JSON.stringify(built), "契约选项可持久化");
+	// 换一个 rng 换一件：标的确实来自随机，不是写死的
+	const shifted = eventManager.buildPendingEvent("mystery_merchant", 4, makeRng(7), NOW, { curios: [] });
+	assert(shifted.choices[1].reward.curio && shifted.choices[1].reward.curio !== undefined, "换 rng 仍掷得出一件稀有");
+	assert(shifted.choices[2].reward.curio && curiosData.getCurio(shifted.choices[2].reward.curio).rarity === "epic", "换 rng 掷出的仍是史诗");
+	// 契约选项没有货币消耗：0 金币也照常可点（代价不是钱，不该被置灰）
+	const broke = { ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 0, exp: 0 } };
+	for (const index of [1, 2, 3]) {
+		assert(eventManager.isChoiceAffordable(broke, built.choices[index]), `第 ${index + 1} 项零金币可选`);
+	}
+	assert(!eventManager.isChoiceAffordable({ ...broke, currency: { gold: 499, exp: 0 } }, built.choices[0]), "金币契约 499 不够 500");
+	return "四选项 / 标的按初始品质掷定 / 动作与后果上按钮 / 读档不重掷";
+});
+
+check("黑市契约：对应品质已集齐时整单作废，不发奇物、不施加代价、事件保留", () => {
+	const rareIds = curiosData.curioIds.filter(id => curiosData.getCurio(id).rarity === "rare");
+	const epicIds = curiosData.curioIds.filter(id => curiosData.getCurio(id).rarity === "epic");
+	const built = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, {
+		curios: [...rareIds, ...epicIds],
+	});
+	assertEqual(JSON.stringify(built.choices[1].reward), JSON.stringify({}), "稀有池空：构建期掷不到标的，也不折经验");
+	assert(built.choices[1].action, "动作仍挂着，等结算层整单拒绝");
+	const run = { ...freshRun(cfg.RUN_MODE.endless), pendingEvent: built };
+	const blood = eventManager.resolveEventChoice(run, 1, {}, () => 0);
+	assert(!blood.ok, "鲜血契约应按失败返回");
+	assert(blood.error.includes("已全部集齐"), `失败提示要明确：${blood.error}`);
+	assertEqual(blood.run, run, "失败原样返回存档（零副作用）");
+	assert(blood.run.pendingEvent, "事件保留，可改选别的契约");
+	assert(!blood.run.bloodDebt, "血债未记账");
+	assertEqual(JSON.stringify(blood.run.curios), JSON.stringify([]), "奇物未发");
+	// 深渊契约同理：史诗池空不给奇物、也绝不欠债
+	const abyss = eventManager.resolveEventChoice(run, 2, {}, () => 0);
+	assert(!abyss.ok && abyss.error.includes("已全部集齐"), "深渊契约同样整单作废");
+	assertEqual(abyss.run, run, "零副作用");
+	assertEqual(abyss.run.abyssDebt ?? 0, 0, "深渊债未记账");
+	// 失败后改签金币契约（钱够）照常成交：同一次事件里换选不冲突
+	const rich = { ...run, currency: { gold: 600, exp: 0 } };
+	const gold = eventManager.resolveEventChoice(rich, 0, {}, () => 0);
+	assert(gold.ok, gold.error ?? "改签金币契约应成交");
+	assertEqual(gold.run.currency.gold, 100, "扣 500 金币");
+	assertEqual(gold.run.curios.length, 1, "随机奇物照常入袋");
+	assertEqual(gold.run.pendingEvent, null, "成交后事件结束");
+	return "品质池空整单作废 / 事件与代价分文不动 / 改选金币契约照常成交";
+});
+
+check("黑市契约：鲜血契约入袋稀有奇物并记血债，深渊契约史诗入袋且债与其它来源累加", () => {
+	// 鲜血契约：奇物立即到手，血债只记账不消费
+	const bloodBuilt = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, { curios: [] });
+	const bloodRun = { ...freshRun(cfg.RUN_MODE.endless), pendingEvent: bloodBuilt };
+	const blood = eventManager.resolveEventChoice(bloodRun, 1, {}, () => 0);
+	assert(blood.ok, blood.error ?? "鲜血契约应成交");
+	assertEqual(blood.curioId, "lucky_stone", "稀有奇物入袋");
+	assert(blood.run.curios.includes("lucky_stone"), "背包里有标的");
+	assert(blood.run.collection.curios.includes("lucky_stone"), "图鉴记曾经拥有");
+	assertEqual(blood.run.bloodDebt, true, "下一场正式战斗的体力债记账");
+	assertEqual(blood.run.pendingEvent, null, "成交后事件结束");
+	assert(blood.lines.some(line => line.includes("体力将变为 1")), `账目说明代价：${blood.lines.join("；")}`);
+	assertEqual(JSON.stringify(blood.run.currency), JSON.stringify(bloodRun.currency), "血契不收货币");
+	assertEqual(blood.run.abyssDebt ?? 0, 0, "血契不碰深渊债");
+	// 深渊契约：史诗入袋；已有 3 点债（经验泉/悬赏等来源）时再签 = 3 + 2 = 5，累加不覆盖
+	const abyssBuilt = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, { curios: [] });
+	const abyss = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 3, pendingEvent: abyssBuilt }, 2, {}, () => 0);
+	assert(abyss.ok, abyss.error ?? "深渊契约应成交");
+	assertEqual(abyss.curioId, "broken_watch", "史诗奇物入袋");
+	assertEqual(abyss.run.abyssDebt, 5, "债累加：3 + 2 = 5");
+	assert(abyss.lines.some(line => line.includes("5 个随机深渊强化")), `账目说明总债：${abyss.lines.join("；")}`);
+	assertEqual(abyss.run.bloodDebt ?? false, false, "深渊契不碰血债");
+	return "稀有/史诗立即入袋 / 血债记账 / 深渊债累加 / 两笔债互不干扰";
+});
+
+check("黑市契约：血债随存档往返、旧档按没有债补齐，纯增量字段不抬版本号", () => {
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), bloodDebt: true }).bloodDebt, true, "血债读档保留");
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless) }).bloodDebt, false, "旧档缺字段补 false");
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), bloodDebt: "yes" }).bloodDebt, false, "非布尔一律按没有债");
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), version: 14, bloodDebt: true }).bloodDebt, true, "旧版本号档里的血债照样保留（不因版本被清）");
+	// 退出游戏重进等价于 normalizeRun 一趟：血债与契约选项都在
+	const run = { ...freshRun(cfg.RUN_MODE.endless), bloodDebt: true, abyssDebt: 2 };
+	const revived = state.normalizeRun(JSON.parse(JSON.stringify(run)));
+	assertEqual(revived.bloodDebt, true, "血债在存档往返后仍是 true");
+	assertEqual(revived.abyssDebt, 2, "深渊债照旧保留");
+	// 深渊债上限清洗不动：与既有 0..10 夹同一条
+	assertEqual(state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), abyssDebt: 12 }).abyssDebt, 10, "深渊债仍按 0..10 清洗");
+	return "true 保留 / 缺失与非法补 false / 与版本号无关 / 深渊债清洗不变";
+});
+
+check("黑市契约：正式战斗胜利解除血债，普通与 Boss 一视同仁", () => {
+	const base = {
+		...freshRun(cfg.RUN_MODE.endless),
+		level: 4,
+		bloodDebt: true,
+		currentBattle: { status: "battle", enemies: [{ characterId: "巴尔坦星人", stats: {}, skills: [] }], rift: null, isBossBattle: false },
+	};
+	assertEqual(reward.settleVictory(base, NOW, () => 0.999).run.bloodDebt, false, "普通胜利解除血债");
+	assertEqual(
+		reward.settleVictory({ ...base, currentBattle: { ...base.currentBattle, isBossBattle: true } }, NOW, () => 0.999).run.bloodDebt,
+		false,
+		"Boss 胜利同样解除",
+	);
+	assertEqual(reward.settleVictory({ ...base, bloodDebt: false }, NOW, () => 0.999).run.bloodDebt, false, "无债照旧 false，字段稳定");
+	return "普通与 Boss 胜利都解除";
+});
+
+check("黑市契约：金币契约沿用原交易逻辑——付得起源价成交，集齐时按商人原话跳过", () => {
+	const built = eventManager.buildPendingEvent("mystery_merchant", 4, () => 0, NOW, { curios: [] });
+	const deal = eventManager.resolveEventChoice(
+		{ ...freshRun(cfg.RUN_MODE.endless), currency: { gold: 500, exp: 0 }, pendingEvent: built },
+		0, {}, () => 0,
+	);
+	assert(deal.ok, deal.error ?? "恰好付得起应成交");
+	assertEqual(deal.run.currency.gold, 0, "扣掉 500");
+	assertEqual(deal.run.curios.length, 1, "随机奇物入袋");
+	// 图鉴集齐 + 金币不足：跳过分支不花钱、按商人口吻说明（沿用既有行为，不受本次改造影响）
+	const brokeFull = {
+		...freshRun(cfg.RUN_MODE.endless),
+		currency: { gold: 0, exp: 0 },
+		curios: curiosData.curioIds.slice(),
+		pendingEvent: built,
+	};
+	const skipped = eventManager.resolveEventChoice(brokeFull, 0, {}, () => 0);
+	assert(skipped.ok, skipped.error ?? "集齐时跳过不拒");
+	assert(skipped.lines.some(line => line.includes("没有可出售的东西")), `商人口吻：${skipped.lines.join("；")}`);
+	assertEqual(JSON.stringify(skipped.run.currency), JSON.stringify({ gold: 0, exp: 0 }), "跳过不扣货币");
+	assertEqual(skipped.run.pendingEvent, null, "跳过后事件结束（沿用既有语义）");
+	// 其它事件不受影响：经验泉/悬赏的深渊债仍无条件兑现（没有 requireCurio 标的耦合）
+	const extreme = eventManager.buildPendingEvent("extreme_training", 4, () => 0, NOW, { curios: [] });
+	const trained = eventManager.resolveEventChoice({ ...freshRun(cfg.RUN_MODE.endless), pendingEvent: extreme }, 2, {}, () => 0);
+	assert(trained.ok && trained.run.abyssDebt === 2, "极限训练照旧无条件记账 2");
+	return "源价成交 / 集齐跳过不扣钱 / 其它事件的债不受标的耦合影响";
 });
 
 console.log(`\nrogue.test: passed=${passed} failed=${failures.length}`);

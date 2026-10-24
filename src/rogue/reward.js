@@ -80,6 +80,9 @@ export function settleVictory(run, now, rng = Math.random) {
 		// 只在真正通关后恢复本次技能/奇物购买机会，裂隙与失败不重置。
 		skillPurchasedThisRound: 0,
 		curioBoughtThisRound: false,
+		// 黑市契约·鲜血契约的体力债在「正式战斗胜利」此刻解除：失败重试、中途退出的恢复进场
+		// 都还按 1 体力开局（见 battle.beginBattle），只有打赢这一场才算把契约还清
+		bloodDebt: false,
 		currentBattle: null,
 		updatedAt: now,
 	};

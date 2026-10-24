@@ -746,6 +746,11 @@ export function normalizeRun(raw, options = {}) {
 		curioShopLocked: canLockShop({ curios, curioQuality }, "curio") && raw.curioShopLocked === true,
 		// v7：经验泉「再饮一口」欠下的债——下一场每名敌人追加几个深渊强化。旧档按「没有债」补齐，不重掷
 		abyssDebt: clampInt(raw.abyssDebt, 0, 10, 0),
+		// 黑市契约·鲜血契约欠下的债：下一场**正式**战斗开始时当前体力直接置为 1（上限不动）。
+		// 只记账不消费：每次正式进场都按它初始化体力，正式胜利才解除（见 reward.settleVictory）。
+		// 纯增量字段、不改任何既有字段语义：旧档缺字段按「没有债」补齐，不抬版本号
+		// （与 v9 给 shopOffers 增补 carried、v15 给 currentBattle 增补 tempSkill 同一处理）
+		bloodDebt: raw.bloodDebt === true,
 		cleared: !!raw.cleared,
 		createdAt: Math.max(0, toInt(raw.createdAt, 0)),
 		updatedAt: Math.max(0, toInt(raw.updatedAt, 0)),
