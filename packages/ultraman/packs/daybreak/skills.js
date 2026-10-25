@@ -1,17 +1,4 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
-import { getNewDiscardCards } from "../../shared/skills.js";
-
-// “未来”用的实体牌伤害标记属性名与获得资格判断（gain/markDamage 两个子技能共用）
-const DMG_MARK = "wlgswl_damaged";
-
-function isFutureGainable(player, card) {
-	if (get.position(card, true) !== "d") return false;
-	if (card[DMG_MARK]) return false;
-	const name = card.name;
-	if (!name) return false;
-	if (player.getStorage("wlgswl_used").includes(name)) return false;
-	return !player.getCards("h").some(hand => hand.name === name);
-}
 
 export const skills = {
 	atzfzhenli: {
@@ -687,40 +674,42 @@ export const skills = {
 	},
 	wlgswl: {
 		inherit: "aohonghei",
-		// group 必须显式列出基座 use 子技能与自身子技能（inherit 仅在 group 缺失时才复制基座值）
-		group: ["aohonghei_use", "wlgswl_markDamage", "wlgswl_gain", "wlgswl_reset"],
+		group: ["aohonghei_use", "aohonghei_mark", "wlgswl_gain", "wlgswl_reset"],
+		shared: {
+			getDamageCards(event) {
+				return [...new Set([event.card, ...(event.card?.cards ?? []), ...(event.cards ?? [])])].filter(card => get.itemtype(card) === "card");
+			},
+			hasDamaged(card) {
+				return game.getAllGlobalHistory("everything").some(event => event.name === "damage" && event.num > 0 && !event.unreal && this.getDamageCards(event).includes(card) && event.player.getAllHistory("damage").includes(event));
+			},
+			getUsed(player) {
+				const used = player.storage.wlgswl_turn === game.phaseNumber ? player.getStorage("wlgswl_used") : [];
+				return [...new Set([...used, ...player.getHistory("gain", event => event.getParent()?.name === "wlgswl_gain").flatMap(event => event.cards.map(card => card.name))])];
+			},
+			isFutureGainable(player, card) {
+				if (!player.isIn() || !player.hasSkill("wlgswl") || get.itemtype(card) !== "card" || get.position(card, true) !== "d" || !card.name) return false;
+				if (this.getUsed(player).includes(card.name) || player.getCards("h").some(hand => hand.name === card.name)) return false;
+				return !this.hasDamaged(card);
+			},
+		},
 		onremove(player) {
-			delete player.storage["wlgswl_used"];
+			lib.skill.aohonghei.shared.onremove(player);
 		},
 		subSkill: {
-			markDamage: {
-				trigger: { global: "damageAfter" },
-				forced: true,
-				silent: true,
-				popup: false,
-				filter(event) {
-					return event.num > 0 && !event.unreal && Boolean(event.card || event.cards);
-				},
-				async content(event, trigger) {
-					const cards = [trigger.card, ...(trigger.card?.cards ?? []), ...(trigger.cards ?? [])];
-					for (const card of cards) {
-						if (get.itemtype(card) === "card") card[DMG_MARK] = true;
-					}
-				},
-			},
 			gain: {
 				trigger: { global: ["loseAfter", "loseAsyncAfter", "cardsDiscardAfter"] },
 				forced: true,
 				filter(event, player) {
-					return player.isIn() && getNewDiscardCards(event).some(card => isFutureGainable(player, card));
+					return lib.skill.aohonghei.shared.getNewDiscardCards(event).some(card => lib.skill.wlgswl.shared.isFutureGainable(player, card));
 				},
 				async content(event, trigger, player) {
-					for (const card of getNewDiscardCards(trigger)) {
-						if (!isFutureGainable(player, card)) continue;
-						await player.gain(card, "gain2");
-						const used = player.getStorage("wlgswl_used").slice();
+					for (const card of lib.skill.aohonghei.shared.getNewDiscardCards(trigger)) {
+						if (!lib.skill.wlgswl.shared.isFutureGainable(player, card)) continue;
+						const used = lib.skill.wlgswl.shared.getUsed(player).slice();
 						used.push(card.name);
+						player.setStorage("wlgswl_turn", game.phaseNumber);
 						player.setStorage("wlgswl_used", used);
+						await player.gain(card, "gain2");
 						game.log(player, "获得了", card);
 					}
 				},
@@ -731,10 +720,11 @@ export const skills = {
 				silent: true,
 				popup: false,
 				filter(event, player) {
-					return player.getStorage("wlgswl_used").length > 0;
+					return player.storage.wlgswl_turn !== game.phaseNumber || player.getStorage("wlgswl_used").length > 0;
 				},
 				async content(event, trigger, player) {
 					player.setStorage("wlgswl_used", []);
+					player.setStorage("wlgswl_turn", game.phaseNumber);
 				},
 			},
 		},

@@ -92,6 +92,8 @@ export const skillTranslate = {
 	rmgsrimian_info: "锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；♥牌无视防具；♦牌无距离限制；♠牌造成的伤害+1；♣牌不计入次数且无次数限制。准备阶段，你从牌堆中获得每种花色的牌各一张。",
 	rmgsrimian_mark_red: "额外结算",
 	rmgsrimian_mark_black: "无法响应",
+	aohonghei_mark_red: "额外结算",
+	aohonghei_mark_black: "无法响应",
 	rmgsrimian_mark_heart: "无视防具",
 	rmgsrimian_mark_diamond: "无视距离",
 	rmgsrimian_mark_spade: "伤害+1",

@@ -1,5 +1,4 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
-import { getNewDiscardCards } from "../../shared/skills.js";
 
 export const skills = {
 	nkssjicheng: {
@@ -4083,10 +4082,9 @@ export const skills = {
 	},
 	yzrmgsyuzhou: {
 		inherit: "aohonghei",
-		// group 必须显式列出基座 use 子技能与自身子技能（inherit 仅在 group 缺失时才复制基座值），
-		// 写法与 rmgsrimian 的 group 列出全部子技能一致
-		group: ["aohonghei_use", "yzrmgsyuzhou_place", "yzrmgsyuzhou_gain"],
+		group: ["aohonghei_use", "aohonghei_mark", "yzrmgsyuzhou_place", "yzrmgsyuzhou_gain"],
 		onremove(player) {
+			lib.skill.aohonghei.shared.onremove(player);
 			const cards = player.getExpansions("yzrmgsyuzhou_yu");
 			if (cards.length) {
 				player.loseToDiscardpile(cards);
@@ -4101,6 +4099,7 @@ export const skills = {
 					return player.isIn() && !player.countExpansions("yzrmgsyuzhou_yu");
 				},
 				async content(event, trigger, player) {
+					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou") || player.countExpansions("yzrmgsyuzhou_yu")) return;
 					const cards = get.cards(1);
 					if (!cards.length) return;
 					const next = player.addToExpansion(cards, player, "give");
@@ -4123,25 +4122,39 @@ export const skills = {
 				trigger: { global: ["loseAfter", "loseAsyncAfter", "cardsDiscardAfter"] },
 				forced: true,
 				filter(event, player) {
+					if (!player.isIn()) return false;
 					const yu = player.getExpansions("yzrmgsyuzhou_yu");
 					if (!yu.length) return false;
 					const num = get.number(yu[0]);
-					return getNewDiscardCards(event).some(card => get.number(card) === num);
+					return lib.skill.aohonghei.shared.getNewDiscardCards(event).some(card => get.number(card) === num);
 				},
 				async content(event, trigger, player) {
+					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
 					const yu = player.getExpansions("yzrmgsyuzhou_yu").slice();
 					if (!yu.length) return;
 					const num = get.number(yu[0]);
 					await player.loseToDiscardpile(yu);
 					player.unmarkSkill("yzrmgsyuzhou_yu");
+					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
 					const matches = Array.from(ui.cardPile.childNodes)
 						.concat(Array.from(ui.discardPile.childNodes))
-						.filter(card => get.number(card) === num);
+						.filter(card => get.itemtype(card) === "card" && get.number(card) === num);
 					if (matches.length) {
 						await player.gain(matches, "gain2");
 						game.log(player, "获得了", matches);
 					}
-					player.insertPhase("yzrmgsyuzhou");
+					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
+					const next = player.insertPhase("yzrmgsyuzhou");
+					next.forceDie = false;
+					next.includeOut = false;
+					const content = next.content;
+					next.content = async function (event) {
+						if (!event.player.isIn() || !event.player.hasSkill("yzrmgsyuzhou")) {
+							event.finish();
+							return;
+						}
+						await content.call(this, event);
+					};
 					game.log(player, "将于本回合结束后执行一个额外的回合");
 				},
 			},
@@ -4149,7 +4162,7 @@ export const skills = {
 	},
 	rsgsrishi: {
 		inherit: "aohonghei",
-		group: ["aohonghei_use", "rsgsrishi_pindian"],
+		group: ["aohonghei_use", "aohonghei_mark", "rsgsrishi_pindian"],
 		subSkill: {
 			pindian: {
 				trigger: { player: "useCardAfter" },
@@ -4159,16 +4172,16 @@ export const skills = {
 					return (event.targets ?? []).some(target => target !== player && target.isIn());
 				},
 				async content(event, trigger, player) {
-					const targets = trigger.targets.filter(target => target !== player && target.isIn());
+					const targets = [...new Set(trigger.targets ?? [])].filter(target => target !== player && target.isIn());
 					for (const target of targets) {
+						if (!player.isIn()) break;
 						if (!target.isIn()) continue;
-						if (!player.canCompare(target, true)) continue;
 						await player.draw();
-						if (!target.isIn()) continue;
-						const next = player.chooseToCompare(target);
-						await next.forResult();
-						const winner = next.result?.winner;
-						if (!winner || !winner.isIn()) continue;
+						if (!player.isIn()) break;
+						if (!target.isIn() || !player.canCompare(target)) continue;
+						const result = await player.chooseToCompare(target).forResult();
+						const winner = result?.winner;
+						if (!player.isIn() || result?.cancelled || result?.tie || !winner || !winner.isIn()) continue;
 						const choices = ["回复一点体力", "摸两张牌"];
 						const control = await player
 							.chooseControl(choices)
@@ -4180,9 +4193,10 @@ export const skills = {
 									if (winner.hp <= 2 && winner.hp < winner.maxHp) return "回复一点体力";
 									return "摸两张牌";
 								}
-								return "回复一点体力";
+								return winner.hp < winner.maxHp ? "摸两张牌" : "回复一点体力";
 							})
 							.forResult();
+						if (!player.isIn() || !winner.isIn()) continue;
 						if (control?.control === "回复一点体力") {
 							await winner.recover(1);
 						} else if (control?.control === "摸两张牌") {
