@@ -459,7 +459,13 @@ check("商店技能池：id 规范、定义与翻译齐备", () => {
 		if (!info) {
 			problems.push(`${item.id}: 缺少 lib.skill 定义`);
 		} else if (!info.trigger && !info.enable && !info.mod && !info.group) {
-			problems.push(`${item.id}: 技能定义里没有 trigger/enable/mod/group，本体会当成无效技能`);
+			// inherit 子技能在 finishCards 时从基座补齐 trigger/enable/mod/group，视为有效；
+			// 基座本身必须带有其中之一，否则整条 inherit 链都是无效技能
+			const parent = info.inherit ? skillsData.skill[info.inherit] : null;
+			const parentValid = Boolean(parent && (parent.trigger || parent.enable || parent.mod || parent.group));
+			if (!parentValid) {
+				problems.push(`${item.id}: 技能定义里没有 trigger/enable/mod/group（inherit 基座也无效），本体会当成无效技能`);
+			}
 		}
 		if (isPack) {
 			// 分包技能：id / id_info 双键翻译

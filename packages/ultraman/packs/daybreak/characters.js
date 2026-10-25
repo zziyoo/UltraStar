@@ -28,4 +28,13 @@ export const characters = {
 		img: "extension/奥特之星/assets/image/至高盖亚.jpg",
 		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
 	},
+	未来高斯: {
+		sex: "male",
+		group: "ao",
+		hp: 4,
+		skills: ["wlgswl"],
+		names: "null|高斯",
+		img: "extension/奥特之星/assets/image/未来高斯.jpg",
+		dieAudios: ["ext:奥特之星/assets/audio/dieaudio/那位大人.mp3"],
+	},
 };

@@ -1,4 +1,5 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
+import { getNewDiscardCards } from "../../shared/skills.js";
 
 export const skills = {
 	nkssjicheng: {
@@ -4076,6 +4077,118 @@ export const skills = {
 				async content(event, trigger, player) {
 					trigger.num++;
 					game.log(trigger.card, "造成的伤害+1");
+				},
+			},
+		},
+	},
+	yzrmgsyuzhou: {
+		inherit: "aohonghei",
+		// group 必须显式列出基座 use 子技能与自身子技能（inherit 仅在 group 缺失时才复制基座值），
+		// 写法与 rmgsrimian 的 group 列出全部子技能一致
+		group: ["aohonghei_use", "yzrmgsyuzhou_place", "yzrmgsyuzhou_gain"],
+		onremove(player) {
+			const cards = player.getExpansions("yzrmgsyuzhou_yu");
+			if (cards.length) {
+				player.loseToDiscardpile(cards);
+			}
+			player.unmarkSkill("yzrmgsyuzhou_yu");
+		},
+		subSkill: {
+			place: {
+				trigger: { global: "phaseBegin" },
+				forced: true,
+				filter(event, player) {
+					return player.isIn() && !player.countExpansions("yzrmgsyuzhou_yu");
+				},
+				async content(event, trigger, player) {
+					const cards = get.cards(1);
+					if (!cards.length) return;
+					const next = player.addToExpansion(cards, player, "give");
+					next.gaintag.add("yzrmgsyuzhou_yu");
+					await next;
+					player.markSkill("yzrmgsyuzhou_yu");
+					game.log(player, "将牌堆顶的一张牌置于武将牌上，称为“宇”");
+				},
+			},
+			yu: {
+				mark: true,
+				marktext: "宇",
+				intro: {
+					name: "宇",
+					content: "expansion",
+					markcount: "expansion",
+				},
+			},
+			gain: {
+				trigger: { global: ["loseAfter", "loseAsyncAfter", "cardsDiscardAfter"] },
+				forced: true,
+				filter(event, player) {
+					const yu = player.getExpansions("yzrmgsyuzhou_yu");
+					if (!yu.length) return false;
+					const num = get.number(yu[0]);
+					return getNewDiscardCards(event).some(card => get.number(card) === num);
+				},
+				async content(event, trigger, player) {
+					const yu = player.getExpansions("yzrmgsyuzhou_yu").slice();
+					if (!yu.length) return;
+					const num = get.number(yu[0]);
+					await player.loseToDiscardpile(yu);
+					player.unmarkSkill("yzrmgsyuzhou_yu");
+					const matches = Array.from(ui.cardPile.childNodes)
+						.concat(Array.from(ui.discardPile.childNodes))
+						.filter(card => get.number(card) === num);
+					if (matches.length) {
+						await player.gain(matches, "gain2");
+						game.log(player, "获得了", matches);
+					}
+					player.insertPhase("yzrmgsyuzhou");
+					game.log(player, "将于本回合结束后执行一个额外的回合");
+				},
+			},
+		},
+	},
+	rsgsrishi: {
+		inherit: "aohonghei",
+		group: ["aohonghei_use", "rsgsrishi_pindian"],
+		subSkill: {
+			pindian: {
+				trigger: { player: "useCardAfter" },
+				forced: true,
+				filter(event, player) {
+					if (!player.isIn() || !event.card) return false;
+					return (event.targets ?? []).some(target => target !== player && target.isIn());
+				},
+				async content(event, trigger, player) {
+					const targets = trigger.targets.filter(target => target !== player && target.isIn());
+					for (const target of targets) {
+						if (!target.isIn()) continue;
+						if (!player.canCompare(target, true)) continue;
+						await player.draw();
+						if (!target.isIn()) continue;
+						const next = player.chooseToCompare(target);
+						await next.forResult();
+						const winner = next.result?.winner;
+						if (!winner || !winner.isIn()) continue;
+						const choices = ["回复一点体力", "摸两张牌"];
+						const control = await player
+							.chooseControl(choices)
+							.set("prompt", "日蚀：请选择“" + get.translation(winner) + "”（拼点赢的角色）执行的效果")
+							.set("winner", winner)
+							.set("ai", () => {
+								const { player, winner } = get.event();
+								if (winner === player || get.attitude(player, winner) > 0) {
+									if (winner.hp <= 2 && winner.hp < winner.maxHp) return "回复一点体力";
+									return "摸两张牌";
+								}
+								return "回复一点体力";
+							})
+							.forResult();
+						if (control?.control === "回复一点体力") {
+							await winner.recover(1);
+						} else if (control?.control === "摸两张牌") {
+							await winner.draw(2);
+						}
+					}
 				},
 			},
 		},

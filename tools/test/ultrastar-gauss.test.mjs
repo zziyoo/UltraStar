@@ -12,8 +12,9 @@ const pack = path.join(root, "packages", "ultraman", "packs", "eternal-torch");
 function loadExports(file, names) {
 	const source = fs
 		.readFileSync(file, "utf8")
-		.replace(/^import[^;]*;/m, "")
+		.replace(/^import[^\n]*;/gm, "")
 		.replace(/^export\s+(const|let|var)\s+/gm, "$1 ");
+	// skills.js 可能 import shared 工具（getNewDiscardCards），本测试不触发相关路径，注入空桩
 	return new Function(
 		"lib",
 		"game",
@@ -21,6 +22,7 @@ function loadExports(file, names) {
 		"get",
 		"ai",
 		"_status",
+		"getNewDiscardCards",
 		`${source}\nreturn {${names.join(",")}};`,
 	);
 }
@@ -507,7 +509,10 @@ await check("角色、技能与替换注册齐全", () => {
 	equal(meta.characterTranslate["月神高斯_prefix"], "月神", "月神前缀");
 	equal(meta.characterTranslate["日冕高斯_prefix"], "日冕", "日冕前缀");
 	const bootstrap = fs.readFileSync(path.join(root, "src", "core", "bootstrap.js"), "utf8");
-	assert(bootstrap.includes('lib.characterReplace["高斯"] = ["月神高斯", "日冕高斯"];'), "替换组未注册");
+	assert(
+		bootstrap.includes('lib.characterReplace["高斯"] = ["月神高斯", "日冕高斯", "宇宙日冕高斯", "日蚀高斯", "未来高斯"];'),
+		"替换组未注册",
+	);
 	const registry = fs.readFileSync(path.join(root, "src", "core", "registry.js"), "utf8");
 	assert(registry.includes('"月神高斯","日冕高斯"'), "CHARACTER_ORDER 未登记");
 });

@@ -96,4 +96,9 @@ export const skillTranslate = {
 	rmgsrimian_mark_diamond: "无视距离",
 	rmgsrimian_mark_spade: "伤害+1",
 	rmgsrimian_mark_club: "无限次数",
+	yzrmgsyuzhou: "宇宙",
+	yzrmgsyuzhou_info: "锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；每回合开始时，若你没有“宇”，你将牌堆顶的一张牌置于武将牌上，称为“宇”；当有与“宇”点数相同的牌进入弃牌堆后，你弃置“宇”，获得牌堆和弃牌堆中所有与此牌点数相同的牌，然后于本回合结束后执行一个额外的回合。",
+	yzrmgsyuzhou_yu: "宇",
+	rsgsrishi: "日蚀",
+	rsgsrishi_info: "锁定技，你使用的：红色牌额外结算一次；黑色牌无法响应；当你对其他角色使用牌后，你摸一张牌与其拼点，然后你令拼点赢的角色回复一点体力或摸两张牌。",
 };

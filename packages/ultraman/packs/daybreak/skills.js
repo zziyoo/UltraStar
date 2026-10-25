@@ -1,4 +1,17 @@
 import { lib, game, ui, get, ai, _status } from "../../../../../../noname.js";
+import { getNewDiscardCards } from "../../shared/skills.js";
+
+// “未来”用的实体牌伤害标记属性名与获得资格判断（gain/markDamage 两个子技能共用）
+const DMG_MARK = "wlgswl_damaged";
+
+function isFutureGainable(player, card) {
+	if (get.position(card, true) !== "d") return false;
+	if (card[DMG_MARK]) return false;
+	const name = card.name;
+	if (!name) return false;
+	if (player.getStorage("wlgswl_used").includes(name)) return false;
+	return !player.getCards("h").some(hand => hand.name === name);
+}
 
 export const skills = {
 	atzfzhenli: {
@@ -668,6 +681,60 @@ export const skills = {
 						const newList = list.filter(i => i !== item);
 						player.setStorage("zggyjili_damage_list", newList);
 					}
+				},
+			},
+		},
+	},
+	wlgswl: {
+		inherit: "aohonghei",
+		// group 必须显式列出基座 use 子技能与自身子技能（inherit 仅在 group 缺失时才复制基座值）
+		group: ["aohonghei_use", "wlgswl_markDamage", "wlgswl_gain", "wlgswl_reset"],
+		onremove(player) {
+			delete player.storage["wlgswl_used"];
+		},
+		subSkill: {
+			markDamage: {
+				trigger: { global: "damageAfter" },
+				forced: true,
+				silent: true,
+				popup: false,
+				filter(event) {
+					return event.num > 0 && !event.unreal && Boolean(event.card || event.cards);
+				},
+				async content(event, trigger) {
+					const cards = [trigger.card, ...(trigger.card?.cards ?? []), ...(trigger.cards ?? [])];
+					for (const card of cards) {
+						if (get.itemtype(card) === "card") card[DMG_MARK] = true;
+					}
+				},
+			},
+			gain: {
+				trigger: { global: ["loseAfter", "loseAsyncAfter", "cardsDiscardAfter"] },
+				forced: true,
+				filter(event, player) {
+					return player.isIn() && getNewDiscardCards(event).some(card => isFutureGainable(player, card));
+				},
+				async content(event, trigger, player) {
+					for (const card of getNewDiscardCards(trigger)) {
+						if (!isFutureGainable(player, card)) continue;
+						await player.gain(card, "gain2");
+						const used = player.getStorage("wlgswl_used").slice();
+						used.push(card.name);
+						player.setStorage("wlgswl_used", used);
+						game.log(player, "获得了", card);
+					}
+				},
+			},
+			reset: {
+				trigger: { global: "phaseBegin" },
+				forced: true,
+				silent: true,
+				popup: false,
+				filter(event, player) {
+					return player.getStorage("wlgswl_used").length > 0;
+				},
+				async content(event, trigger, player) {
+					player.setStorage("wlgswl_used", []);
 				},
 			},
 		},

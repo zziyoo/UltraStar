@@ -12,8 +12,9 @@ const pack = path.join(root, "packages", "ultraman", "packs", "daybreak");
 function loadExports(file, names) {
 	const source = fs
 		.readFileSync(file, "utf8")
-		.replace(/^import[^;]*;/m, "")
+		.replace(/^import[^\n]*;/gm, "")
 		.replace(/^export\s+(const|let|var)\s+/gm, "$1 ");
+	// skills.js 可能 import shared 工具（getNewDiscardCards），本测试不触发相关路径，注入空桩
 	return new Function(
 		"lib",
 		"game",
@@ -21,6 +22,7 @@ function loadExports(file, names) {
 		"get",
 		"ai",
 		"_status",
+		"getNewDiscardCards",
 		`${source}\nreturn {${names.join(",")}};`,
 	);
 }

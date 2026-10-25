@@ -37,8 +37,9 @@ for (const pkg of packages) {
 	Object.assign(packSkillTranslate, pkg.skillTranslate ?? {});
 }
 
-// 不可上架的内部技能：只对特定角色/专属机制生效（如死龙的换人控制技），买来无意义也无翻译
-const NON_SELLABLE = new Set(["slcontrol"]);
+// 不可上架的内部技能：只对特定角色/专属机制生效（如死龙的换人控制技），买来无意义也无翻译；
+// aohonghei 是三名高斯形态红黑效果经 inherit 复用的公共基座，单独上架只有半截效果
+const NON_SELLABLE = new Set(["slcontrol", "aohonghei"]);
 
 export const pool = Object.keys(packSkill)
 	.filter(id => !NON_SELLABLE.has(id))
