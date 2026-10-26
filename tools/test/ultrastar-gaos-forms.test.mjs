@@ -53,6 +53,8 @@ const _status = { mode: "identity", event: null };
 const logs = [];
 const game = {
 	players: [],
+	dead: [],
+	additionaldead: [],
 	events: [],
 	createEvent(name) {
 		const event = { name, setContent(content) { this.content = content; return this; } };
@@ -210,6 +212,9 @@ function resetBoard() {
 	logs.length = 0;
 	game.history.length = 0;
 	game.events.length = 0;
+	game.players.length = 0;
+	game.dead.length = 0;
+	game.additionaldead.length = 0;
 }
 
 function makePlayer(options = {}) {
@@ -243,8 +248,11 @@ function makePlayer(options = {}) {
 		hasSkill(id) {
 			return this.skills.some(skill => skill === id || skills[skill]?.group?.includes(id));
 		},
-		getAllHistory(key) {
-			return key === "damage" ? this.damageHistory : [];
+		getAllHistory(key, filter) {
+			const list = key === "damage" ? this.damageHistory : [];
+			this.historyQueries = (this.historyQueries ?? 0) + 1;
+			this.historyVisits = (this.historyVisits ?? 0) + list.length;
+			return filter ? list.filter(filter) : list;
 		},
 		getHistory(key, filter = () => true) {
 			return (key === "gain" ? this.gainHistory : []).filter(filter);
@@ -744,6 +752,7 @@ await check("日蚀 AI：友方残血回复、友方满血摸牌、敌方按伤�
 
 function recordDamage(card, cards, extra = {}) {
  const victim = makePlayer({ name: "伤害承受者" });
+ if (!game.players.includes(victim)) game.players.push(victim);
  const damage = { name: "damage", num: 1, card, cards, player: victim, ...extra };
  victim.damageHistory.push(damage);
  game.history.push(damage);
@@ -928,6 +937,25 @@ await check("公共手牌标记：多个继承技能共存、持有者之间交�
 	assert(card.hasGaintag("rmgsrimian_mark_red") && card.hasGaintag("rmgsrimian_mark_heart"), "日冕红黑与花色标记保留");
 	assert(!card.hasGaintag("aohonghei_mark_red"), "日冕不获得公共基座标记");
 });
+await check("公共手牌标记：无关角色得失牌不触发，手牌变动与技能变化照常刷新", () => {
+	const player = makePlayer({ skills: ["wlgswl"], hand: [makeCard("shan", "heart", 3)] });
+	const other = makePlayer({ name: "别人", hand: [makeCard("sha", "spade", 7)] });
+	game.players = [player, other];
+	const mark = skills.aohonghei.subSkill.mark;
+	assert(!mark.trigger.global.includes("equipAfter"), "装备事件不再全量刷新");
+	assert(!mark.trigger.global.includes("addJudgeAfter"), "判定区事件不再全量刷新");
+	assert(!mark.trigger.global.includes("addToExpansionAfter"), "扩展区事件不再全量刷新");
+	assert(!mark.filter({ name: "gain", player: other, cards: [makeCard("tao", "heart", 1)] }, player), "他人获得牌不刷新");
+	assert(mark.filter({ name: "gain", player, cards: [makeCard("tao", "heart", 1)] }, player), "自己获得手牌刷新");
+	assert(!mark.filter({ name: "lose", player: other, hs: [makeCard("sha", "spade", 7)] }, player), "他人失去手牌不刷新");
+	assert(mark.filter({ name: "lose", player, hs: [makeCard("shan", "heart", 3)] }, player), "自己失去手牌刷新");
+	assert(mark.filter({ name: "lose", player, hs: [makeCard("shan", "heart", 3)] }, player), "装备或使用导致离手同样经过 lose.hs 刷新");
+	assert(mark.filter({ name: "loseAsync", getl: target => (target === player ? { hs: [makeCard("shan", "heart", 3)] } : { hs: [] }) }, player), "loseAsync 涉及自己手牌刷新");
+	assert(!mark.filter({ name: "loseAsync", getl: () => ({ hs: [] }) }, player), "loseAsync 未涉及自己不刷新");
+	assert(mark.filter({ name: "changeSkills" }, player), "技能变化始终刷新");
+	assert(mark.filter({ name: "die" }, player), "死亡始终清理");
+	assert(mark.filter({ name: "phaseBegin" }, player), "回合开始保留兜底刷新");
+});
 await check("日蚀：重复目标只处理一次，摸牌期间死亡或离场停止拼点", async () => {
 	const pindian = skills.rsgsrishi.subSkill.pindian;
 	const target = makePlayer({ name: "目标", hand: [makeCard("shan", "heart", 2)] });
@@ -1007,28 +1035,33 @@ await check("宇宙：两个持有者弃宇事件嵌套时各触发一次", asyn
 	equal(second.insertCalls.length, 1, "第二名一个额外回合");
 	assert(!gain.filter(event, first) && !gain.filter(event, second), "原弃牌事件不再重复触发");
 });
-await check("宇宙：额外回合开始前失去技能或死亡时取消，合法回合沿用本体内容", async () => {
-	for (const invalid of ["removed", "dead", "valid"]) {
-		resetBoard();
-		const player = makePlayer();
+await check("宇宙：额外回合直接使用本体 insertPhase，不包装事件内容", async () => {
+	resetBoard();
+	const player = makePlayer();
+	const yu = makeCard("sha", "club", 6);
+	yu.addGaintag("yzrmgsyuzhou_yu");
+	player.expansions = [yu];
+	await skills.yzrmgsyuzhou.subSkill.gain.content({}, {}, player);
+	equal(player.insertCalls.join(","), "yzrmgsyuzhou", "调用本体 insertPhase");
+	const scheduled = player.insertEvents[0];
+	assert(scheduled && scheduled.content === undefined, "不覆盖本体 phase 内容");
+	assert(scheduled.forceDie === undefined && scheduled.includeOut === undefined, "不改写本体回合的死亡/离场参数");
+	player.dead = true;
+	player.skills = [];
+	assert(scheduled.content === undefined && scheduled.forceDie === undefined, "已安排的额外回合不因死亡或失去技能被改写");
+});
+await check("宇宙：额外回合期间再次触发仍各安排一次", async () => {
+	resetBoard();
+	const player = makePlayer();
+	game.players = [player];
+	for (let round = 0; round < 2; round++) {
 		const yu = makeCard("sha", "club", 6);
 		yu.addGaintag("yzrmgsyuzhou_yu");
 		player.expansions = [yu];
-		let ran = false;
-		player.insertPhase = function (skill) {
-			this.insertCalls.push(skill);
-			this.scheduled = { player, content: async () => { ran = true; } };
-			return this.scheduled;
-		};
-		await skills.yzrmgsyuzhou.subSkill.gain.content({}, {}, player);
-		const scheduled = player.scheduled;
-		if (invalid === "removed") player.skills = [];
-		if (invalid === "dead") player.dead = true;
-		let finished = false;
-		await scheduled.content({ player, finish() { finished = true; } });
-		equal(ran, invalid === "valid", "只有合法角色执行本体回合");
-		equal(finished, invalid !== "valid", "非法回合在开始前结束");
+		const match = pileCard("shan", "heart", 6, "d");
+		await skills.yzrmgsyuzhou.subSkill.gain.content({}, { name: "cardsDiscard", getd: () => [match] }, player);
 	}
+	equal(player.insertCalls.length, 2, "每次触发各插入一个额外回合");
 });
 await check("未来：loseAsync 子事件不先拿牌，汇总后按实体去重", async () => {
 	resetBoard();
@@ -1042,22 +1075,111 @@ await check("未来：loseAsync 子事件不先拿牌，汇总后按实体去重
 	equal(player.gainCalls.length, 1, "汇总只获得一次");
 	assert(player.hand.includes(card), "实体牌已获得");
 });
-await check("公共基座：本体移除共用 group 钩子后为剩余继承技能恢复一次", async () => {
+await check("未来：长对局历史仅查询伤害历史，已伤害实体命中缓存", () => {
 	resetBoard();
-	const player = makePlayer({ skills: ["rsgsrishi", "wlgswl"] });
-	const active = new Set(["aohonghei_use", "aohonghei_mark"]);
-	player.addSkillTrigger = ids => ids.forEach(id => active.add(id));
-	player.skills = ["rsgsrishi"];
-	skills.wlgswl.onremove(player);
-	for (const id of skills.wlgswl.group) active.delete(id);
-	for (const event of game.events) await event.content(event, undefined, event.player);
-	const card = makeCard("shan", "heart", 3);
-	player.hand = [card];
-	if (active.has("aohonghei_mark")) await skills.aohonghei.subSkill.mark.content({}, {}, player);
-	assert(card.hasGaintag("aohonghei_mark_red"), "移除其中一项后新获得手牌仍刷新");
-	const use = { card, effectCount: 1 };
-	if (active.has("aohonghei_use")) await skills.aohonghei.subSkill.use.content({}, use, player);
-	equal(use.effectCount, 2, "剩余继承技能红牌仍额外结算一次");
+	const victims = Array.from({ length: 5 }, (_, index) => makePlayer({ name: `承伤者${index}` }));
+	game.players = victims;
+	const damagedCards = [];
+	const queriedDamaged = [];
+	const cleanCards = [];
+	for (let i = 0; i < 20000; i++) game.history.push({ name: i % 50 === 0 ? "useCard" : "gain", num: 0 });
+	for (let i = 0; i < 300; i++) {
+		const card = makeCard(i % 2 ? "sha" : "shan", i % 2 ? "spade" : "heart", (i % 13) + 1);
+		card.pos = "d";
+		const victim = victims[i % victims.length];
+		const damage = { name: "damage", num: 1, card, player: victim };
+		victim.damageHistory.push(damage);
+		game.history.push(damage);
+		damagedCards.push(card);
+	}
+	for (let i = 0; i < 100; i++) {
+		const card = makeCard("tao", "diamond", (i % 13) + 1);
+		card.pos = "d";
+		cleanCards.push(card);
+	}
+	const queries = [...cleanCards, ...damagedCards.slice(0, 50), ...damagedCards.slice(0, 50)];
+	const legacyHasDamaged = card => {
+		let visited = 0;
+		const hit = game.getAllGlobalHistory("everything", event => {
+			visited++;
+			return event.name === "damage" && event.num > 0 && !event.unreal && libTable.skill.wlgswl.shared.getDamageCards(event).includes(card) && event.player.getAllHistory("damage").includes(event);
+		}).length > 0;
+		legacyVisits += visited;
+		return hit;
+	};
+	let legacyVisits = 0;
+	const legacyStart = performance.now();
+	const legacyResults = queries.map(legacyHasDamaged);
+	const legacyCost = performance.now() - legacyStart;
+	for (const victim of victims) {
+		victim.historyQueries = 0;
+		victim.historyVisits = 0;
+	}
+	const newStart = performance.now();
+	const newResults = queries.map(card => libTable.skill.wlgswl.shared.hasDamaged(card));
+	const newCost = performance.now() - newStart;
+	const newVisits = victims.reduce((sum, victim) => sum + victim.historyVisits, 0);
+	equal(JSON.stringify(newResults), JSON.stringify(legacyResults), "优化前后判定完全一致");
+	equal(newResults.filter(Boolean).length, 100, "仅造成过伤害的实体不可获得");
+	equal(legacyResults.filter(Boolean).length, 100, "旧实现同样识别 100 张伤害牌");
+	assert(newVisits * 20 < legacyVisits, `伤害历史查询量应大幅下降: 旧=${legacyVisits} 新=${newVisits}`);
+	const cachedQueries = victims.reduce((sum, victim) => sum + victim.historyQueries, 0);
+	const cachedVisits = newVisits;
+	libTable.skill.wlgswl.shared.hasDamaged(damagedCards[0]);
+	equal(victims.reduce((sum, victim) => sum + victim.historyQueries, 0), cachedQueries, "已伤害实体命中缓存不再查询历史");
+	equal(victims.reduce((sum, victim) => sum + victim.historyVisits, 0), cachedVisits, "缓存命中后扫描量为零");
+	const late = cleanCards[0];
+	assert(!libTable.skill.wlgswl.shared.hasDamaged(late), "未伤害实体首次判定为可获得");
+	const lateDamage = { name: "damage", num: 1, card: late, player: victims[0] };
+	victims[0].damageHistory.push(lateDamage);
+	game.history.push(lateDamage);
+	assert(libTable.skill.wlgswl.shared.hasDamaged(late), "之后造成伤害立即更新，不缓存未伤害结论");
+	console.log(`  历史扫描: 旧=${legacyVisits} 新=${newVisits}（${(legacyVisits / newVisits).toFixed(1)}x）, 耗时 旧=${legacyCost.toFixed(2)}ms 新=${newCost.toFixed(2)}ms`);
+});
+await check("公共基座：三技能逐个移除时只为剩余继承技能恢复公共触发器", async () => {
+	resetBoard();
+	const player = makePlayer({ skills: ["yzrmgsyuzhou", "rsgsrishi", "wlgswl"] });
+	const active = new Set();
+	let addCalls = 0;
+	player.addSkillTrigger = ids => {
+		addCalls++;
+		ids.forEach(id => active.add(id));
+	};
+	player.addSkillTrigger(["aohonghei_use", "aohonghei_mark"]);
+	addCalls = 0;
+	const drainRestores = async () => {
+		const events = game.events.splice(0);
+		for (const event of events) await event.content(event, undefined, event.player);
+	};
+	const verifyShared = async (label, expected) => {
+		equal(active.has("aohonghei_use"), expected, `${label} use 触发器状态`);
+		equal(active.has("aohonghei_mark"), expected, `${label} mark 触发器状态`);
+		if (!expected) return;
+		const card = makeCard("shan", "heart", 3);
+		player.hand = [card];
+		await skills.aohonghei.subSkill.mark.content({}, {}, player);
+		assert(card.hasGaintag("aohonghei_mark_red"), `${label} 手牌标记正常`);
+		const use = { card, effectCount: 1 };
+		await skills.aohonghei.subSkill.use.content({}, use, player);
+		equal(use.effectCount, 2, `${label} 红牌仍额外结算一次`);
+	};
+	const remove = async id => {
+		player.skills = player.skills.filter(skill => skill !== id);
+		skills[id].onremove(player);
+		for (const sub of skills[id].group) active.delete(sub);
+		await drainRestores();
+	};
+	await remove("yzrmgsyuzhou");
+	await verifyShared("移除宇宙后", true);
+	await remove("rsgsrishi");
+	await verifyShared("移除日蚀后", true);
+	const card = player.hand[0];
+	await remove("wlgswl");
+	equal(active.has("aohonghei_use"), false, "全部移除后不残留 use 触发器");
+	equal(active.has("aohonghei_mark"), false, "全部移除后不残留 mark 触发器");
+	assert(!card.hasGaintag("aohonghei_mark_red"), "全部移除后手牌标记清理");
+	equal(addCalls, 2, "只在仍有继承技能时恢复，且每次恢复一次");
+	equal(game.events.length, 0, "恢复事件均已结算");
 });
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {

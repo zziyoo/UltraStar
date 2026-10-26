@@ -4144,17 +4144,7 @@ export const skills = {
 						game.log(player, "获得了", matches);
 					}
 					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
-					const next = player.insertPhase("yzrmgsyuzhou");
-					next.forceDie = false;
-					next.includeOut = false;
-					const content = next.content;
-					next.content = async function (event) {
-						if (!event.player.isIn() || !event.player.hasSkill("yzrmgsyuzhou")) {
-							event.finish();
-							return;
-						}
-						await content.call(this, event);
-					};
+					player.insertPhase("yzrmgsyuzhou");
 					game.log(player, "将于本回合结束后执行一个额外的回合");
 				},
 			},

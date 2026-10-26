@@ -676,11 +676,15 @@ export const skills = {
 		inherit: "aohonghei",
 		group: ["aohonghei_use", "aohonghei_mark", "wlgswl_gain", "wlgswl_reset"],
 		shared: {
+			damagedCards: new WeakSet(),
 			getDamageCards(event) {
 				return [...new Set([event.card, ...(event.card?.cards ?? []), ...(event.cards ?? [])])].filter(card => get.itemtype(card) === "card");
 			},
 			hasDamaged(card) {
-				return game.getAllGlobalHistory("everything").some(event => event.name === "damage" && event.num > 0 && !event.unreal && this.getDamageCards(event).includes(card) && event.player.getAllHistory("damage").includes(event));
+				if (this.damagedCards.has(card)) return true;
+				const damaged = (game.players ?? []).concat(game.dead ?? [], game.additionaldead ?? []).some(player => player.getAllHistory("damage").some(event => event.num > 0 && !event.unreal && this.getDamageCards(event).includes(card)));
+				if (damaged) this.damagedCards.add(card);
+				return damaged;
 			},
 			getUsed(player) {
 				const used = player.storage.wlgswl_turn === game.phaseNumber ? player.getStorage("wlgswl_used") : [];

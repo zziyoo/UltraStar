@@ -69,11 +69,17 @@ export const skills = {
 		},
 		subSkill: {
 			mark: {
-				trigger: { player: ["changeSkillsAfter", "enterGame", "phaseBegin", "dieAfter"], global: ["gameDrawEnd", "gameStart", "gainAfter", "loseAfter", "loseAsyncAfter", "equipAfter", "addJudgeAfter", "addToExpansionAfter"] },
+				trigger: { player: ["changeSkillsAfter", "enterGame", "phaseBegin", "dieAfter"], global: ["gameDrawEnd", "gameStart", "gainAfter", "loseAfter", "loseAsyncAfter"] },
 				forced: true,
 				silent: true,
 				popup: false,
 				forceDie: true,
+				filter(event, player) {
+					if (event.name === "gain") return event.player === player && Boolean(event.cards?.length);
+					if (event.name === "lose") return event.player === player && Boolean(event.hs?.length);
+					if (event.name === "loseAsync") return Boolean(event.getl?.(player)?.hs?.length);
+					return true;
+				},
 				async content(event, trigger, player) {
 					lib.skill.aohonghei.shared.refreshMarks(player);
 				},
