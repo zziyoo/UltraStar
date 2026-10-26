@@ -336,20 +336,101 @@ export const skills = {
 		},
 		direct: true,
 		locked: false,
+		shared: {
+			states: ["dlhchizhuo_adddamage", "dlhchizhuo_back", "dlhchizhuo_phase", "dlhchizhuo_die", "dlhchizhuo_clear"],
+			getBatches(player) {
+				const batches = player.storage.dlhchizhuo_batches;
+				return Array.isArray(batches) ? batches : [];
+			},
+			getLive(player) {
+				return this.getBatches(player).filter(batch => !batch.done);
+			},
+			getMatched(player, event) {
+				if (!event?.card || typeof event.getParent !== "function") return [];
+				const useEvent = event.getParent("useCard");
+				return this.getLive(player).filter(batch => batch.card === event.card && batch.useEvent === useEvent);
+			},
+			getDue(player, phasePlayer) {
+				return this.getLive(player).filter(batch => batch.phasePlayer === phasePlayer || !batch.phasePlayer?.isIn());
+			},
+			addBatch(player, batch) {
+				const batches = this.getLive(player);
+				batches.push(batch);
+				player.setStorage("dlhchizhuo_batches", batches);
+				player.addSkill(this.states);
+				player.markSkill("dlhchizhuo");
+			},
+			dropBatch(player, batch) {
+				batch.done = true;
+				const batches = this.getBatches(player).filter(item => item !== batch && !item.done);
+				if (batches.length) {
+					player.setStorage("dlhchizhuo_batches", batches);
+				} else {
+					player.removeStorage("dlhchizhuo_batches");
+				}
+				const held = player.getExpansions("dlhchizhuo");
+				const cards = batch.cards.filter(card => held.includes(card));
+				for (const card of batch.cards) card.classList.remove("glory2");
+				batch.cards = [];
+				return cards;
+			},
+			async recover(player, batches) {
+				const cards = [];
+				for (const batch of batches) {
+					if (batch.done) continue;
+					cards.addArray(this.dropBatch(player, batch));
+				}
+				if (cards.length) await player.gain(cards, "draw");
+				this.cleanup(player);
+			},
+			getKiller(event) {
+				for (const item of [event?.reason, event?.reason?.reason, event]) {
+					if (item?.name === "damage") return item;
+				}
+				return typeof event?.getParent === "function" ? event.getParent("damage") : undefined;
+			},
+			async distribute(source, cards) {
+				const pool = cards.slice(0);
+				while (pool.length > 0) {
+					let chosen;
+					if (pool.length > 1) {
+						const picked = await source
+							.chooseCardButton("炽灼：选择要分配的牌", true, pool, [1, pool.length])
+							.set("ai", button => get.value(button.link, source))
+							.forResult();
+						if (!picked.bool || !picked.links?.length) return;
+						chosen = picked.links.slice(0);
+					} else {
+						chosen = pool.slice(0);
+					}
+					const result = await source
+						.chooseTarget(`选择一名角色获得${get.translation(chosen)}`, true)
+						.set("ai", target => {
+							const att = get.attitude(source, target);
+							if (att <= 0) return -1;
+							return att + (target.countCards("h") < 2 ? 5 : 0);
+						})
+						.forResult();
+					if (!result.bool || !result.targets.length) return;
+					pool.removeArray(chosen);
+					const gainNext = result.targets[0].gain(chosen, "draw");
+					gainNext.log = false;
+					await gainNext;
+				}
+			},
+			cleanup(player) {
+				if (this.getLive(player).length) return;
+				player.removeSkill(this.states);
+				for (const card of player.getExpansions("dlhchizhuo")) card.classList.remove("glory2");
+				player.unmarkSkill("dlhchizhuo");
+			},
+		},
 		clearStorage(player) {
-			player.removeSkill("dlhchizhuo_adddamage");
-			player.removeSkill("dlhchizhuo_back");
-			player.removeSkill("dlhchizhuo_phase");
-			player.removeSkill("dlhchizhuo_die");
-			player.setStorage("dlhchizhuo_active", false);
-			player.setStorage("dlhchizhuo_cards", undefined);
-			player.setStorage("dlhchizhuo_source", undefined);
-			player.setStorage("dlhchizhuo_cardId", undefined);
-			player.setStorage("dlhchizhuo_phasePlayer", undefined);
+			lib.skill.dlhchizhuo.shared.cleanup(player);
 		},
 		async content(event, trigger, player) {
 			const target = trigger.target;
-			const shaCard = trigger.card;
+			const useEvent = trigger.getParent("useCard");
 			const choices = [];
 			if (target.countCards("j") > 0) choices.push("判定区");
 			if (target.countCards("e") > 0) choices.push("装备区");
@@ -385,16 +466,15 @@ export const skills = {
 			const next = target.addToExpansion("giveAuto", cards, target);
 			next.gaintag.add("dlhchizhuo");
 			await next;
-			target.setStorage("dlhchizhuo_cards", cards.slice(0));
-			target.setStorage("dlhchizhuo_source", player);
-			target.setStorage("dlhchizhuo_cardId", shaCard.cardid);
-			target.setStorage("dlhchizhuo_active", true);
-			target.markSkill("dlhchizhuo");
-			target.setStorage("dlhchizhuo_phasePlayer", _status.currentPhase || trigger.player);
-			target.addSkill("dlhchizhuo_adddamage");
-			target.addSkill("dlhchizhuo_back");
-			target.addSkill("dlhchizhuo_phase");
-			target.addSkill("dlhchizhuo_die");
+			lib.skill.dlhchizhuo.shared.addBatch(target, {
+				cards: cards.slice(0),
+				source: player,
+				card: trigger.card,
+				useEvent,
+				phasePlayer: _status.currentPhase || trigger.player,
+				used: false,
+				done: false,
+			});
 		},
 		marktext: "灼",
 		intro: {
@@ -416,12 +496,16 @@ export const skills = {
 				charlotte: true,
 				forced: true,
 				filter(event, player) {
-					if (!player.getStorage("dlhchizhuo_active", false)) return false;
-					const cardId = player.getStorage("dlhchizhuo_cardId", null);
-					return event.card?.cardid === cardId;
+					if (event.numFixed) return false;
+					return lib.skill.dlhchizhuo.shared.getMatched(player, event).some(batch => !batch.used);
 				},
 				async content(event, trigger, player) {
-					trigger.num++;
+					const shared = lib.skill.dlhchizhuo.shared;
+					for (const batch of shared.getMatched(player, trigger)) {
+						if (batch.used) continue;
+						batch.used = true;
+						trigger.num++;
+					}
 				},
 			},
 			back: {
@@ -429,19 +513,11 @@ export const skills = {
 				charlotte: true,
 				forced: true,
 				filter(event, player) {
-					if (!player.getStorage("dlhchizhuo_active", false)) return false;
-					const cards = player.getExpansions("dlhchizhuo");
-					if (!cards.length) return false;
-					const source = player.getStorage("dlhchizhuo_source", null);
-					if (!source?.isIn()) return false;
-					return true;
+					return lib.skill.dlhchizhuo.shared.getMatched(player, event).length > 0;
 				},
 				async content(event, trigger, player) {
-					const cards = player.getExpansions("dlhchizhuo");
-					if (cards.length > 0) {
-						await player.gain(cards, "draw");
-					}
-					lib.skill.dlhchizhuo.clearStorage(player);
+					const shared = lib.skill.dlhchizhuo.shared;
+					await shared.recover(player, shared.getMatched(player, trigger));
 				},
 			},
 			phase: {
@@ -449,18 +525,11 @@ export const skills = {
 				charlotte: true,
 				forced: true,
 				filter(event, player) {
-					if (!player.getStorage("dlhchizhuo_active", false)) return false;
-					const cards = player.getExpansions("dlhchizhuo");
-					if (!cards.length) return false;
-					const phasePlayer = player.getStorage("dlhchizhuo_phasePlayer", null);
-					return event.player === phasePlayer;
+					return lib.skill.dlhchizhuo.shared.getDue(player, event.player).length > 0;
 				},
 				async content(event, trigger, player) {
-					const cards = player.getExpansions("dlhchizhuo");
-					if (cards.length > 0) {
-						await player.gain(cards, "draw");
-					}
-					lib.skill.dlhchizhuo.clearStorage(player);
+					const shared = lib.skill.dlhchizhuo.shared;
+					await shared.recover(player, shared.getDue(player, trigger.player));
 				},
 			},
 			die: {
@@ -468,63 +537,41 @@ export const skills = {
 				charlotte: true,
 				forced: true,
 				filter(event, player) {
-					if (!player.getStorage("dlhchizhuo_active", false)) return false;
-					const cards = player.getExpansions("dlhchizhuo");
-					if (!cards.length) return false;
-					const source = player.getStorage("dlhchizhuo_source", null);
-					return source?.isIn();
+					return lib.skill.dlhchizhuo.shared.getLive(player).length > 0;
 				},
 				async content(event, trigger, player) {
-					const source = player.getStorage("dlhchizhuo_source", null);
-					let cards = player.getExpansions("dlhchizhuo");
-					lib.skill.dlhchizhuo.clearStorage(player);
-					if (!cards.length || !source?.isIn()) return;
-					const givenMap = {};
-					while (cards.length > 0) {
-						let result;
-						if (cards.length > 1) {
-							result = await source
-								.chooseCardButton("炽灼：选择要分配的牌", true, cards, [1, cards.length])
-								.set("ai", button => get.value(button.link, source))
-								.forResult();
-						} else {
-							result = { bool: true, links: cards.slice(0) };
-						}
-						if (!result.bool) break;
-						const toGive = result.links;
-						result = await source
-							.chooseTarget(`选择一名角色获得${get.translation(toGive)}`, true)
-							.set("ai", t => {
-								const att = get.attitude(source, t);
-								if (att <= 0) return -1;
-								return att + (t.countCards("h") < 2 ? 5 : 0);
-							})
-							.forResult();
-						if (result.bool && result.targets.length) {
-							cards.removeArray(toGive);
-							const id = result.targets[0].playerid;
-							if (!givenMap[id]) givenMap[id] = [];
-							givenMap[id].addArray(toGive);
-						}
+					const shared = lib.skill.dlhchizhuo.shared;
+					const killer = shared.getKiller(trigger);
+					const matched = killer ? shared.getMatched(player, killer) : [];
+					const given = [];
+					for (const batch of shared.getBatches(player)) {
+						if (batch.done) continue;
+						const cards = shared.dropBatch(player, batch);
+						if (cards.length && matched.includes(batch)) given.push({ source: batch.source, cards });
 					}
-					for (const id in givenMap) {
-						const t = (_status.connectMode ? lib.playerOL : game.playerMap)[id];
-						if (t && givenMap[id].length > 0) {
-							const gainNext = t.gain(givenMap[id], "draw");
-							gainNext.log = false;
-							await gainNext;
-						}
+					shared.cleanup(player);
+					for (const item of given) {
+						if (!item.source?.isIn()) continue;
+						await shared.distribute(item.source, item.cards);
 					}
 				},
 			},
 			clear: {
 				charlotte: true,
-				trigger: { player: "phaseAfter" },
+				forced: true,
 				silent: true,
+				trigger: { player: "phaseAfter" },
+				filter(event, player) {
+					return lib.skill.dlhchizhuo.shared.getBatches(player).length > 0;
+				},
 				async content(event, trigger, player) {
-					if (player.getStorage("dlhchizhuo_active", false)) {
-						lib.skill.dlhchizhuo.clearStorage(player);
+					const shared = lib.skill.dlhchizhuo.shared;
+					const held = player.getExpansions("dlhchizhuo");
+					for (const batch of shared.getBatches(player)) {
+						if (batch.done) continue;
+						if (!batch.cards.some(card => held.includes(card))) shared.dropBatch(player, batch);
 					}
+					shared.cleanup(player);
 				},
 			},
 		},
