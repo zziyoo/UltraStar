@@ -584,7 +584,9 @@ async function useCard(user, usedCard, targets, options = {}) {
 			cardEvent.target = target;
 			cardEvent.type = "card";
 			await cardEvent.setContent(async () => {
-				record.damages.push(await resolveDamage(target, user, options.damage ?? 1, options.nature, options));
+				for (const damageOptions of options.damageSeries ?? [options]) {
+					record.damages.push(await resolveDamage(target, user, options.damage ?? 1, options.nature, damageOptions));
+				}
 			});
 		}
 	});
@@ -604,7 +606,14 @@ async function resolveDamage(target, source, num, nature, options = {}) {
 	const record = { event: damage, numBegin: damage.num, applied: 0 };
 	await damage.setContent(async () => {
 		await dispatch(damage, "damageBegin1");
+		if (options.repeatBegin) await dispatch(damage, "damageBegin1");
 		record.numBegin = damage.num;
+		await dispatch(damage, "damageBegin2");
+		await dispatch(damage, "damageBegin3");
+		if (options.cancelBegin3) { record.cancelled = true; record.heldAfter = held(target).slice(); return; }
+		await dispatch(damage, "damageBegin4");
+		if (options.zeroBegin4) damage.num = 0;
+		if (damage.num === 0) { record.zero = true; record.heldAfter = held(target).slice(); return; }
 		if (options.nocause) return;
 		record.applied = damage.num;
 		target.hp -= damage.num;
@@ -612,7 +621,7 @@ async function resolveDamage(target, source, num, nature, options = {}) {
 		await dispatch(damage, "damage");
 		if (target.hp <= 0 && !target.dead) await kill(target, damage);
 	});
-	await dispatch(damage, "damageEnd");
+	if (!record.cancelled && !record.zero) await dispatch(damage, "damageEnd");
 	return record;
 }
 
@@ -1109,7 +1118,43 @@ async function caseExtra() {
 	check("附-回合结束回收", sameSet(关羽.getCards("h"), batchA), `手牌${关羽.getCards("h").length}张`);
 }
 
+async function caseDamageBoundaries() {
+	for (const [label, first] of [["取消", { cancelBegin3: true, repeatBegin: true }], ["减至零", { zeroBegin4: true, repeatBegin: true }]]) {
+		const { 大丽花, 关羽 } = setup({ 大丽花: 6, 关羽: 8 });
+		giveCards(关羽, [["h", ["sha", "tao"]]]);
+		await startPhase(大丽花);
+		plan({ control: ["手牌区"] });
+		const cards = 关羽.getCards("h");
+		const record = await useCard(大丽花, makeCard("sha"), [关羽], { damageSeries: [first, {}, {}] });
+		check(`${label}-同一伤害重复判定只加一次`, record.damages[0].numBegin === 2, `num=${record.damages[0].numBegin}`);
+		check(`${label}-未造成伤害时仍扣置`, sameSet(record.damages[0].heldAfter, cards));
+		check(`${label}-独立伤害重新加伤`, record.damages[1].numBegin === 2, `num=${record.damages[1].numBegin}`);
+		check(`${label}-回收后额外结算不加伤`, record.damages[2].numBegin === 1, `num=${record.damages[2].numBegin}`);
+		check(`${label}-成功伤害回收扣牌`, sameSet(关羽.getCards("h"), cards) && held(关羽).length === 0);
+	}
+}
+
+async function caseTwoSourcesSameUse() {
+	resetWorld();
+	const first = addPlayer("大丽花A", 8);
+	const second = addPlayer("大丽花B", 8);
+	const target = addPlayer("关羽", 8);
+	first.addSkill("dlhchizhuo");
+	second.addSkill("dlhchizhuo");
+	giveCards(target, [["h", ["sha"]], ["e", ["gudingdao"]]]);
+	const cards = target.getCards("he");
+	await startPhase(first);
+	plan({ control: ["手牌区", "装备区"] });
+	const record = await useCard(first, makeCard("sha"), [target], { damageSeries: [{ cancelBegin3: true, repeatBegin: true }, {}, {}] });
+	check("双来源-同一伤害每批各加一次", record.damages[0].numBegin === 3, `num=${record.damages[0].numBegin}`);
+	check("双来源-取消后两批仍扣置", sameSet(record.damages[0].heldAfter, cards));
+	check("双来源-下一独立伤害两批均生效", record.damages[1].numBegin === 3, `num=${record.damages[1].numBegin}`);
+	check("双来源-回收后均不再生效", record.damages[2].numBegin === 1 && sameSet(target.getCards("h"), cards));
+}
+
 const cases = [
+	["伤害边界", caseDamageBoundaries],
+	["双来源同牌", caseTwoSourcesSameUse],
 	["1", case1],
 	["2", case2],
 	["3", case3],

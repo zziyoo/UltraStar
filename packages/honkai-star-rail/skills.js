@@ -472,7 +472,6 @@ export const skills = {
 				card: trigger.card,
 				useEvent,
 				phasePlayer: _status.currentPhase || trigger.player,
-				used: false,
 				done: false,
 			});
 		},
@@ -497,13 +496,13 @@ export const skills = {
 				forced: true,
 				filter(event, player) {
 					if (event.numFixed) return false;
-					return lib.skill.dlhchizhuo.shared.getMatched(player, event).some(batch => !batch.used);
+					return lib.skill.dlhchizhuo.shared.getMatched(player, event).some(batch => !event.dlhchizhuo_applied?.includes(batch));
 				},
 				async content(event, trigger, player) {
 					const shared = lib.skill.dlhchizhuo.shared;
 					for (const batch of shared.getMatched(player, trigger)) {
-						if (batch.used) continue;
-						batch.used = true;
+						if (trigger.dlhchizhuo_applied?.includes(batch)) continue;
+						(trigger.dlhchizhuo_applied ??= []).push(batch);
 						trigger.num++;
 					}
 				},
