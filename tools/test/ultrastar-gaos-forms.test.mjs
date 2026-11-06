@@ -543,19 +543,21 @@ await check("getNewDiscardCards：loseAsync 包装去重与位置过滤", () => 
 	equal(shared.skills.aohonghei.shared.getNewDiscardCards(noGetd).length, 0, "无 getd 的事件安全返回空");
 });
 
-await check("宇宙：任意角色回合开始放置“宇”，已有“宇”不再放置", async () => {
+await check("宇宙：每轮首个回合或自己回合开始放置“宇”，不判断是否已有“宇”", async () => {
 	resetBoard();
 	const place = skills.yzrmgsyuzhou.subSkill.place;
 	const player = makePlayer();
 	game.players = [player];
-	assert(place.filter({ player: makePlayer({ name: "别人" }) }, player), "他人回合也应触发");
+	assert(!place.filter({ player: makePlayer({ name: "别人" }) }, player), "他人回合非首轮不触发");
+	assert(place.filter({ player: makePlayer({ name: "别人" }), _roundStart: true }, player), "每轮第一个回合开始时触发");
+	assert(place.filter({ player }, player), "自己的回合开始时触发");
 	const topCard = pileCard("sha", "spade", 9);
 	await place.content({}, { player: game.players[0] }, player);
 	equal(player.expansions.length, 1, "宇置于武将牌上");
 	equal(player.expansions[0], topCard, "宇来自牌堆顶");
 	assert(player.expansions[0].hasGaintag("yzrmgsyuzhou_yu"), "宇带扩展区标记");
 	assert(player.markCalls.some(call => call[0] === "mark" && call[1] === "yzrmgsyuzhou_yu"), "宇标记显示");
-	assert(!place.filter({}, player), "已有宇时不再放置");
+	assert(place.filter({ player }, player), "已有宇时仍可再次放置");
 	const yuMark = skills.yzrmgsyuzhou.subSkill.yu;
 	equal(yuMark.marktext, "宇", "宇标记文本");
 	equal(yuMark.intro.content, "expansion", "宇展示扩展区牌面");
@@ -629,6 +631,29 @@ await check("宇宙：一次多张同点数牌只触发一次，不重复插入�
 	assert(gain.filter({ name: "cardsDiscard", getd: () => batch }, player), "存在同点数即触发");
 	await gain.content({}, { name: "cardsDiscard", getd: () => batch }, player);
 	equal(player.insertCalls.length, 1, "单次触发只插入一个额外回合");
+});
+
+await check("宇宙：只弃置触发点数的“宇”，保留其他点数的“宇”", async () => {
+	resetBoard();
+	const gain = skills.yzrmgsyuzhou.subSkill.gain;
+	const player = makePlayer();
+	game.players = [player];
+	const yu6 = makeCard("sha", "club", 6);
+	yu6.addGaintag("yzrmgsyuzhou_yu");
+	yu6.pos = "x";
+	const yu8 = makeCard("tao", "diamond", 8);
+	yu8.addGaintag("yzrmgsyuzhou_yu");
+	yu8.pos = "x";
+	player.expansions.push(yu6, yu8);
+	const batch = [pileCard("shan", "heart", 6, "d")];
+	assert(gain.filter({ name: "cardsDiscard", getd: () => batch }, player), "同点数触发");
+	await gain.content({}, { name: "cardsDiscard", getd: () => batch }, player);
+	equal(player.loseCalls.length, 1, "只弃置一次");
+	equal(player.loseCalls[0].length, 1, "只弃置点数6的宇");
+	equal(player.loseCalls[0][0], yu6, "弃置的是点数6的宇");
+	assert(player.expansions.includes(yu8), "点数8的宇保留");
+	assert(!player.markCalls.some(call => call[0] === "unmark" && call[1] === "yzrmgsyuzhou_yu"), "仍有宇时不移除标记");
+	equal(player.insertCalls.length, 1, "仍安排一个额外回合");
 });
 
 await check("日蚀：对其他角色使用牌后触发，目标过滤正确", () => {
@@ -1041,7 +1066,8 @@ await check("宇宙：额外回合直接使用本体 insertPhase，不包装事�
 	const yu = makeCard("sha", "club", 6);
 	yu.addGaintag("yzrmgsyuzhou_yu");
 	player.expansions = [yu];
-	await skills.yzrmgsyuzhou.subSkill.gain.content({}, {}, player);
+	const match = pileCard("shan", "heart", 6, "d");
+	await skills.yzrmgsyuzhou.subSkill.gain.content({}, { name: "cardsDiscard", getd: () => [match] }, player);
 	equal(player.insertCalls.join(","), "yzrmgsyuzhou", "调用本体 insertPhase");
 	const scheduled = player.insertEvents[0];
 	assert(scheduled && scheduled.content === undefined, "不覆盖本体 phase 内容");

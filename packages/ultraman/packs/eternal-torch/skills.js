@@ -4096,10 +4096,10 @@ export const skills = {
 				trigger: { global: "phaseBegin" },
 				forced: true,
 				filter(event, player) {
-					return player.isIn() && !player.countExpansions("yzrmgsyuzhou_yu");
+					return player.isIn() && (event._roundStart || event.player === player);
 				},
 				async content(event, trigger, player) {
-					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou") || player.countExpansions("yzrmgsyuzhou_yu")) return;
+					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
 					const cards = get.cards(1);
 					if (!cards.length) return;
 					const next = player.addToExpansion(cards, player, "give");
@@ -4125,20 +4125,23 @@ export const skills = {
 					if (!player.isIn()) return false;
 					const yu = player.getExpansions("yzrmgsyuzhou_yu");
 					if (!yu.length) return false;
-					const num = get.number(yu[0]);
-					return lib.skill.aohonghei.shared.getNewDiscardCards(event).some(card => get.number(card) === num);
+					const cards = lib.skill.aohonghei.shared.getNewDiscardCards(event);
+					return cards.some(card => yu.some(yuCard => get.number(yuCard) === get.number(card)));
 				},
 				async content(event, trigger, player) {
 					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
 					const yu = player.getExpansions("yzrmgsyuzhou_yu").slice();
 					if (!yu.length) return;
-					const num = get.number(yu[0]);
-					await player.loseToDiscardpile(yu);
-					player.unmarkSkill("yzrmgsyuzhou_yu");
+					const cards = lib.skill.aohonghei.shared.getNewDiscardCards(trigger);
+					const nums = Array.from(new Set(yu.map(yuCard => get.number(yuCard)).filter(num => cards.some(card => get.number(card) === num))));
+					if (!nums.length) return;
+					const targets = yu.filter(yuCard => nums.includes(get.number(yuCard)));
+					await player.loseToDiscardpile(targets);
+					if (!player.countExpansions("yzrmgsyuzhou_yu")) player.unmarkSkill("yzrmgsyuzhou_yu");
 					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
 					const matches = Array.from(ui.cardPile.childNodes)
 						.concat(Array.from(ui.discardPile.childNodes))
-						.filter(card => get.itemtype(card) === "card" && get.number(card) === num);
+						.filter(card => get.itemtype(card) === "card" && nums.includes(get.number(card)));
 					if (matches.length) {
 						await player.gain(matches, "gain2");
 						game.log(player, "获得了", matches);

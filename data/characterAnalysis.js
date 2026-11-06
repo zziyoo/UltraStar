@@ -58,6 +58,9 @@ export const characterAnalysis = {
 	盖亚: { output: "B", defense: "B", operation: "A", control: "B", support: "C", development: "C" },
 	月神高斯: { output: "E", defense: "A", operation: "A", control: "C", support: "B", development: "C" },
 	日冕高斯: { output: "A", defense: "C", operation: "B", control: "C", support: "C", development: "C" },
+	宇宙日冕高斯: { output: "C", defense: "C", operation: "B", control: "C", support: "C", development: "C" },
+	日蚀高斯: { output: "A", defense: "C", operation: "B", control: "C", support: "C", development: "C" },
+	未来高斯: { output: "A", defense: "C", operation: "B", control: "C", support: "C", development: "C" },
 };
 
 // 评级 → 分数映射（全局唯一评分来源：排行榜与角色分析面板共用，勿在别处重写）
