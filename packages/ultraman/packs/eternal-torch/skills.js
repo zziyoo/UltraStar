@@ -4175,18 +4175,15 @@ export const skills = {
 						const result = await player.chooseToCompare(target).forResult();
 						const winner = result?.winner;
 						if (!player.isIn() || result?.cancelled || result?.tie || !winner || !winner.isIn()) continue;
-						const choices = ["回复一点体力", "摸两张牌"];
+						const choices = winner.hp < winner.maxHp ? ["回复一点体力", "摸两张牌"] : ["摸两张牌"];
 						const control = await player
 							.chooseControl(choices)
 							.set("prompt", "日蚀：请选择“" + get.translation(winner) + "”（拼点赢的角色）执行的效果")
 							.set("winner", winner)
 							.set("ai", () => {
 								const { player, winner } = get.event();
-								if (winner === player || get.attitude(player, winner) > 0) {
-									if (winner.hp <= 2 && winner.hp < winner.maxHp) return "回复一点体力";
-									return "摸两张牌";
-								}
-								return winner.hp < winner.maxHp ? "摸两张牌" : "回复一点体力";
+								if (winner.hp < winner.maxHp && winner.hp <= 2 && (winner === player || get.attitude(player, winner) > 0)) return "回复一点体力";
+								return "摸两张牌";
 							})
 							.forResult();
 						if (!player.isIn() || !winner.isIn()) continue;

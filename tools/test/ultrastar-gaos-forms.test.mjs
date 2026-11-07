@@ -1,4 +1,4 @@
-﻿// 宇宙日冕高斯 / 日蚀高斯 / 未来高斯 专项测试（含红黑公共基座）。
+﻿﻿// 宇宙日冕高斯 / 日蚀高斯 / 未来高斯 专项测试（含红黑公共基座）。
 // shared 与各包 skills.js 直接 import 浏览器包 noname.js 及 shared 工具，
 // 这里剥掉 import 后用最小桩件求值，验证红黑基座、“宇”扩展区、拼点奖励与弃牌堆获得的实际代码路径。
 import fs from "node:fs";
@@ -355,6 +355,8 @@ function makePlayer(options = {}) {
 			};
 		},
 		chooseControl(choices) {
+			this.controlChoices ??= [];
+			this.controlChoices.push(choices.slice());
 			const state = { choices, prompt: null, sets: {} };
 			const api = {
 				sets: state.sets,
@@ -772,7 +774,8 @@ await check("日蚀 AI：友方残血回复、友方满血摸牌、敌方按伤�
 	const enemyCase = await runScenario({ name: "敌人", side: false, hp: 1, maxHp: 4, hand: [makeCard("shan", "heart", 3)] });
 	equal(enemyCase.winner.drawCalls.join(","), "2", "敌方受伤时避免替其回复体力");
 	const fullEnemy = await runScenario({ name: "满血敌人", side: false, hp: 4, maxHp: 4, hand: [makeCard("shan", "heart", 3)] });
-	equal(fullEnemy.winner.drawCalls.length, 0, "满血敌方选择无收益的回复");
+	equal(fullEnemy.winner.drawCalls.join(","), "2", "满血敌人只能选择摸牌");
+	assert(!fullEnemy.player.controlChoices.at(-1).includes("回复一点体力"), "满血角色不出现回复选项");
 });
 
 function recordDamage(card, cards, extra = {}) {
