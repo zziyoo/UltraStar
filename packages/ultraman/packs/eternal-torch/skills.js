@@ -4174,9 +4174,8 @@ export const skills = {
 						await player.draw();
 						if (!player.isIn()) break;
 						if (!target.isIn() || !player.canCompare(target)) continue;
-						const confirm = await player.chooseBool("是否与" + get.translation(target) + "拼点？").set("ai", () => true).forResult();
-						if (!confirm?.bool) continue;
-						const result = await player.chooseToCompare(target).forResult();
+						player.line(target);
+						const result = await player.chooseToCompare(target).set("prompt", "请选择与" + get.translation(target) + "拼点的牌").forResult();
 						const winner = result?.winner;
 						if (!player.isIn() || result?.cancelled || result?.tie || !winner || !winner.isIn()) continue;
 						const choices = winner.hp < winner.maxHp ? ["回复一点体力", "摸两张牌"] : ["摸两张牌"];

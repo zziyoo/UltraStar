@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿// 宇宙日冕高斯 / 日蚀高斯 / 未来高斯 专项测试（含红黑公共基座）。
+﻿﻿﻿﻿﻿﻿﻿﻿// 宇宙日冕高斯 / 日蚀高斯 / 未来高斯 专项测试（含红黑公共基座）。
 // shared 与各包 skills.js 直接 import 浏览器包 noname.js 及 shared 工具，
 // 这里剥掉 import 后用最小桩件求值，验证红黑基座、“宇”扩展区、拼点奖励与弃牌堆获得的实际代码路径。
 import fs from "node:fs";
@@ -241,8 +241,7 @@ function makePlayer(options = {}) {
 		recoverCalls: [],
 		compareQueue: options.compareQueue ?? [],
 		compareCalls: [],
-		boolQueue: options.boolQueue ?? null,
-		boolCalls: [],
+		lineCalls: [],
 		controlQueue: options.controlQueue ?? null,
 		canCompareResults: options.canCompareResults ?? null,
 		isIn() {
@@ -350,25 +349,19 @@ function makePlayer(options = {}) {
 		chooseToCompare(target) {
 			this.compareCalls.push(target);
 			const result = this.compareQueue.shift() ?? { bool: true, winner: this };
-			return {
-				result,
-				async forResult() {
-					return result;
-				},
-			};
-		},
-		chooseBool(prompt) {
-			this.boolCalls.push(prompt);
 			const api = {
+				result,
 				set() {
 					return api;
 				},
 				async forResult() {
-					if (player.boolQueue) return { bool: player.boolQueue.shift() };
-					return { bool: true };
+					return result;
 				},
 			};
 			return api;
+		},
+		line(target) {
+			this.lineCalls.push(target);
 		},
 		chooseControl(choices) {
 			this.controlChoices ??= [];
@@ -776,18 +769,18 @@ await check("日蚀：多目标逐一处理，红牌额外结算不重复拼点"
 	equal(enemy2.drawCalls.length, 0, "敌人二无奖励");
 });
 
-await check("日蚀：拼点前弹确认框，取消则跳过该目标", async () => {
+await check("日蚀：强制与各目标拼点并提示拼点对象", async () => {
 	const pindian = skills.rsgsrishi.subSkill.pindian;
-	const player = makePlayer({ name: "日蚀高斯", boolQueue: [false, true] });
+	const player = makePlayer({ name: "日蚀高斯", controlQueue: ["摸两张牌", "摸两张牌"] });
 	const enemy1 = makePlayer({ name: "敌人一", hp: 4, hand: [makeCard("shan", "heart", 3)] });
 	const enemy2 = makePlayer({ name: "敌人二", hp: 4, hand: [makeCard("shan", "diamond", 4)] });
 	game.players = [player, enemy1, enemy2];
-	player.compareQueue.push({ bool: true, winner: player });
+	player.compareQueue.push({ bool: true, winner: player }, { bool: true, winner: player });
 	await pindian.content({}, { targets: [enemy1, enemy2] }, player);
-	equal(player.boolCalls.length, 2, "每个目标各询问一次");
-	assert(player.boolCalls[0].includes("拼点"), "确认框为拼点提示");
-	equal(player.compareCalls.length, 1, "取消的目标不拼点");
-	equal(player.compareCalls[0], enemy2, "只与确认的目标拼点");
+	equal(player.lineCalls.length, 2, "每个目标各提示一次");
+	equal(player.lineCalls[0], enemy1, "第一个提示目标");
+	equal(player.lineCalls[1], enemy2, "第二个提示目标");
+	equal(player.compareCalls.length, 2, "强制与两个目标各拼点一次");
 });
 
 await check("日蚀 AI：友方残血回复、友方满血摸牌、敌方按伤势减少收益", async () => {
