@@ -4148,6 +4148,7 @@ export const skills = {
 					}
 					if (!player.isIn() || !player.hasSkill("yzrmgsyuzhou")) return;
 					player.insertPhase("yzrmgsyuzhou");
+					game.playSkillBgm("gs");
 					game.log(player, "将于本回合结束后执行一个额外的回合");
 				},
 			},
@@ -4169,9 +4170,12 @@ export const skills = {
 					for (const target of targets) {
 						if (!player.isIn()) break;
 						if (!target.isIn()) continue;
+						game.playSkillBgm("gs");
 						await player.draw();
 						if (!player.isIn()) break;
 						if (!target.isIn() || !player.canCompare(target)) continue;
+						const confirm = await player.chooseBool("是否与" + get.translation(target) + "拼点？").set("ai", () => true).forResult();
+						if (!confirm?.bool) continue;
 						const result = await player.chooseToCompare(target).forResult();
 						const winner = result?.winner;
 						if (!player.isIn() || result?.cancelled || result?.tie || !winner || !winner.isIn()) continue;

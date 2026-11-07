@@ -22,15 +22,18 @@ on:
         type: string
         default: "最新版"
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
+permissions: {}
 
 jobs:
   package:
-    name: 打包
+    name: 打包与正式发布
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
+      zip_label: ${{ steps.metadata.outputs.zip_label }}
+      release_url: ${{ steps.metadata.outputs.release_url }}
     steps:
       - name: 检出仓库（完整历史）
         uses: actions/checkout@v5
@@ -77,18 +80,7 @@ jobs:
           target_commitish: ${{ env.source_commit }}
           name: ${{ env.release_tag }}
           files: ${{ env.zip_path }}
-          body: |
-            自动打包产物：**${{ env.zip_label }}**
-
-            中文文件名下载（GitHub Pages）：
-            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ env.zip_label }}
-
-            （Pages 链接仅保留最近一次打包产物，历史版本请用下方的 Release 备用资产下载）
-
-            因 GitHub 平台限制资产名仅支持英文，备用下载（下载后请手动改名）：${{ env.zip_name }}
-
-      # Release 资产名无法含中文（GitHub 平台限制），中文文件名的压缩包改由 GitHub Pages 托管，
-      # 部署产物即网站上可直接下载的文件，Release 正文已附带该中文下载链接
+      # Release 正文保持原有更新说明；下载入口由 Summary 提供。
       - name: 生成中文名压缩包
         run: |
           owner="${GITHUB_REPOSITORY%/*}"
@@ -98,20 +90,9 @@ jobs:
           mkdir -p pages-src
           cp "${{ env.zip_path }}" "pages-src/${{ env.zip_label }}"
 
-      - name: 配置 GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: 上传 Pages 产物
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: pages-src
-
-      - name: 部署到 GitHub Pages
-        uses: actions/deploy-pages@v4
-
       # GitHub 会剥离资产名中的非 ASCII 字符（上传与 PATCH 更新均如此，2026-09-06 实测），
       # 资产名（即 Release 下载文件名）只能为英文；中文名通过 label 在页面展示，
-      # 且由此前步骤部署到 GitHub Pages 的中文文件名压缩包作为正式下载入口。
+      # 中文文件名压缩包由后续 Pages Job 提供辅助下载。
       # 本步骤仍先尝试 PATCH 中文名：若 GitHub 未来放开限制则直接生效；否则自动回退为
       # 英文文件名 + 中文显示名，并清理本 Release 上其它含版本号的 zip 旧资产
       - name: 设置资产中文名并清理旧资产
@@ -126,8 +107,8 @@ jobs:
                 if [ "$norm" = "$zip_name" ]; then echo "$id"; fi
               done | sort -n | tail -1)
           if [ -z "$asset_id" ]; then
-            echo "未找到资产 $zip_name，跳过中文名设置"
-            exit 0
+            echo "::error::未找到上传资产 $zip_name"
+            exit 1
           fi
           patched=$(gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
             -f name="$zip_label" -f label="$zip_label" --jq '.name' 2>&1 || true)
@@ -139,6 +120,7 @@ jobs:
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" -f name="$zip_name" -f label="$zip_label" > /dev/null
             final_name="$zip_name"
           fi
+          echo "final_name=$final_name" >> "$GITHUB_ENV"
           {
             echo ""
             echo "### 资产命名结果"
@@ -161,7 +143,93 @@ jobs:
                 esac
               done
 
-      - name: Summary 输出下载入口
+      - name: 发布元数据与下载入口
+        id: metadata
+        if: ${{ always() }}
         run: |
-          echo "📦 [前往 Release 页面下载](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.release_tag }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "中文文件名下载（GitHub Pages）：[${{ env.zip_label }}](${{ env.pages_base }}/${{ env.zip_label }})" >> "$GITHUB_STEP_SUMMARY"
+          release_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/${release_tag:-未知}"
+          {
+            echo "release_tag=${release_tag:-}"
+            echo "zip_label=${zip_label:-}"
+            echo "release_url=$release_url"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## 打包与正式发布"
+            echo "- 版本：${release_tag:-未生成}"
+            echo "- 打包类型：$PKG_TYPE"
+            echo "- 源码 Commit：${source_commit:-未生成}"
+            echo "- ZIP：${zip_name:-未生成}"
+            if [ -n "${zip_path:-}" ] && [ -f "$zip_path" ]; then echo "- 文件大小：$(stat -c %s "$zip_path") bytes"; else echo "- 文件大小：未知"; fi
+            echo "- 资产中文显示名：${zip_label:-未知}"
+            echo "- 实际下载文件名：${final_name:-未知（请检查资产处理日志）}"
+            echo "- [Release 页面与备用下载入口]($release_url)"
+            echo "- 打包或发布失败时请检查上方步骤；Pages 部署结果另见部署 Job。"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          PKG_TYPE: ${{ inputs.package_type }}
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v5
+        with:
+          name: github-pages
+          path: pages-src
+
+  pages:
+    name: Pages 辅助下载部署
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      actions: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: 配置 GitHub Pages
+        id: configure
+        uses: actions/configure-pages@v6
+
+      - name: 检查 Pages artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --paginate --jq '.artifacts[] | select(.name == "github-pages" and .expired == false) | .id' > "$RUNNER_TEMP/pages-artifacts"
+          count=$(wc -l < "$RUNNER_TEMP/pages-artifacts")
+          if [ "$count" -ne 1 ]; then
+            echo "::error::需要恰好一个未过期的 github-pages artifact，找到 $count 个；请检查上传步骤。"
+            exit 1
+          fi
+          echo "找到 Pages artifact ID：$(cat "$RUNNER_TEMP/pages-artifacts")"
+
+      - name: 部署到 GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v5
+        with:
+          artifact_name: github-pages
+          timeout: 900000
+
+      - name: Pages 部署报告
+        if: ${{ always() }}
+        env:
+          CONFIGURE_RESULT: ${{ steps.configure.outcome }}
+          ARTIFACT_RESULT: ${{ steps.artifact.outcome }}
+          DEPLOY_RESULT: ${{ steps.deploy.outcome }}
+          PAGE_URL: ${{ steps.deploy.outputs.page_url }}
+          ZIP_LABEL: ${{ needs.package.outputs.zip_label }}
+          RELEASE_TAG: ${{ needs.package.outputs.release_tag }}
+          RELEASE_URL: ${{ needs.package.outputs.release_url }}
+        run: |
+          {
+            echo "## Pages 辅助下载部署"
+            echo "- 版本：$RELEASE_TAG"
+            if [ "$DEPLOY_RESULT" = success ]; then
+              echo "- 部署成功：[中文文件名下载](${PAGE_URL%/}/$ZIP_LABEL)"
+            else
+              echo "- Pages 部署未成功（配置：$CONFIGURE_RESULT；artifact 检查：$ARTIFACT_RESULT；部署：$DEPLOY_RESULT）。"
+              echo "- 请查看对应步骤的完整日志，区分取消、权限错误、artifact 缺失、网络或服务错误及超时。部署状态长期为空并以 Timeout 结束时，表示等待状态超时，具体原因仍需调查。"
+              echo "- Pages 可能仍指向旧版本。正式 Release 已发布：[备用下载]($RELEASE_URL)。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

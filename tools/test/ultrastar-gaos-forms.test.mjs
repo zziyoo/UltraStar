@@ -1,4 +1,4 @@
-﻿﻿// 宇宙日冕高斯 / 日蚀高斯 / 未来高斯 专项测试（含红黑公共基座）。
+﻿﻿﻿﻿﻿﻿// 宇宙日冕高斯 / 日蚀高斯 / 未来高斯 专项测试（含红黑公共基座）。
 // shared 与各包 skills.js 直接 import 浏览器包 noname.js 及 shared 工具，
 // 这里剥掉 import 后用最小桩件求值，验证红黑基座、“宇”扩展区、拼点奖励与弃牌堆获得的实际代码路径。
 import fs from "node:fs";
@@ -69,6 +69,7 @@ const game = {
 	log(...args) {
 		logs.push(args);
 	},
+	playSkillBgm() {},
 };
 const ui = {
 	cardPile: { childNodes: [] },
@@ -240,6 +241,8 @@ function makePlayer(options = {}) {
 		recoverCalls: [],
 		compareQueue: options.compareQueue ?? [],
 		compareCalls: [],
+		boolQueue: options.boolQueue ?? null,
+		boolCalls: [],
 		controlQueue: options.controlQueue ?? null,
 		canCompareResults: options.canCompareResults ?? null,
 		isIn() {
@@ -353,6 +356,19 @@ function makePlayer(options = {}) {
 					return result;
 				},
 			};
+		},
+		chooseBool(prompt) {
+			this.boolCalls.push(prompt);
+			const api = {
+				set() {
+					return api;
+				},
+				async forResult() {
+					if (player.boolQueue) return { bool: player.boolQueue.shift() };
+					return { bool: true };
+				},
+			};
+			return api;
 		},
 		chooseControl(choices) {
 			this.controlChoices ??= [];
@@ -541,6 +557,17 @@ await check("getNewDiscardCards：loseAsync 包装去重与位置过滤", () => 
 		getd: () => [inDiscard],
 	};
 	equal(shared.skills.aohonghei.shared.getNewDiscardCards(cardsDiscardEvent)[0], inDiscard, "cardsDiscard 事件返回其牌");
+	const swapped = makeCard("tao", "diamond", 9);
+	swapped.pos = "d";
+	const replaceEquipLose = {
+		name: "lose",
+		cards: [swapped],
+		getd: () => [],
+		getParent: () => ({ name: "replaceEquip" }),
+	};
+	const swappedCards = shared.skills.aohonghei.shared.getNewDiscardCards(replaceEquipLose);
+	equal(swappedCards.length, 1, "装备替换弃牌（getlx=false）计入弃牌堆");
+	equal(swappedCards[0], swapped, "装备替换弃牌返回被替换的装备");
 	const noGetd = { name: "phaseBegin" };
 	equal(shared.skills.aohonghei.shared.getNewDiscardCards(noGetd).length, 0, "无 getd 的事件安全返回空");
 });
@@ -747,6 +774,20 @@ await check("日蚀：多目标逐一处理，红牌额外结算不重复拼点"
 	equal(player.drawCalls.join(","), "1,2,1,2", "拼点摸牌与奖励按序执行");
 	equal(enemy1.drawCalls.length, 0, "敌人一无奖励");
 	equal(enemy2.drawCalls.length, 0, "敌人二无奖励");
+});
+
+await check("日蚀：拼点前弹确认框，取消则跳过该目标", async () => {
+	const pindian = skills.rsgsrishi.subSkill.pindian;
+	const player = makePlayer({ name: "日蚀高斯", boolQueue: [false, true] });
+	const enemy1 = makePlayer({ name: "敌人一", hp: 4, hand: [makeCard("shan", "heart", 3)] });
+	const enemy2 = makePlayer({ name: "敌人二", hp: 4, hand: [makeCard("shan", "diamond", 4)] });
+	game.players = [player, enemy1, enemy2];
+	player.compareQueue.push({ bool: true, winner: player });
+	await pindian.content({}, { targets: [enemy1, enemy2] }, player);
+	equal(player.boolCalls.length, 2, "每个目标各询问一次");
+	assert(player.boolCalls[0].includes("拼点"), "确认框为拼点提示");
+	equal(player.compareCalls.length, 1, "取消的目标不拼点");
+	equal(player.compareCalls[0], enemy2, "只与确认的目标拼点");
 });
 
 await check("日蚀 AI：友方残血回复、友方满血摸牌、敌方按伤势减少收益", async () => {

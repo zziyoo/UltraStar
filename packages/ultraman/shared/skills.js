@@ -46,7 +46,9 @@ export const skills = {
 			getNewDiscardCards(event) {
 				if (!event || typeof event.getd !== "function") return [];
 				if (event.name === "lose" && event.getParent()?.name === "loseAsync") return [];
-				return [...new Set(event.getd())].filter(card => get.itemtype(card) === "card" && get.position(card, true) === "d");
+				let cards = event.getd();
+				if (!cards.length && event.name === "lose") cards = event.cards ?? [];
+				return [...new Set(cards)].filter(card => get.itemtype(card) === "card" && get.position(card, true) === "d");
 			},
 			onremove(player) {
 				this.refreshMarks(player);

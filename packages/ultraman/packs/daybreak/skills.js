@@ -713,6 +713,7 @@ export const skills = {
 						used.push(card.name);
 						player.setStorage("wlgswl_turn", game.phaseNumber);
 						player.setStorage("wlgswl_used", used);
+						game.playSkillBgm("gs");
 						await player.gain(card, "gain2");
 						game.log(player, "获得了", card);
 					}
