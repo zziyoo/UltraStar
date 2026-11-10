@@ -137,6 +137,7 @@ export const helpers = {
 	// 复制来的技能由 battle.js 的 grantSkills 挂好，这里只负责在 Boss 身边多一枚可点的徽记；
 	// storage 里是这一场已定死的技能 id 列表（与 abyss_affix / rogue_stat 同一套做法）。
 	rogue_copy: {
+		charlotte: true,
 		forced: true,
 		mark: true,
 		marktext: "复制技能",
@@ -153,6 +154,7 @@ export const helpers = {
 		},
 	},
 	rogue_stat: {
+		charlotte: true,
 		// 一个技能可以同时挂多个时机与 mod
 		trigger: { player: "phaseDrawBegin2", source: "damageBegin1" },
 		mod: {
@@ -208,6 +210,7 @@ export const helpers = {
 	// 能量核心（摸牌 +1）、气息腰带（每局首次濒死回复）、剩饭（每轮结束回血；升到史诗改每回合）。
 	// 结算类效果（幸运石的经验加成、诅咒金币的金币加成）不走这里，由 reward.js 胜利结算时用 curioManager.getBonus 现查。
 	rogue_curio: {
+		charlotte: true,
 		trigger: {
 			// phaseEnd 是「这个玩家的整个回合走完」的时机（本体在 phaseList 跑完后 trigger 一次），
 			// roundEnd 才是全场一轮结束——剩饭的史诗档换的就是这两者。

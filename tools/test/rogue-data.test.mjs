@@ -997,6 +997,26 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 	return `触发时机：${triggerNames.join(" / ")}`;
 });
 
+check("肉鸽内部徽记：保留徽记与效果，不进入音洄等技能获取候选", () => {
+	const skillTable = modeModule.createModeConfig().skill;
+	const carriers = ["abyss_affix", "rogue_stat", "rogue_curio", "rogue_copy"];
+	for (const id of carriers) {
+		const info = skillTable[id];
+		assert(info, `${id} 应随模式注册`);
+		assertEqual(info.charlotte, true, `${id} 是内部载体，不能被音洄等技能获取`);
+		assertEqual(info.mark, true, `${id} 应保留原有徽记`);
+		assert(typeof info.intro?.mark === "function", `${id} 应保留徽记说明`);
+	}
+	// 音洄的本体筛选使用 !info.charlotte；实体深渊词缀必须仍能被获取。
+	const candidates = ["abyss_jingxiang", ...carriers, "rogue_barrier"]
+		.filter(id => skillTable[id] && !skillTable[id].charlotte);
+	assert(candidates.includes("abyss_jingxiang"), "深渊·镜像等真实词缀仍应可被获取");
+	for (const id of [...carriers, "rogue_barrier"]) {
+		assert(!candidates.includes(id), `${id} 不应出现在技能获取列表里`);
+	}
+	return "4 个徽记载体仍可显示、不可被获取；真实词缀可获取";
+});
+
 check("深渊词缀配置：池子项数、技能本体、双键翻译与承载时机都齐备，并随模式一起注册", () => {
 	const modeConfig = modeModule.createModeConfig();
 	const pool = abyssConfig.AFFIX_POOL;

@@ -480,6 +480,8 @@ export const abyssHelperSkills = {
  */
 export const abyssMarkSkill = {
 	abyss_affix: {
+		// 纯徽记载体，不应被音洄等获取技能效果当作可复制技能。
+		charlotte: true,
 		forced: true,
 		mark: true,
 		marktext: ABYSS_MARK_TEXT,
