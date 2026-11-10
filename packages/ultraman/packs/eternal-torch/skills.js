@@ -2467,7 +2467,7 @@ export const skills = {
 				silent: true,
 				popup: false,
 				filter(event, player) {
-					return event.source === player && get.name(event.card) === "sha" && player.getStorage("leofeiti_damage", 0) > 0;
+					return !!event.card && event.source === player && get.name(event.card) === "sha" && player.getStorage("leofeiti_damage", 0) > 0;
 				},
 				content(event, trigger, player) {
 					const num = player.getStorage("leofeiti_damage", 0);
@@ -2572,7 +2572,7 @@ export const skills = {
 			player.changeSkin("jstsfensui", player.storage.jstsfensui ? "杰斯提斯-粉碎" : "杰斯提斯");
 			const target = event.targets[0];
 			if (isYin) {
-				await target.damage(option === 0 ? 1 : 2);
+				await target.damage({ num: option === 0 ? 1 : 2, source: player, nocard: true });
 				if (target.isIn()) {
 					await target.recover(option === 0 ? 2 : 1);
 				}
@@ -3042,7 +3042,7 @@ export const skills = {
 				silent: true,
 				popup: false,
 				filter(event, player) {
-					return event.source === player && get.name(event.card) === "sha";
+					return !!event.card && event.source === player && get.name(event.card) === "sha";
 				},
 				async content(event, trigger) {
 					trigger.num++;
