@@ -44,6 +44,43 @@ function derivationsOf(skillId) {
 }
 
 /**
+ * 只通过其它技能获得、没有武将初始技能来源的纯派生技能，不独立上架。
+ * 分包清单包含全部顶级定义，不能把「定义存在」等同于「可作为商品」；
+ * 按 derivation 的目标 id 判定，不能把声明 derivation 的主技能一起排除。
+ * 同时扫描尚未展开注册的 subSkill，兼容字符串/数组与多级派生；共享或循环引用只看一次。
+ * 若某条技能也是另一名武将的初始技能，保留其独立身份，后续仍须过禁将及兼容性闸门。
+ * 不缓存关系：热更可能原地修改 derivation 或角色技能表；不改写任何战斗技能定义。
+ */
+function getDerivedOnlySkills() {
+	const derived = new Set();
+	const seen = new Set();
+	const pending = Object.values(lib.skill ?? {});
+	while (pending.length) {
+		const info = pending.pop();
+		if (!info || typeof info !== "object" || seen.has(info)) {
+			continue;
+		}
+		seen.add(info);
+		const value = info.derivation;
+		const ids = typeof value === "string" ? [value] : value;
+		for (const id of Array.isArray(ids) ? ids : []) {
+			if (typeof id === "string" && id) {
+				derived.add(id);
+			}
+		}
+		if (info.subSkill && typeof info.subSkill === "object") {
+			pending.push(...Object.values(info.subSkill));
+		}
+	}
+	for (const character of Object.values(lib.character ?? {})) {
+		for (const id of skillsOf(character)) {
+			derived.delete(id);
+		}
+	}
+	return derived;
+}
+
+/**
  * 能不能上架：本体筛「这条技能能不能挂到别人身上」用的就是同一个判断。
  * **fail-closed**：本体过滤器不存在、抛异常、返回非布尔，一律按「不可上架」处理——
  * 判不出来就别往商店里塞，肉鸽一局买了拆不掉。
@@ -70,7 +107,7 @@ const compatCache = new Map();
 
 /**
  * 这条技能现在**允许进入肉鸽池**吗。
- * 两道关：本体口径（有没有翻译、是不是内部技）+ 肉鸽自己的兼容性/安全校验层
+ * 三道关：不是纯派生技能 + 本体口径（有没有翻译、是不是内部技）+ 肉鸽自己的兼容性/安全校验层
  * （身份/主公、角色专属状态、特殊 mode、全局 UI 与全局变量、副作用明显 —— 见 skillCompat.js）。
  * 作者上架清单与武将技能一视同仁：谁判不过都不进池。
  *
@@ -79,7 +116,12 @@ const compatCache = new Map();
  * 其它扩展的过滤器），缓存它会把一次异常当成永久结论。
  */
 export function isRogueSkillAllowed(skillId) {
-	if (typeof skillId !== "string" || !skillId) {
+	return isAllowedWithDerivations(skillId, getDerivedOnlySkills());
+}
+
+/** 整池构建复用同一份关系表，单条复查则由上面的公开入口现算。 */
+function isAllowedWithDerivations(skillId, derivedOnly) {
+	if (typeof skillId !== "string" || !skillId || derivedOnly.has(skillId)) {
 		return false;
 	}
 	const def = lib.skill?.[skillId];
@@ -112,7 +154,7 @@ export function isRogueSkillAllowed(skillId) {
  * 只要技能（含衍生技）属于任何一个当前禁将角色，就不进池，即使别的未禁用武将也拥有同一条
  * （扩展里真实存在共享技能，如 atmnianli 六名角色共有、leofenzhan 雷欧与阿斯特拉共有；
  * 以前的「还有别的未禁用武将拥有就继续上架」豁免正是禁将技能漏进商城的根因，已废除）。
- * 本体判为不可选用的技能（没翻译、内部技）与肉鸽兼容性校验不过的技能都不进池；
+ * 纯派生技能、本体判为不可选用的技能（没翻译、内部技）与肉鸽兼容性校验不过的技能都不进池；
  * 作者清单在 rogue-data 自检里已经逐条验过存在性，但**一样要过兼容性校验**——
  * 上架清单只说明「作者想卖」，不说明「挂到别人身上安全」。
  * price 只是作者标注位，实际售价由 shop.js 按模式基准价 ±25% 随机生成（闯关恒 50、无尽随 √关增长），floor 取整。
@@ -150,12 +192,14 @@ export function getShopPool() {
 	for (const skill of usable) {
 		ids.add(skill);
 	}
+	// 每次生成只扫描一次全体定义，不对每个候选重复扫描。
+	const derivedOnly = getDerivedOnlySkills();
 	const list = [];
 	for (const id of ids) {
 		if (blocked.has(id)) {
 			continue;
 		}
-		if (!isRogueSkillAllowed(id)) {
+		if (!isAllowedWithDerivations(id, derivedOnly)) {
 			continue;
 		}
 		list.push({ id, price: 100 });
