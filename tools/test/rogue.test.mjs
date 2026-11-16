@@ -1589,27 +1589,46 @@ check("候选池：并上全体武将技能，禁用武将的技能与其衍生�
 	return `池 ${ids.size} 条 / 作者清单 ${curated.length} 条（禁入 ${denied.length} 条）`;
 });
 
-check("免费刷新次数：新档给满、逐次扣到 0、第三次拒绝，且重开与重载都不补次数", () => {
-	const base = freshRun();
-	assertEqual(base.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "新档次数");
-	const rolled = shop.rollSkillOffers(base, makeRng(11), [], skillsData.pool);
-	const run = { ...base, shopOffers: rolled };
-	const first = shop.refreshSkillOffers(run, makeRng(1), [], skillsData.pool);
-	assert(first.ok, first.error ?? "第一次刷新应成功");
-	assertEqual(first.run.shopRefreshesRemaining, 1, "刷一次剩 1");
-	const second = shop.refreshSkillOffers(first.run, makeRng(2), [], skillsData.pool);
-	assertEqual(second.run.shopRefreshesRemaining, 0, "刷两次剩 0");
-	const third = shop.refreshSkillOffers(second.run, makeRng(3), [], skillsData.pool);
-	assert(!third.ok && third.error.includes("用完"), "第三次应被拒");
-	assertEqual(third.run, undefined, "失败时不返回改过的 run");
-	assertEqual(third.offers, undefined, "失败时不返回新候选");
-	// 次数属于「这一局」：返回营地、重开商店、重启游戏读档都不能把它补回来
-	assertEqual(state.cloneRun(second.run).shopRefreshesRemaining, 0, "重开商店不补次数");
-	assertEqual(state.normalizeRun(second.run).shopRefreshesRemaining, 0, "0 不能被视为「没这个字段」");
-	const reloaded = state.migrateSlots([null, second.run, null, null, null, null]);
-	assertEqual(reloaded.errors.length, 0, "同版本读档不该报迁移错误");
-	assertEqual(reloaded.slots[1].shopRefreshesRemaining, 0, "重载存档次数保持原样");
-	return "2 → 1 → 0 → 拒绝";
+check("免费刷新次数：免费优先、用完按金币刷新、余额不足拒绝且不修改存档", () => {
+ const base = { ...freshRun(), currency: { gold: 0, exp: 0 } };
+ assertEqual(base.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "新档免费次数");
+ let run = { ...base, shopOffers: shop.rollSkillOffers(base, makeRng(11), [], skillsData.pool) };
+ let step = shop.refreshSkillOffers(run, makeRng(1), [], skillsData.pool);
+ assert(step.ok && step.run.shopRefreshesRemaining === 1, "第一次免费刷新成功");
+ step = shop.refreshSkillOffers(step.run, makeRng(2), [], skillsData.pool);
+ assert(step.ok && step.run.shopRefreshesRemaining === 0, "第二次免费刷新成功");
+ const denied = shop.refreshSkillOffers(step.run, makeRng(3), [], skillsData.pool);
+ assert(!denied.ok && denied.error.includes("金币不足"), "没钱无法进入付费模式");
+ assertEqual(denied.run, undefined, "拒绝不返回篡改后的 run");
+ assertEqual(denied.offers, undefined, "拒绝不返回候选");
+ assertEqual(state.cloneRun(step.run).shopRefreshesRemaining, 0, "关闭商店不补次数");
+ assertEqual(state.normalizeRun(step.run).shopPaidRefreshCount, 0, "旧档缺付费字段补 0");
+ const migrated = state.migrateSlots([null, step.run, null, null, null, null]);
+ assertEqual(migrated.slots[1].shopRefreshesRemaining, 0, "重载不补次数");
+ return "免费 2→1→0 / 金币不足拒绝 / 存档不白送";
+});
+
+check("付费刷新：以本关胜利基础金币为准按本关次数根号增长，读档延续、胜利归零", () => {
+ const run = { ...freshRun(cfg.RUN_MODE.endless), level: 25, currency: { gold: 3000, exp: 0 },
+  shopRefreshesRemaining: 0, shopOffers: [] };
+ assertEqual(shop.getPaidRefreshPrice(run), 250, "25 层基础 250");
+ const first = shop.refreshSkillOffers(run, makeRng(1), [], skillsData.pool);
+ assert(first.ok && first.paid && first.cost === 250, "付费第 1 次");
+ assertEqual(first.run.currency.gold, 2750, "扣款 250");
+ assertEqual(shop.getPaidRefreshPrice(first.run), 353, "付费第 2 次 floor(250×√2)");
+ const second = shop.refreshSkillOffers(first.run, makeRng(2), [], skillsData.pool);
+ assert(second.ok && second.paid && second.cost === 353, "付费第 2 次");
+ assertEqual(second.run.currency.gold, 2397, "扣款 353");
+ assertEqual(second.run.shopPaidRefreshCount, 2, "写入付费计数");
+ assertEqual(shop.getPaidRefreshPrice(state.normalizeRun(second.run)), 433, "读档第三次费用 433");
+ const broke = shop.refreshSkillOffers({ ...second.run, currency: { gold: 0, exp: 0 } }, makeRng(3), [], skillsData.pool);
+ assert(!broke.ok && broke.error.includes("金币不足"), "不足拒绝");
+ assert(!shop.refreshSkillOffers({ ...second.run, curios: ["collector_showcase"], skillShopLocked: true }, makeRng(3), [], skillsData.pool).ok, "锁定仍禁止");
+ assertEqual(shop.getPaidRefreshPrice({ mode: cfg.RUN_MODE.challenge }), 50, "闯关固定 50");
+ const won = reward.settleVictory(second.run, NOW, () => 0.999);
+ assertEqual(won.run.shopPaidRefreshCount, 0, "下一关付费计数归零");
+ assertEqual(won.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "胜利恢复免费次数");
+ return "25 层 250→353→433 / 读档延续 / 胜利重置";
 });
 
 check("刷新会重掷技能与价格，价格定死后写进存档不再变", () => {
@@ -1630,20 +1649,20 @@ check("刷新会重掷技能与价格，价格定死后写进存档不再变", (
 	return `${[...oldIds].join("/")} → ${next.offers.map(o => `${o.id}:${o.price}`).join(" ")}`;
 });
 
-check("刷新不得绕过一局限买一个：买过之后刷新直接被拒且不扣次数", () => {
-	const base = { ...freshRun(), currency: { gold: 9999, exp: 0 } };
-	const run = { ...base, shopOffers: shop.rollSkillOffers(base, makeRng(5), [], skillsData.pool) };
-	const bought = shop.buySkill(run, run.shopOffers[0].id);
-	assert(bought.ok, bought.error ?? "先买一个技能");
-	assert(bought.run.shopOffers.some(offer => offer.sold), "已购标记写在候选上");
-	const tryRefresh = shop.refreshSkillOffers(bought.run, makeRng(6), [], skillsData.pool);
-	assert(!tryRefresh.ok && tryRefresh.error.includes("已经购买"), "买过之后不能刷新");
-	assertEqual(tryRefresh.run, undefined, "被拒不返回改过的 run");
-	assertEqual(bought.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "被拒时次数一次都没少");
-	assertEqual(tryRefresh.offers, undefined, "被拒时不能返回新候选——重掷会把 sold 全清成 false，那才是真正的绕过入口");
-	// 还有未购买的候选，说明「一局限买一个」的第二道闸在 UI 上（买过后其余按钮变已售罄），由冒烟用例点真实按钮验
-	assert(bought.run.shopOffers.filter(offer => !offer.sold).length > 0, "本局仍有未购买候选，只能靠刷新门槛拦住绕过");
-	return "买过后刷新被拒 + 次数不扣";
+check("购买后依旧允许刷新，但刷新不恢复本局已购买计数", () => {
+ const base = { ...freshRun(), currency: { gold: 9999, exp: 0 } };
+ const run = { ...base, shopOffers: shop.rollSkillOffers(base, makeRng(5), [], skillsData.pool) };
+ const bought = shop.buySkill(run, run.shopOffers[0].id);
+ assert(bought.ok, "第一次购买成功");
+ const refreshed = shop.refreshSkillOffers(bought.run, makeRng(6), [], skillsData.pool);
+ assert(refreshed.ok, "买过仍能刷新");
+ assertEqual(refreshed.run.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL - 1, "正常花掉一次刷新");
+ assertEqual(shop.getPurchasedCount(refreshed.run), 1, "已购计数不变");
+ assert(refreshed.offers.every(offer => !offer.sold), "新候选均标记未售");
+ const denied = shop.buySkill(refreshed.run, refreshed.offers[0].id);
+ assert(!denied.ok && denied.error.includes("最多只能购买"), "新候选不能绕过次数上限");
+ assertEqual(denied.run, undefined, "被拒绝时不返回修改后的存档");
+ return "购一次、仍可刷新、第二次购买拦截";
 });
 
 check("刷新后排除规则不变：原生/拥有仍排除，真正失去的仍可回来", () => {
@@ -2644,30 +2663,25 @@ check("深渊词缀池配置：池子项数、id 唯一、与技能定义和翻�
 	return `${ids.length} 个词缀 + 3 个载体，定义/文案/翻译三处对齐`;
 });
 
-check("深渊词缀数量：1~99 层按 stage%，100 层起 floor(stage/100) 再按余数%追加一个", () => {
-	const always0 = () => 0;
-	const alwaysAlmost1 = () => 0.999999;
-	// 第 1 层起就参与随机：stage% 概率给 1 个
-	assertEqual(abyss.rollAbyssAffixCount(1, always0), 1, "1 层 rng=0 命中 1%");
-	assertEqual(abyss.rollAbyssAffixCount(1, alwaysAlmost1), 0, "1 层 99.99% 未过 1% 线");
-	assertEqual(abyss.rollAbyssAffixCount(20, () => 0.19), 1, "20 层 19% 命中");
-	assertEqual(abyss.rollAbyssAffixCount(20, () => 0.2), 0, "20 层 20% 边界不命中");
-	// 1~99：rng 落在 stage% 之内才给 1 个
-	assertEqual(abyss.rollAbyssAffixCount(31, () => 0.3), 1, "31 层 30% 命中");
-	assertEqual(abyss.rollAbyssAffixCount(31, () => 0.31), 0, "31 层 31% 边界不命中（严格小于）");
-	assertEqual(abyss.rollAbyssAffixCount(50, () => 0.49), 1, "50 层 49% 命中");
-	assertEqual(abyss.rollAbyssAffixCount(50, () => 0.5), 0, "50 层 50% 边界不命中");
-	assertEqual(abyss.rollAbyssAffixCount(99, () => 0.98), 1, "99 层 98% 命中");
-	assertEqual(abyss.rollAbyssAffixCount(99, alwaysAlmost1), 0, "99 层 99.99% 已过 99% 线");
-	// 100 层起：必定 floor(stage/100) 个，余数再掷一次
-	assertEqual(abyss.rollAbyssAffixCount(100, alwaysAlmost1), 1, "100 层必定 1 个且没有额外");
-	assertEqual(abyss.rollAbyssAffixCount(199, () => 0.5), 2, "199 层 1 个 + 99% 追加");
-	assertEqual(abyss.rollAbyssAffixCount(199, alwaysAlmost1), 1, "199 层 99.9999% 未过余数线时只给必定值");
-	assertEqual(abyss.rollAbyssAffixCount(200, alwaysAlmost1), 2, "200 层必定 2 个");
-	assertEqual(abyss.rollAbyssAffixCount(234, () => 0.3), 3, "234 层 2 个 + 34% 拿到第 3 个");
-	assertEqual(abyss.rollAbyssAffixCount(234, () => 0.4), 2, "234 层 40% 未过时保持 2 个");
-	assertEqual(abyss.rollAbyssAffixCount(300, always0), 3, "300 层必定 3 个");
-	return "31/50/99/100/199/200/234/300 全分支";
+check("深渊词缀：每 50 层保底一项，其余按每层 2% 追加", () => {
+ const never = () => 0.999999;
+ assertEqual(abyss.rollAbyssAffixCount(1, () => 0.019), 1, "第 1 层 2%");
+ assertEqual(abyss.rollAbyssAffixCount(1, () => 0.02), 0, "2% 边界");
+ assertEqual(abyss.rollAbyssAffixCount(20, () => 0.39), 1, "第 20 层 40%");
+ assertEqual(abyss.rollAbyssAffixCount(20, () => 0.4), 0, "40% 边界");
+ assertEqual(abyss.rollAbyssAffixCount(31, () => 0.61), 1, "第 31 层 62%");
+ assertEqual(abyss.rollAbyssAffixCount(31, () => 0.62), 0, "62% 边界");
+ assertEqual(abyss.rollAbyssAffixCount(49, never), 0, "49 层未保底");
+ assertEqual(abyss.rollAbyssAffixCount(50, never), 1, "50 层保底 1");
+ assertEqual(abyss.rollAbyssAffixCount(75, () => 0.49), 2, "75 层 1+50%");
+ assertEqual(abyss.rollAbyssAffixCount(75, () => 0.5), 1, "75 层只保底 1");
+ assertEqual(abyss.rollAbyssAffixCount(100, never), 2, "100 层保底 2");
+ assertEqual(abyss.rollAbyssAffixCount(199, never), 3, "199 层保底 3");
+ assertEqual(abyss.rollAbyssAffixCount(200, never), 4, "200 层保底 4");
+ assertEqual(abyss.rollAbyssAffixCount(234, () => 0.67), 5, "234 层 4+68%");
+ assertEqual(abyss.rollAbyssAffixCount(234, () => 0.68), 4, "234 层保底 4");
+ assertEqual(abyss.rollAbyssAffixCount(300, never), 6, "300 层保底 6");
+ return "1/20/31/49/50/75/100/199/200/234/300";
 });
 
 check("深渊词缀随机：不放回不重复、数量受池子约束、同一种子结果可复现", () => {
@@ -2713,8 +2727,8 @@ check("深渊从第 1 层起作用于无尽：闯关阵容一个词缀都不带�
 	const late = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0);
 	assert(late.length > 0, "无尽高层应能组出阵容");
 	for (const entry of late) {
-		assertEqual(entry.abyss.length, 3, "234 层每个敌人必定 2 个 + 命中余数 1 个");
-		assertEqual(new Set(entry.abyss).size, 3, "同一敌人身上词缀不重复");
+		assertEqual(entry.abyss.length, 5, "234 层必定 4 个 + 命中余数 1 个");
+		assertEqual(new Set(entry.abyss).size, 5, "同一敌人身上词缀不重复");
 		for (const id of entry.abyss) {
 			assert(abyss.isAbyssAffixId(id), `${id} 应在词缀池里`);
 		}
@@ -3891,7 +3905,7 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("echo_bell", "epic")[0], "当你进入濒死状态时，获得本局游戏你使用过且位于弃牌堆的牌", "史诗档不再写概率");
 	assertEqual(lines("broken_crown")[0], "你杀死一名角色后，你增加 1 点体力上限并回复 1 点体力", "破碎王冠普通档");
 	assertEqual(lines("broken_crown", "rare")[0], "你杀死一名角色后，你增加 1 点体力上限并回复 1 点体力，然后摸牌至体力上限", "稀有档补摸牌至上限");
-	assertEqual(lines("broken_crown", "epic")[0], "你杀死一名角色后，你增加 1 点体力上限并回复体力至上限，然后摸体力上限张牌", "史诗档回满 + 摸上限张");
+	assertEqual(lines("broken_crown", "epic")[0], "你杀死一名角色后，你增加 2 点体力上限并回复体力至上限，然后摸牌至体力上限", "史诗档回满 + 补至上限");
 	assertEqual(lines("broken_crown").length, 1, "破碎王冠的三个配套键不得单独出行");
 	assertEqual(lines("gluttonous_box")[0], "每次失去技能时获得本层胜利经验的 10 倍", "贪食魔盒");
 	const hungry = lines("hungry_box").join(" / ");
@@ -4052,9 +4066,9 @@ check("储蓄罐与遗忘之石：结算侧两处加成", () => {
 	assertEqual(plain.gained.gold, BASE_GOLD, "没有储蓄罐就只发基础");
 	// 黄金罗盘：概率统一为「百分点累加 + 一次判定」（v13 口径），不再单独掷第二次
 	const compass = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, currency: { gold: 0, exp: 0 }, curios: ["golden_compass"] };
-	// 基础线 25% + 罗盘 10 个百分点＝35%：0.3 落在两条线之间，只有罗盘能救回来
-	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.3, 0.999]));
-	assert(hitByBonus.run.curioOffers.length > 0, "25%+10 个百分点＝35%，0.3 必须命中（基础线 25% 自己是命不中的）");
+	// 基础线 30% + 罗盘 10 个百分点＝40%：0.35 落在两条线之间，只有罗盘能救回来
+	const hitByBonus = reward.settleVictory(compass, NOW, seq([0.35, 0.999]));
+	assert(hitByBonus.run.curioOffers.length > 0, "30%+10 个百分点＝40%，0.35 必须命中（基础线 30% 自己是命不中的）");
 	assertEqual(hitByBonus.run.curioOfferQueue.length, 0, "一次结算只摇这一批，罗盘不再生产第二批");
 	// 与旧写法的分歧点：以前「基础未中 + 第二次独立判定命中」会凭空多出一批，现在必须整体未命中
 	// 线值取现算结果本身：以后改 CURIO_SHOP_RATE 时这条仍然钉在「恰好压线 → 不命中」上
@@ -4063,9 +4077,9 @@ check("储蓄罐与遗忘之石：结算侧两处加成", () => {
 	assertEqual(noSecondRoll.run.curioOfferQueue.length, 0, "同样不留队列");
 	// 没有罗盘时判定线就是基础概率本身：线下一丝出货、恰好压在线上不出货（严格小于）
 	const plainSave = { ...compass, curios: [] };
-	assertEqual(cfg.CURIO_SHOP_RATE, 0.25, "奇物商店基础概率按本轮定为 25%");
-	assert(reward.settleVictory(plainSave, NOW, seq([0.249])).run.curioOffers.length > 0, "0.249 < 25% → 出货");
-	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.25])).run.curioOffers.length, 0, "0.25 正压在线上 → 严格小于才命中");
+	assertEqual(cfg.CURIO_SHOP_RATE, 0.30, "奇物商店基础概率定为 30%");
+	assert(reward.settleVictory(plainSave, NOW, seq([0.299])).run.curioOffers.length > 0, "0.299 < 30% → 出货");
+	assertEqual(reward.settleVictory(plainSave, NOW, seq([0.30])).run.curioOffers.length, 0, "0.30 正压在线上 → 严格小于才命中");
 	// 遗忘之石：本层基准金币 ×10，没有这块奇物返回 0
 	const stone = { ...freshRun(cfg.RUN_MODE.endless), level: BASE_LEVEL, curios: ["oblivion_stone"] };
 	assertEqual(curioManager.getSkillLossRewardGold(stone), BASE_GOLD * 10, "十倍本层基准金币");
@@ -4256,10 +4270,10 @@ await checkAsync("破碎王冠：击杀后涨上限、回血、按（涨过的�
 	await info.content({ triggername: "die", _trigger: dieEvent({}) }, dieEvent({}), full);
 	assertEqual(full.rec.draw.length, 0, "手牌已超上限就不摸");
 	// 史诗档：回复至上限 + 摸「体力上限」张
-	const epic = makeGrowthHero({ killGainMaxHp: 1, killHealToMax: 1, killDrawMaxHp: 1 });
+	const epic = makeGrowthHero({ killGainMaxHp: 2, killHealToMax: 1, killDrawToMaxHp: 1 });
 	await info.content({ triggername: "die", _trigger: dieEvent({}) }, dieEvent({}), epic);
-	assertEqual(epic.rec.recoverTo.join(","), "5", "回复体力至涨过之后的上限 5");
-	assertEqual(epic.rec.draw.join(","), "5", "摸「体力上限」张牌");
+	assertEqual(epic.rec.recoverTo.join(","), "6", "回复体力至涨过之后的上限 6");
+	assertEqual(epic.rec.draw.join(","), "5", "原手牌 1，涨后体力上限 6 → 补 5 张");
 	return "普通回 1 / 稀有补至手牌上限 / 史诗回满 + 摸上限张";
 });
 
@@ -4432,7 +4446,7 @@ check("技能橱窗：整批售罄立即解锁，carried 计入，下一关才�
 	assert(first.ok, first.error ?? "第一关应买到 A");
 	assertEqual(first.run.skillShopLocked, true, "还有两张未买 → 保持锁定");
 	assertEqual(shop.getPurchasedCount(first.run), 1, "本局购买额度用掉");
-	assert(!shop.refreshSkillOffers(first.run, makeRng(1), [], skillsData.pool).ok, "买过后不能刷新");
+	assert(!shop.refreshSkillOffers(first.run, makeRng(1), [], skillsData.pool).ok, "橱窗锁住不能刷新");
 	// 下一关：A 留货，B/C 可售
 	const secondLevel = reward.settleVictory(first.run, NOW, () => 0.999).run;
 	assertEqual(secondLevel.skillShopLocked, true, "跨关保留锁定");
@@ -4459,7 +4473,9 @@ check("技能橱窗：整批售罄立即解锁，carried 计入，下一关才�
 	assertEqual(third.run.shopOffers.length, cfg.SKILL_OFFER_COUNT, "当前商店仍保留三张卡");
 	assertEqual(third.run.shopOffers.every(offer => offer.sold), true, "三张都显示已购买");
 	assertEqual(shop.getPurchasedCount(third.run), 1, "本局只算 C 这一张");
-	assert(!shop.refreshSkillOffers(third.run, makeRng(2), [], skillsData.pool).ok, "解锁后本局仍不能刷新（购买上限）");
+	const afterSold = shop.refreshSkillOffers(third.run, makeRng(2), [], skillsData.pool);
+	assert(afterSold.ok, "解锁后即使买过仍允许刷新");
+	assert(!shop.checkSkillPurchase(afterSold.run, afterSold.offers[0].id).ok, "刷新不恢复购买次数");
 	const relock = curioManager.toggleShopLock(third.run, "skill");
 	assert(!relock.ok && relock.error.includes("售罄"), "售罄批次不能重新锁定");
 	// 下一次真正胜利：旧批次清空，之后进店现摇新一批
@@ -4497,10 +4513,10 @@ check("技能橱窗：整批售罄立即解锁，carried 计入，下一关才�
 	assertEqual(carriedOnly.skillShopLocked, false, "旧档全售罄 → 读档自动解锁");
 	assertEqual(carriedOnly.shopOffers.length, 3, "旧档三张已购买卡原样保留");
 	assertEqual(shop.getPurchasedCount(carriedOnly), 0, "夹具：全是 carried，本局购买数为 0");
-	const blockedRefresh = shop.refreshSkillOffers(carriedOnly, makeRng(9), [], skillsData.pool);
-	assert(!blockedRefresh.ok, "旧档解锁后不能手动刷新提前换货");
-	assertEqual(blockedRefresh.offers, undefined, "被拒时不返回新候选");
-	assertEqual(shop.getRefreshesRemaining(carriedOnly), cfg.SKILL_REFRESH_PER_LEVEL, "被拒时不扣刷新次数");
+	const allowedRefresh = shop.refreshSkillOffers(carriedOnly, makeRng(9), [], skillsData.pool);
+	assert(allowedRefresh.ok, "旧档解锁后可以主动刷新");
+	assertEqual(shop.getRefreshesRemaining(allowedRefresh.run), cfg.SKILL_REFRESH_PER_LEVEL - 1, "主动刷新扣免费次数");
+	assertEqual(shop.getRefreshesRemaining(carriedOnly), cfg.SKILL_REFRESH_PER_LEVEL, "原存档不变");
 	const carriedNext = reward.settleVictory(carriedOnly, NOW, () => 0.999).run;
 	assertEqual(carriedNext.shopOffers.length, 0, "下一次胜利后才清空售罄批次");
 	assertEqual(carriedNext.skillShopLocked, false, "保持解锁");
@@ -7998,18 +8014,18 @@ check("Boss 固定强化不被债务挤占：债 8 + Boss 固定 1 全兑现，�
 		}
 	}
 	try {
-		// 债 8：234 层常规随机本可掷 3 个，座位只留给债 8 + Boss 固定 1 → 常规 0，合计 9 = 池满
-		const boss = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 8 });
+		// 债 8：134 层常规随机本可掷 3 个，座位只留给债 8 + Boss 固定 1 → 常规 0，合计 9 = 池满
+		const boss = enemy.createBossEnemyConfig(134, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 8 });
 		assertEqual(boss.length, 1, "Boss 单人");
 		assert(boss[0].boss === true, "boss 标记照旧");
 		assertEqual(boss[0].abyss.length, 9, "债 8 + Boss 固定 1 = 9 个强化");
 		assertEqual(new Set(boss[0].abyss).size, 9, "互不重复");
 		// 无债务：常规 3 + Boss 固定 1 = 4——词缀池充足时随机结果与旧口径一致
-		const plain = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 0 });
+		const plain = enemy.createBossEnemyConfig(134, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 0 });
 		assertEqual(plain[0].abyss.length, 4, "无债务时常规 3 + Boss 1");
 		assertEqual(new Set(plain[0].abyss).size, 4, "不重复");
-		// 债务优先落位对普通敌人不变：234 层债 8 = 常规让位后 1 + 债 8 = 9
-		const normal = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0, { enemies: 1, extraAffixes: 8 });
+		// 债务优先落位对普通敌人不变：134 层债 8 = 常规让位后 1 + 债 8 = 9
+		const normal = enemy.createEnemyConfigs(134, cfg.RUN_MODE.endless, () => 0, { enemies: 1, extraAffixes: 8 });
 		assertEqual(normal[0].abyss.length, 9, "普通敌人债 8 足额 + 常规让位 1");
 	} finally {
 		for (const id of added) {
@@ -8042,29 +8058,29 @@ check("Boss 固定强化来源可区分：可控词缀池验证债务足额、�
 			"abyss_buqu", "abyss_jianbi", "abyss_kuangre", "abyss_liesha",
 			"abyss_xuwu", "abyss_jingxiang", "abyss_wuran", "abyss_yongheng",
 		]), "900 层：常规让位 1 席（7 条常规），第 8 条是 Boss 追加的落点");
-		// 234 层欠债 5：座位 = 2 常规 + 5 债务（足额）+ 1 Boss 追加，逐条可辨
-		const mid = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 5 });
+		// 134 层欠债 5：座位 = 2 常规 + 5 债务（足额）+ 1 Boss 追加，逐条可辨
+		const mid = enemy.createBossEnemyConfig(134, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 5 });
 		assertEqual(JSON.stringify(mid[0].abyss), JSON.stringify([
 			"abyss_buqu", "abyss_jianbi",
 			"abyss_kuangre", "abyss_liesha", "abyss_xuwu", "abyss_jingxiang", "abyss_wuran",
 			"abyss_yongheng",
 		]), "常规 2 + 债务 5 足额 + Boss 追加 1；不给 Boss 让位这里只有 7 条");
-		// 234 层欠债 8：8 条通用全部由债务兑现，Boss 追加的包里只剩 fuchou——
+		// 134 层欠债 8：8 条通用全部由债务兑现，Boss 追加的包里只剩 fuchou——
 		// 它被临时标成 boss 专属，常规与债务的通用上下文永远抽不到，在场即证明追加执行成功
-		const full = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 8 });
+		const full = enemy.createBossEnemyConfig(134, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 8 });
 		assertEqual(JSON.stringify(full[0].abyss), JSON.stringify([
 			"abyss_buqu", "abyss_jianbi", "abyss_kuangre", "abyss_liesha",
 			"abyss_xuwu", "abyss_jingxiang", "abyss_wuran", "abyss_yongheng", "abyss_fuchou",
 		]), "债 8 全兑现（8 条通用在场）+ Boss 固定追加 fuchou，合计 9");
 		// 默认参数安全：缺失 / 0 / NaN / 无穷 / 负数一律按 0 收口，Boss 追加照常落地（第 4 条）
 		for (const extra of [undefined, 0, NaN, Infinity, -1]) {
-			const boss = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0,
+			const boss = enemy.createBossEnemyConfig(134, cfg.RUN_MODE.endless, () => 0,
 				extra === undefined ? {} : { extraAffixes: extra });
 			assertEqual(boss[0].abyss.length, 4, `extra=${String(extra)}：常规 3 + Boss 追加 1`);
 			assertEqual(boss[0].abyss[3], "abyss_liesha", `extra=${String(extra)}：第 4 条是 Boss 追加的落点`);
 		}
 		// 合法小数沿用既有 floor 口径：2.9 → 债 2，常规 3 + 债 2 + Boss 追加 1 = 6
-		const fractional = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 2.9 });
+		const fractional = enemy.createBossEnemyConfig(134, cfg.RUN_MODE.endless, () => 0, { extraAffixes: 2.9 });
 		assertEqual(JSON.stringify(fractional[0].abyss), JSON.stringify([
 			"abyss_buqu", "abyss_jianbi", "abyss_kuangre", "abyss_liesha", "abyss_xuwu", "abyss_jingxiang",
 		]), "2.9 按 floor 收成债 2，来源依旧逐条可辨");
@@ -8124,9 +8140,9 @@ check("深渊债务优先落位：承诺的追加个数足额兑现，常规随�
 		const low = enemy.createEnemyConfigs(4, cfg.RUN_MODE.endless, () => 0.999, { enemies: 1, extraAffixes: 8 });
 		assertEqual(low[0].abyss.length, 8, "无常规随机时债务足额");
 		assertEqual(new Set(low[0].abyss).size, 8, "不重复");
-		// 234 层 rng=0：常规随机掷 3 个，但池子只剩 1 个座位 → 常规让位、债足额 8，合计 9 = 池满
-		const high = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0, { enemies: 1, extraAffixes: 8 });
-		assertEqual(high[0].abyss.length, 9, "234 层：常规让位后 1 + 债 8 = 池满 9");
+		// 134 层 rng=0：常规随机掷 3 个，但池子只剩 1 个座位 → 常规让位、债足额 8，合计 9 = 池满
+		const high = enemy.createEnemyConfigs(134, cfg.RUN_MODE.endless, () => 0, { enemies: 1, extraAffixes: 8 });
+		assertEqual(high[0].abyss.length, 9, "134 层：常规让位后 1 + 债 8 = 池满 9");
 		assertEqual(high[0].abyss[0], "abyss_buqu", "常规随机让位后剩下的那 1 个留在最前");
 		assertEqual(new Set(high[0].abyss).size, 9, "合计 9 条互不重复");
 		// 每名敌人独立：多人各自足额、互不重复
@@ -8136,8 +8152,8 @@ check("深渊债务优先落位：承诺的追加个数足额兑现，常规随�
 			assertEqual(entry.abyss.length, 8, "每人各自足额 8 条");
 			assertEqual(new Set(entry.abyss).size, 8, "每人身上不重复");
 		}
-		// 对照：不欠债时 234 层照旧 3 条（常规随机的数量口径一个字没改）
-		const plain = enemy.createEnemyConfigs(234, cfg.RUN_MODE.endless, () => 0, { enemies: 1 });
+		// 对照：不欠债时 134 层照旧 3 条（常规随机的数量口径一个字没改）
+		const plain = enemy.createEnemyConfigs(134, cfg.RUN_MODE.endless, () => 0, { enemies: 1 });
 		assertEqual(plain[0].abyss.length, 3, "不欠债时常规随机照旧");
 	} finally {
 		for (const id of added) {
