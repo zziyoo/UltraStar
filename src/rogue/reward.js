@@ -77,6 +77,7 @@ export function settleVictory(run, now, rng = Math.random) {
 		skillShopLocked: keepSkillOffers,
 		// 循环按钮：每场战斗结束额外补一次刷新（只看开战前已持有的奇物，本局换到的不算）
 		shopRefreshesRemaining: SKILL_REFRESH_PER_LEVEL + getBonus(run.curios, "extraShopRefresh", quality),
+		shopPaidRefreshCount: 0,
 		// 只在真正通关后恢复本次技能/奇物购买机会，裂隙与失败不重置。
 		skillPurchasedThisRound: 0,
 		curioBoughtThisRound: false,

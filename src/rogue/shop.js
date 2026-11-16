@@ -152,53 +152,55 @@ export function getRefreshesRemaining(run) {
 	return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : SKILL_REFRESH_PER_LEVEL;
 }
 
+/** 本关已经支付金币刷新的次数；旧档没有此字段按 0 次处理。 */
+export function getPaidRefreshCount(run) {
+	const n = Number(run?.shopPaidRefreshCount);
+	return Number.isFinite(n) ? Math.min(1000000, Math.max(0, Math.floor(n))) : 0;
+}
+
 /**
- * 花一次免费刷新，把本局商店的候选重掷：技能 id 与售价都重新随机（走同一个 rollSkillOffers，
- * 于是「当前角色原生技能 + 当前持有技能」的排除规则原样生效）。
- * 三条门槛：
- *   1. 技能商店没被收藏家的橱窗锁着——🔒 就是「这一批候选不许再换」，手动刷新与战斗结束的自动
- *      刷新走的是同一条禁令（按钮同时置灰，见 ui/hub.js 的 paintRefresh；判据只有这一处，
- *      所以任何 UI 入口都绕不过去）；
- *   2. 还有剩余次数；
- *   3. 本次商店还没买过技能——重掷出来的候选 sold 全是 false，已买过还让刷就等于绕过
- *      SKILL_PURCHASE_COUNT 的一局购买上限。
- * 旧候选优先排除（刷完不该原样看到同三个）；池子不够 SKILL_OFFER_COUNT 条时退回完整池子，
- * 允许旧候选重新出现——不死循环、不报错、不塞进原生/持有技能。
- * @param {object} run 存档
- * @param {() => number} [rng] 可注入的随机源
- * @param {string[]} [characterSkills] 当前角色原生技能
- * @param {{ id: string }[]} candidates 候选池（见 skillPool.getShopPool）
- * @returns {{ ok: boolean, error: string|null, run?: object, offers?: object[] }} 失败时不返回改过的 run
+ * 免费次数耗尽后的金币刷新费用：本关基础胜利金币 × √（本关第几次付费刷新），向下取整。
+ * 闯关基准 50；无尽基准 floor(50×√关卡)，与胜利金币的增长规律一致。
+ * 本关第一次付费等于本关基础奖励；同一关内第 2、3 次分别乘 √2、√3。
+ */
+export function getPaidRefreshPrice(run) {
+	return Math.max(1, Math.min(Number.MAX_SAFE_INTEGER,
+		Math.floor(getSkillBasePrice(run) * Math.sqrt(getPaidRefreshCount(run) + 1))));
+}
+
+/**
+ * 刷新技能候选：优先花免费次数，用完后花金币，费用按本关已付费次数递增。
+ * 刷新只换候选，不改变 skillPurchasedThisRound；购买入口仍以它为权威限购依据，
+ * 因而本局买过技能也可以刷新，但不能再购买（包括从新候选购买）。
+ * 收藏家的橱窗锁住技能商店时，免费和金币刷新一律禁止。
+ * 旧候选优先排除，池子不足时允许旧候选重新出现；抽不到候选时不扣款。
  */
 export function refreshSkillOffers(run, rng = Math.random, characterSkills = [], candidates = []) {
 	if (isShopLocked(run, "skill")) {
 		return { ok: false, error: "技能商店已被收藏家的橱窗锁定，锁定期间不能刷新候选" };
 	}
 	const remaining = getRefreshesRemaining(run);
-	if (remaining <= 0) {
-		return { ok: false, error: "本局免费刷新次数已经用完" };
+	const paid = remaining <= 0;
+	const cost = paid ? getPaidRefreshPrice(run) : 0;
+	if (paid && !hasCurrency(run, SKILL_CURRENCY, cost)) {
+		return { ok: false, error: `免费刷新已用完，金币不足（本次刷新需要 ${cost} ${SKILL_CURRENCY_NAME}）` };
 	}
 	const current = Array.isArray(run?.shopOffers) ? run.shopOffers : [];
-	if (getPurchasedCount(run) >= SKILL_PURCHASE_COUNT) {
-		return { ok: false, error: "本局已经购买过技能，不能继续刷新" };
-	}
-	// 整批已无购买价值（全售出/已拥有/失效）时不允许重掷：旧档读入、重进商店、手动刷新都只能等下一场胜利
-	if (current.length > 0 && !hasBuyableSkillOffer(run)) {
-		return { ok: false, error: "这一批技能已经没有可购买的候选，等下一场胜利后再刷新" };
-	}
 	const previousIds = current.map(offer => offer?.id).filter(id => typeof id === "string" && id);
 	const fresh = (Array.isArray(candidates) ? candidates : []).filter(entry => entry && !previousIds.includes(entry.id));
 	let offers = rollSkillOffers(run, rng, characterSkills, fresh);
 	if (offers.length < SKILL_OFFER_COUNT) {
-		// 排掉旧候选就凑不满一局，说明池子太窄：这时允许旧候选重新出现
 		offers = rollSkillOffers(run, rng, characterSkills, candidates);
 	}
-	return {
-		ok: true,
-		error: null,
-		offers,
-		run: { ...run, shopOffers: offers, shopRefreshesRemaining: remaining - 1 },
-	};
+	if (!offers.length) {
+		return { ok: false, error: "当前没有可刷新的合法技能候选" };
+	}
+	const next = { ...run, shopOffers: offers, shopRefreshesRemaining: paid ? 0 : remaining - 1 };
+	if (paid) {
+		next.currency = { ...run.currency, [SKILL_CURRENCY]: (run.currency?.[SKILL_CURRENCY] ?? 0) - cost };
+		next.shopPaidRefreshCount = getPaidRefreshCount(run) + 1;
+	}
+	return { ok: true, error: null, offers, paid, cost, run: next };
 }
 
 /**

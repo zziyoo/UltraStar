@@ -78,9 +78,9 @@ function getAffixCap(poolSize) {
 
 /**
  * 每个敌人独立掷的「该拿几个」。规格的两段规则在这里逐条对应：
- *   1~99 层：stage% 概率拿 1 个（1 层 1%，50 层 50%）；
- *   100 层起：必定 floor(stage / 100) 个，再按 (stage % 100)% 概率多拿 1 个
- *            （100 层必定 1 个；234 层必定 2 个 + 34% 概率第 3 个）。
+ *   1~49 层：每层 +2 个百分点，level / 50 概率获得 1 个；
+ *   50 层起：必定 floor(level / 50) 个，余数除以 50 作为追加 1 个的概率。
+ *            （50 层必定 1 个；75 层必定 1 个 + 50% 概率第 2 个；100 层必定 2 个）。
  * rng 可注入，测试靠它把概率分支钉成确定值。
  */
 export function rollAbyssAffixCount(level, rng = Math.random) {
@@ -89,11 +89,11 @@ export function rollAbyssAffixCount(level, rng = Math.random) {
 		return 0;
 	}
 	if (stage < ABYSS_FULL_LEVEL) {
-		return rng() < stage / 100 ? 1 : 0;
+		return rng() < stage / ABYSS_FULL_LEVEL ? 1 : 0;
 	}
 	const guaranteed = Math.floor(stage / ABYSS_FULL_LEVEL);
 	const remainder = stage % ABYSS_FULL_LEVEL;
-	return guaranteed + (rng() < remainder / 100 ? 1 : 0);
+	return guaranteed + (rng() < remainder / ABYSS_FULL_LEVEL ? 1 : 0);
 }
 
 /** 按 weight 做一次不放回抽样；权重全相等时等价于等概率 */

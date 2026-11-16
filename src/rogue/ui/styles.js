@@ -361,7 +361,7 @@ const CSS = `
 #wm-rogue-overlay .wm-rogue-pick-desc { display: block !important; margin-top: 6px; font-size: 16px;
 	line-height: 1.55; color: rgba(255,255,255,0.84); }
 #wm-rogue-overlay .wm-rogue-pick-check { display: block !important; flex: none; font-size: 19px;
-	font-weight: bold; color: #d8a6ff; visibility: hidden; }
+	font-weight: bold; color: #d8a6ff; visibility: hidden; transition: none !important; }
 #wm-rogue-overlay .wm-rogue-pick-row.wm-rogue-picked .wm-rogue-pick-check { visibility: visible; }
 #wm-rogue-overlay .wm-rogue-heart-target { display: block !important; }
 #wm-rogue-overlay .wm-rogue-heart-actions { display: flex !important; flex-wrap: wrap !important;
