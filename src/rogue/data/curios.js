@@ -257,7 +257,7 @@ export const curios = {
 		effect: { killGainMaxHp: 1, killHeal: 1 },
 		qualityEffects: {
 			rare: { killGainMaxHp: 1, killHeal: 1, killDrawToMaxHp: 1 },
-			epic: { killGainMaxHp: 1, killHealToMax: 1, killDrawMaxHp: 1 },
+			epic: { killGainMaxHp: 2, killHealToMax: 1, killDrawToMaxHp: 1 },
 		},
 	},
 	gluttonous_box: {

@@ -722,6 +722,8 @@ export function normalizeRun(raw, options = {}) {
 			0,
 		),
 		shopRefreshesRemaining,
+		// 付费刷新计数只在本关累积，正常胜利进入下一关时清零；旧档没有字段按 0 处理。
+		shopPaidRefreshCount: clampInt(raw.shopPaidRefreshCount, 0, 1000000, 0),
 		// v4：无尽模式的事件 / 图鉴 / 奇物。旧档（v3 及更早）没有这些字段时按默认值补齐，不影响读取
 		pendingEvent: normalizePendingEvent(raw.pendingEvent),
 		// v13：Boss 战胜利惩罚的待处理项（玩家自选）。旧档（v12 及更早）没有这个字段时按「不欠惩罚」补齐——

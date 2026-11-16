@@ -16,7 +16,7 @@ import {
 	STAT_CURRENCY,
 	STAT_IDS,
 } from "../config.js";
-import { getPurchasedCount, getRefreshesRemaining, getSkillOfferState, hasBuyableSkillOffer } from "../shop.js";
+import { getPaidRefreshCount, getPaidRefreshPrice, getPurchasedCount, getRefreshesRemaining, getSkillOfferState, hasBuyableSkillOffer } from "../shop.js";
 import { canLockShop, checkCurioUpgrade, describeCurio, describeCurioEffects, getCurio, getCurioEffectAt, getCurioOffer, getCurioQuality, getCurioShopChance, getNextCurioQuality, getUpgradableCurios, isShopLocked, CURIOSITY_RARITY } from "../curioManager.js";
 import { describeStatEffects, stats, sumStatEffects } from "../data/stats.js";
 import { ui } from "../../../../../noname.js";
@@ -465,7 +465,7 @@ export function showShop(api) {
 	// 收藏家的橱窗：持有锁定能力时，分区标题右侧多一枚 🔓/🔒 开关（点一下切换；锁住的那一类商店
 	// 下一场战斗结束时不再自动刷新）。没那件奇物就不画——玩家看不到自己用不上的东西
 	const skillLock = buildShopLock(offerHead, run, "skill", "技能商店", () => api.toggleLock("skill"));
-	ui.create.div(".wm-rogue-shop-subtitle", `每次进店最多购买 ${SKILL_PURCHASE_COUNT} 个技能　点卡片可看完整描述`, body);
+	ui.create.div(".wm-rogue-shop-subtitle", `每次进店最多购买 ${SKILL_PURCHASE_COUNT} 个技能；购买后仍可刷新但不能再次购买　点卡片可看完整描述`, body);
 	const offerRow = ui.create.div(".wm-rogue-shop-cards", body);
 	const offerCards = run.shopOffers.map(offer => buildOfferCard(offerRow, offer, api));
 
@@ -581,11 +581,18 @@ export function showShop(api) {
  * 余额不足、本局额度用光只是「现在买不了」，不代表整批没价值，不能让锁提前解除。
  */
 function paintRefresh(node, run, soldOut, isSkillAllowed = null) {
+	void isSkillAllowed;
 	const remaining = getRefreshesRemaining(run);
-	const batchSoldOut = (run.shopOffers ?? []).length > 0
-		&& !hasBuyableSkillOffer(run, { isSkillAllowed });
-	node.innerHTML = batchSoldOut ? "本批已售罄" : soldOut ? "本局已购买" : `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}`;
-	node.classList[batchSoldOut || soldOut || remaining <= 0 || isShopLocked(run, "skill") ? "add" : "remove"]("wm-rogue-disabled");
+	const paid = remaining <= 0;
+	const cost = paid ? getPaidRefreshPrice(run) : 0;
+	const purchasedHint = soldOut ? " · 已购限购" : "";
+	node.textContent = paid
+		? `金币刷新 ${cost}（第 ${getPaidRefreshCount(run) + 1} 次）${purchasedHint}`
+		: `刷新 ${remaining}/${SKILL_REFRESH_PER_LEVEL}${purchasedHint}`;
+	// 已购买 / 本批售罄不再禁刷，购买次数由 checkSkillPurchase 独立强制限制。
+	const locked = isShopLocked(run, "skill");
+	const insufficient = paid && (run.currency?.[SKILL_CURRENCY] ?? 0) < cost;
+	node.classList[locked || insufficient ? "add" : "remove"]("wm-rogue-disabled");
 }
 
 /**

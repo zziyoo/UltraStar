@@ -27,9 +27,9 @@ export const ABYSS_START_LEVEL = 1;
 
 /**
  * 满层：层数达到它之后改为「必定 floor(stage / 满层) 个」，
- * 余数当作额外一个的概率（234 层 = 必定 2 个 + 34% 概率第 3 个）。
+ * 余数当作额外一个的概率（75 层 = 必定 1 个 + 50% 概率第 2 个；100 层必定 2 个）。
  */
-export const ABYSS_FULL_LEVEL = 100;
+export const ABYSS_FULL_LEVEL = 50;
 
 /**
  * 词缀池。weight 是同一批抽样里的相对权重（全部写 1 即等概率）。

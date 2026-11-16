@@ -110,7 +110,7 @@ export function createShopFlow(host) {
 		// 不传 openSkills 之外的回调：浮层里 showNotice 用的是自建弹层，重开商店反而会把滚动位置甩回顶部
 		const result = refreshSkillOffers(run, undefined, characterSkillIds(run.characterId), getShopPool());
 		if (!result.ok) {
-			showNotice([result.error, `本局剩余免费刷新次数：${run.shopRefreshesRemaining}。`]);
+			showNotice([result.error, `本局剩余免费刷新次数：${run.shopRefreshesRemaining}；用完后可花金币刷新。`]);
 			return;
 		}
 		context.run = result.run;
