@@ -5595,12 +5595,12 @@ check("Boss 战阵容：单敌、非禁将抽取、复制三个其他非禁将�
 		// 深渊：正常计算（闯关恒为 0）之外固定追加 1 个
 		assertEqual(boss.abyss.length, 1, "闯关 Boss 也固定自带 1 个深渊强化");
 		assert(abyss.isAbyssAffixId(boss.abyss[0]), "自带的强化在词缀池里");
-		// 无尽 234 层（rng=0 必中）：正常 3 个 + 自带 1 个 = 4 个，互不重复
+		// 无尽 134 层（rng=0 必中）：正常 3 个 + 自带 1 个 = 4 个，互不重复
 		const endlessPool = enemy.getEndlessEnemyPool();
 		assert(endlessPool.length >= 1, "无尽池应有可用角色");
-		const late = enemy.createBossEnemyConfig(234, cfg.RUN_MODE.endless, () => 0);
+		const late = enemy.createBossEnemyConfig(134, cfg.RUN_MODE.endless, () => 0);
 		assertEqual(late[0].characterId, endlessPool[0], "无尽 Boss 来自本体池口径");
-		assertEqual(late[0].abyss.length, 4, "234 层 Boss：正常 3 个 + 自带 1 个");
+		assertEqual(late[0].abyss.length, 4, "134 层 Boss：正常 3 个 + 自带 1 个");
 		assertEqual(new Set(late[0].abyss).size, 4, "正常随机与自带强化互不重复（不放回追加）");
 		// 禁将绝不入选担当 Boss：把闯关池里除池首之外的角色全部禁掉，Boss 只能是池首
 		lib.config.all = { mode: ["identity"] };
