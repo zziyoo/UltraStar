@@ -1820,53 +1820,51 @@ await check("商店刷新：标题右侧按钮，点一次重掷技能与价格�
 	await flush();
 	assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, 0, "第二次刷完归零");
 	const exhausted = nodesWithClass("wm-rogue-shop-refresh")[0];
-	assertEqual(textOf(exhausted), "刷新 0/2", "用完仍显示 0/2（灰掉而不是藏起来）");
-	assert(exhausted.classList.contains("wm-rogue-disabled"), "用完应置灰");
-	const frozen = lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(",");
+	assertEqual(textOf(exhausted), "金币刷新 50（第 1 次）", "免费次数用完后显示付费金额");
+	assert(!exhausted.classList.contains("wm-rogue-disabled"), "金币充足时允许付费刷新");
+	const beforePaid = lib.storage.rogueSlots[0];
 	clickNode(exhausted);
 	await flush();
-	assertEqual(lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(","), frozen, "没有次数时点击不重掷");
-	assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, 0, "没有次数时不能再扣");
-	assert(screenText().includes("用完"), "要给出提示而不是静默失败");
+	const paid = lib.storage.rogueSlots[0];
+	assertEqual(paid.shopRefreshesRemaining, 0, "金币刷新不恢复免费次数");
+	assertEqual(paid.shopPaidRefreshCount, 1, "付费次数持久化");
+	assertEqual(paid.currency.gold, beforePaid.currency.gold - 50, "第一笔付费刷新扣 50 金币");
+	assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), "金币刷新 70（第 2 次）", "第二次费用按 √2 增长");
 	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
 	return `重掷 ${rolled} / 次数 2 → 0`;
 });
 
-await check("商店刷新：买过技能后按钮变「本局已购买」，点击既不重掷也不补次数", async () => {
-	putRun(0, {
-		currentBattle: null,
-		level: 1,
-		skills: [],
-		currency: { gold: 9999, exp: 0 },
-		shopOffers: [
-			{ id: "rogue_extra", price: 10, sold: false },
-			{ id: "own_one", price: 10, sold: false },
-			{ id: "own_two", price: 10, sold: false },
-		],
-		shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
-	});
-	session();
-	click("商店");
-	clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
-	await flush();
-	const bought = lib.storage.rogueSlots[0];
-	assert(bought.shopOffers.some(offer => offer.sold), "已买一个");
-	const refresh = nodesWithClass("wm-rogue-shop-refresh")[0];
-	assertEqual(textOf(refresh), "本局已购买", "买过后刷新按钮改成已购买");
-	assert(refresh.classList.contains("wm-rogue-disabled"), "买过后刷新按钮置灰");
-	// 重掷会把新候选的 sold 全写成 false，所以买过之后必须彻底锁死，否则一局能买两个
-	const ids = bought.shopOffers.map(offer => offer.id).join(",");
-	clickNode(refresh);
-	await flush();
-	const now = lib.storage.rogueSlots[0];
-	assertEqual(now.shopOffers.map(offer => offer.id).join(","), ids, "点击不重掷");
-	assertEqual(now.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "被拒时次数一点没扣");
-	assert(screenText().includes("已经购买"), "要说明为什么不能刷新");
-	nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
-	clickNode(nodesWithClass("wm-rogue-shop-buy")[1]);
-	await flush();
-	assertEqual(lib.storage.rogueSlots[0].skillInventory.length, 1, "本局只能买一个技能");
-	return "已购买锁死刷新 + 购买上限未破";
+await check("技能商店：买过仍能刷新，新候选也不能再购买", async () => {
+ putRun(0, {
+  currentBattle: null, level: 1, skills: [],
+  currency: { gold: 9999, exp: 0 },
+  shopOffers: [
+   { id: "rogue_extra", price: 10, sold: false },
+   { id: "own_one", price: 10, sold: false },
+   { id: "own_two", price: 10, sold: false },
+  ],
+  shopRefreshesRemaining: cfg.SKILL_REFRESH_PER_LEVEL,
+ });
+ session();
+ click("商店");
+ clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+ await flush();
+ const bought = lib.storage.rogueSlots[0];
+ assertEqual(bought.skillPurchasedThisRound, 1, "本局已买一件");
+ const refresh = nodesWithClass("wm-rogue-shop-refresh")[0];
+ assert(textOf(refresh).includes("刷新 2/2"), "购买后免费刷新仍显示次数");
+ assert(!refresh.classList.contains("wm-rogue-disabled"), "购买后刷新按钮应可用");
+ clickNode(refresh);
+ await flush();
+ const now = lib.storage.rogueSlots[0];
+ assertEqual(now.shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL - 1, "刷新正常扣一次");
+ assertEqual(now.skillPurchasedThisRound, 1, "刷新不能清除购买次数");
+ assert(now.shopOffers.every(offer => !offer.sold), "新候选均可显示未售");
+ clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
+ await flush();
+ assertEqual(lib.storage.rogueSlots[0].skillPurchasedThisRound, 1, "再买被拒");
+ assertEqual(lib.storage.rogueSlots[0].skillInventory.length, 1, "本局只能获得一项购买技能");
+ return "已购买后可免费刷新，但不能追加购买";
 });
 
 // 卡片进 DOM 的那一刻拍快照：首帧就已经带着最终状态，而不是挂载后才补置灰类。
@@ -2031,9 +2029,9 @@ await check("奇物商店首帧：金币 0 / 恰好 / 超过时奇物卡首帧�
 	}
 });
 
-await check("奇物商店概率：25% 基础 + 黄金罗盘 10 个百分点 = 35%，UI 与判定同源", async () => {
+await check("奇物商店概率：30% 基础 + 黄金罗盘 10 个百分点 = 40%，UI 与判定同源", async () => {
 	freshWorld();
-	assertEqual(cfg.CURIO_SHOP_RATE, 0.25, "基础概率保持 25%");
+	assertEqual(cfg.CURIO_SHOP_RATE, 0.30, "基础概率保持 30%");
 	putRun(0, {
 		mode: "endless",
 		currentBattle: null,
@@ -2045,9 +2043,9 @@ await check("奇物商店概率：25% 基础 + 黄金罗盘 10 个百分点 = 35
 	session();
 	click("商店");
 	const text = screenText();
-	assert(text.includes("有 35% 概率刷新候选"), `罗盘叠加后 UI 显示 35%：${text.slice(0, 400)}`);
+	assert(text.includes("有 40% 概率刷新候选"), `罗盘叠加后 UI 显示 40%：${text.slice(0, 400)}`);
 	assertEqual(Math.round((cfg.CURIO_SHOP_RATE + 0.1) * 100), 35, "叠加口径 = 百分点相加（只掷一次，见 rogue.test 的边界用例）");
-	return "基础 25% + 罗盘 10 = UI 35%";
+	return "基础 30% + 罗盘 10 = UI 40%";
 });
 
 await check("收藏家橱窗锁定中：技能卡仍按余额置灰，锁定不影响禁用态", async () => {
@@ -4137,11 +4135,11 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 			hurtDamageRound: 0,
 			hurtDamageGame: 1,
 			dyingRecallChance: 0.5,
-			killGainMaxHp: 1,
+			killGainMaxHp: 2,
 			killHeal: 0,
 			killHealToMax: 1,
-			killDrawToMaxHp: 0,
-			killDrawMaxHp: 1,
+			killDrawToMaxHp: 1,
+			killDrawMaxHp: 0,
 			skillSacrifice: 0,
 			// 本轮新增的战斗内键：这一场没带星穹壁垒 / 万象武装匣，照表写 0，形状保持稳定
 			highDamageMin: 0,
@@ -4149,7 +4147,7 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 			highDamageDraw: 0,
 			battleTempSkill: 0,
 		}),
-		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；回响之铃的概率键要保留小数 0.5；史诗破碎王冠走「回复至上限 + 摸上限张」；幸运石是结算类不进 storage；故人的心这一场没带所以筹码键是 0；本轮新增的星穹壁垒/万象武装匣键也按 0 写满）"
+		"storage 按当前品质写满每一张战斗内键（史诗能量核心 +4；稀有血怒核心带体力闸门与牌伤害 +1；史诗反击护符走本局那档；回响之铃的概率键要保留小数 0.5；史诗破碎王冠走「上限 +2 / 回复至上限 / 补摸至上限」；幸运石是结算类不进 storage；故人的心这一场没带所以筹码键是 0；本轮新增的星穹壁垒/万象武装匣键也按 0 写满）"
 	);
 	assertEqual(lib.hookmap.phaseBegin, true, "额外出牌阶段时机已登记");
 	assertEqual(lib.hookmap.phaseDrawBegin2, true, "摸牌时机已登记");
@@ -4174,7 +4172,7 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 		"血怒核心（稀有）", "体力低于体力上限的一半（向上取整）时，你使用的牌无法被响应，且此牌造成的伤害 +1",
 		"反击护符（史诗）", "当你受到伤害后，本局游戏你造成的伤害 +1",
 		"回响之铃（普通）", "当你进入濒死状态时，有 50% 的概率获得本局游戏你使用过且位于弃牌堆的牌",
-		"破碎王冠（史诗）", "你杀死一名角色后，你增加 1 点体力上限并回复体力至上限，然后摸体力上限张牌"]) {
+		"破碎王冠（史诗）", "你杀死一名角色后，你增加 2 点体力上限并回复体力至上限，然后摸牌至体力上限"]) {
 		assert(curioText.includes(token), `奇物面板应显示「${token}」：${curioText.slice(0, 600)}`);
 	}
 	assertEqual(nodesWithClass("wm-rogue-stat-panel").length, 1, "奇物面板复用属性面板的版式");
@@ -4530,8 +4528,8 @@ await check("技能橱窗：最后一张买完立即解锁，当前卡保留，�
 		assertEqual(slot.shopOffers.length, 3, "当前批次不重掷");
 		assert(slot.shopOffers.every(offer => offer.sold === true), "三张都显示已购买");
 		const refresh = nodesWithClass("wm-rogue-shop-refresh")[0];
-		assertEqual(textOf(refresh), "本批已售罄", "刷新按钮改成整批售罄");
-		assert(refresh.classList.contains("wm-rogue-disabled"), "刷新按钮置灰");
+		assert(textOf(refresh).includes("刷新 2/2"), "售罄后可免费刷新");
+		assert(!refresh.classList.contains("wm-rogue-disabled"), "售罄后刷新按钮不置灰");
 		// 重新锁定：被拒绝，图标保持开锁
 		clickNode(nodesWithClass("wm-rogue-shop-lock")[0]);
 		await flush();
@@ -4539,19 +4537,14 @@ await check("技能橱窗：最后一张买完立即解锁，当前卡保留，�
 		assertEqual(lib.storage.rogueSlots[0].skillShopLocked, false, "不能重新锁上售罄批次");
 		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔓", "图标保持开锁");
 		nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
-		// 刷新仍被整批售罄/购买额度拒绝
+		// 尚未主动刷新，因此本批售罄卡依旧留在货架；购买后刷新行为由单独测试覆盖
 		const ids = lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(",");
-		clickNode(nodesWithClass("wm-rogue-shop-refresh")[0]);
-		await flush();
-		assertEqual(lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(","), ids, "刷新被拒，候选不变");
-		assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "刷新被拒，次数不变");
-		nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
 		// 读档：已购买卡不重掷、不重复购买，刷新仍被拒
 		session();
 		click("商店");
 		assertEqual(lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(","), ids, "读档后三张已购买卡原样保留");
 		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔓", "读档后仍是解锁");
-		assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), "本批已售罄", "读档后刷新仍置灰");
+		assert(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]).includes("刷新 2/2"), "读档后仍允许主动刷新");
 		clickNode(nodesWithClass("wm-rogue-shop-buy")[0]);
 		await flush();
 		assertEqual(lib.storage.rogueSlots[0].skills.length, 0, "读档后点已购买卡不重复购买");
@@ -4571,13 +4564,13 @@ await check("技能橱窗：最后一张买完立即解锁，当前卡保留，�
 		assertEqual(fresh.length, cfg.SKILL_OFFER_COUNT, "下一关重新摇满候选");
 		assert(fresh.every(offer => offer.sold === false), "新候选全是未购买");
 		assertEqual(textOf(nodesWithClass("wm-rogue-shop-refresh")[0]), `刷新 ${cfg.SKILL_REFRESH_PER_LEVEL}/${cfg.SKILL_REFRESH_PER_LEVEL}`, "刷新次数恢复");
-		return "最后一张解锁 / 当前卡保留 / 禁止重锁与刷新 / 读档不重复 / 下一关刷新";
+		return "最后一张解锁 / 当前卡保留 / 禁止重锁 / 可主动刷新 / 读档不重复 / 下一关刷新";
 	} finally {
 		Math.random = originalRandom;
 	}
 });
 
-await check("技能橱窗旧档：全售罄只解锁保留卡片，读档/重进/刷新都不能提前换货", async () => {
+await check("技能橱窗旧档：全售罄只解锁保留卡片，主动刷新前读档/重进不换货", async () => {
 	const originalRandom = Math.random;
 	try {
 		Math.random = () => 0.999;
@@ -4603,14 +4596,10 @@ await check("技能橱窗旧档：全售罄只解锁保留卡片，读档/重进
 		assertEqual(textOf(nodesWithClass("wm-rogue-shop-lock")[0]), "🔓", "锁图标是开锁");
 		assert(nodesWithClass("wm-rogue-shop-buy").every(node => textOf(node) === "已购买"), "三张都显示已购买");
 		const refresh = nodesWithClass("wm-rogue-shop-refresh")[0];
-		assertEqual(textOf(refresh), "本批已售罄", "刷新按钮按整批售罄置灰");
-		assert(refresh.classList.contains("wm-rogue-disabled"), "刷新按钮禁用");
+		assert(textOf(refresh).includes("刷新 2/2"), "旧档售罄后可主动刷新");
+		assert(!refresh.classList.contains("wm-rogue-disabled"), "未锁定即可刷新");
 		const ids = lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(",");
-		clickNode(refresh);
-		await flush();
-		assertEqual(lib.storage.rogueSlots[0].shopOffers.map(offer => offer.id).join(","), ids, "手动刷新不能提前换货");
-		assertEqual(lib.storage.rogueSlots[0].shopRefreshesRemaining, cfg.SKILL_REFRESH_PER_LEVEL, "刷新被拒不扣次数");
-		nodesWithClass("wm-rogue-popup").forEach(node => node.remove());
+		// 不点击刷新时，存档不会擅自重掷候选。
 		// 重新进入商店（读档/重进）也不重掷
 		session();
 		click("商店");
@@ -4630,7 +4619,7 @@ await check("技能橱窗旧档：全售罄只解锁保留卡片，读档/重进
 		const fresh = lib.storage.rogueSlots[0].shopOffers;
 		assertEqual(fresh.length, cfg.SKILL_OFFER_COUNT, "胜利后重摇新候选");
 		assert(fresh.every(offer => offer.sold === false), "新候选全是未购买");
-		return "旧档只解锁 / 保留卡片 / 禁刷新 / 胜利后才换货";
+		return "旧档只解锁 / 保留卡片 / 可主动刷新 / 未刷新时胜利才换货";
 	} finally {
 		Math.random = originalRandom;
 	}
