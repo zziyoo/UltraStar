@@ -596,7 +596,7 @@ await check("营地奇物入口：与技能并列、直达管理页、升级落�
 	assert(card, "管理页应渲染奇物卡");
 	// 卡面按品质与效果表自动生成：当前品质 + 当前效果 + 下一品质预览 + 按当前关卡现算的升级价
 	const cardText = dump(card);
-	for (const token of ["能量核心", "普通", "摸牌阶段额外摸 1 张牌", "下一品质：稀有", "摸牌阶段额外摸 2 张牌", "升级 1110 经验"]) {
+	for (const token of ["能量核心", "普通", "准备阶段摸 1 张牌", "下一品质：稀有", "准备阶段摸 2 张牌", "升级 1110 经验"]) {
 		assert(cardText.includes(token), `卡面应显示「${token}」：${cardText}`);
 	}
 	click("返回");
@@ -2887,7 +2887,7 @@ await check("Boss 战逐场判定：创建这一场时掷中才换单 Boss（体
 		assert(pageText.includes("奖励与关卡进度都已入账"), `缺失临时数据时的说法：${pageText.slice(0, 200)}`);
 		assert(pageText.includes("能量核心（稀有）"), `惩罚页要列出真实持有的奇物：${pageText}`);
 		assert(!pageText.includes("own_one") && !pageText.includes("点击失去这个技能"), "技能已清算，页面不再列技能卡");
-		assert(pageText.includes("摸牌阶段额外摸 2 张牌"), `奇物条目要带效果说明：${pageText}`);
+		assert(pageText.includes("准备阶段摸 2 张牌"), `奇物条目要带效果说明：${pageText}`);
 		assertEqual(nodesWithClass("wm-rogue-boss-card-action").length, 1, "每张卡都写明「点击失去…」的操作提示");
 		// 挑奇物：点卡片即确认，删除立刻落盘
 		click("能量核心（稀有）");
@@ -3710,7 +3710,7 @@ await check("奇物商店：候选展示、购买后保留已购卡、同场限�
 	// （第 2 关胜利经验 floor(20×√2)=28，升级价 = 10×28 = 280；这一档 exp 为 0，所以按钮置灰）
 	const manageText = dump(manage);
 	// 当前效果与下一品质效果都按效果表自动生成，句式统一
-	for (const token of ["能量核心", "普通", "摸牌阶段额外摸 1 张牌", "下一品质：稀有", "摸牌阶段额外摸 2 张牌", "升级 280 经验（持有 0）"]) {
+	for (const token of ["能量核心", "普通", "准备阶段摸 1 张牌", "下一品质：稀有", "准备阶段摸 2 张牌", "升级 280 经验（持有 0）"]) {
 		assert(manageText.includes(token), `管理页卡面应显示「${token}」：${manageText}`);
 	}
 	assert(nodesWithClass("wm-rogue-curio-up")[0].classList.contains("wm-rogue-disabled"), "经验不足时升级按钮置灰");
@@ -3743,8 +3743,8 @@ await check("奇物管理页：点升级真的升一档、原位重绘，史诗�
 	assertEqual(saved.currency.exp, 5000 - 1110, "扣掉 1110 经验");
 	// 原位重绘：卡面自己变成稀有档的样子，没有重开页面
 	let text = dump(cardOf("能量核心"));
-	assert(text.includes("稀有") && text.includes("摸牌阶段额外摸 2 张牌"), `卡面应重绘成稀有档：${text}`);
-	assert(text.includes("下一品质：史诗") && text.includes("摸牌阶段额外摸 4 张牌"), `下一档预览跟上：${text}`);
+	assert(text.includes("稀有") && text.includes("准备阶段摸 2 张牌"), `卡面应重绘成稀有档：${text}`);
+	assert(text.includes("下一品质：史诗") && text.includes("准备阶段摸 4 张牌"), `下一档预览跟上：${text}`);
 	assert(text.includes(`升级 ${1110 * 1} 经验`), `价签按当前档重算：${text}`);
 	assertEqual(nodesWithClass("wm-rogue-curio-manage").length, 2, "页面没被重开（还是这两张卡）");
 	// 再升一档到史诗：按钮整个拿掉，只留「已达最高品质」
@@ -3754,7 +3754,7 @@ await check("奇物管理页：点升级真的升一档、原位重绘，史诗�
 	assertEqual(saved.curioQuality.energy_core, "epic", "再升到史诗");
 	assertEqual(saved.currency.exp, 5000 - 1110 * 2, "第二次也扣钱");
 	text = dump(cardOf("能量核心"));
-	assert(text.includes("史诗") && text.includes("摸牌阶段额外摸 4 张牌"), `史诗档卡面：${text}`);
+	assert(text.includes("史诗") && text.includes("准备阶段摸 4 张牌"), `史诗档卡面：${text}`);
 	assert(text.includes("已达最高品质"), `链尾写「已达最高品质」：${text}`);
 	const maxBtn = nodesWithClass("wm-rogue-curio-up")[0];
 	assert(maxBtn.classList.contains("wm-rogue-hidden"), "链尾的升级按钮要藏起来（`.wm-rogue-hidden` 必须有 display:none 规则压得住按钮的 inline-flex）");
@@ -3940,12 +3940,12 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 	const core = detailOf("能量核心");
 	assertEqual(
 		JSON.stringify(core.names),
-		JSON.stringify(["【普通】 初始", "【稀有】", "【史诗】"]),
+		JSON.stringify(["【普通】", "【稀有】", "【史诗】"]),
 		`档位名：${core.names.join(" / ")}`,
 	);
 	assertEqual(
 		JSON.stringify(core.effects),
-		JSON.stringify(["摸牌阶段额外摸 1 张牌", "摸牌阶段额外摸 2 张牌", "摸牌阶段额外摸 4 张牌"]),
+		JSON.stringify(["准备阶段摸 1 张牌", "准备阶段摸 2 张牌", "准备阶段摸 4 张牌"]),
 		`每档的实际数值：${core.effects.join(" / ")}`,
 	);
 	assert(core.text.includes("能量核心") && core.text.includes("初始品质：普通"), `头部有名称与初始品质：${core.text}`);
@@ -3959,7 +3959,7 @@ await check("奇物详情：完整升级路线（初始 / 每档 / 最高品质�
 	assertEqual(watch.names.length, 1, `史诗起手没有后续档位：${watch.names.join(" / ")}`);
 	// 记忆棱镜：稀有起步两档，事件经验加成幅度逐档给（文案一律由统一效果表生成）
 	const prism = detailOf("记忆棱镜");
-	assertEqual(JSON.stringify(prism.names), JSON.stringify(["【稀有】 初始", "【史诗】"]), `记忆棱镜档位：${prism.names.join(" / ")}`);
+	assertEqual(JSON.stringify(prism.names), JSON.stringify(["【稀有】", "【史诗】"]), `记忆棱镜档位：${prism.names.join(" / ")}`);
 	assertEqual(
 		JSON.stringify(prism.effects),
 		JSON.stringify(["从随机事件中获得的经验奖励额外增加 25%", "从随机事件中获得的经验奖励额外增加 50%"]),
@@ -4038,7 +4038,7 @@ await check("图鉴事件描述：裂隙三档/古代遗迹三门按 config 展�
 	// 虫洞：跳关与奖励口径照实写在图鉴里（数字读事件数据，不在这里抄第二份）
 	const wormhole = openDetail("虫洞");
 	const skipLevels = eventsData.events.wormhole.choices[0].reward.skipLevels;
-	assert(wormhole.some(line => line.includes(`跳过 ${skipLevels} 关`) && line.includes("并获得期间的全部金币与经验")),
+	assert(wormhole.some(line => line.includes(`跳过 ${skipLevels} 关`) && line.includes("并获得期间的 2 倍金币与经验")),
 		`虫洞应写明跳关与奖励口径：${wormhole.join(" / ")}`);
 	assert(!wormhole.includes("无奖励"), `虫洞不该显示无奖励：${wormhole.join(" / ")}`);
 	// 记忆回廊：深入记忆的两支概率照实写全（含失手），失手的「最多扣光」安全口径也要写进去；
@@ -4122,7 +4122,7 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 		JSON.stringify(game.me.storage.rogue_curio),
 		JSON.stringify({
 			extraPhase: 1,
-			extraDraw: 4,
+			prepareDraw: 4,
 			dyingSave: 0,
 			dyingRecoverToRatio: 0,
 			roundHeal: 0,
@@ -4132,7 +4132,7 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 			unrespondableLowHp: 1,
 			unrespondableCardDamage: 1,
 			hurtDamageNext: 0,
-			hurtDamageRound: 0,
+			hurtDamageNextTurn: 0,
 			hurtDamageGame: 1,
 			dyingRecallChance: 0.5,
 			killGainMaxHp: 2,
@@ -4167,7 +4167,7 @@ await check("战斗接入：奇物在建局时挂 rogue_curio 并写入效果总
 	assert(!!game.me.marks.rogue_curio, "应挂上「奇物」徽记");
 	tapMark(game.me.marks.rogue_curio);
 	const curioText = screenText();
-	for (const token of ["奇物", "能量核心（史诗）", "摸牌阶段额外摸 4 张牌", "幸运石（稀有）", "经验获取 +10%", "破损怀表（史诗）",
+	for (const token of ["奇物", "能量核心（史诗）", "准备阶段摸 4 张牌", "幸运石（稀有）", "经验获取 +10%", "破损怀表（史诗）",
 		"狂战徽章（稀有）", "每回合首次造成伤害后，本回合你造成的伤害 +1",
 		"血怒核心（稀有）", "体力低于体力上限的一半（向上取整）时，你使用的牌无法被响应，且此牌造成的伤害 +1",
 		"反击护符（史诗）", "当你受到伤害后，本局游戏你造成的伤害 +1",
@@ -5132,7 +5132,10 @@ await check("虫洞：进洞跳过十关、期间基础奖励入账，最高记�
 	const pending = eventManager.buildPendingEvent("wormhole", jumpFrom - 1, () => 0, 1, {
 		level: jumpFrom, statLevels: base.stats, curios: [], run: { ...base, level: jumpFrom },
 	});
-	const expect = { gold: pending.choices[0].reward.gold, exp: pending.choices[0].reward.exp };
+	const baseReward = rewardsData.sumEndlessRewards(jumpFrom, 10);
+	const expect = { gold: baseReward.gold * 2, exp: baseReward.exp * 2 };
+	assertEqual(pending.choices[0].reward.gold, expect.gold, "虫洞金币为跳过十关基础奖励两倍");
+	assertEqual(pending.choices[0].reward.exp, expect.exp, "虫洞经验为跳过十关基础奖励两倍");
 	// 这一局是从存档页进来的（读档优先回事件页）：先把纪录摆在前一关，好验「记到跳过的最后一关」
 	lib.storage.rogueBestEndless = { level: jumpFrom - 1, characterId: "迪迦", updatedAt: 1 };
 	putRun(0, { mode: "endless", level: jumpFrom, currency: { gold: 0, exp: 0 }, pendingEvent: pending });

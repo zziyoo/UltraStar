@@ -604,7 +604,7 @@ const EVENT_REWARD_KEYS = [
 	"curio", "skill", "statUp", "statDown",
 	// 跳关（虫洞）：构建期把「接下来 N 关」的基础奖励并进 gold/exp，结算层按它推关卡；
 	// 它会连同定死的 gold/exp 一起写进存档
-	"skipLevels",
+	"skipLevels", "skipRewardMultiplier",
 	// 只在构建期出现的两个键：掷定给哪一件奇物、掷不到时补几倍基准经验，
 	// 落档前一定被展开成 curio(具体 id) + 固定 exp，不会进存档
 	"curioRarity", "expIfNoCurioByWin",
@@ -691,6 +691,10 @@ check("事件配置：结构与字段合法、奖励键与引用有效", () => {
 				const skip = reward?.skipLevels;
 				if (skip !== undefined && !(Number.isInteger(skip) && skip > 0)) {
 					problems.push(`${key} 第${index + 1}个选项: skipLevels 应为正整数（跳过几关）`);
+				}
+				const skipMultiplier = reward?.skipRewardMultiplier;
+				if (skipMultiplier !== undefined && (!(Number.isInteger(skipMultiplier) && skipMultiplier > 0) || !(skip > 0))) {
+					problems.push(`${key} 第${index + 1}个选项: skipRewardMultiplier 须为正整数且与 skipLevels 同时使用`);
 				}
 				// 掷奇物的门同时消耗经验是自我矛盾的：落空分支会把负数抬成正数，
 				// 玩家点之前看到的「要花多少」与实际结算的方向相反
@@ -946,7 +950,7 @@ check("奇物机制技：战斗内效果键都有承载时机，机制技随模�
 		firstDamageBonus: "damage",
 		// 反击护符三档都是「受到伤害后」上一层 buff
 		hurtDamageNext: "damageEnd",
-		hurtDamageRound: "damageEnd",
+		hurtDamageNextTurn: "damageEnd",
 		hurtDamageGame: "damageEnd",
 		// 血怒核心的「无法被响应」走 ai 标签（norespond + playernowuxie），
 		// 但它附带的「此牌伤害 +1」仍要有加伤时机，所以这里盯 damageBegin1

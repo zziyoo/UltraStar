@@ -28,7 +28,7 @@ import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE, C
 export const CURIOSITY_EFFECT_KEYS = [
 	"extraPhase", "prepareDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
 	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
-	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
+	"hurtDamageNext", "hurtDamageNextTurn", "hurtDamageGame",
 	"dyingRecallChance",
 	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
 	"expRate", "goldRate", "goldRateSpread",
@@ -49,7 +49,7 @@ export const CURIOSITY_EFFECT_KEYS = [
 export const CURIOSITY_BATTLE_KEYS = [
 	"extraPhase", "prepareDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
 	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
-	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
+	"hurtDamageNext", "hurtDamageNextTurn", "hurtDamageGame",
 	"dyingRecallChance",
 	"killGainMaxHp", "killHeal", "killHealToMax", "killDrawToMaxHp", "killDrawMaxHp",
 	"skillSacrifice",
@@ -185,7 +185,7 @@ const EFFECT_TEXT = {
 		return damage > 0 ? `${head}，且此牌造成的伤害 +${damage}` : head;
 	},
 	hurtDamageNext: value => `当你受到伤害后，你下一次造成的伤害 +${value}`,
-	hurtDamageRound: value => `当你受到伤害后，本回合你造成的伤害 +${value}`,
+	hurtDamageNextTurn: value => `当你受到伤害后，你下个回合内造成的伤害 +${value}`,
 	hurtDamageGame: value => `当你受到伤害后，本局游戏你造成的伤害 +${value}`,
 	// 回响之铃：概率按档写，满档（1）不写概率句；只认「使用过」（打出/响应不算）
 	dyingRecallChance: value => {

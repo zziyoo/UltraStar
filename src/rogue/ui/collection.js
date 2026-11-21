@@ -52,7 +52,9 @@ function rewardBrief(reward, choice = null) {
 		parts.push(byWin(reward.expByWin, "经验"));
 	}
 	if (Number.isFinite(reward.skipLevels) && reward.skipLevels > 0) {
-		parts.push(`跳过 ${reward.skipLevels} 关，并获得期间的全部金币与经验`);
+		const multiplier = Number.isInteger(reward.skipRewardMultiplier) && reward.skipRewardMultiplier > 0
+			? reward.skipRewardMultiplier : 1;
+		parts.push(`跳过 ${reward.skipLevels} 关，并获得期间的${multiplier === 1 ? "全部" : ` ${multiplier} 倍`}金币与经验`);
 	}
 	if (Number.isFinite(reward.goldPct) && reward.goldPct) {
 		const wager = `投入当前金币的 ${Math.abs(reward.goldPct)}%`;
@@ -240,11 +242,10 @@ function showCurioDetail(id) {
 	}
 	track.forEach((step, index) => {
 		const section = ui.create.div(".wm-rogue-detail-step", body);
-		// 首档是「初始」，其余档只有品质名（品质就是本项目的等级）
-		const mark = index === 0 ? "初始" : "";
+		// 详情顶部已展示初始品质，路线中只显示各档品质名。
 		ui.create.div(
 			`.wm-rogue-detail-step-name.wm-rogue-rarity-${step.quality}`,
-			mark ? `【${step.label}】 ${mark}` : `【${step.label}】`,
+			`【${step.label}】`,
 			section,
 		);
 		if (!step.lines.length) {

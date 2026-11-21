@@ -35,7 +35,7 @@
 //                                        unrespondableLowHp=1 表示只在「体力低于体力上限的一半（向上取整）」时生效；
 //                                        unrespondableCardDamage=N 表示同时「此牌造成的伤害 +N」
 //                     hurtDamageNext   受到伤害后，你下一次造成的伤害 +N（战斗内，反击护符）
-//                     hurtDamageRound  受到伤害后，本回合你造成的伤害 +N（战斗内，反击护符稀有档）
+//                     hurtDamageNextTurn  受到伤害后，你下个回合内造成的伤害 +N（战斗内，反击护符稀有档）
 //                     hurtDamageGame   受到伤害后，本局游戏你造成的伤害 +N（战斗内，反击护符史诗档）
 //                                        上面三档都只加一层，反复受伤不会越叠越高
 //                     extraCurioShopChance
@@ -203,7 +203,7 @@ export const curios = {
 		priceMultiplier: 1,
 		effect: { hurtDamageNext: 1 },
 		qualityEffects: {
-			rare: { hurtDamageRound: 1 },
+			rare: { hurtDamageNextTurn: 1 },
 			epic: { hurtDamageGame: 1 },
 		},
 	},

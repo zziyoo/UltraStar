@@ -100,8 +100,8 @@ function curioDealtDamageBonus(player, event) {
 	if ((storage.hurtDamageGame || 0) > 0 && player.rogueCurioCounterGame) {
 		bonus += storage.hurtDamageGame;
 	}
-	if ((storage.hurtDamageRound || 0) > 0 && samePhase(player.rogueCurioCounterPhase, phase)) {
-		bonus += storage.hurtDamageRound;
+	if ((storage.hurtDamageNextTurn || 0) > 0 && samePhase(player.rogueCurioCounterPhase, phase)) {
+		bonus += storage.hurtDamageNextTurn;
 	}
 	if ((storage.hurtDamageNext || 0) > 0 && player.rogueCurioCounterNext) {
 		bonus += storage.hurtDamageNext;
@@ -258,8 +258,9 @@ export const helpers = {
 		filter(event, player, triggername) {
 			const storage = player.storage.rogue_curio ?? {};
 			if (triggername === "phaseBegin") {
-				// 游戏开始时：整局的第一个回合开始才给额外阶段（自身只给一次）
-				return !player.storage.rogue_curio_watch && game.phaseNumber <= 1 && (storage.extraPhase || 0) > 0;
+				// 怀表在开局插阶段；反击护符稀有档在受伤后下一次自己的回合开始时激活。
+				return (!player.storage.rogue_curio_watch && game.phaseNumber <= 1 && (storage.extraPhase || 0) > 0)
+					|| ((storage.hurtDamageNextTurn || 0) > 0 && player.rogueCurioCounterPending === true);
 			}
 			if (triggername === "phaseZhunbeiBegin") {
 				return (storage.prepareDraw || 0) > 0;
@@ -289,7 +290,7 @@ export const helpers = {
 				// 反击护符：受到伤害后上一层 buff。当前品质下三档只有一个键存在（qualityEffects 整份替换），
 				// 所以「不累加」天然成立；反复受伤也只是把同一层重新按上
 				return event.num > 0
-					&& (storage.hurtDamageNext || 0) + (storage.hurtDamageRound || 0) + (storage.hurtDamageGame || 0) > 0;
+					&& (storage.hurtDamageNext || 0) + (storage.hurtDamageNextTurn || 0) + (storage.hurtDamageGame || 0) > 0;
 			}
 			if (triggername === "damage") {
 				// 狂战徽章要的是「首次造成伤害**后**」，所以第一下之前不该武装——已经武装过本回合就不再重复
@@ -308,10 +309,17 @@ export const helpers = {
 		async content(event, trigger, player) {
 			const storage = player.storage.rogue_curio ?? {};
 			if (event.triggername === "phaseBegin") {
-				player.storage.rogue_curio_watch = true;
-				// 官方「当先」同款：把额外出牌阶段插进当前回合的阶段列表开头
-				for (let i = 0; i < (storage.extraPhase || 0); i++) {
-					trigger.phaseList.splice(trigger.num, 0, "phaseUse|rogue_curio");
+				// 稀有反击护符：仅在下一次自己的回合激活，按同一个回合对象判整回合加伤。
+				if ((storage.hurtDamageNextTurn || 0) > 0 && player.rogueCurioCounterPending === true) {
+					player.rogueCurioCounterPhase = trigger;
+					player.rogueCurioCounterPending = false;
+				}
+				// 怀表额外出牌阶段仅开局插一次，不被反击护符的触发重复执行。
+				if (!player.storage.rogue_curio_watch && game.phaseNumber <= 1 && (storage.extraPhase || 0) > 0) {
+					player.storage.rogue_curio_watch = true;
+					for (let i = 0; i < (storage.extraPhase || 0); i++) {
+						trigger.phaseList.splice(trigger.num, 0, "phaseUse|rogue_curio");
+					}
 				}
 			} else if (event.triggername === "phaseZhunbeiBegin") {
 				await player.draw(storage.prepareDraw || 0);
@@ -365,13 +373,12 @@ export const helpers = {
 			} else if (event.triggername === "phaseEnd") {
 				await player.recover(storage.turnHeal || 0);
 			} else if (event.triggername === "damageEnd") {
-				// 反击护符上 buff：三个记号都是「赋值」而不是「累加」，所以挨多少次打都只有一层
-				const phase = phaseOf(trigger);
+				// 反击护符三个档位均不叠层：稀有档只预约下一次自己的回合。
 				if ((storage.hurtDamageNext || 0) > 0) {
 					player.rogueCurioCounterNext = true;
 				}
-				if ((storage.hurtDamageRound || 0) > 0) {
-					player.rogueCurioCounterPhase = phase;
+				if ((storage.hurtDamageNextTurn || 0) > 0) {
+					player.rogueCurioCounterPending = true;
 				}
 				if ((storage.hurtDamageGame || 0) > 0) {
 					player.rogueCurioCounterGame = true;

@@ -6,7 +6,7 @@
 //   description 事件描述（进入事件页时展示）
 //   image       事件配图（assets/events/ 下 192x192，需登记进 data/assets.js 清单）
 //   hideBalance 写 true 的事件页**不画选项上方那条金币/经验余额条**（虫洞就是：它给的是「跳过十关
-//               期间的全部基础奖励」，把余额摆在那里看着像本场能领的钱）。只是不展示，
+//               期间的双倍基础奖励」，把余额摆在那里看着像本场能领的钱）。只是不展示，
 //               余额、结算与存档一个字节都不动；没写的事件照旧显示余额条。
 //   choices[]   选项，每个选项：
 //     text      选项文字
@@ -76,6 +76,7 @@
 //     skipLevels      跳过 N 关（正整数）：构建期把「接下来 N 关」的无尽基础奖励
 //                     （floor(√n×50) 金币 / floor(√n×20) 经验）逐关求和并进 gold/exp 固定值，
 //                     结算时 run.level += N。基础口径、不吃奇物加成（与深渊裂隙同一条「胜利加成不生效」）。
+//     skipRewardMultiplier 可选正整数：跳关基础奖励倍率，只在构建期使用，不写入存档。
 //                     例：第 4 关打赢后触发 → 跳过第 5~14 关、直接接着打第 15 关，
 //                     无尽最高记录记到跳过的最后一关（第 14 关）
 //     curioRarity + expIfNoCurioByWin
@@ -490,9 +491,9 @@ export const events = {
 		hideBalance: true,
 		choices: [
 			{
-				// 跳过十关并拿走期间的全部金币与经验（基础口径，构建期求和定死；细节见文件头 skipLevels）
+				// 跳过十关并拿走期间的双倍金币与经验（基础口径，构建期求和定死；细节见文件头 skipLevels）
 				text: "进入",
-				reward: { skipLevels: 10 },
+				reward: { skipLevels: 10, skipRewardMultiplier: 2 },
 			},
 			{
 				text: "离开",

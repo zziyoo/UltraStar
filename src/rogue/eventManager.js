@@ -421,12 +421,14 @@ function buildEventChoice(choice, env) {
 	// 最后走白名单清洗：存档里只允许出现固定值，绝不保存倍率、品质名与随机态
 	const scaled = resolveCurioRarity(scaleReward(reward, base), base, ownedCurios, rng);
 	const clean = normalizeEventReward(scaled);
-	// 跳关（虫洞）：把「接下来 N 关」的无尽基础奖励逐关求和，并进 gold/exp 固定值——与裂隙同一套
-	// 「构建期定死、读档不重掷」，基础口径、不吃奇物加成。skipLevels 本身也留着，结算层按它推关卡
+	// 跳关基础奖励逐关汇总并乘以定义倍率；存档只保存固定金额与跳关数。
+	// 奇物胜利奖励加成不参与，旧事件不重算既有奖励。
 	if (clean.skipLevels) {
 		const gain = sumEndlessRewards(nextLevel, clean.skipLevels);
+		const multiplier = Number.isInteger(reward?.skipRewardMultiplier) && reward.skipRewardMultiplier > 0
+			? reward.skipRewardMultiplier : 1;
 		for (const [key, value] of Object.entries(gain)) {
-			clean[key] = (Number(clean[key]) || 0) + value;
+			clean[key] = (Number(clean[key]) || 0) + value * multiplier;
 		}
 	}
 	// statUp/statDown 的 "random" 就地解析成具体属性（消费 rng），与 outcomes 预掷同属生成期随机，

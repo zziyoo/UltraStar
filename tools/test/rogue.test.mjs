@@ -3605,33 +3605,34 @@ check("虫洞：跳过十关，期间的基础金币与经验一次性入账", (
 	assertEqual(pending.id, "wormhole", "待处理事件只存 id（名字由事件页现读定义）");
 	assertEqual(pending.choices.length, 2, "进入 / 离开 两个选项");
 	assertEqual(pending.choices[0].reward.skipLevels, 10, "跳过十关");
-	assertEqual(pending.choices[0].reward.gold, expect.gold, "构建期就把第 5~14 关的金币求和定死");
-	assertEqual(pending.choices[0].reward.exp, expect.exp, "构建期就把第 5~14 关的经验求和定死");
+	assertEqual(pending.choices[0].reward.gold, expect.gold * 2, "构建期十关基础金币求和后翻倍");
+	assertEqual(pending.choices[0].reward.exp, expect.exp * 2, "构建期十关基础经验求和后翻倍");
+	assertEqual(pending.choices[0].reward.skipRewardMultiplier, undefined, "倍率不写入存档");
 	assertEqual(JSON.stringify(pending.choices[1].reward), "{}", "离开没有奖励");
 	// 基础口径：拿着会砍金币的奇物也不会因此缩水（与裂隙同一条「胜利加成不生效」）
 	const hungry = { ...run, curios: ["hungry_box"] };
 	const boosted = eventManager.buildPendingEvent("wormhole", BASE_LEVEL, () => 0, NOW, {
 		level: hungry.level, statLevels: hungry.stats, curios: hungry.curios, run: hungry,
 	});
-	assertEqual(boosted.choices[0].reward.gold, expect.gold, "带饥饿之匣也只发基础口径");
+	assertEqual(boosted.choices[0].reward.gold, expect.gold * 2, "带饥饿之匣也不影响双倍基础金币");
 	// 结算：关卡一次性推进十关、期间奖励入账、文案写明跳到第几关
 	const settled = eventManager.resolveEventChoice({ ...run, pendingEvent: pending }, 0, {}, () => 0);
 	assertEqual(settled.run.level, from + 10, "关卡推进十关");
-	assertEqual(settled.run.currency.gold, expect.gold, "期间金币一次性入账");
-	assertEqual(settled.run.currency.exp, expect.exp, "期间经验一次性入账");
+	assertEqual(settled.run.currency.gold, expect.gold * 2, "期间双倍金币一次性入账");
+	assertEqual(settled.run.currency.exp, expect.exp * 2, "期间双倍经验一次性入账");
 	assert(settled.lines.some(line => line.includes(`第 ${from + 10} 关`)), `文案写明跳到第几关：${settled.lines.join(" / ")}`);
 	assertEqual(settled.run.pendingEvent, null, "事件收掉");
 	// 存档往返：skipLevels 与已经定死的金额原样读回（读档不重算、不重掷）
 	const roundTrip = state.normalizeRun({ ...freshRun(cfg.RUN_MODE.endless), level: from, pendingEvent: pending });
 	const kept = roundTrip.pendingEvent.choices[0].reward;
 	assertEqual(kept.skipLevels, 10, "跳关参数随存档定死");
-	assertEqual(kept.gold, expect.gold, "金币金额读档不重算");
-	assertEqual(kept.exp, expect.exp, "经验金额读档不重算");
+	assertEqual(kept.gold, expect.gold * 2, "双倍金币金额读档不重算");
+	assertEqual(kept.exp, expect.exp * 2, "双倍经验金额读档不重算");
 	// 「离开」：关卡与钱包一动不动
 	const left = eventManager.resolveEventChoice({ ...run, pendingEvent: pending }, 1, {}, () => 0);
 	assertEqual(left.run.level, from, "离开不推关卡");
 	assertEqual(left.run.currency.gold, 0, "离开不发钱");
-	return `第 ${from}~${from + 9} 关共 ${expect.gold} 金币 / ${expect.exp} 经验`;
+	return `第 ${from}~${from + 9} 关共 ${expect.gold * 2} 金币 / ${expect.exp * 2} 经验`;
 });
 
 check("技能熔炉：交回 mode.js 且一个钱都不扣，背包为空时才弹提示", () => {
@@ -3902,7 +3903,7 @@ check("新奇物效果文案：每档都由效果键生成，血怒核心合成�
 	assertEqual(lines("blood_rage_core", "epic")[0], "你使用的牌无法被响应，且此牌造成的伤害 +1", "史诗档去掉体力条件");
 	assertEqual(lines("blood_rage_core").length, 1, "配套键不得单独出行");
 	assertEqual(lines("counter_amulet")[0], "当你受到伤害后，你下一次造成的伤害 +1", "反击护符普通档");
-	assertEqual(lines("counter_amulet", "rare")[0], "当你受到伤害后，本回合你造成的伤害 +1", "稀有档换时机不换句式");
+	assertEqual(lines("counter_amulet", "rare")[0], "当你受到伤害后，你下个回合内造成的伤害 +1", "稀有档下一次自己的回合加伤");
 	assertEqual(lines("counter_amulet", "epic")[0], "当你受到伤害后，本局游戏你造成的伤害 +1", "史诗档");
 	assert(lines("golden_compass")[0].includes("10%") && lines("golden_compass")[0].includes("奇物商店的刷新概率提高"), `黄金罗盘要说清是百分点累加：${lines("golden_compass")[0]}`);
 	assert(!lines("golden_compass")[0].includes("额外刷出一批"), "罗盘不再是「另掷一次的一批」，文案不能还这么写");
@@ -3959,11 +3960,30 @@ check("rogue_curio 新增机制：三件加伤奇物的判据与「只加一层�
 	assertEqual(paid.num, 2, "下一次 +1 兑现");
 	assertEqual(amulet.rogueCurioCounterNext, false, "吃过即清空");
 	assert(!info.filter(damageEvent({}, phase), amulet, "damageBegin1"), "没有第二层");
-	// —— 稀有档「本回合」：换回合即失效
-	const rounder = makeCarrier({ hurtDamageRound: 1 });
+	// —— 稀有档：只预约下个自己的回合，整回合多次伤害 +1；重复受伤不叠加。
+	const rounder = makeCarrier({ hurtDamageNextTurn: 1 });
 	info.content(skillEvent("damageEnd", hurt), hurt, rounder);
-	assert(info.filter(damageEvent({}, phase), rounder, "damageBegin1"), "本回合内加伤");
-	assert(!info.filter(damageEvent({}, { name: "phase" }), rounder, "damageBegin1"), "下个回合不再加");
+	info.content(skillEvent("damageEnd", hurt), hurt, rounder);
+	assertEqual(rounder.rogueCurioCounterPending, true, "重复受伤仍只预约一层");
+	assert(!info.filter(damageEvent({}, phase), rounder, "damageBegin1"), "受伤时不立即加成");
+	const ownNext = { name: "phase", phaseList: [], num: 0 };
+	assert(info.filter(ownNext, rounder, "phaseBegin"), "应在下个自己的回合开始时触发");
+	info.content(skillEvent("phaseBegin", ownNext), ownNext, rounder);
+	assertEqual(rounder.rogueCurioCounterPhase, ownNext, "绑定到下个自己的回合");
+	assertEqual(rounder.rogueCurioCounterPending, false, "预约生效后清空");
+	for (let i = 0; i < 2; i++) {
+		const hit = damageEvent({}, ownNext);
+		assert(info.filter(hit, rounder, "damageBegin1"), "生效回合内所有伤害都加成");
+		info.content(skillEvent("damageBegin1", hit), hit, rounder);
+		assertEqual(hit.num, 2, `生效回合第 ${i + 1} 次伤害均 +1`);
+	}
+	assert(!info.filter(damageEvent({}, { name: "phase" }), rounder, "damageBegin1"), "回合结束后自然失效");
+	assert(!info.filter({ name: "phase" }, rounder, "phaseBegin"), "没有再次受伤就不能重激活");
+	// 生效回合期间再次受伤，可以预约下个回合，且加成不叠层。
+	info.content(skillEvent("damageEnd", hurt), hurt, rounder);
+	const afterNext = { name: "phase", phaseList: [], num: 0 };
+	info.content(skillEvent("phaseBegin", afterNext), afterNext, rounder);
+	assert(info.filter(damageEvent({}, afterNext), rounder, "damageBegin1"), "受伤后下个自己的回合可再次加成");
 	// —— 史诗档「本局」：挨多少次都只有一层
 	const guard = makeCarrier({ hurtDamageGame: 1 });
 	info.content(skillEvent("damageEnd", hurt), hurt, guard);
