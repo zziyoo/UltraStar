@@ -18,7 +18,7 @@
 //                   品质键只能是初始品质之后的档位，不写的品质表示效果与上一档相同。
 //                   允许每件奇物有自己的升级曲线（不要写成「初始效果 ×N」）
 //                     extraPhase      游戏开始时获得 N 个额外的出牌阶段（战斗内，破损怀表）
-//                     extraDraw       摸牌阶段额外摸 N 张牌（战斗内，能量核心）
+//                     prepareDraw     准备阶段摸 N 张牌（战斗内，能量核心）
 //                     dyingSave       每局游戏首次进入濒死时回复体力至 1（战斗内，气息腰带；N 即次数）
 //                     dyingRecoverToRatio
 //                                     濒死回复到「体力上限 × N（向上取整）」而不是固定回 1
@@ -124,10 +124,10 @@ export const curios = {
 		image: "extension/奥特之星/assets/curios/energy_core.png",
 		rarity: "common",
 		priceMultiplier: 1,
-		effect: { extraDraw: 1 },
+		effect: { prepareDraw: 1 },
 		qualityEffects: {
-			rare: { extraDraw: 2 },
-			epic: { extraDraw: 4 },
+			rare: { prepareDraw: 2 },
+			epic: { prepareDraw: 4 },
 		},
 	},
 	leftover_rice: {

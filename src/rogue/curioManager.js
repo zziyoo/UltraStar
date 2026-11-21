@@ -2,14 +2,14 @@
 //
 // 统一接口（不为每个奇物写独立代码）：
 //   sumCurioEffects(ids, qualityMap)   把若干奇物的「当前品质」效果按键叠加成一张总表
-//   getBonus(ids, type, qualityMap)    查某一类效果的累计值，如 getBonus(run.curios, "extraDraw", run.curioQuality) → 1
+//   getBonus(ids, type, qualityMap)    查某一类效果的累计值，如 getBonus(run.curios, "prepareDraw", run.curioQuality) → 1
 //   describeCurioEffects               效果总表 → 玩家可读的一行一条文案（营地/商店/标记说明共用）
 //
 // 品质：def.rarity 是「初始品质」，run.curioQuality[id] 是「这个存档里的当前品质」。
 // 二者必须分开——新获得的奇物永远从初始品质开始（见 getInitialQuality 的注释），
 // 升级只写 run.curioQuality。battle.js / reward.js 一律用 getCurioEffect，不自己判品质。
 //
-// 战斗内的效果（extraPhase/extraDraw/dyingSave/dyingRecoverToRatio/roundHeal/turnHeal）由 battle.js
+// 战斗内的效果（extraPhase/prepareDraw/dyingSave/dyingRecoverToRatio/roundHeal/turnHeal）由 battle.js
 // 建局时把总表一次性写进 player.storage.rogue_curio，由 data/skills.js 的机制技 rogue_curio 承载；
 // 结算类效果（expRate/goldRate/goldRateSpread）在 reward.js 胜利结算时用 getBonus 现查。
 // 商店侧：候选与售价在战斗胜利时定死写进存档（curioOffers），本文件负责生成与购买。
@@ -26,7 +26,7 @@ import { curios, getCurio, curioIds, CURIOSITY_RARITY, CURIOSITY_RARITY_PRICE, C
  * 数据自检保证 curios.js 不写出未知键。
  */
 export const CURIOSITY_EFFECT_KEYS = [
-	"extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
+	"extraPhase", "prepareDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
 	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
 	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
 	"dyingRecallChance",
@@ -47,7 +47,7 @@ export const CURIOSITY_EFFECT_KEYS = [
  * 血怒核心会显示成「你使用的牌无法被响应」，把体力条件与「此牌伤害 +1」整个丢掉。
  */
 export const CURIOSITY_BATTLE_KEYS = [
-	"extraPhase", "extraDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
+	"extraPhase", "prepareDraw", "dyingSave", "dyingRecoverToRatio", "roundHeal", "turnHeal",
 	"firstDamageBonus", "unrespondable", "unrespondableLowHp", "unrespondableCardDamage",
 	"hurtDamageNext", "hurtDamageRound", "hurtDamageGame",
 	"dyingRecallChance",
@@ -163,7 +163,7 @@ function rateLine(key, noun, effects) {
  */
 const EFFECT_TEXT = {
 	extraPhase: value => `游戏开始时，获得 ${value} 个额外的出牌阶段`,
-	extraDraw: value => `摸牌阶段额外摸 ${value} 张牌`,
+	prepareDraw: value => `准备阶段摸 ${value} 张牌`,
 	// 回复目标由 dyingRecoverToRatio 决定：一半就说「一半（向上取整）」，别报百分数——
 	// 取整方向与 data/skills.js 的实现（Math.ceil）对齐；缺省回 1
 	dyingSave: (value, effects) => {
@@ -242,7 +242,7 @@ const EFFECT_TEXT = {
 
 /**
  * 效果总表 → 「键 / 文案」单元格。比纯文案多留一个 key：图鉴要拿它做逐档比对，
- * 才写得出「上一档：摸牌阶段额外摸 1 张牌」这种变化注记。
+ * 才写得出「上一档：准备阶段摸 1 张牌」这种变化注记。
  * 单条文案生成失败不连累整张表——那一行退化成裸键值，页面照样打得开。
  */
 function effectCells(effects) {

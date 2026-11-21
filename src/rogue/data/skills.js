@@ -207,7 +207,7 @@ export const helpers = {
 	},
 	// 奇物的战斗内效果载体（curioManager.sumCurioEffects 按当前品质算出的总表，由 battle.js 建局时一次写进 storage）：
 	// 破损怀表（游戏开始时额外出牌阶段，照官方「当先」的 phaseList.splice 写法）、
-	// 能量核心（摸牌 +1）、气息腰带（每局首次濒死回复）、剩饭（每轮结束回血；升到史诗改每回合）。
+	// 能量核心（准备阶段摸牌，按品质 +1/+2/+4）、气息腰带（每局首次濒死回复）、剩饭（每轮结束回血；升到史诗改每回合）。
 	// 结算类效果（幸运石的经验加成、诅咒金币的金币加成）不走这里，由 reward.js 胜利结算时用 curioManager.getBonus 现查。
 	rogue_curio: {
 		charlotte: true,
@@ -218,7 +218,7 @@ export const helpers = {
 			// damageBegin1 加伤、damage 用来认出「本回合的首次造成伤害」。
 			// useCard = 回响之铃的账本（只记「使用」，打出/响应走 respond 事件，不记账）；
 			// source: die = 破碎王冠认「我杀死了谁」（自伤致死不算，见 filter）。
-			player: ["phaseBegin", "phaseDrawBegin2", "dying", "phaseEnd", "damageEnd", "useCard"],
+			player: ["phaseBegin", "phaseZhunbeiBegin", "dying", "phaseEnd", "damageEnd", "useCard"],
 			source: ["damageBegin1", "damage", "die"],
 			global: "roundEnd",
 		},
@@ -261,8 +261,8 @@ export const helpers = {
 				// 游戏开始时：整局的第一个回合开始才给额外阶段（自身只给一次）
 				return !player.storage.rogue_curio_watch && game.phaseNumber <= 1 && (storage.extraPhase || 0) > 0;
 			}
-			if (triggername === "phaseDrawBegin2") {
-				return !event.numFixed && (storage.extraDraw || 0) > 0;
+			if (triggername === "phaseZhunbeiBegin") {
+				return (storage.prepareDraw || 0) > 0;
 			}
 			if (triggername === "dying") {
 				// 气息腰带（每局只救一次）与回响之铃（每次濒死都掷）共用这一个时机：
@@ -313,8 +313,8 @@ export const helpers = {
 				for (let i = 0; i < (storage.extraPhase || 0); i++) {
 					trigger.phaseList.splice(trigger.num, 0, "phaseUse|rogue_curio");
 				}
-			} else if (event.triggername === "phaseDrawBegin2") {
-				trigger.num += storage.extraDraw || 0;
+			} else if (event.triggername === "phaseZhunbeiBegin") {
+				await player.draw(storage.prepareDraw || 0);
 			} else if (event.triggername === "dying") {
 				// 气息腰带：每局游戏首次濒死，回复目标数据驱动——写了比例就回「体力上限 × 比例」，否则固定回 1
 				if ((storage.dyingSave || 0) > 0 && !player.storage.rogue_curio_belt) {

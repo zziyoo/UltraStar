@@ -1943,11 +1943,11 @@ check("随机奇物奖励：排除已拥有、集齐时落空", () => {
 
 check("CurioManager 统一接口：getBonus 聚合全部奇物的同类效果", () => {
 	const ids = ["energy_core", "lucky_stone"];
-	assertEqual(curioManager.sumCurioEffects(ids).extraDraw, 1, "extraDraw 聚合");
+	assertEqual(curioManager.sumCurioEffects(ids).prepareDraw, 1, "prepareDraw 聚合");
 	assertEqual(curioManager.getBonus(ids, "expRate"), 0.1, "expRate 聚合");
 	assertEqual(curioManager.getBonus(ids, "不存在"), 0, "未知键返回 0");
-	assertEqual(curioManager.getBonus([], "extraDraw"), 0, "空列表返回 0");
-	assertEqual(curioManager.getBonus(["幽灵"], "extraDraw"), 0, "未知奇物忽略");
+	assertEqual(curioManager.getBonus([], "prepareDraw"), 0, "空列表返回 0");
+	assertEqual(curioManager.getBonus(["幽灵"], "prepareDraw"), 0, "未知奇物忽略");
 	const lines = curioManager.describeCurioEffects(curioManager.sumCurioEffects(["broken_watch", "energy_core", "lucky_stone", "breath_belt", "leftover_rice"]));
 	assertEqual(lines.length, 5, "五个战斗/结算效果都有文案");
 	assert(lines.some(line => line.includes("额外的出牌阶段")), "怀表文案");
@@ -1975,11 +1975,11 @@ check("奇物升级路线：图鉴读的就是奇物定义，每一档与实战�
 	assertEqual(core.map(step => step.quality).join(">"), "common>rare>epic", "从初始品质一路到链尾");
 	assertEqual(
 		JSON.stringify(core.map(step => step.lines[0].text)),
-		JSON.stringify(["摸牌阶段额外摸 1 张牌", "摸牌阶段额外摸 2 张牌", "摸牌阶段额外摸 4 张牌"]),
+		JSON.stringify(["准备阶段摸 1 张牌", "准备阶段摸 2 张牌", "准备阶段摸 4 张牌"]),
 		`每一档的最终数值：${core.map(step => step.lines[0].text).join(" / ")}`,
 	);
 	assertEqual(core[0].lines[0].prev, null, "初始档没有上一档");
-	assertEqual(core[1].lines[0].prev, "摸牌阶段额外摸 1 张牌", "第二档注记上一档");
+	assertEqual(core[1].lines[0].prev, "准备阶段摸 1 张牌", "第二档注记上一档");
 	assertEqual(core[0].changed, false, "初始档不算变化");
 	assert(core.slice(1).every(step => step.changed), "后面几档都标了变化");
 	// 负面奇物：从「金币 -10%」一路净化到「+20%」，四档全给
@@ -2433,6 +2433,10 @@ check("奇物机制技：四种战斗内效果都由 rogue_curio 承载", () => 
 		hp: 4,
 		maxHp: 4,
 		isAlive: () => true,
+		drawn: 0,
+		async draw(num) {
+			this.drawn += num;
+		},
 		recoverTo: async value => {
 			makePlayer.recoveredTo = value;
 		},
@@ -2454,11 +2458,18 @@ check("奇物机制技：四种战斗内效果都由 rogue_curio 承载", () => 
 	const later = makePlayer({ extraPhase: 1 });
 	assert(!info.filter({ name: "phase" }, later, "phaseBegin"), "游戏开始后不再触发");
 	mockGame.phaseNumber = 1;
-	// 摸牌 +1
-	const drawer = makePlayer({ extraDraw: 1 });
-	assert(info.filter({ name: "phaseDraw", num: 2 }, drawer, "phaseDrawBegin2"), "摸牌加成 filter");
-	info.content(skillEvent("phaseDrawBegin2", { name: "phaseDraw", num: 2 }), { num: 2 }, drawer);
-	assert(!info.filter({ name: "phaseDraw", num: 2, numFixed: true }, drawer, "phaseDrawBegin2"), "numFixed 不触发");
+	// 能量核心：准备阶段直接摸牌，三档数值不变；摸牌阶段的原始摸牌数不受影响。
+	for (const amount of [1, 2, 4]) {
+		const drawer = makePlayer({ prepareDraw: amount });
+		const prepareEvent = { name: "phaseZhunbei" };
+		assert(info.filter(prepareEvent, drawer, "phaseZhunbeiBegin"), `准备阶段摸 ${amount}：filter`);
+		info.content(skillEvent("phaseZhunbeiBegin", prepareEvent), prepareEvent, drawer);
+		assertEqual(drawer.drawn, amount, `准备阶段应摸 ${amount} 张牌`);
+		const drawEvent = { name: "phaseDraw", num: 2 };
+		assert(!info.filter(drawEvent, drawer, "phaseDrawBegin2"), "能量核心不再触发摸牌阶段加成");
+		assertEqual(drawEvent.num, 2, "摸牌阶段默认摸牌数量保持不变");
+	}
+	assert(!info.filter({ name: "phaseZhunbei" }, makePlayer({}), "phaseZhunbeiBegin"), "没有能量核心时不触发");
 	// 濒死：首次回复至 1，之后不再触发（content 的副作用在同步段完成，无需 await）
 	const belter = makePlayer({ dyingSave: 1 });
 	belter.hp = 0;
@@ -2487,11 +2498,11 @@ check("奇物机制技：四种战斗内效果都由 rogue_curio 承载", () => 
 	dead.isAlive = () => false;
 	assert(!info.filter({ name: "phase" }, dead, "roundEnd"), "已阵亡不触发");
 	// 标记说明列出全部效果
-	const html = info.intro.mark(null, { extraPhase: 1, extraDraw: 1, dyingSave: 1, roundHeal: 1 }, null);
-	for (const token of ["额外的出牌阶段", "额外摸 1 张牌", "濒死", "每轮结束时回复 1 点"]) {
+	const html = info.intro.mark(null, { extraPhase: 1, prepareDraw: 1, dyingSave: 1, roundHeal: 1 }, null);
+	for (const token of ["额外的出牌阶段", "准备阶段摸 1 张牌", "濒死", "每轮结束时回复 1 点"]) {
 		assert(html.includes(token), `标记说明应包含「${token}」：${html}`);
 	}
-	return "phaseList 插入 + 摸牌 + 濒死救回 + 轮回复";
+	return "phaseList 插入 + 准备阶段摸牌 + 濒死救回 + 轮回复";
 });
 
 // ---------------------------------------------------------------- 深渊化强化（无尽模式）
@@ -3336,9 +3347,9 @@ check("奇物品质：升级链、费用与「升级只改 exp 与 curioQuality�
 check("奇物品质：七件奇物的逐档效果与文案", () => {
 	const at = (id, quality) => curioManager.getCurioEffect(id, { [id]: quality });
 	// 能量核心：普通 1 → 稀有 2 → 史诗 4
-	assertEqual(at("energy_core", "common").extraDraw, 1, "能量核心 普通 +1");
-	assertEqual(at("energy_core", "rare").extraDraw, 2, "能量核心 稀有 +2");
-	assertEqual(at("energy_core", "epic").extraDraw, 4, "能量核心 史诗 +4");
+	assertEqual(at("energy_core", "common").prepareDraw, 1, "能量核心 普通 +1");
+	assertEqual(at("energy_core", "rare").prepareDraw, 2, "能量核心 稀有 +2");
+	assertEqual(at("energy_core", "epic").prepareDraw, 4, "能量核心 史诗 +4");
 	// 剩饭：1 → 2（每轮）→ 2（每回合），史诗换的是时机，不是叠加
 	assertEqual(at("leftover_rice", "common").roundHeal, 1, "剩饭 普通每轮 1");
 	assertEqual(at("leftover_rice", "rare").roundHeal, 2, "剩饭 稀有每轮 2");
@@ -3379,15 +3390,15 @@ check("奇物品质：七件奇物的逐档效果与文案", () => {
 		"没写比例的档仍回固定 1"
 	);
 	// 文案一律自动生成（没有手写兜底字段），同一个奇物各档之间句式因此统一
-	assertEqual(curioManager.describeCurio("energy_core", {})[0], "摸牌阶段额外摸 1 张牌", "初始档按效果生成");
-	assertEqual(curioManager.describeCurio("energy_core", { energy_core: "epic" })[0], "摸牌阶段额外摸 4 张牌", "升级档同样生成，句式一致");
+	assertEqual(curioManager.describeCurio("energy_core", {})[0], "准备阶段摸 1 张牌", "初始档按效果生成");
+	assertEqual(curioManager.describeCurio("energy_core", { energy_core: "epic" })[0], "准备阶段摸 4 张牌", "升级档同样生成，句式一致");
 	assertEqual(curioManager.describeCurio("broken_watch", {})[0], "游戏开始时，获得 1 个额外的出牌阶段", "没有手写文案可回退");
 	return "七件奇物 × 逐档效果 + 文案";
 });
 
 check("奇物品质：战斗与结算都按当前品质算，最高档与存档清洗也对齐", () => {
 	// 战斗内总表（battle.js 写进 storage 的那张表）
-	assertEqual(curioManager.sumCurioEffects(["energy_core"], { energy_core: "epic" }).extraDraw, 4, "史诗能量核心进总表 +4");
+	assertEqual(curioManager.sumCurioEffects(["energy_core"], { energy_core: "epic" }).prepareDraw, 4, "史诗能量核心进总表 +4");
 	assertEqual(curioManager.sumCurioEffects(["breath_belt"], { breath_belt: "epic" }).dyingRecoverToRatio, 0.5, "史诗气息腰带把比例带进总表");
 	assertEqual(curioManager.sumCurioEffects(["leftover_rice"], { leftover_rice: "epic" }).turnHeal, 2, "史诗剩饭带的是每回合回血");
 	assertEqual(curioManager.getBonus(["lucky_stone"], "expRate", { lucky_stone: "epic" }), 0.2, "getBonus 吃 qualityMap");
