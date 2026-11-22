@@ -316,13 +316,13 @@ export const curios = {
 		priceMultiplier: 1,
 		effect: { skillSacrifice: 1 },
 	},
-	// 以下两件先用既有奇物图占位（正式配图后续替换，见 README 的素材清单）。
+	// 以下两件使用各自的专属奇物图。
 	// 星穹壁垒：阈值与减伤分开写，机制技只认数据；史诗档在同一触发里再摸两张。
 	star_dome_barrier: {
 		id: "star_dome_barrier",
 		name: "星穹壁垒",
 		description: "星穹为壁，微光成垒。纵有千钧之势，亦难越此一线。",
-		image: "extension/奥特之星/assets/curios/breath_belt.png",
+		image: "extension/奥特之星/assets/curios/starvault_bulwark.png",
 		rarity: "rare",
 		priceMultiplier: 1,
 		effect: { highDamageMin: 2, highDamageReduce: 1 },
@@ -336,7 +336,7 @@ export const curios = {
 		id: "myriad_armory",
 		name: "万象武装匣",
 		description: "匣藏万象，随取随用。旧刃新锋，皆可为我一战。",
-		image: "extension/奥特之星/assets/curios/hungry_box.png",
+		image: "extension/奥特之星/assets/curios/armory_cache.png",
 		rarity: "epic",
 		priceMultiplier: 1,
 		effect: { battleTempSkill: 1 },
